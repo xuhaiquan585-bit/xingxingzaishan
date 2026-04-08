@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>点亮这颗星 - 星星在闪</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>点亮这颗星</h1>
+      <p class="subtitle">每一瓶酒，可以保存一个你的故事。</p>
+
+      <section id="formSection" class="card hidden">
+        <p>星星ID：<strong id="qrIdText"></strong></p>
+
+        <label for="imageInput">上传照片（单张）</label>
+        <input id="imageInput" type="file" accept="image/*" />
+        <img id="preview" class="preview hidden" alt="预览图" />
+
+        <label for="content">想说的话（0-200字）</label>
+        <textarea id="content" maxlength="200" placeholder="把愿望写在星上..."></textarea>
+        <p id="count">0 / 200</p>
+
+        <button id="submitBtn" class="btn">点亮这颗星</button>
+        <p id="formMessage" class="message"></p>
+      </section>
+
+      <section id="resultSection" class="card hidden">
+        <h2>点亮成功</h2>
+        <img id="resultImage" class="preview" alt="NFT图片" />
+        <p id="resultContent"></p>
+        <p>哈希：<span id="resultHash"></span></p>
+        <p>时间：<span id="resultTime"></span></p>
+        <p class="brand">⭐ 星星在闪</p>
+        <button class="btn btn-secondary" disabled>下载 NFT（即将开放）</button>
+      </section>
+    </main>
+
+    <script src="/js/api.js"></script>
+    <script src="/js/record.js"></script>
+  </body>
+</html>
