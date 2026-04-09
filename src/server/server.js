@@ -6,6 +6,7 @@ const userRoutes = require('./routes/user');
 const qrRoutes = require('./routes/qr');
 const uploadRoutes = require('./routes/upload');
 const adminRoutes = require('./routes/admin');
+const qcRoutes = require('./routes/qc');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,6 +19,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
 app.use('/admin', express.static(path.join(__dirname, '..', 'admin')));
+app.use('/qc', express.static(path.join(__dirname, '..', 'qc')));
 
 app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, '..', 'frontend', 'index.html'));
@@ -27,10 +29,15 @@ app.get('/admin', (_req, res) => {
   res.sendFile(path.join(__dirname, '..', 'admin', 'index.html'));
 });
 
+app.get('/qc', (_req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'qc', 'index.html'));
+});
+
 app.use('/api/user', userRoutes);
 app.use('/api/qr', qrRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/qc', qcRoutes);
 
 app.use((err, _req, res, _next) => {
   if (err.message === '仅支持图片文件上传') {

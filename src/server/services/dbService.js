@@ -17,6 +17,12 @@ function seedQRCodes() {
       issue_status: 'issued',
       activation_status: 'unactivated',
       hidden: false,
+      quality_check: {
+        checked: false,
+        checked_at: null,
+        checked_by: null,
+        result: null
+      },
       content: null,
       image_url: null,
       phone: null,
@@ -60,11 +66,21 @@ function migrateSchema(db) {
     db.admins = defaultAdmins();
   }
 
+  if (!Array.isArray(db.quality_check_logs)) {
+    db.quality_check_logs = [];
+  }
+
   db.qr_codes = db.qr_codes.map((item) => ({
     ...item,
     issue_status: item.issue_status || 'issued',
     activation_status: item.activation_status || 'unactivated',
-    hidden: item.hidden === true
+    hidden: item.hidden === true,
+    quality_check: item.quality_check || {
+      checked: false,
+      checked_at: null,
+      checked_by: null,
+      result: null
+    }
   }));
 
   return db;
@@ -79,7 +95,8 @@ function initializeDB() {
     const initialData = {
       users: [],
       qr_codes: seedQRCodes(),
-      admins: defaultAdmins()
+      admins: defaultAdmins(),
+      quality_check_logs: []
     };
     fs.writeFileSync(dataFile, JSON.stringify(initialData, null, 2), 'utf-8');
     return;
@@ -253,6 +270,86 @@ function setQRHiddenStatus(qrId, hidden) {
   return db.qr_codes[index];
 }
 
+function runQualityCheck({ qrId, checkedBy }) {
+  const db = readDB();
+  const index = db.qr_codes.findIndex((item) => item.id === qrId);
+  if (index === -1) {
+    return { error: 'QR_NOT_FOUND' };
+  }
+
+  const qr = db.qr_codes[index];
+  let result = 'pass';
+  let message = '首次质检通过，可以流通。';
+
+  if (qr.activation_status === 'activated') {
+    result = 'bound';
+    message = '该星已被顾客绑定，请标记异常。';
+  } else if (qr.quality_check && qr.quality_check.checked) {
+    result = 'duplicate';
+    message = '重复！该码已存在质检记录。';
+  }
+
+  const log = {
+    id: db.quality_check_logs.length + 1,
+    qr_id: qrId,
+    checked_at: nowISO(),
+    checked_by: checkedBy,
+    result
+  };
+
+  db.quality_check_logs.push(log);
+
+  if (result === 'pass') {
+    db.qr_codes[index] = {
+      ...qr,
+      quality_check: {
+        checked: true,
+        checked_at: log.checked_at,
+        checked_by: checkedBy,
+        result
+      }
+    };
+  }
+
+  writeDB(db);
+
+  return {
+    data: {
+      qr_id: qrId,
+      result,
+      message,
+      checked_at: log.checked_at,
+      checked_by: checkedBy
+    }
+  };
+}
+
+function getQualityCheckLogs({ page = 1, limit = 20 }) {
+  const db = readDB();
+  const logs = db.quality_check_logs.slice().sort((a, b) => new Date(b.checked_at) - new Date(a.checked_at));
+  const total = logs.length;
+  const start = (Number(page) - 1) * Number(limit);
+  const end = start + Number(limit);
+  return {
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    logs: logs.slice(start, end)
+  };
+}
+
+function getQualityCheckStats() {
+  const db = readDB();
+  const today = new Date().toISOString().slice(0, 10);
+  const todayLogs = db.quality_check_logs.filter((item) => item.checked_at.slice(0, 10) === today);
+  const abnormal = todayLogs.filter((item) => item.result !== 'pass').length;
+  return {
+    today_checked: todayLogs.length,
+    today_abnormal: abnormal,
+    total_checked: db.quality_check_logs.length
+  };
+}
+
 module.exports = {
   initializeDB,
   createOrGetUser,
@@ -261,5 +358,8 @@ module.exports = {
   findAdmin,
   getDashboardStats,
   listQRRecords,
-  setQRHiddenStatus
+  setQRHiddenStatus,
+  runQualityCheck,
+  getQualityCheckLogs,
+  getQualityCheckStats
 };
