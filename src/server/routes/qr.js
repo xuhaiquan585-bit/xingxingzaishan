@@ -19,6 +19,14 @@ router.get('/:qrId', (req, res) => {
     });
   }
 
+  if (qr.hidden === true) {
+    return res.status(403).json({
+      status: 'error',
+      code: 'QR_HIDDEN',
+      message: '这颗星暂不可见。'
+    });
+  }
+
   return res.json({
     status: 'success',
     code: 'OK',

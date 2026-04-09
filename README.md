@@ -25,3 +25,18 @@ npm start
 - ✅ 二维码唯一绑定
 - ✅ 统一 API 响应结构（status/code/message/data）
 - ❌ 后台系统、质检系统、下载分享、真实上链
+
+
+## Phase 2（进行中）- 后台管理批次 1
+
+- 新增后台入口：`http://localhost:3000/admin`
+- 默认管理员账号：`admin`
+- 默认管理员密码：`admin123`
+- 已实现：后台登录、看板、二维码列表筛选、隐藏/显示
+
+
+## 覆盖版发布
+
+如需将当前本地版本整体覆盖到 GitHub 目标分支，请参考：
+
+- `docs/OVERWRITE_TO_GITHUB.md`
