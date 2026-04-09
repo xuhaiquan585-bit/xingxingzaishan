@@ -4,7 +4,12 @@ const {
   getDashboardStats,
   listQRRecords,
   setQRHiddenStatus,
-  setQRHiddenStatusBatch
+  setQRHiddenStatusBatch,
+  createBatch,
+  listBatches,
+  assignBatchToQRCodes,
+  getBatchDetail,
+  exportBatchCSV
 } = require('../services/dbService');
 const { generateToken, verifyToken } = require('../services/authService');
 
@@ -86,12 +91,107 @@ router.get('/dashboard', requireAdmin, (req, res) => {
   });
 });
 
+router.post('/batches', requireAdmin, (req, res) => {
+  const { name, brand_name: brandName, note } = req.body;
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({
+      status: 'error',
+      code: 'VALIDATION_ERROR',
+      message: '批次名称不能为空。'
+    });
+  }
+
+  const batch = createBatch({
+    name: String(name).trim(),
+    brandName: String(brandName || '').trim(),
+    note: String(note || '').trim(),
+    createdBy: req.operator.username
+  });
+
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: batch
+  });
+});
+
+router.get('/batches', requireAdmin, (_req, res) => {
+  const batches = listBatches();
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: {
+      total: batches.length,
+      batches
+    }
+  });
+});
+
+router.get('/batches/:batchId', requireAdmin, (req, res) => {
+  const detail = getBatchDetail(req.params.batchId);
+  if (!detail) {
+    return res.status(404).json({
+      status: 'error',
+      code: 'BATCH_NOT_FOUND',
+      message: '未找到该批次。'
+    });
+  }
+
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: detail
+  });
+});
+
+router.post('/batches/:batchId/assign', requireAdmin, (req, res) => {
+  const ids = Array.isArray(req.body.ids) ? req.body.ids : [];
+  if (ids.length === 0) {
+    return res.status(400).json({
+      status: 'error',
+      code: 'VALIDATION_ERROR',
+      message: '请先勾选二维码再绑定批次。'
+    });
+  }
+
+  const result = assignBatchToQRCodes({ batchId: req.params.batchId, ids });
+  if (result.error === 'BATCH_NOT_FOUND') {
+    return res.status(404).json({
+      status: 'error',
+      code: 'BATCH_NOT_FOUND',
+      message: '未找到该批次。'
+    });
+  }
+
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: result.data
+  });
+});
+
+router.get('/batches/:batchId/export', requireAdmin, (req, res) => {
+  const result = exportBatchCSV(req.params.batchId);
+  if (result.error === 'BATCH_NOT_FOUND') {
+    return res.status(404).json({
+      status: 'error',
+      code: 'BATCH_NOT_FOUND',
+      message: '未找到该批次。'
+    });
+  }
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+  return res.send(`\uFEFF${result.data}`);
+});
+
 router.get('/records', requireAdmin, (req, res) => {
   const {
     issue_status: issueStatus,
     activation_status: activationStatus,
     hidden,
     id_prefix: idPrefix,
+    batch_id: batchId,
     date_from: dateFrom,
     date_to: dateTo,
     page = 1,
@@ -103,6 +203,7 @@ router.get('/records', requireAdmin, (req, res) => {
     activationStatus,
     hidden,
     idPrefix,
+    batchId,
     dateFrom,
     dateTo,
     page,
@@ -147,12 +248,13 @@ router.post('/records/export', requireAdmin, (req, res) => {
   }
 
   const data = listQRRecords({ page: 1, limit: 100000 }).records.filter((item) => ids.includes(item.id));
-  const header = ['id', 'issue_status', 'activation_status', 'hidden', 'phone', 'activated_at', 'created_at'];
+  const header = ['id', 'issue_status', 'activation_status', 'hidden', 'batch_id', 'phone', 'activated_at', 'created_at'];
   const rows = data.map((item) => [
     item.id,
     item.issue_status,
     item.activation_status,
     item.hidden ? 'true' : 'false',
+    item.batch_id || '',
     item.phone || '',
     item.activated_at || '',
     item.created_at || ''

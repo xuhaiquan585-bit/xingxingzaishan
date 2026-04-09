@@ -32,8 +32,36 @@
         </div>
       </section>
 
+      <section id="batchPanel" class="card hidden">
+        <h2>批次管理</h2>
+        <div class="toolbar multi-line">
+          <input id="batchName" placeholder="批次名称（必填）" />
+          <input id="batchBrand" placeholder="品牌名称（选填）" />
+          <input id="batchNote" placeholder="备注（选填）" />
+          <button id="createBatchBtn">创建批次</button>
+          <button id="refreshBatchBtn">刷新批次</button>
+        </div>
+        <p id="batchMsg" class="msg"></p>
+        <table>
+          <thead>
+            <tr>
+              <th>批次ID</th>
+              <th>名称</th>
+              <th>品牌</th>
+              <th>二维码数</th>
+              <th>激活率</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="batchTable"></tbody>
+        </table>
+      </section>
+
       <section id="recordsPanel" class="card hidden">
         <div class="toolbar multi-line">
+          <select id="batchFilter">
+            <option value="">批次（全部）</option>
+          </select>
           <select id="issueStatus">
             <option value="">发行状态（全部）</option>
             <option value="issued">已发行</option>
@@ -54,6 +82,10 @@
         </div>
 
         <div class="toolbar">
+          <select id="assignBatchSelect">
+            <option value="">选择批次后可绑定</option>
+          </select>
+          <button id="assignBatchBtn">批量绑定批次</button>
           <button id="batchHideBtn">批量隐藏</button>
           <button id="batchShowBtn">批量显示</button>
           <button id="batchExportBtn">批量导出 CSV</button>
@@ -65,6 +97,7 @@
             <tr>
               <th><input id="selectAll" type="checkbox" /></th>
               <th>ID</th>
+              <th>批次ID</th>
               <th>发行状态</th>
               <th>激活状态</th>
               <th>隐藏状态</th>

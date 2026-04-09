@@ -17,6 +17,8 @@ function seedQRCodes() {
       issue_status: i <= 10 ? 'unissued' : 'issued',
       activation_status: 'unactivated',
       hidden: false,
+      batch_id: null,
+      print_batch_id: null,
       quality_check: {
         checked: false,
         checked_at: null,
@@ -70,11 +72,17 @@ function migrateSchema(db) {
     db.quality_check_logs = [];
   }
 
+  if (!Array.isArray(db.batches)) {
+    db.batches = [];
+  }
+
   db.qr_codes = db.qr_codes.map((item) => ({
     ...item,
     issue_status: item.issue_status || 'issued',
     activation_status: item.activation_status || 'unactivated',
     hidden: item.hidden === true,
+    batch_id: Object.prototype.hasOwnProperty.call(item, 'batch_id') ? item.batch_id : null,
+    print_batch_id: Object.prototype.hasOwnProperty.call(item, 'print_batch_id') ? item.print_batch_id : null,
     quality_check: item.quality_check || {
       checked: false,
       checked_at: null,
@@ -104,7 +112,8 @@ function initializeDB() {
       users: [],
       qr_codes: seedQRCodes(),
       admins: defaultAdmins(),
-      quality_check_logs: []
+      quality_check_logs: [],
+      batches: []
     };
     fs.writeFileSync(dataFile, JSON.stringify(initialData, null, 2), 'utf-8');
     return;
@@ -218,7 +227,7 @@ function getDashboardStats({ dateFrom, dateTo }) {
   };
 }
 
-function listQRRecords({ issueStatus, activationStatus, hidden, idPrefix, dateFrom, dateTo, page = 1, limit = 20 }) {
+function listQRRecords({ issueStatus, activationStatus, hidden, idPrefix, batchId, dateFrom, dateTo, page = 1, limit = 20 }) {
   const db = readDB();
   const from = dateFrom ? new Date(dateFrom).getTime() : null;
   const to = dateTo ? new Date(dateTo).getTime() : null;
@@ -241,6 +250,10 @@ function listQRRecords({ issueStatus, activationStatus, hidden, idPrefix, dateFr
   if (idPrefix) {
     const keyword = String(idPrefix).toUpperCase();
     records = records.filter((item) => item.id.toUpperCase().startsWith(keyword));
+  }
+
+  if (batchId) {
+    records = records.filter((item) => item.batch_id === batchId);
   }
 
   if (from || to) {
@@ -303,6 +316,106 @@ function setQRHiddenStatusBatch(ids, hidden) {
 
   writeDB(db);
   return updated;
+}
+
+
+function createBatch({ name, brandName, note, createdBy }) {
+  const db = readDB();
+  const ts = new Date();
+  const id = `BATCH_${ts.toISOString().slice(0, 10).replace(/-/g, '')}_${String(db.batches.length + 1).padStart(3, '0')}`;
+
+  const batch = {
+    id,
+    name,
+    brand_name: brandName || '',
+    note: note || '',
+    created_at: nowISO(),
+    created_by: createdBy || 'admin'
+  };
+
+  db.batches.push(batch);
+  writeDB(db);
+  return batch;
+}
+
+function listBatches() {
+  const db = readDB();
+  return db.batches
+    .slice()
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .map((batch) => {
+      const records = db.qr_codes.filter((item) => item.batch_id === batch.id);
+      const total = records.length;
+      const activated = records.filter((item) => item.activation_status === 'activated').length;
+      return {
+        ...batch,
+        total_codes: total,
+        activated_codes: activated,
+        activation_rate: total > 0 ? Number(((activated / total) * 100).toFixed(2)) : 0
+      };
+    });
+}
+
+function assignBatchToQRCodes({ batchId, ids }) {
+  const db = readDB();
+  const batch = db.batches.find((item) => item.id === batchId);
+  if (!batch) {
+    return { error: 'BATCH_NOT_FOUND' };
+  }
+
+  const idSet = new Set((ids || []).map((item) => String(item).trim()).filter(Boolean));
+  let updatedCount = 0;
+  db.qr_codes = db.qr_codes.map((item) => {
+    if (!idSet.has(item.id)) return item;
+    updatedCount += 1;
+    return {
+      ...item,
+      batch_id: batchId
+    };
+  });
+
+  writeDB(db);
+  return { data: { updated_count: updatedCount } };
+}
+
+function getBatchDetail(batchId) {
+  const db = readDB();
+  const batch = db.batches.find((item) => item.id === batchId);
+  if (!batch) {
+    return null;
+  }
+  const records = db.qr_codes.filter((item) => item.batch_id === batchId);
+  const activated = records.filter((item) => item.activation_status === 'activated').length;
+  return {
+    ...batch,
+    total_codes: records.length,
+    activated_codes: activated,
+    pending_codes: records.length - activated,
+    activation_rate: records.length > 0 ? Number(((activated / records.length) * 100).toFixed(2)) : 0,
+    records
+  };
+}
+
+function exportBatchCSV(batchId) {
+  const detail = getBatchDetail(batchId);
+  if (!detail) {
+    return { error: 'BATCH_NOT_FOUND' };
+  }
+
+  const header = ['id', 'batch_id', 'issue_status', 'activation_status', 'hidden', 'phone', 'activated_at', 'created_at'];
+  const rows = detail.records.map((item) => [
+    item.id,
+    item.batch_id || '',
+    item.issue_status,
+    item.activation_status,
+    item.hidden ? 'true' : 'false',
+    item.phone || '',
+    item.activated_at || '',
+    item.created_at || ''
+  ]);
+
+  const csv = [header.join(','), ...rows.map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
+  return { data: csv, filename: `batch-${batchId}-${Date.now()}.csv` };
 }
 
 function runQualityCheck({ qrId, checkedBy }) {
@@ -395,6 +508,11 @@ module.exports = {
   listQRRecords,
   setQRHiddenStatus,
   setQRHiddenStatusBatch,
+  createBatch,
+  listBatches,
+  assignBatchToQRCodes,
+  getBatchDetail,
+  exportBatchCSV,
   runQualityCheck,
   getQualityCheckLogs,
   getQualityCheckStats
