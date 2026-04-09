@@ -2,10 +2,13 @@ const loginPanel = document.getElementById('loginPanel');
 const dashboardPanel = document.getElementById('dashboardPanel');
 const batchPanel = document.getElementById('batchPanel');
 const recordsPanel = document.getElementById('recordsPanel');
+const operatorPanel = document.getElementById('operatorPanel');
 const loginMsg = document.getElementById('loginMsg');
 const batchMsg = document.getElementById('batchMsg');
+const opMsg = document.getElementById('opMsg');
 const tableBody = document.getElementById('recordTable');
 const batchTableBody = document.getElementById('batchTable');
+const operatorTableBody = document.getElementById('operatorTable');
 const selectedCount = document.getElementById('selectedCount');
 const selectAll = document.getElementById('selectAll');
 
@@ -34,6 +37,7 @@ function showPanelsAfterLogin() {
   dashboardPanel.classList.remove('hidden');
   batchPanel.classList.remove('hidden');
   recordsPanel.classList.remove('hidden');
+  operatorPanel.classList.remove('hidden');
 }
 
 function updateSelectedUI() {
@@ -99,6 +103,56 @@ async function createBatch() {
   document.getElementById('batchBrand').value = '';
   document.getElementById('batchNote').value = '';
   await loadBatches();
+}
+
+
+function renderOperators(operators) {
+  operatorTableBody.innerHTML = operators
+    .map((op) => {
+      const action = op.enabled ? 'disable' : 'enable';
+      const actionLabel = op.enabled ? '禁用' : '启用';
+      return `<tr>
+        <td>${op.id}</td>
+        <td>${op.name || '-'}</td>
+        <td>${op.username}</td>
+        <td>${op.role}</td>
+        <td>${op.enabled ? '启用' : '禁用'}</td>
+        <td><button data-op-id="${op.id}" data-op-action="${action}">${actionLabel}</button></td>
+      </tr>`;
+    })
+    .join('');
+}
+
+async function loadOperators() {
+  const data = await request('/api/admin/operators', { headers: authHeaders() });
+  renderOperators(data.operators || []);
+}
+
+async function createOperator() {
+  const name = document.getElementById('opName').value.trim();
+  const username = document.getElementById('opUsername').value.trim();
+  const password = document.getElementById('opPassword').value.trim();
+  const role = document.getElementById('opRole').value;
+
+  if (!username || !password) {
+    opMsg.textContent = '账号和密码不能为空。';
+    return;
+  }
+
+  await request('/api/admin/operators', {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ name, username, password, role })
+  });
+
+  opMsg.textContent = '账号创建成功。';
+  document.getElementById('opName').value = '';
+  document.getElementById('opUsername').value = '';
+  document.getElementById('opPassword').value = '';
+  await loadOperators();
 }
 
 async function loadDashboard() {
@@ -279,6 +333,7 @@ document.getElementById('loginBtn').addEventListener('click', async () => {
     await loadDashboard();
     await loadBatches();
     await loadRecords();
+    await loadOperators();
   } catch (error) {
     loginMsg.textContent = error.message || '登录失败';
   }
@@ -289,6 +344,8 @@ document.getElementById('createBatchBtn').addEventListener('click', () => create
   batchMsg.textContent = e.message || '创建失败';
 }));
 document.getElementById('refreshBatchBtn').addEventListener('click', () => loadBatches().catch(() => {}));
+document.getElementById('createOpBtn').addEventListener('click', () => createOperator().catch((e) => { opMsg.textContent = e.message || '创建失败'; }));
+document.getElementById('refreshOpBtn').addEventListener('click', () => loadOperators().catch(() => {}));
 document.getElementById('filterBtn').addEventListener('click', async () => {
   selectedIds.clear();
   await loadRecords();
@@ -345,9 +402,26 @@ batchTableBody.addEventListener('click', async (event) => {
   }
 });
 
+
+operatorTableBody.addEventListener('click', async (event) => {
+  const btn = event.target.closest('button[data-op-id]');
+  if (!btn) return;
+  const opId = btn.getAttribute('data-op-id');
+  const action = btn.getAttribute('data-op-action');
+  try {
+    await request(`/api/admin/operators/${encodeURIComponent(opId)}/${action}`, {
+      method: 'POST',
+      headers: authHeaders()
+    });
+    await loadOperators();
+  } catch (error) {
+    opMsg.textContent = error.message || '操作失败';
+  }
+});
+
 if (adminToken) {
   showPanelsAfterLogin();
-  Promise.all([loadDashboard(), loadBatches(), loadRecords()]).catch(() => {
+  Promise.all([loadDashboard(), loadBatches(), loadRecords(), loadOperators()]).catch(() => {
     localStorage.removeItem('adminToken');
     location.reload();
   });

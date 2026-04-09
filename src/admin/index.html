@@ -57,6 +57,36 @@
         </table>
       </section>
 
+
+      <section id="operatorPanel" class="card hidden">
+        <h2>账号管理（管理员/质检员）</h2>
+        <div class="toolbar multi-line">
+          <input id="opName" placeholder="姓名（选填）" />
+          <input id="opUsername" placeholder="账号（必填）" />
+          <input id="opPassword" placeholder="密码（必填）" />
+          <select id="opRole">
+            <option value="qc">质检员</option>
+            <option value="admin">管理员</option>
+          </select>
+          <button id="createOpBtn">新增账号</button>
+          <button id="refreshOpBtn">刷新账号列表</button>
+        </div>
+        <p id="opMsg" class="msg"></p>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>姓名</th>
+              <th>账号</th>
+              <th>角色</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="operatorTable"></tbody>
+        </table>
+      </section>
+
       <section id="recordsPanel" class="card hidden">
         <div class="toolbar multi-line">
           <select id="batchFilter">

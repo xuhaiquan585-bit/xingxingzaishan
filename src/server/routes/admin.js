@@ -9,7 +9,10 @@ const {
   listBatches,
   assignBatchToQRCodes,
   getBatchDetail,
-  exportBatchCSV
+  exportBatchCSV,
+  listOperators,
+  createOperator,
+  setOperatorEnabled
 } = require('../services/dbService');
 const { generateToken, verifyToken } = require('../services/authService');
 
@@ -88,6 +91,86 @@ router.get('/dashboard', requireAdmin, (req, res) => {
     status: 'success',
     code: 'OK',
     data: stats
+  });
+});
+
+
+router.get('/operators', requireAdmin, (req, res) => {
+  const { role } = req.query;
+  const operators = listOperators(role);
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: {
+      total: operators.length,
+      operators
+    }
+  });
+});
+
+router.post('/operators', requireAdmin, (req, res) => {
+  const { username, password, role = 'qc', name = '' } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({
+      status: 'error',
+      code: 'VALIDATION_ERROR',
+      message: '账号和密码不能为空。'
+    });
+  }
+
+  const result = createOperator({
+    username: String(username).trim(),
+    password: String(password).trim(),
+    role: String(role).trim(),
+    name: String(name || username).trim()
+  });
+
+  if (result.error === 'USERNAME_EXISTS') {
+    return res.status(409).json({
+      status: 'error',
+      code: 'USERNAME_EXISTS',
+      message: '该账号已存在，请更换账号名。'
+    });
+  }
+
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: result.data
+  });
+});
+
+router.post('/operators/:id/disable', requireAdmin, (req, res) => {
+  const updated = setOperatorEnabled(req.params.id, false);
+  if (!updated) {
+    return res.status(404).json({
+      status: 'error',
+      code: 'OPERATOR_NOT_FOUND',
+      message: '未找到该账号。'
+    });
+  }
+
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: updated
+  });
+});
+
+router.post('/operators/:id/enable', requireAdmin, (req, res) => {
+  const updated = setOperatorEnabled(req.params.id, true);
+  if (!updated) {
+    return res.status(404).json({
+      status: 'error',
+      code: 'OPERATOR_NOT_FOUND',
+      message: '未找到该账号。'
+    });
+  }
+
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: updated
   });
 });
 

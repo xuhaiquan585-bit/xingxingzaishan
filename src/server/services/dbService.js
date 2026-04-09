@@ -43,14 +43,16 @@ function defaultAdmins() {
       username: 'admin',
       password: 'admin123',
       role: 'admin',
-      name: '系统管理员'
+      name: '系统管理员',
+      enabled: true
     },
     {
       id: 2,
       username: 'qc',
       password: 'qc123456',
       role: 'qc',
-      name: '质检员'
+      name: '质检员',
+      enabled: true
     }
   ];
 }
@@ -67,6 +69,15 @@ function migrateSchema(db) {
   if (!Array.isArray(db.admins)) {
     db.admins = defaultAdmins();
   }
+
+  db.admins = db.admins.map((item, idx) => ({
+    id: item.id || idx + 1,
+    username: item.username,
+    password: item.password,
+    role: item.role || 'qc',
+    name: item.name || item.username,
+    enabled: item.enabled !== false
+  }));
 
   if (!Array.isArray(db.quality_check_logs)) {
     db.quality_check_logs = [];
@@ -182,7 +193,74 @@ function activateQRCodeOnce(qrId, payload) {
 
 function findAdmin(username, password) {
   const db = readDB();
-  return db.admins.find((item) => item.username === username && item.password === password) || null;
+  return db.admins.find((item) => item.username === username && item.password === password && item.enabled !== false) || null;
+}
+
+
+function listOperators(role) {
+  const db = readDB();
+  let records = db.admins.slice();
+  if (role) {
+    records = records.filter((item) => item.role === role);
+  }
+  return records.map((item) => ({
+    id: item.id,
+    username: item.username,
+    role: item.role,
+    name: item.name,
+    enabled: item.enabled !== false
+  }));
+}
+
+function createOperator({ username, password, role, name }) {
+  const db = readDB();
+  const existed = db.admins.find((item) => item.username === username);
+  if (existed) {
+    return { error: 'USERNAME_EXISTS' };
+  }
+
+  const operator = {
+    id: db.admins.length + 1,
+    username,
+    password,
+    role,
+    name,
+    enabled: true
+  };
+  db.admins.push(operator);
+  writeDB(db);
+
+  return {
+    data: {
+      id: operator.id,
+      username: operator.username,
+      role: operator.role,
+      name: operator.name,
+      enabled: true
+    }
+  };
+}
+
+function setOperatorEnabled(id, enabled) {
+  const db = readDB();
+  const index = db.admins.findIndex((item) => String(item.id) === String(id));
+  if (index === -1) {
+    return null;
+  }
+
+  db.admins[index] = {
+    ...db.admins[index],
+    enabled
+  };
+  writeDB(db);
+
+  return {
+    id: db.admins[index].id,
+    username: db.admins[index].username,
+    role: db.admins[index].role,
+    name: db.admins[index].name,
+    enabled: db.admins[index].enabled
+  };
 }
 
 function getDashboardStats({ dateFrom, dateTo }) {
@@ -504,6 +582,9 @@ module.exports = {
   getQRCode,
   activateQRCodeOnce,
   findAdmin,
+  listOperators,
+  createOperator,
+  setOperatorEnabled,
   getDashboardStats,
   listQRRecords,
   setQRHiddenStatus,
