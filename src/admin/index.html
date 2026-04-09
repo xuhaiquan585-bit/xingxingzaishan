@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>星星在闪 - 管理后台</title>
+    <link rel="stylesheet" href="/admin/css/admin.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>星星在闪 - 管理后台</h1>
+
+      <section id="loginPanel" class="card">
+        <h2>管理员登录</h2>
+        <input id="username" placeholder="账号（默认：admin）" />
+        <input id="password" type="password" placeholder="密码（默认：admin123）" />
+        <button id="loginBtn">登录</button>
+        <p id="loginMsg" class="msg"></p>
+      </section>
+
+      <section id="dashboardPanel" class="card hidden">
+        <div class="toolbar">
+          <label>开始日期 <input id="dateFrom" type="date" /></label>
+          <label>结束日期 <input id="dateTo" type="date" /></label>
+          <button id="refreshBtn">刷新看板</button>
+        </div>
+        <div class="stats">
+          <div>总发行：<strong id="totalIssued">0</strong></div>
+          <div>总激活：<strong id="totalActivated">0</strong></div>
+          <div>待激活流通：<strong id="pendingCount">0</strong></div>
+          <div>区间激活率：<strong id="activationRate">0%</strong></div>
+        </div>
+      </section>
+
+      <section id="recordsPanel" class="card hidden">
+        <div class="toolbar multi-line">
+          <select id="issueStatus">
+            <option value="">发行状态（全部）</option>
+            <option value="issued">已发行</option>
+            <option value="unissued">未发行</option>
+          </select>
+          <select id="activationStatus">
+            <option value="">激活状态（全部）</option>
+            <option value="unactivated">未激活</option>
+            <option value="activated">已激活</option>
+          </select>
+          <select id="hiddenStatus">
+            <option value="">显示状态（全部）</option>
+            <option value="false">显示</option>
+            <option value="true">隐藏</option>
+          </select>
+          <input id="idSearch" placeholder="按ID前缀搜索，如 STAR00" />
+          <button id="filterBtn">筛选</button>
+        </div>
+
+        <div class="toolbar">
+          <button id="batchHideBtn">批量隐藏</button>
+          <button id="batchShowBtn">批量显示</button>
+          <button id="batchExportBtn">批量导出 CSV</button>
+          <span id="selectedCount">已选 0 条</span>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th><input id="selectAll" type="checkbox" /></th>
+              <th>ID</th>
+              <th>发行状态</th>
+              <th>激活状态</th>
+              <th>隐藏状态</th>
+              <th>手机号</th>
+              <th>时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="recordTable"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script src="/admin/js/admin.js"></script>
+  </body>
+</html>
