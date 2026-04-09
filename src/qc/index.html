@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>星星在闪 - 质检系统</title>
+    <link rel="stylesheet" href="/qc/css/qc.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>⭐ 星星在闪 - 印刷质检</h1>
+
+      <section id="loginPanel" class="card">
+        <h2>质检员登录</h2>
+        <input id="username" placeholder="账号（默认：qc）" />
+        <input id="password" type="password" placeholder="密码（默认：qc123456）" />
+        <button id="loginBtn">登录</button>
+        <p id="loginMsg" class="msg"></p>
+      </section>
+
+      <section id="qcPanel" class="card hidden">
+        <div class="stats">
+          <div>今日质检：<strong id="todayChecked">0</strong></div>
+          <div>今日异常：<strong id="todayAbnormal">0</strong></div>
+          <div>累计质检：<strong id="totalChecked">0</strong></div>
+        </div>
+
+        <div class="check-row">
+          <input id="qrInput" placeholder="请输入或扫码二维码ID，例如 STAR0001" />
+          <button id="checkBtn">开始质检</button>
+        </div>
+        <p id="checkMsg" class="msg"></p>
+
+        <h3>最近质检记录</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>结果</th>
+              <th>质检员</th>
+              <th>时间</th>
+            </tr>
+          </thead>
+          <tbody id="logBody"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script src="/qc/js/qc.js"></script>
+  </body>
+</html>
