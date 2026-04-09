@@ -14,7 +14,7 @@ function seedQRCodes() {
     const id = `STAR${String(i).padStart(4, '0')}`;
     qrCodes.push({
       id,
-      issue_status: 'issued',
+      issue_status: i <= 10 ? 'unissued' : 'issued',
       activation_status: 'unactivated',
       hidden: false,
       quality_check: {
@@ -82,6 +82,14 @@ function migrateSchema(db) {
       result: null
     }
   }));
+
+  const hasUnissued = db.qr_codes.some((item) => item.issue_status === 'unissued');
+  if (!hasUnissued) {
+    db.qr_codes = db.qr_codes.map((item, index) => ({
+      ...item,
+      issue_status: index < 10 ? 'unissued' : 'issued'
+    }));
+  }
 
   return db;
 }
@@ -210,7 +218,7 @@ function getDashboardStats({ dateFrom, dateTo }) {
   };
 }
 
-function listQRRecords({ issueStatus, activationStatus, hidden, dateFrom, dateTo, page = 1, limit = 20 }) {
+function listQRRecords({ issueStatus, activationStatus, hidden, idPrefix, dateFrom, dateTo, page = 1, limit = 20 }) {
   const db = readDB();
   const from = dateFrom ? new Date(dateFrom).getTime() : null;
   const to = dateTo ? new Date(dateTo).getTime() : null;
@@ -228,6 +236,11 @@ function listQRRecords({ issueStatus, activationStatus, hidden, dateFrom, dateTo
   if (hidden === 'true' || hidden === 'false') {
     const hiddenValue = hidden === 'true';
     records = records.filter((item) => item.hidden === hiddenValue);
+  }
+
+  if (idPrefix) {
+    const keyword = String(idPrefix).toUpperCase();
+    records = records.filter((item) => item.id.toUpperCase().startsWith(keyword));
   }
 
   if (from || to) {
@@ -268,6 +281,28 @@ function setQRHiddenStatus(qrId, hidden) {
   };
   writeDB(db);
   return db.qr_codes[index];
+}
+
+
+function setQRHiddenStatusBatch(ids, hidden) {
+  const db = readDB();
+  const idSet = new Set((ids || []).map((item) => String(item).trim()).filter(Boolean));
+  if (idSet.size === 0) {
+    return [];
+  }
+
+  const updated = [];
+  db.qr_codes = db.qr_codes.map((item) => {
+    if (!idSet.has(item.id)) {
+      return item;
+    }
+    const next = { ...item, hidden };
+    updated.push(next);
+    return next;
+  });
+
+  writeDB(db);
+  return updated;
 }
 
 function runQualityCheck({ qrId, checkedBy }) {
@@ -359,6 +394,7 @@ module.exports = {
   getDashboardStats,
   listQRRecords,
   setQRHiddenStatus,
+  setQRHiddenStatusBatch,
   runQualityCheck,
   getQualityCheckLogs,
   getQualityCheckStats

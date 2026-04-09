@@ -33,7 +33,12 @@
       </section>
 
       <section id="recordsPanel" class="card hidden">
-        <div class="toolbar">
+        <div class="toolbar multi-line">
+          <select id="issueStatus">
+            <option value="">发行状态（全部）</option>
+            <option value="issued">已发行</option>
+            <option value="unissued">未发行</option>
+          </select>
           <select id="activationStatus">
             <option value="">激活状态（全部）</option>
             <option value="unactivated">未激活</option>
@@ -44,12 +49,23 @@
             <option value="false">显示</option>
             <option value="true">隐藏</option>
           </select>
+          <input id="idSearch" placeholder="按ID前缀搜索，如 STAR00" />
           <button id="filterBtn">筛选</button>
         </div>
+
+        <div class="toolbar">
+          <button id="batchHideBtn">批量隐藏</button>
+          <button id="batchShowBtn">批量显示</button>
+          <button id="batchExportBtn">批量导出 CSV</button>
+          <span id="selectedCount">已选 0 条</span>
+        </div>
+
         <table>
           <thead>
             <tr>
+              <th><input id="selectAll" type="checkbox" /></th>
               <th>ID</th>
+              <th>发行状态</th>
               <th>激活状态</th>
               <th>隐藏状态</th>
               <th>手机号</th>
