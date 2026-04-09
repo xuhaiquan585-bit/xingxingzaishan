@@ -1,0 +1,39 @@
+{
+  "login_success": {
+    "status": "success",
+    "code": "OK",
+    "data": {
+      "id": 1,
+      "phone": "13800138000",
+      "created_at": "2026-04-08T12:00:00.000Z"
+    }
+  },
+  "record_success": {
+    "status": "success",
+    "code": "OK",
+    "data": {
+      "qr_id": "STAR0001",
+      "content": "愿望内容",
+      "image_url": "/uploads/demo.jpg",
+      "blockchain_hash": "0xabcdef1234567890",
+      "activated_at": "2026-04-08T12:00:00.000Z",
+      "activation_status": "activated"
+    }
+  },
+  "record_fail_activated": {
+    "status": "error",
+    "code": "QR_ALREADY_ACTIVATED",
+    "message": "该星已被点亮，无法重复绑定。请确认二维码是否正确。"
+  },
+  "upload_success": {
+    "status": "success",
+    "code": "OK",
+    "data": {
+      "url": "/cloud/1710000000000-abcd1234.jpg",
+      "storage_mode": "cloud",
+      "object_key": "1710000000000-abcd1234.jpg",
+      "buffered": true,
+      "active_storage_mode": "cloud"
+    }
+  }
+}

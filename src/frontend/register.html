@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>注册 - 星星在闪</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>注册点亮星星</h1>
+      <p class="subtitle">先完成手机号注册，再记录你的愿望。</p>
+
+      <div class="card">
+        <label for="phone">手机号</label>
+        <input id="phone" maxlength="11" placeholder="请输入11位手机号" />
+
+        <label class="checkbox-row">
+          <input id="agree" type="checkbox" />
+          <span>我已阅读并同意使用规则</span>
+        </label>
+
+        <button id="registerBtn" class="btn" disabled>完成注册</button>
+        <p id="message" class="message"></p>
+      </div>
+    </main>
+
+    <script src="/js/api.js"></script>
+    <script src="/js/register.js"></script>
+  </body>
+</html>
