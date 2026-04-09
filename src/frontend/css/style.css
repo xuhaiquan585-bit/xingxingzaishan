@@ -62,5 +62,5 @@ textarea { min-height: 100px; resize: vertical; }
 .checkbox-row input { width: auto; }
 .hidden { display: none; }
 .message { min-height: 22px; margin-top: 10px; color: #ffe9b2; }
-.brand-line { margin-top: 10px; color: #f6f1d4; }
-.brand { font-weight: 700; color: #ffd166; }
+
+.brand { margin-top: 10px; font-weight: 700; color: #ffd166; }
