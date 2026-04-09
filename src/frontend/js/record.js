@@ -7,6 +7,8 @@ const contentInput = document.getElementById('content');
 const countEl = document.getElementById('count');
 const submitBtn = document.getElementById('submitBtn');
 const formMessage = document.getElementById('formMessage');
+const downloadBtn = document.getElementById('downloadBtn');
+const shareBtn = document.getElementById('shareBtn');
 
 const resultImage = document.getElementById('resultImage');
 const resultContent = document.getElementById('resultContent');
@@ -18,12 +20,14 @@ const qrId = params.get('qr');
 const userPhone = localStorage.getItem('userPhone');
 
 let uploadedImageUrl = '';
+let currentResult = null;
 
 function showError(message) {
   formMessage.textContent = message;
 }
 
 function renderResult(data) {
+  currentResult = data;
   formSection.classList.add('hidden');
   resultSection.classList.remove('hidden');
 
@@ -45,6 +49,7 @@ async function loadQRStatus() {
     const res = await apiRequest(`/api/qr/${encodeURIComponent(qrId)}`);
     if (res.data.activation_status === 'activated') {
       renderResult({
+        qr_id: res.data.id,
         image_url: res.data.image_url,
         content: res.data.content,
         blockchain_hash: res.data.blockchain_hash,
@@ -119,5 +124,39 @@ submitBtn.addEventListener('click', async () => {
   } catch (error) {
     showError(error.message || '提交失败，请稍后重试。');
     submitBtn.disabled = false;
+  }
+});
+
+downloadBtn.addEventListener('click', () => {
+  if (!currentResult || !currentResult.qr_id) {
+    alert('请先完成点亮后再下载。');
+    return;
+  }
+  window.open(`/api/nft/${encodeURIComponent(currentResult.qr_id)}/download`, '_blank');
+});
+
+shareBtn.addEventListener('click', async () => {
+  if (!currentResult || !currentResult.qr_id) {
+    alert('请先完成点亮后再分享。');
+    return;
+  }
+
+  try {
+    const res = await apiRequest(`/api/nft/${encodeURIComponent(currentResult.qr_id)}/share-meta`);
+    const payload = {
+      title: res.data.title,
+      text: res.data.text,
+      url: res.data.url
+    };
+
+    if (navigator.share) {
+      await navigator.share(payload);
+      return;
+    }
+
+    await navigator.clipboard.writeText(payload.url);
+    alert('分享链接已复制，快发给朋友吧！');
+  } catch (error) {
+    alert(error.message || '分享失败，请稍后重试。');
   }
 });

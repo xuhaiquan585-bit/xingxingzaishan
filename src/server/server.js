@@ -7,6 +7,7 @@ const qrRoutes = require('./routes/qr');
 const uploadRoutes = require('./routes/upload');
 const adminRoutes = require('./routes/admin');
 const qcRoutes = require('./routes/qc');
+const nftRoutes = require('./routes/nft');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -38,6 +39,7 @@ app.use('/api/qr', qrRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/qc', qcRoutes);
+app.use('/api/nft', nftRoutes);
 
 app.use((err, _req, res, _next) => {
   if (err.message === '仅支持图片文件上传') {

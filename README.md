@@ -38,6 +38,7 @@ npm start
 - 后台新增：账号管理（新增/启用/禁用）
 - 数据迁移：历史二维码默认补充 `batch_id: null`、`print_batch_id: null`
 - 新增质检入口：`http://localhost:3000/qc`（账号：`qc` / 密码：`qc123456`）
+- 用户端新增：NFT下载、分享链接（Web Share 优先，复制链接兜底）
 
 
 ## 覆盖版发布
