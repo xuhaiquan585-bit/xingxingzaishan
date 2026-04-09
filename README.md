@@ -46,3 +46,28 @@ npm start
 如需将当前本地版本整体覆盖到 GitHub 目标分支，请参考：
 
 - `docs/OVERWRITE_TO_GITHUB.md`
+
+
+## 上传存储设计（含云存储缓冲）
+
+当前上传链路已调整为“先缓冲，再入正式存储”模式：
+
+1. 客户端上传图片到 `/api/upload`；
+2. 服务端先把图片写入 `src/server/buffer/uploads` 作为缓冲；
+3. 根据 `STORAGE_MODE` 决定正式存储位置：
+   - `local`（默认）：写入 `src/server/public/uploads`，返回 `/uploads/<file>`；
+   - `cloud`：写入本地 mock 云目录 `src/server/public/cloud`，返回 `/cloud/<file>`；
+4. 若设置 `CLOUD_PUBLIC_BASE_URL`，cloud 模式会返回该公网前缀 URL（便于后续切到真实 OSS/S3/CDN）。
+
+示例：
+
+```bash
+# 默认本地存储
+npm start
+
+# 开启 cloud 模式（本地 mock）
+STORAGE_MODE=cloud npm start
+
+# cloud 模式 + 公网访问前缀
+STORAGE_MODE=cloud CLOUD_PUBLIC_BASE_URL=https://cdn.example.com/stars npm start
+```

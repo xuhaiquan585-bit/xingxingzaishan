@@ -18,6 +18,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
+app.use('/cloud', express.static(path.join(__dirname, 'public', 'cloud')));
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
 app.use('/admin', express.static(path.join(__dirname, '..', 'admin')));
 app.use('/qc', express.static(path.join(__dirname, '..', 'qc')));

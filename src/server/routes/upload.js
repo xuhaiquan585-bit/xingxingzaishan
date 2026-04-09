@@ -1,26 +1,12 @@
 const express = require('express');
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+
+const { saveImage, getStorageMode } = require('../services/storageService');
 
 const router = express.Router();
-const uploadDir = path.join(__dirname, '..', 'public', 'uploads');
-
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname || '.jpg');
-    const safeName = `${Date.now()}-${Math.random().toString(16).slice(2)}${ext}`;
-    cb(null, safeName);
-  }
-});
 
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype.startsWith('image/')) {
@@ -39,11 +25,17 @@ router.post('/', upload.single('image'), (req, res) => {
     });
   }
 
+  const stored = saveImage(req.file);
+
   return res.json({
     status: 'success',
     code: 'OK',
     data: {
-      url: `/uploads/${req.file.filename}`
+      url: stored.url,
+      storage_mode: stored.mode,
+      object_key: stored.object_key,
+      buffered: true,
+      active_storage_mode: getStorageMode()
     }
   });
 });

@@ -24,5 +24,16 @@
     "status": "error",
     "code": "QR_ALREADY_ACTIVATED",
     "message": "该星已被点亮，无法重复绑定。请确认二维码是否正确。"
+  },
+  "upload_success": {
+    "status": "success",
+    "code": "OK",
+    "data": {
+      "url": "/cloud/1710000000000-abcd1234.jpg",
+      "storage_mode": "cloud",
+      "object_key": "1710000000000-abcd1234.jpg",
+      "buffered": true,
+      "active_storage_mode": "cloud"
+    }
   }
 }
