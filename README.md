@@ -71,3 +71,65 @@ STORAGE_MODE=cloud npm start
 # cloud 模式 + 公网访问前缀
 STORAGE_MODE=cloud CLOUD_PUBLIC_BASE_URL=https://cdn.example.com/stars npm start
 ```
+
+
+## 测试与验收清单（建议每次提测都执行）
+
+### 用户主链路
+
+- [ ] 扫码进入 `record.html?qr=...`，未登录时自动跳转注册页。
+- [ ] 注册手机号成功后返回记录页。
+- [ ] 上传图片成功，页面显示预览。
+- [ ] 提交点亮成功，结果页展示图片、文案、hash、时间。
+- [ ] 同一二维码重复提交，返回 `QR_ALREADY_ACTIVATED`。
+
+### 后台管理链路
+
+- [ ] admin 账号可登录后台并看到统计看板。
+- [ ] 可创建批次、绑定二维码、导出批次 CSV。
+- [ ] 可新增操作员并启用/禁用账号。
+
+### 质检链路
+
+- [ ] qc 账号可登录质检系统。
+- [ ] 输入有效二维码可完成质检并写入日志。
+- [ ] 输入无效二维码返回 `QR_NOT_FOUND`。
+
+## 存储与部署说明（补充）
+
+### 运行模式
+
+- `STORAGE_MODE=local`：
+  - 上传先进入缓冲目录 `src/server/buffer/uploads`；
+  - 再写入 `src/server/public/uploads`；
+  - 返回 `/uploads/<object_key>`。
+- `STORAGE_MODE=cloud`：
+  - 上传先进入缓冲目录 `src/server/buffer/uploads`；
+  - 再写入本地 mock 云目录 `src/server/public/cloud`；
+  - 默认返回 `/cloud/<object_key>`；
+  - 若设置 `CLOUD_PUBLIC_BASE_URL`，返回 `CLOUD_PUBLIC_BASE_URL/<object_key>`。
+
+### 生产环境建议
+
+1. 保留“先缓冲再写正式存储”的流程，便于失败重试与审计。
+2. 给缓冲目录设置定时清理（例如每天离峰清理超过 7 天的文件）。
+3. 切换真实 OSS/S3 时，仅替换 `storageService` 的 cloud 分支实现，路由和前端可保持不变。
+
+## API 错误码建议（当前实现）
+
+- `INVALID_PHONE`：手机号格式不正确。
+- `VALIDATION_ERROR`：通用参数校验失败（如缺少图片/内容超长/批次参数为空）。
+- `UPLOAD_FAILED`：上传失败（空文件或类型不符合）。
+- `QR_NOT_FOUND`：二维码不存在。
+- `QR_ALREADY_ACTIVATED`：二维码已绑定，不可重复提交。
+- `UNAUTHORIZED`：未登录或 token 无效。
+- `FORBIDDEN`：角色权限不足。
+- `INVALID_CREDENTIALS`：后台账号密码错误。
+- `USERNAME_EXISTS`：新增操作员时账号已存在。
+- `BATCH_NOT_FOUND` / `OPERATOR_NOT_FOUND`：目标实体不存在。
+
+## 下一阶段文档补充建议
+
+- 增加 `docs/test-plan.md`：记录每次提测的执行结果与截图。
+- 增加 `docs/deploy.md`：记录环境变量、日志路径、备份与回滚方案。
+- 增加 `docs/api-errors.md`：维护错误码与前端提示文案映射。

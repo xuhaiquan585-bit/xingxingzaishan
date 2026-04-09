@@ -35,5 +35,30 @@
       "buffered": true,
       "active_storage_mode": "cloud"
     }
+  },
+  "upload_fail_invalid_type": {
+    "status": "error",
+    "code": "UPLOAD_FAILED",
+    "message": "仅支持图片格式，请重新选择。"
+  },
+  "user_login_fail_invalid_phone": {
+    "status": "error",
+    "code": "INVALID_PHONE",
+    "message": "手机号格式不正确，请检查后重试。"
+  },
+  "admin_login_fail_invalid_credentials": {
+    "status": "error",
+    "code": "INVALID_CREDENTIALS",
+    "message": "账号或密码不正确。"
+  },
+  "admin_dashboard_fail_unauthorized": {
+    "status": "error",
+    "code": "UNAUTHORIZED",
+    "message": "请先登录后台账号。"
+  },
+  "qc_check_fail_not_found": {
+    "status": "error",
+    "code": "QR_NOT_FOUND",
+    "message": "未找到该二维码，请确认后重试。"
   }
 }
