@@ -15,6 +15,10 @@
 | OPERATOR_NOT_FOUND | 404 | 操作员不存在 | `/api/admin/operators/:id/*` |
 | BATCH_NOT_FOUND | 404 | 批次不存在 | `/api/admin/batches/*` |
 | RATE_LIMITED | 429 | 请求触发限流 | 登录/写接口 |
+| OSS_UPLOAD_FAILED | 502 | OSS 上传失败 | `/api/upload` |
+| OSS_CONFIG_ERROR | 500 | OSS 配置不完整 | `/api/upload` |
+| OSS_DEP_MISSING | 500 | OSS SDK 依赖缺失 | `/api/upload` |
+| OSS_DOWNLOAD_SIGN_FAILED | 502 | OSS 下载签名失败 | `/api/nft/:qrId/download` |
 | INTERNAL_ERROR | 500 | 服务器内部异常 | 全局 |
 
 > 所有错误响应结构统一为：`{ status: 'error', code, message }`。

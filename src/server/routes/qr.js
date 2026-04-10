@@ -1,11 +1,23 @@
 const express = require('express');
 const { getQRCode, activateQRCodeOnce } = require('../services/dbService');
 const { generateMockBlockchainHash } = require('../services/hashService');
+const { getSignedUrl, getStorageMode } = require('../services/storageService');
 
 const router = express.Router();
 
 function isValidPhone(phone) {
   return /^1\d{10}$/.test(phone);
+}
+
+function resolveImageUrl(qr) {
+  if (qr.image_object_key) {
+    try {
+      return getSignedUrl(qr.image_object_key);
+    } catch (_error) {
+      return qr.image_url;
+    }
+  }
+  return qr.image_url;
 }
 
 router.get('/:qrId', (req, res) => {
@@ -30,12 +42,21 @@ router.get('/:qrId', (req, res) => {
   return res.json({
     status: 'success',
     code: 'OK',
-    data: qr
+    data: {
+      ...qr,
+      image_url: resolveImageUrl(qr),
+      active_storage_mode: getStorageMode()
+    }
   });
 });
 
 router.post('/:qrId/record', (req, res) => {
-  const { content = '', image_url: imageUrl, phone } = req.body;
+  const {
+    content = '',
+    image_url: imageUrl,
+    image_object_key: imageObjectKey,
+    phone
+  } = req.body;
 
   if (!isValidPhone(phone)) {
     return res.status(400).json({
@@ -45,7 +66,7 @@ router.post('/:qrId/record', (req, res) => {
     });
   }
 
-  if (!imageUrl) {
+  if (!imageUrl && !imageObjectKey) {
     return res.status(400).json({
       status: 'error',
       code: 'VALIDATION_ERROR',
@@ -65,6 +86,7 @@ router.post('/:qrId/record', (req, res) => {
   const result = activateQRCodeOnce(req.params.qrId, {
     content: String(content),
     image_url: imageUrl,
+    image_object_key: imageObjectKey,
     phone,
     blockchain_hash: blockchainHash
   });
@@ -91,7 +113,8 @@ router.post('/:qrId/record', (req, res) => {
     data: {
       qr_id: result.data.id,
       content: result.data.content,
-      image_url: result.data.image_url,
+      image_url: resolveImageUrl(result.data),
+      image_object_key: result.data.image_object_key || null,
       blockchain_hash: result.data.blockchain_hash,
       activated_at: result.data.activated_at,
       activation_status: result.data.activation_status

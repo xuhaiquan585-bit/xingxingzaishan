@@ -32,6 +32,7 @@ function seedQRCodes() {
       },
       content: null,
       image_url: null,
+      image_object_key: null,
       phone: null,
       activated_at: null,
       blockchain_hash: null,
@@ -99,6 +100,7 @@ function migrateSchema(db) {
     hidden: item.hidden === true,
     batch_id: Object.prototype.hasOwnProperty.call(item, 'batch_id') ? item.batch_id : null,
     print_batch_id: Object.prototype.hasOwnProperty.call(item, 'print_batch_id') ? item.print_batch_id : null,
+    image_object_key: Object.prototype.hasOwnProperty.call(item, 'image_object_key') ? item.image_object_key : null,
     quality_check: item.quality_check || {
       checked: false,
       checked_at: null,
@@ -185,6 +187,7 @@ function activateQRCodeOnce(qrId, payload) {
     activation_status: 'activated',
     content: payload.content,
     image_url: payload.image_url,
+    image_object_key: payload.image_object_key || null,
     phone: payload.phone,
     activated_at: nowISO(),
     blockchain_hash: payload.blockchain_hash

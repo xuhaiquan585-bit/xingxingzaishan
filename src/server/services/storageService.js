@@ -27,6 +27,12 @@ function buildFileName(originalname, mimetype) {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}${ext.toLowerCase()}`;
 }
 
+function sanitizePathSegment(value, fallback = 'unknown') {
+  const text = String(value || '').trim();
+  if (!text) return fallback;
+  return text.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120) || fallback;
+}
+
 function getStorageMode() {
   return process.env.STORAGE_MODE === 'cloud' ? 'cloud' : 'local';
 }
@@ -38,42 +44,132 @@ function saveBinaryFile(dir, fileName, buffer) {
   return filePath;
 }
 
-function makeCloudPublicUrl(fileName) {
+function makeCloudPublicUrl(objectKey) {
   const baseUrl = process.env.CLOUD_PUBLIC_BASE_URL;
   if (baseUrl) {
-    return `${baseUrl.replace(/\/$/, '')}/${fileName}`;
+    return `${baseUrl.replace(/\/$/, '')}/${objectKey}`;
   }
-  return `/cloud/${fileName}`;
+  return `/cloud/${objectKey}`;
 }
 
-function saveImage(file) {
+function getOssConfig() {
+  return {
+    endpoint: process.env.OSS_ENDPOINT,
+    region: process.env.OSS_REGION,
+    bucket: process.env.OSS_BUCKET,
+    accessKeyId: process.env.OSS_ACCESS_KEY_ID,
+    accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET,
+    secure: process.env.OSS_SECURE !== 'false'
+  };
+}
+
+function assertOssConfig() {
+  const config = getOssConfig();
+  const missing = Object.entries(config)
+    .filter(([, value]) => !value)
+    .map(([key]) => key);
+
+  if (missing.length > 0) {
+    throw new Error(`OSS配置不完整: ${missing.join(', ')}`);
+  }
+
+  return config;
+}
+
+let cachedClient = null;
+
+function getOssClient() {
+  if (cachedClient) return cachedClient;
+
+  let OSS;
+  try {
+    // eslint-disable-next-line global-require
+    OSS = require('ali-oss');
+  } catch (_error) {
+    throw new Error('缺少 ali-oss 依赖，请先安装后再启用 STORAGE_MODE=cloud');
+  }
+
+  const config = assertOssConfig();
+  cachedClient = new OSS(config);
+  return cachedClient;
+}
+
+function getObjectPrefix() {
+  return sanitizePathSegment(process.env.OSS_OBJECT_PREFIX || 'stars', 'stars');
+}
+
+function buildObjectKey({ qrId, fileName }) {
+  const prefix = getObjectPrefix();
+  const group = sanitizePathSegment(qrId || 'unbound', 'unbound');
+  return `${prefix}/${group}/${fileName}`;
+}
+
+async function putObjectToOss({ objectKey, localPath }) {
+  const client = getOssClient();
+  await client.put(objectKey, localPath, {
+    headers: {
+      'Cache-Control': 'public, max-age=31536000'
+    }
+  });
+}
+
+function getSignedUrl(objectKey, expiresSeconds = Number(process.env.OSS_SIGNED_URL_EXPIRES || 3600)) {
+  if (!objectKey) return null;
+  if (getStorageMode() !== 'cloud') {
+    return `/uploads/${path.basename(objectKey)}`;
+  }
+
+  const client = getOssClient();
+  return client.signatureUrl(objectKey, {
+    expires: expiresSeconds,
+    method: 'GET'
+  });
+}
+
+async function saveImage({ file, qrId }) {
   const fileName = buildFileName(file.originalname, file.mimetype);
 
   // 先写入缓冲区，便于后续扩展重试/异步上传策略
   const bufferedPath = saveBinaryFile(bufferDir, fileName, file.buffer);
   const mode = getStorageMode();
+  const objectKey = buildObjectKey({ qrId, fileName });
 
   if (mode === 'cloud') {
-    // 当前提供本地 mock 云存储，后续可替换为真实 OSS/S3 SDK 实现
-    saveBinaryFile(cloudMockDir, fileName, file.buffer);
-    return {
-      mode,
-      url: makeCloudPublicUrl(fileName),
-      buffer_path: bufferedPath,
-      object_key: fileName
-    };
+    try {
+      await putObjectToOss({ objectKey, localPath: bufferedPath });
+      return {
+        mode,
+        url: getSignedUrl(objectKey),
+        object_key: objectKey,
+        buffer_path: bufferedPath
+      };
+    } catch (_error) {
+      if (process.env.CLOUD_FALLBACK_TO_LOCAL === 'true') {
+        saveBinaryFile(localUploadDir, fileName, file.buffer);
+        return {
+          mode: 'local',
+          url: `/uploads/${fileName}`,
+          object_key: fileName,
+          buffer_path: bufferedPath,
+          fallback: true
+        };
+      }
+      throw new Error('OSS_UPLOAD_FAILED');
+    }
   }
 
   saveBinaryFile(localUploadDir, fileName, file.buffer);
   return {
     mode,
     url: `/uploads/${fileName}`,
-    buffer_path: bufferedPath,
-    object_key: fileName
+    object_key: fileName,
+    buffer_path: bufferedPath
   };
 }
 
 module.exports = {
   getStorageMode,
-  saveImage
+  saveImage,
+  getSignedUrl,
+  getObjectPrefix
 };

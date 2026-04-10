@@ -13,6 +13,15 @@
 - `AUTH_TOKEN_TTL_SECONDS`：token 有效期，默认 43200（12h）
 - `STORAGE_MODE`：`local` 或 `cloud`
 - `CLOUD_PUBLIC_BASE_URL`：cloud 模式对象公网前缀（可选）
+- `OSS_ACCESS_KEY_ID`：OSS 访问 Key ID（cloud 模式必填）
+- `OSS_ACCESS_KEY_SECRET`：OSS 访问 Key Secret（cloud 模式必填）
+- `OSS_BUCKET`：OSS Bucket 名称（cloud 模式必填）
+- `OSS_REGION`：OSS 区域（cloud 模式必填）
+- `OSS_ENDPOINT`：OSS Endpoint（cloud 模式必填）
+- `OSS_OBJECT_PREFIX`：对象前缀，默认 `stars`
+- `OSS_SIGNED_URL_EXPIRES`：图片展示签名有效期（秒），默认 3600
+- `OSS_DOWNLOAD_SIGN_EXPIRES`：下载签名有效期（秒），默认 3600
+- `CLOUD_FALLBACK_TO_LOCAL`：OSS 上传失败时是否回退本地存储（`true/false`）
 - `RATE_LIMIT_LOGIN_WINDOW_MS`：登录限流窗口，默认 60000
 - `RATE_LIMIT_LOGIN_MAX`：登录窗口内最大请求数，默认 20
 - `RATE_LIMIT_WRITE_WINDOW_MS`：写操作限流窗口，默认 60000
@@ -26,6 +35,10 @@
 npm install
 npm test
 AUTH_SECRET='replace-with-strong-secret' npm start
+
+# 本地历史文件迁移（建议先 dry-run）
+npm run migrate:oss:dry
+npm run migrate:oss
 ```
 
 ## 4. 发布前检查

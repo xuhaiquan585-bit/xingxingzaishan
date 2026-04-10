@@ -20,6 +20,7 @@ const qrId = params.get('qr');
 const userPhone = localStorage.getItem('userPhone');
 
 let uploadedImageUrl = '';
+let uploadedImageObjectKey = '';
 let currentResult = null;
 
 function showError(message) {
@@ -78,6 +79,9 @@ imageInput.addEventListener('change', async () => {
   const file = imageInput.files[0];
   const formData = new FormData();
   formData.append('image', file);
+  if (qrId) {
+    formData.append('qr_id', qrId);
+  }
 
   try {
     const res = await apiRequest('/api/upload', {
@@ -86,6 +90,7 @@ imageInput.addEventListener('change', async () => {
     });
 
     uploadedImageUrl = res.data.url;
+    uploadedImageObjectKey = res.data.object_key || '';
     preview.src = uploadedImageUrl;
     preview.classList.remove('hidden');
     showError('图片上传成功。');
@@ -116,6 +121,7 @@ submitBtn.addEventListener('click', async () => {
       body: JSON.stringify({
         content,
         image_url: uploadedImageUrl,
+        image_object_key: uploadedImageObjectKey,
         phone: userPhone
       })
     });
@@ -127,12 +133,22 @@ submitBtn.addEventListener('click', async () => {
   }
 });
 
-downloadBtn.addEventListener('click', () => {
+downloadBtn.addEventListener('click', async () => {
   if (!currentResult || !currentResult.qr_id) {
     alert('请先完成点亮后再下载。');
     return;
   }
-  window.open(`/api/nft/${encodeURIComponent(currentResult.qr_id)}/download`, '_blank');
+
+  try {
+    const res = await apiRequest(`/api/nft/${encodeURIComponent(currentResult.qr_id)}/download`);
+    if (res.data && res.data.download_url) {
+      window.open(res.data.download_url, '_blank');
+      return;
+    }
+    window.open(`/api/nft/${encodeURIComponent(currentResult.qr_id)}/download`, '_blank');
+  } catch (_error) {
+    window.open(`/api/nft/${encodeURIComponent(currentResult.qr_id)}/download`, '_blank');
+  }
 });
 
 shareBtn.addEventListener('click', async () => {

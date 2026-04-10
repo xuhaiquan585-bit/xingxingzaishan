@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { getQRCode } = require('../services/dbService');
+const { getStorageMode, getSignedUrl } = require('../services/storageService');
 
 const router = express.Router();
 
@@ -13,6 +14,27 @@ router.get('/:qrId/download', (req, res) => {
       code: 'RECORD_NOT_FOUND',
       message: '未找到可下载的NFT记录。'
     });
+  }
+
+  const mode = getStorageMode();
+  if (mode === 'cloud' && qr.image_object_key) {
+    try {
+      const downloadUrl = getSignedUrl(qr.image_object_key, Number(process.env.OSS_DOWNLOAD_SIGN_EXPIRES || 3600));
+      return res.json({
+        status: 'success',
+        code: 'OK',
+        data: {
+          download_url: downloadUrl,
+          image_object_key: qr.image_object_key
+        }
+      });
+    } catch (_error) {
+      return res.status(502).json({
+        status: 'error',
+        code: 'OSS_DOWNLOAD_SIGN_FAILED',
+        message: '图片签名失败，请稍后重试。'
+      });
+    }
   }
 
   if (!qr.image_url) {

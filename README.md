@@ -111,15 +111,15 @@ STORAGE_MODE=cloud CLOUD_PUBLIC_BASE_URL=https://cdn.example.com/stars npm start
   - 返回 `/uploads/<object_key>`。
 - `STORAGE_MODE=cloud`：
   - 上传先进入缓冲目录 `src/server/buffer/uploads`；
-  - 再写入本地 mock 云目录 `src/server/public/cloud`；
-  - 默认返回 `/cloud/<object_key>`；
-  - 若设置 `CLOUD_PUBLIC_BASE_URL`，返回 `CLOUD_PUBLIC_BASE_URL/<object_key>`。
+  - 再写入真实 OSS（对象 key 默认 `stars/{qrId}/...`）；
+  - 返回短期签名 URL（展示/下载）；
+  - 可通过 `OSS_SIGNED_URL_EXPIRES`、`OSS_DOWNLOAD_SIGN_EXPIRES` 控制签名有效期。
 
 ### 生产环境建议
 
 1. 保留“先缓冲再写正式存储”的流程，便于失败重试与审计。
 2. 给缓冲目录设置定时清理（例如每天离峰清理超过 7 天的文件）。
-3. 切换真实 OSS/S3 时，仅替换 `storageService` 的 cloud 分支实现，路由和前端可保持不变。
+3. 私有 Bucket 场景建议仅存储 `image_object_key`，展示/下载时动态签名，避免 URL 过期。
 
 ## API 错误码建议（当前实现）
 
@@ -139,3 +139,14 @@ STORAGE_MODE=cloud CLOUD_PUBLIC_BASE_URL=https://cdn.example.com/stars npm start
 - `docs/test-plan.md`：测试执行与回归记录模板。
 - `docs/deploy.md`：部署步骤、环境变量与发布前检查。
 - `docs/api-errors.md`：错误码与 HTTP 状态说明。
+
+
+### OSS 历史文件迁移
+
+```bash
+# 先预演，不写入
+npm run migrate:oss:dry
+
+# 正式迁移（本地 public/uploads -> OSS，并回写 image_object_key）
+npm run migrate:oss
+```
