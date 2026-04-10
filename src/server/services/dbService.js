@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { hashPassword, verifyPassword, isPasswordHashed } = require('./passwordService');
 
 const dataDir = process.env.DB_DIR
   ? path.resolve(process.env.DB_DIR)
@@ -45,7 +46,7 @@ function defaultAdmins() {
     {
       id: 1,
       username: 'admin',
-      password: 'admin123',
+      password: hashPassword('admin123'),
       role: 'admin',
       name: '系统管理员',
       enabled: true
@@ -53,7 +54,7 @@ function defaultAdmins() {
     {
       id: 2,
       username: 'qc',
-      password: 'qc123456',
+      password: hashPassword('qc123456'),
       role: 'qc',
       name: '质检员',
       enabled: true
@@ -77,7 +78,7 @@ function migrateSchema(db) {
   db.admins = db.admins.map((item, idx) => ({
     id: item.id || idx + 1,
     username: item.username,
-    password: item.password,
+    password: isPasswordHashed(item.password) ? item.password : hashPassword(item.password),
     role: item.role || 'qc',
     name: item.name || item.username,
     enabled: item.enabled !== false
@@ -197,7 +198,11 @@ function activateQRCodeOnce(qrId, payload) {
 
 function findAdmin(username, password) {
   const db = readDB();
-  return db.admins.find((item) => item.username === username && item.password === password && item.enabled !== false) || null;
+  return db.admins.find((item) => (
+    item.username === username
+    && item.enabled !== false
+    && verifyPassword(password, item.password)
+  )) || null;
 }
 
 
@@ -226,7 +231,7 @@ function createOperator({ username, password, role, name }) {
   const operator = {
     id: db.admins.length + 1,
     username,
-    password,
+    password: hashPassword(password),
     role,
     name,
     enabled: true

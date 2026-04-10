@@ -134,8 +134,8 @@ STORAGE_MODE=cloud CLOUD_PUBLIC_BASE_URL=https://cdn.example.com/stars npm start
 - `USERNAME_EXISTS`：新增操作员时账号已存在。
 - `BATCH_NOT_FOUND` / `OPERATOR_NOT_FOUND`：目标实体不存在。
 
-## 下一阶段文档补充建议
+## 运维与接口文档
 
-- 增加 `docs/test-plan.md`：记录每次提测的执行结果与截图。
-- 增加 `docs/deploy.md`：记录环境变量、日志路径、备份与回滚方案。
-- 增加 `docs/api-errors.md`：维护错误码与前端提示文案映射。
+- `docs/test-plan.md`：测试执行与回归记录模板。
+- `docs/deploy.md`：部署步骤、环境变量与发布前检查。
+- `docs/api-errors.md`：错误码与 HTTP 状态说明。

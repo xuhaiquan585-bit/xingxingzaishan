@@ -25,6 +25,23 @@ async function postJson(url, body, token) {
   };
 }
 
+
+async function getJson(url, token) {
+  const headers = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${baseUrl}${url}`, {
+    method: 'GET',
+    headers
+  });
+  return {
+    status: res.status,
+    body: await res.json()
+  };
+}
+
 test.before(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xingxingzaishan-'));
   process.env.DB_FILE = path.join(tmpDir, 'db.json');
@@ -96,6 +113,29 @@ test('POST /api/admin/login should reject wrong credentials', async () => {
   const res = await postJson('/api/admin/login', { username: 'admin', password: 'wrong-pass' });
   assert.equal(res.status, 401);
   assert.equal(res.body.code, 'INVALID_CREDENTIALS');
+});
+
+
+test('POST /api/admin/login should return token for valid credentials', async () => {
+  const res = await postJson('/api/admin/login', { username: 'admin', password: 'admin123' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.status, 'success');
+  assert.ok(res.body.data.token);
+});
+
+test('GET /api/admin/dashboard should work with valid token', async () => {
+  const login = await postJson('/api/admin/login', { username: 'admin', password: 'admin123' });
+  const token = login.body.data.token;
+
+  const res = await getJson('/api/admin/dashboard', token);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.status, 'success');
+});
+
+test('GET /api/admin/dashboard should reject invalid token', async () => {
+  const res = await getJson('/api/admin/dashboard', 'bad.token.value');
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, 'UNAUTHORIZED');
 });
 
 test('POST /api/qc/check should reject unauthorized request', async () => {
