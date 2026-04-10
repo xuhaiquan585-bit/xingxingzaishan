@@ -1,8 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 
-const dataDir = path.join(__dirname, '..', 'data');
-const dataFile = path.join(dataDir, 'db.json');
+const dataDir = process.env.DB_DIR
+  ? path.resolve(process.env.DB_DIR)
+  : path.join(__dirname, '..', 'data');
+const dataFile = process.env.DB_FILE
+  ? path.resolve(process.env.DB_FILE)
+  : path.join(dataDir, 'db.json');
 
 function nowISO() {
   return new Date().toISOString();

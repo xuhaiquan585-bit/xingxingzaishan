@@ -2,9 +2,10 @@ const fs = require('fs');
 const path = require('path');
 
 const rootDir = path.join(__dirname, '..');
-const localUploadDir = path.join(rootDir, 'public', 'uploads');
-const bufferDir = path.join(rootDir, 'buffer', 'uploads');
-const cloudMockDir = path.join(rootDir, 'public', 'cloud');
+const storageRoot = process.env.STORAGE_ROOT ? path.resolve(process.env.STORAGE_ROOT) : rootDir;
+const localUploadDir = path.join(storageRoot, 'public', 'uploads');
+const bufferDir = path.join(storageRoot, 'buffer', 'uploads');
+const cloudMockDir = path.join(storageRoot, 'public', 'cloud');
 
 const IMAGE_TYPES = {
   'image/jpeg': '.jpg',

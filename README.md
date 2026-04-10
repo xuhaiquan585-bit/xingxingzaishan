@@ -9,6 +9,12 @@ npm start
 
 启动后访问：`http://localhost:3000`
 
+运行自动化测试：
+
+```bash
+npm test
+```
+
 ## MVP 测试步骤
 
 1. 打开 `http://localhost:3000/record.html?qr=STAR0001`。
