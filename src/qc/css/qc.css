@@ -1,0 +1,48 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #f8f8fb;
+  color: #1e2534;
+}
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 20px;
+}
+.card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 10px rgba(23, 32, 50, 0.08);
+}
+input, button {
+  padding: 9px;
+  margin: 4px;
+}
+.check-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.check-row input { flex: 1; }
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th, td {
+  border-bottom: 1px solid #ebedf4;
+  padding: 8px;
+  text-align: left;
+}
+.msg { min-height: 20px; color: #b63838; }
+.hidden { display: none; }
+.pass { color: #0d9a4a; }
+.warn { color: #cf7f00; }
+.fail { color: #c23030; }
