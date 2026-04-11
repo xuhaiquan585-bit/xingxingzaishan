@@ -1,0 +1,53 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #f5f7fb;
+  color: #1d2433;
+}
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 20px;
+}
+.card {
+  background: #fff;
+  padding: 16px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 10px rgba(22, 29, 45, 0.08);
+}
+input, select, button {
+  padding: 8px;
+  margin: 4px;
+}
+.toolbar {
+  margin-bottom: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.toolbar.multi-line input {
+  min-width: 220px;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 8px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th, td {
+  border-bottom: 1px solid #e7eaf1;
+  padding: 8px;
+  text-align: left;
+}
+.msg { color: #b32d2d; min-height: 20px; }
+.hidden { display: none; }
+#selectedCount {
+  margin-left: auto;
+  color: #334;
+  font-weight: 600;
+}
