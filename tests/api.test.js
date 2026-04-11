@@ -46,10 +46,7 @@ test.before(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xingxingzaishan-'));
   process.env.DB_FILE = path.join(tmpDir, 'db.json');
   process.env.STORAGE_ROOT = path.join(tmpDir, 'storage');
-<<<<<<< HEAD
-=======
   process.env.AUTH_SECRET = 'test-secret-123';
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 
   // eslint-disable-next-line global-require
   const { createApp } = require('../src/server/app');
@@ -78,10 +75,7 @@ test.after(async () => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
   delete process.env.DB_FILE;
   delete process.env.STORAGE_ROOT;
-<<<<<<< HEAD
-=======
   delete process.env.AUTH_SECRET;
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 });
 
 test('POST /api/user/login should reject invalid phone', async () => {
@@ -151,13 +145,6 @@ test('POST /api/qc/check should reject unauthorized request', async () => {
   assert.equal(res.status, 401);
   assert.equal(res.body.code, 'UNAUTHORIZED');
 });
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
->>>>>>> pr-16
-=======
 
 test('GET /api/admin/dashboard should reject qc role token', async () => {
   const qcLogin = await postJson('/api/admin/login', { username: 'qc', password: 'qc123456' });
@@ -208,7 +195,6 @@ test('createApp should fail fast in cloud mode without OSS config', async () => 
   if (oldEndpoint === undefined) delete process.env.OSS_ENDPOINT;
   else process.env.OSS_ENDPOINT = oldEndpoint;
 });
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 
 
 test('GET /api/nft/:id/download should return download_url after activation', async () => {
@@ -240,10 +226,3 @@ test('GET /api/nft/:id/download should return download_url after activation', as
   assert.equal(downloadRes.status, 200);
   assert.ok(downloadRes.body.data.download_url);
 });
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
-=======
->>>>>>> pr-16
-=======
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat

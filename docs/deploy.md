@@ -26,10 +26,7 @@
 - `RATE_LIMIT_LOGIN_MAX`：登录窗口内最大请求数，默认 20
 - `RATE_LIMIT_WRITE_WINDOW_MS`：写操作限流窗口，默认 60000
 - `RATE_LIMIT_WRITE_MAX`：写操作窗口内最大请求数，默认 120
-<<<<<<< HEAD
-=======
 - `CORS_ORIGINS`：允许跨域来源白名单，逗号分隔（如 `https://a.com,https://b.com`）
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 - `DB_FILE`：数据库 JSON 文件路径（可选）
 - `AUDIT_LOG_DIR`：审计日志目录（可选）
 
@@ -52,7 +49,5 @@ npm run migrate:oss
 3. `STORAGE_MODE=cloud` 时上传与下载链接可用。
 4. `audit.log` 可写并可轮转。
 5. 执行 `npm test` 全部通过。
-<<<<<<< HEAD
-=======
 6. 如需跨域访问，`CORS_ORIGINS` 已配置允许的域名白名单。
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
+7. 执行 `npm run check:conflicts`，确保仓库内无冲突标记残留。

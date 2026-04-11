@@ -4,11 +4,7 @@
 
 ```bash
 npm install
-<<<<<<< HEAD
-npm start
-=======
 AUTH_SECRET='replace-with-strong-secret' npm start
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 ```
 
 启动后访问：`http://localhost:3000`
@@ -17,6 +13,12 @@ AUTH_SECRET='replace-with-strong-secret' npm start
 
 ```bash
 npm test
+```
+
+冲突标记检查（发布前建议执行）：
+
+```bash
+npm run check:conflicts
 ```
 
 ## MVP 测试步骤
@@ -34,25 +36,9 @@ npm test
 - ✅ mock blockchain_hash
 - ✅ 二维码唯一绑定
 - ✅ 统一 API 响应结构（status/code/message/data）
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-- ❌ 后台系统、质检系统、下载分享、真实上链
-=======
 - ✅ 后台系统（admin）与质检系统（qc）
 - ✅ NFT 下载与分享（本地/云存储兼容）
 - ❌ 真实上链（等待至信链申请完成）
->>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
-=======
-- ✅ 后台系统（admin）与质检系统（qc）
-- ✅ NFT 下载与分享（本地/云存储兼容）
-- ❌ 真实上链（等待至信链申请完成）
->>>>>>> pr-16
-=======
-- ✅ 后台系统（admin）与质检系统（qc）
-- ✅ NFT 下载与分享（本地/云存储兼容）
-- ❌ 真实上链（等待至信链申请完成）
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 
 
 ## Phase 2（进行中）- 后台管理批次 1
@@ -84,51 +70,13 @@ npm test
 2. 服务端先把图片写入 `src/server/buffer/uploads` 作为缓冲；
 3. 根据 `STORAGE_MODE` 决定正式存储位置：
    - `local`（默认）：写入 `src/server/public/uploads`，返回 `/uploads/<file>`；
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-   - `cloud`：写入本地 mock 云目录 `src/server/public/cloud`，返回 `/cloud/<file>`；
-4. 若设置 `CLOUD_PUBLIC_BASE_URL`，cloud 模式会返回该公网前缀 URL（便于后续切到真实 OSS/S3/CDN）。
-=======
    - `cloud`：上传到 OSS，返回短期签名 URL + `object_key`；
 4. `object_key` 会入库，页面展示/下载时动态生成签名 URL，避免过期链接长期存储。
->>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
-=======
-   - `cloud`：上传到 OSS，返回短期签名 URL + `object_key`；
-4. `object_key` 会入库，页面展示/下载时动态生成签名 URL，避免过期链接长期存储。
->>>>>>> pr-16
-=======
-   - `cloud`：上传到 OSS，返回短期签名 URL + `object_key`；
-4. `object_key` 会入库，页面展示/下载时动态生成签名 URL，避免过期链接长期存储。
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 
 示例：
 
 ```bash
 # 默认本地存储
-<<<<<<< HEAD
-npm start
-
-<<<<<<< HEAD
-<<<<<<< HEAD
-# 开启 cloud 模式（本地 mock）
-STORAGE_MODE=cloud npm start
-
-# cloud 模式 + 公网访问前缀
-STORAGE_MODE=cloud CLOUD_PUBLIC_BASE_URL=https://cdn.example.com/stars npm start
-=======
-=======
->>>>>>> pr-16
-# 开启 cloud 模式（OSS）
-STORAGE_MODE=cloud OSS_ACCESS_KEY_ID=xxx OSS_ACCESS_KEY_SECRET=xxx OSS_BUCKET=your-bucket OSS_REGION=cn-chengdu OSS_ENDPOINT=oss-cn-chengdu.aliyuncs.com npm start
-
-# 控制签名有效期
-STORAGE_MODE=cloud OSS_SIGNED_URL_EXPIRES=1800 OSS_DOWNLOAD_SIGN_EXPIRES=3600 npm start
-<<<<<<< HEAD
->>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
-=======
->>>>>>> pr-16
-=======
 AUTH_SECRET='replace-with-strong-secret' npm start
 
 # 开启 cloud 模式（OSS）
@@ -136,7 +84,6 @@ AUTH_SECRET='replace-with-strong-secret' STORAGE_MODE=cloud OSS_ACCESS_KEY_ID=xx
 
 # 控制签名有效期
 AUTH_SECRET='replace-with-strong-secret' STORAGE_MODE=cloud OSS_SIGNED_URL_EXPIRES=1800 OSS_DOWNLOAD_SIGN_EXPIRES=3600 npm start
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 ```
 
 

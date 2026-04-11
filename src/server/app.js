@@ -10,10 +10,6 @@ const qcRoutes = require('./routes/qc');
 const nftRoutes = require('./routes/nft');
 const { createRateLimiter } = require('./middlewares/rateLimit');
 const { auditLogger } = require('./middlewares/auditLogger');
-<<<<<<< HEAD
-
-function createApp() {
-=======
 const { assertRuntimeConfig, parseOrigins } = require('./services/configService');
 
 function corsMiddleware() {
@@ -54,25 +50,18 @@ function corsMiddleware() {
 function createApp() {
   assertRuntimeConfig();
 
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
   const app = express();
 
   initializeDB();
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
-<<<<<<< HEAD
-=======
   app.use(corsMiddleware());
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 
 
   const loginRateLimiter = createRateLimiter({
     window_ms: process.env.RATE_LIMIT_LOGIN_WINDOW_MS || 60_000,
     max_requests: process.env.RATE_LIMIT_LOGIN_MAX || 20,
-<<<<<<< HEAD
-    key_builder: (req) => `${req.ip}:login`,
-=======
     key_builder: (req) => {
       const identity = (req.body.phone || req.body.username || '').toString().trim();
       const keys = [`${req.ip}:login`];
@@ -81,7 +70,6 @@ function createApp() {
       }
       return keys;
     },
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
     methods: ['POST']
   });
 

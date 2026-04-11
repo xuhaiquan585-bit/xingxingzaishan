@@ -9,26 +9,6 @@ function createRateLimiter(options = {}) {
       return next();
     }
     const keyBuilder = options.key_builder || ((r) => r.ip || 'unknown');
-<<<<<<< HEAD
-    const key = keyBuilder(req);
-    const now = Date.now();
-    const bucket = store.get(key);
-
-    if (!bucket || now > bucket.resetAt) {
-      store.set(key, { count: 1, resetAt: now + windowMs });
-      return next();
-    }
-
-    bucket.count += 1;
-    if (bucket.count > maxRequests) {
-      return res.status(429).json({
-        status: 'error',
-        code: 'RATE_LIMITED',
-        message: '请求过于频繁，请稍后再试。'
-      });
-    }
-
-=======
     const keyResult = keyBuilder(req);
     const keys = Array.isArray(keyResult) ? keyResult : [keyResult];
     const now = Date.now();
@@ -67,7 +47,6 @@ function createRateLimiter(options = {}) {
     res.setHeader('X-RateLimit-Limit', String(maxRequests));
     res.setHeader('X-RateLimit-Remaining', String(Math.max(0, smallestRemaining)));
     res.setHeader('X-RateLimit-Reset', String(Math.floor(nearestResetAt / 1000)));
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
     return next();
   };
 }

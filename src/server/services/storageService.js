@@ -113,26 +113,11 @@ async function putObjectToOss({ objectKey, localPath }) {
   });
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
->>>>>>> pr-16
-=======
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 
 function getLocalObjectPath(value) {
   return path.join(localUploadDir, path.basename(String(value || '')));
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
-=======
->>>>>>> pr-16
-=======
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 function getSignedUrl(objectKey, expiresSeconds = Number(process.env.OSS_SIGNED_URL_EXPIRES || 3600)) {
   if (!objectKey) return null;
   if (getStorageMode() !== 'cloud') {
@@ -191,20 +176,6 @@ module.exports = {
   getStorageMode,
   saveImage,
   getSignedUrl,
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-  getObjectPrefix
-=======
   getObjectPrefix,
   getLocalObjectPath
->>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
-=======
-  getObjectPrefix,
-  getLocalObjectPath
->>>>>>> pr-16
-=======
-  getObjectPrefix,
-  getLocalObjectPath
->>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 };
