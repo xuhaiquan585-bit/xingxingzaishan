@@ -3,3 +3,7 @@ src/server/data/
 src/server/buffer/
 src/server/public/uploads/
 src/server/public/cloud/
+<<<<<<< HEAD
+=======
+src/server/logs/
+>>>>>>> pr-16

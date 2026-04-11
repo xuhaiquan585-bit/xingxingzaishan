@@ -30,6 +30,7 @@
     "code": "OK",
     "data": {
 <<<<<<< HEAD
+<<<<<<< HEAD
       "url": "/cloud/1710000000000-abcd1234.jpg",
       "storage_mode": "cloud",
       "object_key": "1710000000000-abcd1234.jpg",
@@ -38,6 +39,11 @@
       "storage_mode": "cloud",
       "object_key": "stars/STAR0001/1710000000000-abcd1234.jpg",
 >>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
+=======
+      "url": "https://oss-example/signed-url?Expires=1710000000&Signature=demo",
+      "storage_mode": "cloud",
+      "object_key": "stars/STAR0001/1710000000000-abcd1234.jpg",
+>>>>>>> pr-16
       "buffered": true,
       "active_storage_mode": "cloud"
     }
@@ -67,7 +73,10 @@
     "code": "QR_NOT_FOUND",
     "message": "未找到该二维码，请确认后重试。"
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> pr-16
   },
   "nft_download_success": {
     "status": "success",
@@ -76,6 +85,9 @@
       "download_url": "https://oss-example/signed-download-url?Expires=1710003600&Signature=demo",
       "image_object_key": "stars/STAR0001/1710000000000-abcd1234.jpg"
     }
+<<<<<<< HEAD
 >>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
+=======
+>>>>>>> pr-16
   }
 }

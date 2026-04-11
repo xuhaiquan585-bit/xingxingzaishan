@@ -3,10 +3,14 @@ const path = require('path');
 const fs = require('fs');
 const { getQRCode } = require('../services/dbService');
 <<<<<<< HEAD
+<<<<<<< HEAD
 const { getStorageMode, getSignedUrl } = require('../services/storageService');
 =======
 const { getStorageMode, getSignedUrl, getLocalObjectPath } = require('../services/storageService');
 >>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
+=======
+const { getStorageMode, getSignedUrl, getLocalObjectPath } = require('../services/storageService');
+>>>>>>> pr-16
 
 const router = express.Router();
 
@@ -50,12 +54,17 @@ router.get('/:qrId/download', (req, res) => {
   }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
   const filename = path.basename(qr.image_url);
   const localPath = path.join(__dirname, '..', 'public', 'uploads', filename);
 =======
   const localPath = getLocalObjectPath(qr.image_object_key || qr.image_url);
   const filename = path.basename(localPath);
 >>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
+=======
+  const localPath = getLocalObjectPath(qr.image_object_key || qr.image_url);
+  const filename = path.basename(localPath);
+>>>>>>> pr-16
   if (!fs.existsSync(localPath)) {
     return res.status(404).json({
       status: 'error',
@@ -65,8 +74,11 @@ router.get('/:qrId/download', (req, res) => {
   }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
   return res.download(localPath, `nft-${qr.id}-${filename}`);
 =======
+=======
+>>>>>>> pr-16
   return res.json({
     status: 'success',
     code: 'OK',
@@ -75,7 +87,10 @@ router.get('/:qrId/download', (req, res) => {
       image_object_key: qr.image_object_key || null
     }
   });
+<<<<<<< HEAD
 >>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
+=======
+>>>>>>> pr-16
 });
 
 router.get('/:qrId/share-meta', (req, res) => {

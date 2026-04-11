@@ -144,7 +144,10 @@ test('POST /api/qc/check should reject unauthorized request', async () => {
   assert.equal(res.body.code, 'UNAUTHORIZED');
 });
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> pr-16
 
 
 test('GET /api/nft/:id/download should return download_url after activation', async () => {
@@ -176,4 +179,7 @@ test('GET /api/nft/:id/download should return download_url after activation', as
   assert.equal(downloadRes.status, 200);
   assert.ok(downloadRes.body.data.download_url);
 });
+<<<<<<< HEAD
 >>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
+=======
+>>>>>>> pr-16
