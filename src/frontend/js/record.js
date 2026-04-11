@@ -147,6 +147,7 @@ downloadBtn.addEventListener('click', async () => {
     }
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     window.open(`/api/nft/${encodeURIComponent(currentResult.qr_id)}/download`, '_blank');
   } catch (_error) {
     window.open(`/api/nft/${encodeURIComponent(currentResult.qr_id)}/download`, '_blank');
@@ -160,6 +161,11 @@ downloadBtn.addEventListener('click', async () => {
   } catch (error) {
     alert(error.message || '下载失败，请稍后再试。');
 >>>>>>> pr-16
+=======
+    alert('暂未生成可下载链接，请稍后再试。');
+  } catch (error) {
+    alert(error.message || '下载失败，请稍后再试。');
+>>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
   }
 });
 

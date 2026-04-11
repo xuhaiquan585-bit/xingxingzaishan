@@ -46,6 +46,10 @@ test.before(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xingxingzaishan-'));
   process.env.DB_FILE = path.join(tmpDir, 'db.json');
   process.env.STORAGE_ROOT = path.join(tmpDir, 'storage');
+<<<<<<< HEAD
+=======
+  process.env.AUTH_SECRET = 'test-secret-123';
+>>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 
   // eslint-disable-next-line global-require
   const { createApp } = require('../src/server/app');
@@ -74,6 +78,10 @@ test.after(async () => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
   delete process.env.DB_FILE;
   delete process.env.STORAGE_ROOT;
+<<<<<<< HEAD
+=======
+  delete process.env.AUTH_SECRET;
+>>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 });
 
 test('POST /api/user/login should reject invalid phone', async () => {
@@ -145,9 +153,62 @@ test('POST /api/qc/check should reject unauthorized request', async () => {
 });
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 =======
 >>>>>>> pr-16
+=======
+
+test('GET /api/admin/dashboard should reject qc role token', async () => {
+  const qcLogin = await postJson('/api/admin/login', { username: 'qc', password: 'qc123456' });
+  assert.equal(qcLogin.status, 200);
+  const qcToken = qcLogin.body.data.token;
+
+  const res = await getJson('/api/admin/dashboard', qcToken);
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'FORBIDDEN');
+});
+
+test('GET /api/qc/logs should reject missing token', async () => {
+  const res = await getJson('/api/qc/logs');
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, 'UNAUTHORIZED');
+});
+
+test('createApp should fail fast in cloud mode without OSS config', async () => {
+  const oldStorageMode = process.env.STORAGE_MODE;
+  const oldAccessKeyId = process.env.OSS_ACCESS_KEY_ID;
+  const oldAccessKeySecret = process.env.OSS_ACCESS_KEY_SECRET;
+  const oldBucket = process.env.OSS_BUCKET;
+  const oldRegion = process.env.OSS_REGION;
+  const oldEndpoint = process.env.OSS_ENDPOINT;
+  process.env.STORAGE_MODE = 'cloud';
+  delete process.env.OSS_ENDPOINT;
+  delete process.env.OSS_ACCESS_KEY_ID;
+  delete process.env.OSS_ACCESS_KEY_SECRET;
+  delete process.env.OSS_BUCKET;
+  delete process.env.OSS_REGION;
+
+  const { createApp } = require('../src/server/app');
+  assert.throws(
+    () => createApp(),
+    (error) => error && error.code === 'CONFIG_VALIDATION_FAILED'
+  );
+
+  if (oldStorageMode === undefined) delete process.env.STORAGE_MODE;
+  else process.env.STORAGE_MODE = oldStorageMode;
+  if (oldAccessKeyId === undefined) delete process.env.OSS_ACCESS_KEY_ID;
+  else process.env.OSS_ACCESS_KEY_ID = oldAccessKeyId;
+  if (oldAccessKeySecret === undefined) delete process.env.OSS_ACCESS_KEY_SECRET;
+  else process.env.OSS_ACCESS_KEY_SECRET = oldAccessKeySecret;
+  if (oldBucket === undefined) delete process.env.OSS_BUCKET;
+  else process.env.OSS_BUCKET = oldBucket;
+  if (oldRegion === undefined) delete process.env.OSS_REGION;
+  else process.env.OSS_REGION = oldRegion;
+  if (oldEndpoint === undefined) delete process.env.OSS_ENDPOINT;
+  else process.env.OSS_ENDPOINT = oldEndpoint;
+});
+>>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 
 
 test('GET /api/nft/:id/download should return download_url after activation', async () => {
@@ -180,6 +241,9 @@ test('GET /api/nft/:id/download should return download_url after activation', as
   assert.ok(downloadRes.body.data.download_url);
 });
 <<<<<<< HEAD
+<<<<<<< HEAD
 >>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
 =======
 >>>>>>> pr-16
+=======
+>>>>>>> origin/codex/review-task-document-for-understanding-tsjiat

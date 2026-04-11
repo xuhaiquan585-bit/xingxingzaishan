@@ -10,20 +10,78 @@ const qcRoutes = require('./routes/qc');
 const nftRoutes = require('./routes/nft');
 const { createRateLimiter } = require('./middlewares/rateLimit');
 const { auditLogger } = require('./middlewares/auditLogger');
+<<<<<<< HEAD
 
 function createApp() {
+=======
+const { assertRuntimeConfig, parseOrigins } = require('./services/configService');
+
+function corsMiddleware() {
+  const allowedOrigins = new Set(parseOrigins(process.env.CORS_ORIGINS));
+  const allowMethods = 'GET,POST,PUT,PATCH,DELETE,OPTIONS';
+  const allowHeaders = 'Content-Type,Authorization';
+
+  return (req, res, next) => {
+    const origin = req.headers.origin;
+    if (!origin) {
+      return next();
+    }
+
+    if (!allowedOrigins.has(origin)) {
+      if (req.method === 'OPTIONS') {
+        return res.status(403).json({
+          status: 'error',
+          code: 'CORS_FORBIDDEN',
+          message: '当前来源不被允许访问该接口。'
+        });
+      }
+      return next();
+    }
+
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', allowMethods);
+    res.setHeader('Access-Control-Allow-Headers', allowHeaders);
+
+    if (req.method === 'OPTIONS') {
+      return res.status(204).end();
+    }
+
+    return next();
+  };
+}
+
+function createApp() {
+  assertRuntimeConfig();
+
+>>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
   const app = express();
 
   initializeDB();
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+<<<<<<< HEAD
+=======
+  app.use(corsMiddleware());
+>>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
 
 
   const loginRateLimiter = createRateLimiter({
     window_ms: process.env.RATE_LIMIT_LOGIN_WINDOW_MS || 60_000,
     max_requests: process.env.RATE_LIMIT_LOGIN_MAX || 20,
+<<<<<<< HEAD
     key_builder: (req) => `${req.ip}:login`,
+=======
+    key_builder: (req) => {
+      const identity = (req.body.phone || req.body.username || '').toString().trim();
+      const keys = [`${req.ip}:login`];
+      if (identity) {
+        keys.push(`${identity}:login`);
+      }
+      return keys;
+    },
+>>>>>>> origin/codex/review-task-document-for-understanding-tsjiat
     methods: ['POST']
   });
 
