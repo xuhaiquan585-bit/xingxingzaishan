@@ -1,0 +1,6 @@
+node_modules/
+src/server/data/
+src/server/buffer/
+src/server/public/uploads/
+src/server/public/cloud/
+src/server/logs/
