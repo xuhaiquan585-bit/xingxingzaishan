@@ -113,6 +113,14 @@ async function putObjectToOss({ objectKey, localPath }) {
   });
 }
 
+<<<<<<< HEAD
+=======
+
+function getLocalObjectPath(value) {
+  return path.join(localUploadDir, path.basename(String(value || '')));
+}
+
+>>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
 function getSignedUrl(objectKey, expiresSeconds = Number(process.env.OSS_SIGNED_URL_EXPIRES || 3600)) {
   if (!objectKey) return null;
   if (getStorageMode() !== 'cloud') {
@@ -171,5 +179,10 @@ module.exports = {
   getStorageMode,
   saveImage,
   getSignedUrl,
+<<<<<<< HEAD
   getObjectPrefix
+=======
+  getObjectPrefix,
+  getLocalObjectPath
+>>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
 };

@@ -143,3 +143,37 @@ test('POST /api/qc/check should reject unauthorized request', async () => {
   assert.equal(res.status, 401);
   assert.equal(res.body.code, 'UNAUTHORIZED');
 });
+<<<<<<< HEAD
+=======
+
+
+test('GET /api/nft/:id/download should return download_url after activation', async () => {
+  const imageData = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+    'base64'
+  );
+  const formData = new FormData();
+  formData.append('image', new Blob([imageData], { type: 'image/png' }), 'pixel.png');
+  formData.append('qr_id', 'STAR0002');
+
+  const uploadRes = await fetch(`${baseUrl}/api/upload`, {
+    method: 'POST',
+    body: formData
+  });
+  const uploadBody = await uploadRes.json();
+  assert.equal(uploadRes.status, 200);
+  assert.ok(uploadBody.data.object_key);
+
+  const recordRes = await postJson('/api/qr/STAR0002/record', {
+    phone: '13800138000',
+    content: 'demo',
+    image_url: uploadBody.data.url,
+    image_object_key: uploadBody.data.object_key
+  });
+  assert.equal(recordRes.status, 200);
+
+  const downloadRes = await getJson('/api/nft/STAR0002/download');
+  assert.equal(downloadRes.status, 200);
+  assert.ok(downloadRes.body.data.download_url);
+});
+>>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q

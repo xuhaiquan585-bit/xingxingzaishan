@@ -2,7 +2,11 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { getQRCode } = require('../services/dbService');
+<<<<<<< HEAD
 const { getStorageMode, getSignedUrl } = require('../services/storageService');
+=======
+const { getStorageMode, getSignedUrl, getLocalObjectPath } = require('../services/storageService');
+>>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
 
 const router = express.Router();
 
@@ -45,8 +49,13 @@ router.get('/:qrId/download', (req, res) => {
     });
   }
 
+<<<<<<< HEAD
   const filename = path.basename(qr.image_url);
   const localPath = path.join(__dirname, '..', 'public', 'uploads', filename);
+=======
+  const localPath = getLocalObjectPath(qr.image_object_key || qr.image_url);
+  const filename = path.basename(localPath);
+>>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
   if (!fs.existsSync(localPath)) {
     return res.status(404).json({
       status: 'error',
@@ -55,7 +64,18 @@ router.get('/:qrId/download', (req, res) => {
     });
   }
 
+<<<<<<< HEAD
   return res.download(localPath, `nft-${qr.id}-${filename}`);
+=======
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: {
+      download_url: `/uploads/${filename}`,
+      image_object_key: qr.image_object_key || null
+    }
+  });
+>>>>>>> origin/codex/review-task-document-for-understanding-8ucc5q
 });
 
 router.get('/:qrId/share-meta', (req, res) => {
