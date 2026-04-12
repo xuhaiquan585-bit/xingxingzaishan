@@ -3,7 +3,35 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { FormData } = require('form-data');
+const crypto = require('crypto');
+
+// 手动构建 multipart/form-data（兼容所有 Node.js 版本）
+function buildMultipart(fields) {
+  const boundary = 'XB' + crypto.randomBytes(8).toString('hex');
+  const parts = [];
+  for (const [name, field] of Object.entries(fields)) {
+    const def = field && typeof field === 'object' && field.data !== undefined ? field : { data: field };
+    const buf = Buffer.isBuffer(def.data) ? def.data : Buffer.from(String(def.data || ''));
+    const disposition = def.filename
+      ? `form-data; name="${name}"; filename="${def.filename}"`
+      : `form-data; name="${name}"`;
+    parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: ${disposition}\r\nContent-Type: ${def.contentType || 'text/plain'}\r\n\r\n`));
+    parts.push(buf);
+    parts.push(Buffer.from('\r\n'));
+  }
+  parts.push(Buffer.from(`--${boundary}--\r\n`));
+  return { boundary, body: Buffer.concat(parts) };
+}
+
+async function multipartPost(url, fields, token) {
+  const { boundary, body } = buildMultipart(fields);
+  const headers = { 'Content-Type': `multipart/form-data; boundary=${boundary}` };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${baseUrl}${url}`, { method: 'POST', headers, body });
+  let json;
+  try { json = await res.json(); } catch { json = {}; }
+  return { status: res.status, body: json };
+}
 
 let server;
 let baseUrl;
@@ -93,17 +121,16 @@ test('POST /api/user/login should login with valid phone', async () => {
 });
 
 test('POST /api/upload should reject non-image file', async () => {
-  const formData = new FormData();
-  formData.append('image', new Blob(['not-image'], { type: 'text/plain' }), 'not-image.txt');
-
-  const response = await fetch(`${baseUrl}/api/upload`, {
-    method: 'POST',
-    body: formData
+  // 发送 text/plain 类型文件，multer 应拒绝
+  const res = await multipartPost('/api/upload', {
+    image: {
+      data: Buffer.from('this is not an image'),
+      filename: 'not-image.txt',
+      contentType: 'text/plain'
+    }
   });
-
-  const body = await response.json();
-  assert.equal(response.status, 400);
-  assert.equal(body.code, 'UPLOAD_FAILED');
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, 'UPLOAD_FAILED');
 });
 
 test('POST /api/qr/:id/record should validate image_url required', async () => {
@@ -199,27 +226,21 @@ test('createApp should fail fast in cloud mode without OSS config', async () => 
 
 
 test('GET /api/nft/:id/download should return download_url after activation', async () => {
-  const imageData = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
-    'base64'
-  );
-  const formData = new FormData();
-  formData.append('image', new Blob([imageData], { type: 'image/png' }), 'pixel.png');
-  formData.append('qr_id', 'STAR0002');
+  const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=';
+  const pngBuffer = Buffer.from(pngBase64, 'base64');
 
-  const uploadRes = await fetch(`${baseUrl}/api/upload`, {
-    method: 'POST',
-    body: formData
+  const uploadRes = await multipartPost('/api/upload', {
+    image: { data: pngBuffer, filename: 'pixel.png', contentType: 'image/png' },
+    qr_id: 'STAR0002'
   });
-  const uploadBody = await uploadRes.json();
   assert.equal(uploadRes.status, 200);
-  assert.ok(uploadBody.data.object_key);
+  assert.ok(uploadRes.body.data.object_key);
 
   const recordRes = await postJson('/api/qr/STAR0002/record', {
     phone: '13800138000',
     content: 'demo',
-    image_url: uploadBody.data.url,
-    image_object_key: uploadBody.data.object_key
+    image_url: uploadRes.body.data.url,
+    image_object_key: uploadRes.body.data.object_key
   });
   assert.equal(recordRes.status, 200);
 
