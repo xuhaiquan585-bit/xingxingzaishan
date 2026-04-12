@@ -3,43 +3,120 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const http = require('http');
+const crypto = require('crypto');
 
 let server;
 let baseUrl;
+let basePort;
 let tmpDir;
 
-async function postJson(url, body, token) {
-  const headers = { 'Content-Type': 'application/json' };
+function requestRaw(method, urlPath, { headers = {}, body } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: basePort,
+      path: urlPath,
+      method,
+      headers
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        let parsed = null;
+        try {
+          parsed = raw ? JSON.parse(raw) : null;
+        } catch (_error) {
+          parsed = null;
+        }
+
+        resolve({
+          status: res.statusCode,
+          headers: res.headers,
+          raw,
+          body: parsed
+        });
+      });
+    });
+
+    req.on('error', reject);
+
+    if (body) {
+      req.write(body);
+    }
+
+    req.end();
+  });
+}
+
+function postJson(urlPath, body, token) {
+  const payload = Buffer.from(JSON.stringify(body), 'utf8');
+  const headers = {
+    'Content-Type': 'application/json',
+    'Content-Length': payload.length
+  };
+
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${baseUrl}${url}`, {
-    method: 'POST',
+  return requestRaw('POST', urlPath, {
     headers,
-    body: JSON.stringify(body)
+    body: payload
   });
-  return {
-    status: res.status,
-    body: await res.json()
-  };
 }
 
-
-async function getJson(url, token) {
+function getJson(urlPath, token) {
   const headers = {};
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
+  return requestRaw('GET', urlPath, { headers });
+}
 
-  const res = await fetch(`${baseUrl}${url}`, {
-    method: 'GET',
-    headers
+function createMultipartBody(fields = {}, files = []) {
+  const boundary = `----NodeFormBoundary${crypto.randomBytes(12).toString('hex')}`;
+  const chunks = [];
+
+  Object.entries(fields).forEach(([name, value]) => {
+    chunks.push(Buffer.from(`--${boundary}\r\n`));
+    chunks.push(Buffer.from(`Content-Disposition: form-data; name="${name}"\r\n\r\n`));
+    chunks.push(Buffer.from(String(value)));
+    chunks.push(Buffer.from('\r\n'));
   });
+
+  files.forEach((file) => {
+    chunks.push(Buffer.from(`--${boundary}\r\n`));
+    chunks.push(Buffer.from(`Content-Disposition: form-data; name="${file.fieldName}"; filename="${file.filename}"\r\n`));
+    chunks.push(Buffer.from(`Content-Type: ${file.contentType || 'application/octet-stream'}\r\n\r\n`));
+    chunks.push(Buffer.isBuffer(file.content) ? file.content : Buffer.from(file.content || '', 'utf8'));
+    chunks.push(Buffer.from('\r\n'));
+  });
+
+  chunks.push(Buffer.from(`--${boundary}--\r\n`));
+
   return {
-    status: res.status,
-    body: await res.json()
+    body: Buffer.concat(chunks),
+    contentType: `multipart/form-data; boundary=${boundary}`
   };
+}
+
+function postMultipart(urlPath, { fields = {}, files = [] }, token) {
+  const multipart = createMultipartBody(fields, files);
+  const headers = {
+    'Content-Type': multipart.contentType,
+    'Content-Length': multipart.body.length
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  return requestRaw('POST', urlPath, {
+    headers,
+    body: multipart.body
+  });
 }
 
 test.before(async () => {
@@ -55,6 +132,7 @@ test.before(async () => {
   await new Promise((resolve) => {
     server = app.listen(0, () => {
       const address = server.address();
+      basePort = address.port;
       baseUrl = `http://127.0.0.1:${address.port}`;
       resolve();
     });
@@ -62,15 +140,17 @@ test.before(async () => {
 });
 
 test.after(async () => {
-  await new Promise((resolve, reject) => {
-    server.close((err) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      resolve();
+  if (server) {
+    await new Promise((resolve, reject) => {
+      server.close((err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve();
+      });
     });
-  });
+  }
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
   delete process.env.DB_FILE;
@@ -92,17 +172,19 @@ test('POST /api/user/login should login with valid phone', async () => {
 });
 
 test('POST /api/upload should reject non-image file', async () => {
-  const formData = new FormData();
-  formData.append('image', new Blob(['not-image'], { type: 'text/plain' }), 'not-image.txt');
-
-  const response = await fetch(`${baseUrl}/api/upload`, {
-    method: 'POST',
-    body: formData
+  const response = await postMultipart('/api/upload', {
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'not-image.txt',
+        contentType: 'text/plain',
+        content: 'not-image'
+      }
+    ]
   });
 
-  const body = await response.json();
   assert.equal(response.status, 400);
-  assert.equal(body.code, 'UPLOAD_FAILED');
+  assert.equal(response.body.code, 'UPLOAD_FAILED');
 });
 
 test('POST /api/qr/:id/record should validate image_url required', async () => {
@@ -116,7 +198,6 @@ test('POST /api/admin/login should reject wrong credentials', async () => {
   assert.equal(res.status, 401);
   assert.equal(res.body.code, 'INVALID_CREDENTIALS');
 });
-
 
 test('POST /api/admin/login should return token for valid credentials', async () => {
   const res = await postJson('/api/admin/login', { username: 'admin', password: 'admin123' });
@@ -196,22 +277,26 @@ test('createApp should fail fast in cloud mode without OSS config', async () => 
   else process.env.OSS_ENDPOINT = oldEndpoint;
 });
 
-
 test('GET /api/nft/:id/download should return download_url after activation', async () => {
   const imageData = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
     'base64'
   );
-  const formData = new FormData();
-  formData.append('image', new Blob([imageData], { type: 'image/png' }), 'pixel.png');
-  formData.append('qr_id', 'STAR0002');
 
-  const uploadRes = await fetch(`${baseUrl}/api/upload`, {
-    method: 'POST',
-    body: formData
+  const uploadRes = await postMultipart('/api/upload', {
+    fields: { qr_id: 'STAR0002' },
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'pixel.png',
+        contentType: 'image/png',
+        content: imageData
+      }
+    ]
   });
-  const uploadBody = await uploadRes.json();
+
   assert.equal(uploadRes.status, 200);
+  const uploadBody = uploadRes.body;
   assert.ok(uploadBody.data.object_key);
 
   const recordRes = await postJson('/api/qr/STAR0002/record', {
