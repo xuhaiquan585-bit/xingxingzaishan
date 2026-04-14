@@ -3,6 +3,7 @@ const {
   findAdmin,
   getDashboardStats,
   listQRRecords,
+  generateQRCodes,
   setQRHiddenStatus,
   setQRHiddenStatusBatch,
   createBatch,
@@ -266,6 +267,51 @@ router.get('/batches/:batchId/export', requireAdmin, (req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
   return res.send(`\uFEFF${result.data}`);
+});
+
+router.post('/qr/generate', requireAdmin, (req, res) => {
+  const { prefix, count = 1, batch_id: batchId } = req.body;
+  const normalizedPrefix = String(prefix || '').trim().toUpperCase();
+
+  if (!normalizedPrefix || !/^[A-Z0-9]+$/.test(normalizedPrefix)) {
+    return res.status(400).json({
+      status: 'error',
+      code: 'VALIDATION_ERROR',
+      message: 'prefix 仅支持字母和数字。'
+    });
+  }
+
+  const normalizedCount = Number(count);
+  if (!Number.isInteger(normalizedCount) || normalizedCount <= 0) {
+    return res.status(400).json({
+      status: 'error',
+      code: 'VALIDATION_ERROR',
+      message: 'count 必须是大于 0 的整数。'
+    });
+  }
+
+  const result = generateQRCodes({
+    prefix: normalizedPrefix,
+    count: normalizedCount,
+    batchId: batchId ? String(batchId).trim() : null
+  });
+
+  if (result.error === 'QR_SEQUENCE_EXCEEDED') {
+    return res.status(400).json({
+      status: 'error',
+      code: 'QR_SEQUENCE_EXCEEDED',
+      message: '该 prefix 可用序号已用尽（最多 99999）。'
+    });
+  }
+
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: {
+      count: result.data.count,
+      ids: result.data.ids
+    }
+  });
 });
 
 router.get('/records', requireAdmin, (req, res) => {

@@ -3,72 +3,122 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const http = require('http');
 const crypto = require('crypto');
 
-// 手动构建 multipart/form-data（兼容所有 Node.js 版本）
-function buildMultipart(fields) {
-  const boundary = 'XB' + crypto.randomBytes(8).toString('hex');
-  const parts = [];
-  for (const [name, field] of Object.entries(fields)) {
-    const def = field && typeof field === 'object' && field.data !== undefined ? field : { data: field };
-    const buf = Buffer.isBuffer(def.data) ? def.data : Buffer.from(String(def.data || ''));
-    const disposition = def.filename
-      ? `form-data; name="${name}"; filename="${def.filename}"`
-      : `form-data; name="${name}"`;
-    parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: ${disposition}\r\nContent-Type: ${def.contentType || 'text/plain'}\r\n\r\n`));
-    parts.push(buf);
-    parts.push(Buffer.from('\r\n'));
-  }
-  parts.push(Buffer.from(`--${boundary}--\r\n`));
-  return { boundary, body: Buffer.concat(parts) };
+let server;
+let baseUrl;
+let basePort;
+let tmpDir;
+
+// 原生 http.request 用于 multipart 上传（Node.js 全版本兼容）
+function requestRaw(method, urlPath, { headers = {}, body } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: basePort,
+      path: urlPath,
+      method,
+      headers
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        let parsed = null;
+        try {
+          parsed = raw ? JSON.parse(raw) : null;
+        } catch (_error) {
+          parsed = null;
+        }
+
+        resolve({
+          status: res.statusCode,
+          headers: res.headers,
+          raw,
+          body: parsed
+        });
+      });
+    });
+
+    req.on('error', reject);
+
+    if (body) {
+      req.write(body);
+    }
+
+    req.end();
+  });
 }
 
-async function multipartPost(url, fields, token) {
-  const { boundary, body } = buildMultipart(fields);
-  const headers = { 'Content-Type': `multipart/form-data; boundary=${boundary}` };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${baseUrl}${url}`, { method: 'POST', headers, body });
+// JSON 请求用 fetch（简洁可靠）
+async function postJson(urlPath, body, token) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${baseUrl}${urlPath}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body)
+  });
   let json;
   try { json = await res.json(); } catch { json = {}; }
   return { status: res.status, body: json };
 }
 
-let server;
-let baseUrl;
-let tmpDir;
+function getJson(urlPath, token) {
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return fetch(`${baseUrl}${urlPath}`, { method: 'GET', headers })
+    .then(async (res) => {
+      let json;
+      try { json = await res.json(); } catch { json = {}; }
+      return { status: res.status, body: json };
+    });
+}
 
-async function postJson(url, body, token) {
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
+// Multipart 构建与发送（用于文件上传测试）
+function createMultipartBody(fields = {}, files = []) {
+  const boundary = `----NodeFormBoundary${crypto.randomBytes(12).toString('hex')}`;
+  const chunks = [];
 
-  const res = await fetch(`${baseUrl}${url}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body)
+  Object.entries(fields).forEach(([name, value]) => {
+    chunks.push(Buffer.from(`--${boundary}\r\n`));
+    chunks.push(Buffer.from(`Content-Disposition: form-data; name="${name}"\r\n\r\n`));
+    chunks.push(Buffer.from(String(value)));
+    chunks.push(Buffer.from('\r\n'));
   });
+
+  files.forEach((file) => {
+    chunks.push(Buffer.from(`--${boundary}\r\n`));
+    chunks.push(Buffer.from(`Content-Disposition: form-data; name="${file.fieldName}"; filename="${file.filename}"\r\n`));
+    chunks.push(Buffer.from(`Content-Type: ${file.contentType || 'application/octet-stream'}\r\n\r\n`));
+    chunks.push(Buffer.isBuffer(file.content) ? file.content : Buffer.from(file.content || '', 'utf8'));
+    chunks.push(Buffer.from('\r\n'));
+  });
+
+  chunks.push(Buffer.from(`--${boundary}--\r\n`));
+
   return {
-    status: res.status,
-    body: await res.json()
+    body: Buffer.concat(chunks),
+    contentType: `multipart/form-data; boundary=${boundary}`
   };
 }
 
+function postMultipart(urlPath, { fields = {}, files = [] }, token) {
+  const multipart = createMultipartBody(fields, files);
+  const headers = {
+    'Content-Type': multipart.contentType,
+    'Content-Length': multipart.body.length
+  };
 
-async function getJson(url, token) {
-  const headers = {};
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${baseUrl}${url}`, {
-    method: 'GET',
-    headers
+  return requestRaw('POST', urlPath, {
+    headers,
+    body: multipart.body
   });
-  return {
-    status: res.status,
-    body: await res.json()
-  };
 }
 
 test.before(async () => {
@@ -88,6 +138,7 @@ test.before(async () => {
   await new Promise((resolve) => {
     server = app.listen(0, () => {
       const address = server.address();
+      basePort = address.port;
       baseUrl = `http://127.0.0.1:${address.port}`;
       resolve();
     });
@@ -95,15 +146,14 @@ test.before(async () => {
 });
 
 test.after(async () => {
-  await new Promise((resolve, reject) => {
-    server.close((err) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      resolve();
+  if (server) {
+    await new Promise((resolve, reject) => {
+      server.close((err) => {
+        if (err) { reject(err); return; }
+        resolve();
+      });
     });
-  });
+  }
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
   delete process.env.DB_FILE;
@@ -126,16 +176,19 @@ test('POST /api/user/login should login with valid phone', async () => {
 });
 
 test('POST /api/upload should reject non-image file', async () => {
-  // 发送 text/plain 类型文件，multer 应拒绝
-  const res = await multipartPost('/api/upload', {
-    image: {
-      data: Buffer.from('this is not an image'),
-      filename: 'not-image.txt',
-      contentType: 'text/plain'
-    }
+  const response = await postMultipart('/api/upload', {
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'not-image.txt',
+        contentType: 'text/plain',
+        content: 'not-image'
+      }
+    ]
   });
-  assert.equal(res.status, 400);
-  assert.equal(res.body.code, 'UPLOAD_FAILED');
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.code, 'UPLOAD_FAILED');
 });
 
 test('POST /api/qr/:id/record should validate image_url required', async () => {
@@ -149,7 +202,6 @@ test('POST /api/admin/login should reject wrong credentials', async () => {
   assert.equal(res.status, 401);
   assert.equal(res.body.code, 'INVALID_CREDENTIALS');
 });
-
 
 test('POST /api/admin/login should return token for valid credentials', async () => {
   const res = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
@@ -166,6 +218,56 @@ test('GET /api/admin/dashboard should work with valid token', async () => {
   assert.equal(res.status, 200);
   assert.equal(res.body.status, 'success');
 });
+
+// ========== D2: 二维码生成接口测试 ==========
+
+test('POST /api/admin/qr/generate should create issued and unactivated QR ids', async () => {
+  const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const token = login.body.data.token;
+
+  const generateRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'ab9',
+    count: 3,
+    batch_id: 'BATCH_TEST'
+  }, token);
+
+  assert.equal(generateRes.status, 200);
+  assert.deepEqual(generateRes.body.data.ids, ['AB900001', 'AB900002', 'AB900003']);
+
+  const generateMoreRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'AB9',
+    count: 2,
+    batch_id: 'BATCH_TEST'
+  }, token);
+
+  assert.equal(generateMoreRes.status, 200);
+  assert.deepEqual(generateMoreRes.body.data.ids, ['AB900004', 'AB900005']);
+
+  const recordsRes = await getJson('/api/admin/records?id_prefix=AB9&limit=10', token);
+  assert.equal(recordsRes.status, 200);
+  const generated = recordsRes.body.data.records.filter((item) => item.id.startsWith('AB9'));
+  assert.equal(generated.length, 5);
+  generated.forEach((item) => {
+    assert.equal(item.issue_status, 'issued');
+    assert.equal(item.activation_status, 'unactivated');
+    assert.equal(item.batch_id, 'BATCH_TEST');
+  });
+});
+
+test('POST /api/admin/qr/generate should validate prefix format', async () => {
+  const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const token = login.body.data.token;
+
+  const res = await postJson('/api/admin/qr/generate', {
+    prefix: 'ab-9',
+    count: 1
+  }, token);
+
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, 'VALIDATION_ERROR');
+});
+
+// ===========================================
 
 test('GET /api/admin/dashboard should reject invalid token', async () => {
   const res = await getJson('/api/admin/dashboard', 'bad.token.value');
@@ -195,6 +297,40 @@ test('GET /api/qc/logs should reject missing token', async () => {
   assert.equal(res.body.code, 'UNAUTHORIZED');
 });
 
+// ========== D1: 安全基座测试 ==========
+
+test('createApp should fail fast in production when no admin bootstrap config and no existing admins', async () => {
+  const oldNodeEnv = process.env.NODE_ENV;
+  const oldDbFile = process.env.DB_FILE;
+  const oldBootstrap = process.env.ADMIN_INIT_ACCOUNTS_JSON;
+
+  const isolatedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xingxingzaishan-prod-'));
+  process.env.NODE_ENV = 'production';
+  process.env.DB_FILE = path.join(isolatedDir, 'db.json');
+  delete process.env.ADMIN_INIT_ACCOUNTS_JSON;
+
+  delete require.cache[require.resolve('../src/server/app')];
+  delete require.cache[require.resolve('../src/server/services/dbService')];
+  const { createApp } = require('../src/server/app');
+  assert.throws(
+    () => createApp(),
+    (error) => error && error.code === 'CONFIG_VALIDATION_FAILED'
+  );
+
+  if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = oldNodeEnv;
+  if (oldDbFile === undefined) delete process.env.DB_FILE;
+  else process.env.DB_FILE = oldDbFile;
+  if (oldBootstrap === undefined) delete process.env.ADMIN_INIT_ACCOUNTS_JSON;
+  else process.env.ADMIN_INIT_ACCOUNTS_JSON = oldBootstrap;
+
+  fs.rmSync(isolatedDir, { recursive: true, force: true });
+  delete require.cache[require.resolve('../src/server/app')];
+  delete require.cache[require.resolve('../src/server/services/dbService')];
+});
+
+// ===========================================
+
 test('createApp should fail fast in cloud mode without OSS config', async () => {
   const oldStorageMode = process.env.STORAGE_MODE;
   const oldAccessKeyId = process.env.OSS_ACCESS_KEY_ID;
@@ -209,6 +345,8 @@ test('createApp should fail fast in cloud mode without OSS config', async () => 
   delete process.env.OSS_BUCKET;
   delete process.env.OSS_REGION;
 
+  delete require.cache[require.resolve('../src/server/app')];
+  delete require.cache[require.resolve('../src/server/services/dbService')];
   const { createApp } = require('../src/server/app');
   assert.throws(
     () => createApp(),
@@ -229,23 +367,33 @@ test('createApp should fail fast in cloud mode without OSS config', async () => 
   else process.env.OSS_ENDPOINT = oldEndpoint;
 });
 
-
 test('GET /api/nft/:id/download should return download_url after activation', async () => {
-  const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=';
-  const pngBuffer = Buffer.from(pngBase64, 'base64');
+  const imageData = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ZQ1EAAAAASUVORK5CYII=',
+    'base64'
+  );
 
-  const uploadRes = await multipartPost('/api/upload', {
-    image: { data: pngBuffer, filename: 'pixel.png', contentType: 'image/png' },
-    qr_id: 'STAR0002'
+  const uploadRes = await postMultipart('/api/upload', {
+    fields: { qr_id: 'STAR0002' },
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'pixel.png',
+        contentType: 'image/png',
+        content: imageData
+      }
+    ]
   });
+
   assert.equal(uploadRes.status, 200);
-  assert.ok(uploadRes.body.data.object_key);
+  const uploadBody = uploadRes.body;
+  assert.ok(uploadBody.data.object_key);
 
   const recordRes = await postJson('/api/qr/STAR0002/record', {
     phone: '13800138000',
     content: 'demo',
-    image_url: uploadRes.body.data.url,
-    image_object_key: uploadRes.body.data.object_key
+    image_url: uploadBody.data.url,
+    image_object_key: uploadBody.data.object_key
   });
   assert.equal(recordRes.status, 200);
 

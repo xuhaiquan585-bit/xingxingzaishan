@@ -425,6 +425,71 @@ function listQRRecords({ issueStatus, activationStatus, hidden, idPrefix, batchI
   };
 }
 
+function generateQRCodes({ prefix, count, batchId }) {
+  const db = readDB();
+  const normalizedPrefix = String(prefix).toUpperCase();
+  const regex = new RegExp(`^${normalizedPrefix}(\\d{5})$`);
+
+  let maxSeq = 0;
+  db.qr_codes.forEach((item) => {
+    const matched = regex.exec(item.id);
+    if (!matched) {
+      return;
+    }
+    const seq = Number(matched[1]);
+    if (seq > maxSeq) {
+      maxSeq = seq;
+    }
+  });
+
+  const records = [];
+  const ids = [];
+
+  for (let i = 1; i <= count; i += 1) {
+    const seq = maxSeq + i;
+    if (seq > 99999) {
+      return { error: 'QR_SEQUENCE_EXCEEDED' };
+    }
+
+    const id = `${normalizedPrefix}${String(seq).padStart(5, '0')}`;
+    const record = {
+      id,
+      issue_status: 'issued',
+      activation_status: 'unactivated',
+      hidden: false,
+      batch_id: batchId || null,
+      print_batch_id: null,
+      quality_check: {
+        checked: false,
+        checked_at: null,
+        checked_by: null,
+        result: null
+      },
+      content: null,
+      image_url: null,
+      image_object_key: null,
+      phone: null,
+      activated_at: null,
+      blockchain_hash: null,
+      created_at: nowISO()
+    };
+
+    records.push(record);
+    ids.push(id);
+  }
+
+  db.qr_codes.push(...records);
+  writeDB(db);
+
+  return {
+    data: {
+      count: ids.length,
+      ids,
+      records
+    }
+  };
+}
+
 function setQRHiddenStatus(qrId, hidden) {
   const db = readDB();
   const index = db.qr_codes.findIndex((item) => item.id === qrId);
@@ -653,6 +718,7 @@ module.exports = {
   setOperatorEnabled,
   getDashboardStats,
   listQRRecords,
+  generateQRCodes,
   setQRHiddenStatus,
   setQRHiddenStatusBatch,
   createBatch,
