@@ -124,6 +124,10 @@ test.before(async () => {
   process.env.DB_FILE = path.join(tmpDir, 'db.json');
   process.env.STORAGE_ROOT = path.join(tmpDir, 'storage');
   process.env.AUTH_SECRET = 'test-secret-123';
+  process.env.ADMIN_INIT_ACCOUNTS_JSON = JSON.stringify([
+    { username: 'admin', password: 'test-admin-pass', role: 'admin', name: '系统管理员' },
+    { username: 'qc', password: 'test-qc-pass', role: 'qc', name: '质检员' }
+  ]);
 
   // eslint-disable-next-line global-require
   const { createApp } = require('../src/server/app');
@@ -156,6 +160,7 @@ test.after(async () => {
   delete process.env.DB_FILE;
   delete process.env.STORAGE_ROOT;
   delete process.env.AUTH_SECRET;
+  delete process.env.ADMIN_INIT_ACCOUNTS_JSON;
 });
 
 test('POST /api/user/login should reject invalid phone', async () => {
@@ -200,14 +205,14 @@ test('POST /api/admin/login should reject wrong credentials', async () => {
 });
 
 test('POST /api/admin/login should return token for valid credentials', async () => {
-  const res = await postJson('/api/admin/login', { username: 'admin', password: 'admin123' });
+  const res = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
   assert.equal(res.status, 200);
   assert.equal(res.body.status, 'success');
   assert.ok(res.body.data.token);
 });
 
 test('GET /api/admin/dashboard should work with valid token', async () => {
-  const login = await postJson('/api/admin/login', { username: 'admin', password: 'admin123' });
+  const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
   const token = login.body.data.token;
 
   const res = await getJson('/api/admin/dashboard', token);
@@ -228,7 +233,7 @@ test('POST /api/qc/check should reject unauthorized request', async () => {
 });
 
 test('GET /api/admin/dashboard should reject qc role token', async () => {
-  const qcLogin = await postJson('/api/admin/login', { username: 'qc', password: 'qc123456' });
+  const qcLogin = await postJson('/api/admin/login', { username: 'qc', password: 'test-qc-pass' });
   assert.equal(qcLogin.status, 200);
   const qcToken = qcLogin.body.data.token;
 
@@ -241,6 +246,37 @@ test('GET /api/qc/logs should reject missing token', async () => {
   const res = await getJson('/api/qc/logs');
   assert.equal(res.status, 401);
   assert.equal(res.body.code, 'UNAUTHORIZED');
+});
+
+
+test('createApp should fail fast in production when no admin bootstrap config and no existing admins', async () => {
+  const oldNodeEnv = process.env.NODE_ENV;
+  const oldDbFile = process.env.DB_FILE;
+  const oldBootstrap = process.env.ADMIN_INIT_ACCOUNTS_JSON;
+
+  const isolatedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xingxingzaishan-prod-'));
+  process.env.NODE_ENV = 'production';
+  process.env.DB_FILE = path.join(isolatedDir, 'db.json');
+  delete process.env.ADMIN_INIT_ACCOUNTS_JSON;
+
+  delete require.cache[require.resolve('../src/server/app')];
+  delete require.cache[require.resolve('../src/server/services/dbService')];
+  const { createApp } = require('../src/server/app');
+  assert.throws(
+    () => createApp(),
+    (error) => error && error.code === 'CONFIG_VALIDATION_FAILED'
+  );
+
+  if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = oldNodeEnv;
+  if (oldDbFile === undefined) delete process.env.DB_FILE;
+  else process.env.DB_FILE = oldDbFile;
+  if (oldBootstrap === undefined) delete process.env.ADMIN_INIT_ACCOUNTS_JSON;
+  else process.env.ADMIN_INIT_ACCOUNTS_JSON = oldBootstrap;
+
+  fs.rmSync(isolatedDir, { recursive: true, force: true });
+  delete require.cache[require.resolve('../src/server/app')];
+  delete require.cache[require.resolve('../src/server/services/dbService')];
 });
 
 test('createApp should fail fast in cloud mode without OSS config', async () => {
@@ -257,6 +293,8 @@ test('createApp should fail fast in cloud mode without OSS config', async () => 
   delete process.env.OSS_BUCKET;
   delete process.env.OSS_REGION;
 
+  delete require.cache[require.resolve('../src/server/app')];
+  delete require.cache[require.resolve('../src/server/services/dbService')];
   const { createApp } = require('../src/server/app');
   assert.throws(
     () => createApp(),

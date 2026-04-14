@@ -42,25 +42,81 @@ function seedQRCodes() {
   return qrCodes;
 }
 
-function defaultAdmins() {
-  return [
-    {
-      id: 1,
-      username: 'admin',
-      password: hashPassword('admin123'),
-      role: 'admin',
-      name: '系统管理员',
-      enabled: true
-    },
-    {
-      id: 2,
-      username: 'qc',
-      password: hashPassword('qc123456'),
-      role: 'qc',
-      name: '质检员',
-      enabled: true
+function parseInitialAdminsFromEnv() {
+  const raw = process.env.ADMIN_INIT_ACCOUNTS_JSON;
+  if (!raw) {
+    return [];
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (_error) {
+    const error = new Error('ADMIN_INIT_ACCOUNTS_JSON must be valid JSON.');
+    error.code = 'CONFIG_VALIDATION_FAILED';
+    throw error;
+  }
+
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    const error = new Error('ADMIN_INIT_ACCOUNTS_JSON must be a non-empty array.');
+    error.code = 'CONFIG_VALIDATION_FAILED';
+    throw error;
+  }
+
+  const usernames = new Set();
+
+  return parsed.map((item, idx) => {
+    const username = typeof item.username === 'string' ? item.username.trim() : '';
+    const password = typeof item.password === 'string' ? item.password : '';
+    const role = item.role === 'admin' ? 'admin' : 'qc';
+
+    if (!username || !password) {
+      const error = new Error(`ADMIN_INIT_ACCOUNTS_JSON[${idx}] requires non-empty username and password.`);
+      error.code = 'CONFIG_VALIDATION_FAILED';
+      throw error;
     }
-  ];
+
+    if (usernames.has(username)) {
+      const error = new Error(`ADMIN_INIT_ACCOUNTS_JSON contains duplicate username: ${username}`);
+      error.code = 'CONFIG_VALIDATION_FAILED';
+      throw error;
+    }
+
+    usernames.add(username);
+
+    return {
+      id: idx + 1,
+      username,
+      password: hashPassword(password),
+      role,
+      name: (typeof item.name === 'string' && item.name.trim()) ? item.name.trim() : username,
+      enabled: item.enabled !== false
+    };
+  });
+}
+
+function ensureAdminsInitialized(db) {
+  if (!Array.isArray(db.admins)) {
+    db.admins = [];
+  }
+
+  if (db.admins.length > 0) {
+    return;
+  }
+
+  const bootstrapAdmins = parseInitialAdminsFromEnv();
+  if (bootstrapAdmins.length > 0) {
+    db.admins = bootstrapAdmins;
+    return;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    const error = new Error(
+      'ADMIN_INIT_ACCOUNTS_JSON is required on first startup in production when no admin account exists.'
+    );
+    error.code = 'CONFIG_VALIDATION_FAILED';
+    throw error;
+  }
 }
 
 function migrateSchema(db) {
@@ -72,9 +128,7 @@ function migrateSchema(db) {
     db.qr_codes = seedQRCodes();
   }
 
-  if (!Array.isArray(db.admins)) {
-    db.admins = defaultAdmins();
-  }
+  ensureAdminsInitialized(db);
 
   db.admins = db.admins.map((item, idx) => ({
     id: item.id || idx + 1,
@@ -126,13 +180,13 @@ function initializeDB() {
   }
 
   if (!fs.existsSync(dataFile)) {
-    const initialData = {
+    const initialData = migrateSchema({
       users: [],
       qr_codes: seedQRCodes(),
-      admins: defaultAdmins(),
+      admins: [],
       quality_check_logs: [],
       batches: []
-    };
+    });
     fs.writeFileSync(dataFile, JSON.stringify(initialData, null, 2), 'utf-8');
     return;
   }
