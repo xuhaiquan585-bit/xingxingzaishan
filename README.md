@@ -4,7 +4,7 @@
 
 ```bash
 npm install
-AUTH_SECRET='replace-with-strong-secret' npm start
+ADMIN_INIT_ACCOUNTS_JSON='[{"username":"admin","password":"replace-admin-pass","role":"admin"},{"username":"qc","password":"replace-qc-pass","role":"qc"}]' AUTH_SECRET='replace-with-strong-secret' npm start
 ```
 
 启动后访问：`http://localhost:3000`
@@ -44,14 +44,13 @@ npm run check:conflicts
 ## Phase 2（进行中）- 后台管理批次 1
 
 - 新增后台入口：`http://localhost:3000/admin`
-- 默认管理员账号：`admin`
-- 默认管理员密码：`admin123`
+- 管理员账号通过 `ADMIN_INIT_ACCOUNTS_JSON` 初始化（仅首次初始化数据库时生效）
 - 已实现：后台登录、看板、二维码列表筛选、隐藏/显示
 - 后台新增：发行状态筛选、ID前缀搜索、批量勾选、批量隐藏/显示、批量CSV导出
 - 后台新增：批次创建、批次绑定、批次筛选、批次CSV导出
 - 后台新增：账号管理（新增/启用/禁用）
 - 数据迁移：历史二维码默认补充 `batch_id: null`、`print_batch_id: null`
-- 新增质检入口：`http://localhost:3000/qc`（账号：`qc` / 密码：`qc123456`）
+- 新增质检入口：`http://localhost:3000/qc`（账号同样通过 `ADMIN_INIT_ACCOUNTS_JSON` 初始化）
 - 用户端新增：NFT下载、分享链接（Web Share 优先，复制链接兜底）
 
 
@@ -77,13 +76,13 @@ npm run check:conflicts
 
 ```bash
 # 默认本地存储
-AUTH_SECRET='replace-with-strong-secret' npm start
+ADMIN_INIT_ACCOUNTS_JSON='[{"username":"admin","password":"replace-admin-pass","role":"admin"},{"username":"qc","password":"replace-qc-pass","role":"qc"}]' AUTH_SECRET='replace-with-strong-secret' npm start
 
 # 开启 cloud 模式（OSS）
-AUTH_SECRET='replace-with-strong-secret' STORAGE_MODE=cloud OSS_ACCESS_KEY_ID=xxx OSS_ACCESS_KEY_SECRET=xxx OSS_BUCKET=your-bucket OSS_REGION=cn-chengdu OSS_ENDPOINT=oss-cn-chengdu.aliyuncs.com npm start
+ADMIN_INIT_ACCOUNTS_JSON='[{"username":"admin","password":"replace-admin-pass","role":"admin"},{"username":"qc","password":"replace-qc-pass","role":"qc"}]' AUTH_SECRET='replace-with-strong-secret' STORAGE_MODE=cloud OSS_ACCESS_KEY_ID=xxx OSS_ACCESS_KEY_SECRET=xxx OSS_BUCKET=your-bucket OSS_REGION=cn-chengdu OSS_ENDPOINT=oss-cn-chengdu.aliyuncs.com npm start
 
 # 控制签名有效期
-AUTH_SECRET='replace-with-strong-secret' STORAGE_MODE=cloud OSS_SIGNED_URL_EXPIRES=1800 OSS_DOWNLOAD_SIGN_EXPIRES=3600 npm start
+ADMIN_INIT_ACCOUNTS_JSON='[{"username":"admin","password":"replace-admin-pass","role":"admin"},{"username":"qc","password":"replace-qc-pass","role":"qc"}]' AUTH_SECRET='replace-with-strong-secret' STORAGE_MODE=cloud OSS_SIGNED_URL_EXPIRES=1800 OSS_DOWNLOAD_SIGN_EXPIRES=3600 npm start
 ```
 
 
