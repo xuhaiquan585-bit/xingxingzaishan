@@ -260,7 +260,8 @@ test('POST /api/qr/:id/record should persist batch disclosure snapshot when enab
   const batchRes = await postJson('/api/admin/batches', {
     name: 'D3 Batch',
     brand_name: 'BrandX',
-    brand_disclosure: '品牌披露文案-D3'
+    brand_disclosure_text: '品牌披露文案-D3',
+    brand_disclosure_default: true
   }, adminToken);
   assert.equal(batchRes.status, 200);
   const batchId = batchRes.body.data.id;
@@ -296,14 +297,14 @@ test('POST /api/qr/:id/record should persist batch disclosure snapshot when enab
 
   assert.equal(recordRes.status, 200);
   assert.equal(recordRes.body.data.show_brand_disclosure, true);
-  assert.equal(recordRes.body.data.brand_disclosure_snapshot, '品牌披露文案-D3');
+  assert.equal(recordRes.body.data.brand_disclosure_text_snapshot, '品牌披露文案-D3');
 });
 
-test('POST /api/qr/:id/record should NOT fallback to note when brand_disclosure is empty', async () => {
+test('POST /api/qr/:id/record should NOT fallback to note when brand_disclosure_text is empty', async () => {
   const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
   const adminToken = adminLogin.body.data.token;
 
-  // 批次只有 note，没有 brand_disclosure
+  // 批次只有 note，没有 brand_disclosure_text
   const batchRes = await postJson('/api/admin/batches', {
     name: 'D3 Batch No Disclosure',
     brand_name: 'BrandY',
@@ -341,10 +342,10 @@ test('POST /api/qr/:id/record should NOT fallback to note when brand_disclosure 
     show_brand_disclosure: true
   });
 
-  // brand_disclosure 为空时，即使开关打开，快照也必须是空字符串，不能 fallback 到 note
+  // brand_disclosure_text 为空时，即使开关打开，快照也必须是空字符串，不能 fallback 到 note
   assert.equal(recordRes.status, 200);
   assert.equal(recordRes.body.data.show_brand_disclosure, true);
-  assert.equal(recordRes.body.data.brand_disclosure_snapshot, '');
+  assert.equal(recordRes.body.data.brand_disclosure_text_snapshot, '');
 });
 
 test('POST /api/admin/qr/generate should validate prefix format', async () => {

@@ -37,7 +37,7 @@ function seedQRCodes() {
       activated_at: null,
       blockchain_hash: null,
       show_brand_disclosure: false,
-      brand_disclosure_snapshot: '',
+      brand_disclosure_text_snapshot: '',
       created_at: nowISO()
     });
   }
@@ -158,7 +158,7 @@ function migrateSchema(db) {
     print_batch_id: Object.prototype.hasOwnProperty.call(item, 'print_batch_id') ? item.print_batch_id : null,
     image_object_key: Object.prototype.hasOwnProperty.call(item, 'image_object_key') ? item.image_object_key : null,
     show_brand_disclosure: item.show_brand_disclosure === true,
-    brand_disclosure_snapshot: typeof item.brand_disclosure_snapshot === 'string' ? item.brand_disclosure_snapshot : '',
+    brand_disclosure_text_snapshot: typeof item.brand_disclosure_text_snapshot === 'string' ? item.brand_disclosure_text_snapshot : '',
     quality_check: item.quality_check || {
       checked: false,
       checked_at: null,
@@ -242,7 +242,7 @@ function activateQRCodeOnce(qrId, payload) {
 
   const showBrandDisclosure = payload.show_brand_disclosure === true;
   const batch = qrCode.batch_id ? db.batches.find((item) => item.id === qrCode.batch_id) : null;
-  const batchDisclosure = batch ? String(batch.brand_disclosure || '') : '';
+  const batchDisclosure = batch ? String(batch.brand_disclosure_text || '') : '';
 
   const updated = {
     ...qrCode,
@@ -254,7 +254,7 @@ function activateQRCodeOnce(qrId, payload) {
     activated_at: nowISO(),
     blockchain_hash: payload.blockchain_hash,
     show_brand_disclosure: showBrandDisclosure,
-    brand_disclosure_snapshot: showBrandDisclosure ? batchDisclosure : ''
+    brand_disclosure_text_snapshot: showBrandDisclosure ? batchDisclosure : ''
   };
 
   db.qr_codes[index] = updated;
@@ -482,7 +482,7 @@ function generateQRCodes({ prefix, count, batchId }) {
       activated_at: null,
       blockchain_hash: null,
       show_brand_disclosure: false,
-      brand_disclosure_snapshot: '',
+      brand_disclosure_text_snapshot: '',
       created_at: nowISO()
     };
 
@@ -540,7 +540,7 @@ function setQRHiddenStatusBatch(ids, hidden) {
 }
 
 
-function createBatch({ name, brandName, note, brandDisclosure, createdBy }) {
+function createBatch({ name, brandName, note, brandDisclosureText, brandDisclosureDefault, createdBy }) {
   const db = readDB();
   const ts = new Date();
   const id = `BATCH_${ts.toISOString().slice(0, 10).replace(/-/g, '')}_${String(db.batches.length + 1).padStart(3, '0')}`;
@@ -550,7 +550,8 @@ function createBatch({ name, brandName, note, brandDisclosure, createdBy }) {
     name,
     brand_name: brandName || '',
     note: note || '',
-    brand_disclosure: brandDisclosure || '',
+    brand_disclosure_text: brandDisclosureText || '',
+    brand_disclosure_default: brandDisclosureDefault === true,
     created_at: nowISO(),
     created_by: createdBy || 'admin'
   };

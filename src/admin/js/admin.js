@@ -83,6 +83,8 @@ async function createBatch() {
   const name = document.getElementById('batchName').value.trim();
   const brandName = document.getElementById('batchBrand').value.trim();
   const note = document.getElementById('batchNote').value.trim();
+  const disclosureText = document.getElementById('batchDisclosureText').value.trim();
+  const disclosureDefault = document.getElementById('batchDisclosureDefault').checked;
 
   if (!name) {
     batchMsg.textContent = '批次名称不能为空。';
@@ -95,13 +97,15 @@ async function createBatch() {
       ...authHeaders(),
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ name, brand_name: brandName, note })
+    body: JSON.stringify({ name, brand_name: brandName, note, brand_disclosure_text: disclosureText, brand_disclosure_default: disclosureDefault })
   });
 
   batchMsg.textContent = '批次创建成功。';
   document.getElementById('batchName').value = '';
   document.getElementById('batchBrand').value = '';
   document.getElementById('batchNote').value = '';
+  document.getElementById('batchDisclosureText').value = '';
+  document.getElementById('batchDisclosureDefault').checked = false;
   await loadBatches();
 }
 

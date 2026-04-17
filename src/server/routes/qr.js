@@ -1,5 +1,6 @@
 const express = require('express');
 const { getQRCode, activateQRCodeOnce } = require('../services/dbService');
+const { listBatches } = require('../services/dbService');
 const { generateMockBlockchainHash } = require('../services/hashService');
 const { getSignedUrl, getStorageMode } = require('../services/storageService');
 
@@ -39,13 +40,25 @@ router.get('/:qrId', (req, res) => {
     });
   }
 
+  // 附带批次品牌露出信息供前端判断
+  const batchInfo = {};
+  if (qr.batch_id) {
+    const batches = listBatches();
+    const batch = batches.find((b) => b.id === qr.batch_id);
+    if (batch) {
+      batchInfo.batch_brand_disclosure_text = batch.brand_disclosure_text || '';
+      batchInfo.batch_brand_disclosure_default = batch.brand_disclosure_default === true;
+    }
+  }
+
   return res.json({
     status: 'success',
     code: 'OK',
     data: {
       ...qr,
       image_url: resolveImageUrl(qr),
-      active_storage_mode: getStorageMode()
+      active_storage_mode: getStorageMode(),
+      ...batchInfo
     }
   });
 });
@@ -121,7 +134,7 @@ router.post('/:qrId/record', (req, res) => {
       activated_at: result.data.activated_at,
       activation_status: result.data.activation_status,
       show_brand_disclosure: result.data.show_brand_disclosure === true,
-      brand_disclosure_snapshot: result.data.brand_disclosure_snapshot || ''
+      brand_disclosure_text_snapshot: result.data.brand_disclosure_text_snapshot || ''
     }
   });
 });
