@@ -1,0 +1,20 @@
+{
+  "name": "xingxingzaishan-mvp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server/server.js",
+    "dev": "node src/server/server.js",
+    "test": "node --test tests/api.test.js",
+    "migrate:oss": "node scripts/migrate-local-to-oss.js",
+    "migrate:oss:dry": "node scripts/migrate-local-to-oss.js --dry-run",
+    "check:conflicts": "bash scripts/check-conflict-markers.sh"
+  },
+  "dependencies": {
+    "ali-oss": "^6.23.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1"
+  }
+}
