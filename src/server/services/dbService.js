@@ -242,7 +242,7 @@ function activateQRCodeOnce(qrId, payload) {
 
   const showBrandDisclosure = payload.show_brand_disclosure === true;
   const batch = qrCode.batch_id ? db.batches.find((item) => item.id === qrCode.batch_id) : null;
-  const batchDisclosure = batch ? String(batch.brand_disclosure || batch.note || '') : '';
+  const batchDisclosure = batch ? String(batch.brand_disclosure || '') : '';
 
   const updated = {
     ...qrCode,
@@ -550,7 +550,7 @@ function createBatch({ name, brandName, note, brandDisclosure, createdBy }) {
     name,
     brand_name: brandName || '',
     note: note || '',
-    brand_disclosure: brandDisclosure || note || '',
+    brand_disclosure: brandDisclosure || '',
     created_at: nowISO(),
     created_by: createdBy || 'admin'
   };

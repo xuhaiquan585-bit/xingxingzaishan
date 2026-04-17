@@ -299,6 +299,54 @@ test('POST /api/qr/:id/record should persist batch disclosure snapshot when enab
   assert.equal(recordRes.body.data.brand_disclosure_snapshot, '品牌披露文案-D3');
 });
 
+test('POST /api/qr/:id/record should NOT fallback to note when brand_disclosure is empty', async () => {
+  const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const adminToken = adminLogin.body.data.token;
+
+  // 批次只有 note，没有 brand_disclosure
+  const batchRes = await postJson('/api/admin/batches', {
+    name: 'D3 Batch No Disclosure',
+    brand_name: 'BrandY',
+    note: '这是备注，不是品牌披露'
+  }, adminToken);
+  assert.equal(batchRes.status, 200);
+  const batchId = batchRes.body.data.id;
+
+  const genRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'D3Y',
+    count: 1,
+    batch_id: batchId
+  }, adminToken);
+  assert.equal(genRes.status, 200);
+  const qrId = genRes.body.data.ids[0];
+
+  const uploadRes = await postMultipart('/api/upload', {
+    fields: { qr_id: qrId },
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'd3y.png',
+        contentType: 'image/png',
+        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
+      }
+    ]
+  });
+  assert.equal(uploadRes.status, 200);
+
+  const recordRes = await postJson(`/api/qr/${encodeURIComponent(qrId)}/record`, {
+    phone: '13800138001',
+    content: 'd3y test',
+    image_url: uploadRes.body.data.url,
+    image_object_key: uploadRes.body.data.object_key,
+    show_brand_disclosure: true
+  });
+
+  // brand_disclosure 为空时，即使开关打开，快照也必须是空字符串，不能 fallback 到 note
+  assert.equal(recordRes.status, 200);
+  assert.equal(recordRes.body.data.show_brand_disclosure, true);
+  assert.equal(recordRes.body.data.brand_disclosure_snapshot, '');
+});
+
 test('POST /api/admin/qr/generate should validate prefix format', async () => {
   const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
   const token = login.body.data.token;
