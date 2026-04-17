@@ -11,7 +11,6 @@ let baseUrl;
 let basePort;
 let tmpDir;
 
-// 原生 http.request 用于 multipart 上传（Node.js 全版本兼容）
 function requestRaw(method, urlPath, { headers = {}, body } = {}) {
   return new Promise((resolve, reject) => {
     const req = http.request({
@@ -51,32 +50,31 @@ function requestRaw(method, urlPath, { headers = {}, body } = {}) {
   });
 }
 
-// JSON 请求用 fetch（简洁可靠）
-async function postJson(urlPath, body, token) {
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(`${baseUrl}${urlPath}`, {
-    method: 'POST',
+function postJson(urlPath, body, token) {
+  const payload = Buffer.from(JSON.stringify(body), 'utf8');
+  const headers = {
+    'Content-Type': 'application/json',
+    'Content-Length': payload.length
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  return requestRaw('POST', urlPath, {
     headers,
-    body: JSON.stringify(body)
+    body: payload
   });
-  let json;
-  try { json = await res.json(); } catch { json = {}; }
-  return { status: res.status, body: json };
 }
 
 function getJson(urlPath, token) {
   const headers = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
-  return fetch(`${baseUrl}${urlPath}`, { method: 'GET', headers })
-    .then(async (res) => {
-      let json;
-      try { json = await res.json(); } catch { json = {}; }
-      return { status: res.status, body: json };
-    });
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return requestRaw('GET', urlPath, { headers });
 }
 
-// Multipart 构建与发送（用于文件上传测试）
 function createMultipartBody(fields = {}, files = []) {
   const boundary = `----NodeFormBoundary${crypto.randomBytes(12).toString('hex')}`;
   const chunks = [];
@@ -149,7 +147,10 @@ test.after(async () => {
   if (server) {
     await new Promise((resolve, reject) => {
       server.close((err) => {
-        if (err) { reject(err); return; }
+        if (err) {
+          reject(err);
+          return;
+        }
         resolve();
       });
     });
@@ -219,8 +220,6 @@ test('GET /api/admin/dashboard should work with valid token', async () => {
   assert.equal(res.body.status, 'success');
 });
 
-// ========== D2: 二维码生成接口测试 ==========
-
 test('POST /api/admin/qr/generate should create issued and unactivated QR ids', async () => {
   const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
   const token = login.body.data.token;
@@ -254,6 +253,52 @@ test('POST /api/admin/qr/generate should create issued and unactivated QR ids', 
   });
 });
 
+test('POST /api/qr/:id/record should persist batch disclosure snapshot when enabled', async () => {
+  const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const adminToken = adminLogin.body.data.token;
+
+  const batchRes = await postJson('/api/admin/batches', {
+    name: 'D3 Batch',
+    brand_name: 'BrandX',
+    brand_disclosure: '品牌披露文案-D3'
+  }, adminToken);
+  assert.equal(batchRes.status, 200);
+  const batchId = batchRes.body.data.id;
+
+  const genRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'D3X',
+    count: 1,
+    batch_id: batchId
+  }, adminToken);
+  assert.equal(genRes.status, 200);
+  const qrId = genRes.body.data.ids[0];
+
+  const uploadRes = await postMultipart('/api/upload', {
+    fields: { qr_id: qrId },
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'd3.png',
+        contentType: 'image/png',
+        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
+      }
+    ]
+  });
+  assert.equal(uploadRes.status, 200);
+
+  const recordRes = await postJson(`/api/qr/${encodeURIComponent(qrId)}/record`, {
+    phone: '13800138000',
+    content: 'd3 test',
+    image_url: uploadRes.body.data.url,
+    image_object_key: uploadRes.body.data.object_key,
+    show_brand_disclosure: true
+  });
+
+  assert.equal(recordRes.status, 200);
+  assert.equal(recordRes.body.data.show_brand_disclosure, true);
+  assert.equal(recordRes.body.data.brand_disclosure_snapshot, '品牌披露文案-D3');
+});
+
 test('POST /api/admin/qr/generate should validate prefix format', async () => {
   const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
   const token = login.body.data.token;
@@ -266,8 +311,6 @@ test('POST /api/admin/qr/generate should validate prefix format', async () => {
   assert.equal(res.status, 400);
   assert.equal(res.body.code, 'VALIDATION_ERROR');
 });
-
-// ===========================================
 
 test('GET /api/admin/dashboard should reject invalid token', async () => {
   const res = await getJson('/api/admin/dashboard', 'bad.token.value');
@@ -297,7 +340,6 @@ test('GET /api/qc/logs should reject missing token', async () => {
   assert.equal(res.body.code, 'UNAUTHORIZED');
 });
 
-// ========== D1: 安全基座测试 ==========
 
 test('createApp should fail fast in production when no admin bootstrap config and no existing admins', async () => {
   const oldNodeEnv = process.env.NODE_ENV;
@@ -328,8 +370,6 @@ test('createApp should fail fast in production when no admin bootstrap config an
   delete require.cache[require.resolve('../src/server/app')];
   delete require.cache[require.resolve('../src/server/services/dbService')];
 });
-
-// ===========================================
 
 test('createApp should fail fast in cloud mode without OSS config', async () => {
   const oldStorageMode = process.env.STORAGE_MODE;
@@ -369,7 +409,7 @@ test('createApp should fail fast in cloud mode without OSS config', async () => 
 
 test('GET /api/nft/:id/download should return download_url after activation', async () => {
   const imageData = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ZQ1EAAAAASUVORK5CYII=',
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
     'base64'
   );
 

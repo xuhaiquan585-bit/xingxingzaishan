@@ -55,7 +55,8 @@ router.post('/:qrId/record', (req, res) => {
     content = '',
     image_url: imageUrl,
     image_object_key: imageObjectKey,
-    phone
+    phone,
+    show_brand_disclosure: showBrandDisclosure
   } = req.body;
 
   if (!isValidPhone(phone)) {
@@ -88,7 +89,8 @@ router.post('/:qrId/record', (req, res) => {
     image_url: imageUrl,
     image_object_key: imageObjectKey,
     phone,
-    blockchain_hash: blockchainHash
+    blockchain_hash: blockchainHash,
+    show_brand_disclosure: showBrandDisclosure === true
   });
 
   if (result.error === 'QR_NOT_FOUND') {
@@ -117,7 +119,9 @@ router.post('/:qrId/record', (req, res) => {
       image_object_key: result.data.image_object_key || null,
       blockchain_hash: result.data.blockchain_hash,
       activated_at: result.data.activated_at,
-      activation_status: result.data.activation_status
+      activation_status: result.data.activation_status,
+      show_brand_disclosure: result.data.show_brand_disclosure === true,
+      brand_disclosure_snapshot: result.data.brand_disclosure_snapshot || ''
     }
   });
 });

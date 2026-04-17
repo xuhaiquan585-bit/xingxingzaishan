@@ -5,6 +5,7 @@ const imageInput = document.getElementById('imageInput');
 const preview = document.getElementById('preview');
 const contentInput = document.getElementById('content');
 const countEl = document.getElementById('count');
+const showBrandDisclosureInput = document.getElementById('showBrandDisclosure');
 const submitBtn = document.getElementById('submitBtn');
 const formMessage = document.getElementById('formMessage');
 const downloadBtn = document.getElementById('downloadBtn');
@@ -122,7 +123,8 @@ submitBtn.addEventListener('click', async () => {
         content,
         image_url: uploadedImageUrl,
         image_object_key: uploadedImageObjectKey,
-        phone: userPhone
+        phone: userPhone,
+        show_brand_disclosure: showBrandDisclosureInput ? showBrandDisclosureInput.checked : false
       })
     });
 

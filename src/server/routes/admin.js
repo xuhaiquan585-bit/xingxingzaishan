@@ -176,7 +176,7 @@ router.post('/operators/:id/enable', requireAdmin, (req, res) => {
 });
 
 router.post('/batches', requireAdmin, (req, res) => {
-  const { name, brand_name: brandName, note } = req.body;
+  const { name, brand_name: brandName, note, brand_disclosure: brandDisclosure } = req.body;
   if (!name || !String(name).trim()) {
     return res.status(400).json({
       status: 'error',
@@ -189,6 +189,7 @@ router.post('/batches', requireAdmin, (req, res) => {
     name: String(name).trim(),
     brandName: String(brandName || '').trim(),
     note: String(note || '').trim(),
+    brandDisclosure: String(brandDisclosure || '').trim(),
     createdBy: req.operator.username
   });
 
