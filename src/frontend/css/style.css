@@ -97,4 +97,5 @@ textarea { min-height: 100px; resize: vertical; }
 }
 .brand-card .checkbox-row {
   margin-top: 0;
+  gap: 6px;
 }
