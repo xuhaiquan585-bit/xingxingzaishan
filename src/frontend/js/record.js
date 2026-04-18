@@ -6,7 +6,7 @@ const preview = document.getElementById('preview');
 const contentInput = document.getElementById('content');
 const countEl = document.getElementById('count');
 const showBrandDisclosureInput = document.getElementById('showBrandDisclosure');
-const brandDisclosureLabel = document.getElementById('brandDisclosureLabel');
+const brandSection = document.getElementById('brandSection');
 const brandPreviewText = document.getElementById('brandPreviewText');
 const submitBtn = document.getElementById('submitBtn');
 const formMessage = document.getElementById('formMessage');
@@ -80,7 +80,7 @@ async function loadQRStatus() {
 
     // 根据 batch 的 brand_disclosure_text 决定是否显示品牌露出开关
     if (res.data.batch_id && res.data.batch_brand_disclosure_text) {
-      brandDisclosureLabel.classList.remove('hidden');
+      brandSection.classList.remove('hidden');
       showBrandDisclosureInput.checked = !!res.data.batch_brand_disclosure_default;
       // 显示品牌名称 + 品牌文案预览
       const previewParts = [];
