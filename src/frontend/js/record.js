@@ -7,6 +7,7 @@ const contentInput = document.getElementById('content');
 const countEl = document.getElementById('count');
 const showBrandDisclosureInput = document.getElementById('showBrandDisclosure');
 const brandDisclosureLabel = document.getElementById('brandDisclosureLabel');
+const brandPreviewText = document.getElementById('brandPreviewText');
 const submitBtn = document.getElementById('submitBtn');
 const formMessage = document.getElementById('formMessage');
 const downloadBtn = document.getElementById('downloadBtn');
@@ -17,6 +18,8 @@ const resultContent = document.getElementById('resultContent');
 const resultHash = document.getElementById('resultHash');
 const resultTime = document.getElementById('resultTime');
 const resultBrandDisclosure = document.getElementById('resultBrandDisclosure');
+const resultBrandName = document.getElementById('resultBrandName');
+const resultBrandDisclosureText = document.getElementById('resultBrandDisclosureText');
 
 const params = new URLSearchParams(window.location.search);
 const qrId = params.get('t') || params.get('qr');
@@ -40,9 +43,10 @@ function renderResult(data) {
   resultHash.textContent = data.blockchain_hash;
   resultTime.textContent = new Date(data.activated_at).toLocaleString('zh-CN', { hour12: false });
 
-  // 品牌露出：用户勾选了且有快照文案时显示
+  // 品牌露出：品牌名称 + 品牌文案作为一组，用户勾选了且有快照文案时一起显示
   if (data.show_brand_disclosure && data.brand_disclosure_text_snapshot) {
-    resultBrandDisclosure.textContent = data.brand_disclosure_text_snapshot;
+    resultBrandName.textContent = data.brand_name || '';
+    resultBrandDisclosureText.textContent = data.brand_disclosure_text_snapshot;
     resultBrandDisclosure.classList.remove('hidden');
   } else {
     resultBrandDisclosure.classList.add('hidden');
@@ -68,7 +72,8 @@ async function loadQRStatus() {
         blockchain_hash: res.data.blockchain_hash,
         activated_at: res.data.activated_at,
         show_brand_disclosure: res.data.show_brand_disclosure,
-        brand_disclosure_text_snapshot: res.data.brand_disclosure_text_snapshot
+        brand_disclosure_text_snapshot: res.data.brand_disclosure_text_snapshot,
+        brand_name: res.data.batch_brand_name || ''
       });
       return;
     }
@@ -77,6 +82,11 @@ async function loadQRStatus() {
     if (res.data.batch_id && res.data.batch_brand_disclosure_text) {
       brandDisclosureLabel.classList.remove('hidden');
       showBrandDisclosureInput.checked = !!res.data.batch_brand_disclosure_default;
+      // 显示品牌名称 + 品牌文案预览
+      const previewParts = [];
+      if (res.data.batch_brand_name) previewParts.push(res.data.batch_brand_name);
+      previewParts.push(res.data.batch_brand_disclosure_text);
+      brandPreviewText.textContent = previewParts.join(' - ');
     }
 
     formSection.classList.remove('hidden');

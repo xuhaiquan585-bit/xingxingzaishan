@@ -47,6 +47,12 @@ function updateSelectedUI() {
   selectAll.checked = allSelected;
 }
 
+function getBatchNote(batchId) {
+  if (!batchId) return '-';
+  const batch = batchList.find((b) => b.id === batchId);
+  return batch && batch.note ? batch.note : '-';
+}
+
 function renderBatchOptions() {
   const options = ['<option value="">批次（全部）</option>']
     .concat(batchList.map((batch) => `<option value="${batch.id}">${batch.name} (${batch.id})</option>`))
@@ -70,6 +76,7 @@ function renderBatchRows() {
       <td>${batch.id}</td>
       <td>${batch.name}</td>
       <td>${batch.brand_name || '-'}</td>
+      <td>${batch.note || '-'}</td>
       <td>${batch.total_codes}</td>
       <td>${batch.activation_rate}%</td>
       <td><button data-batch-export="${batch.id}">导出批次CSV</button></td>
@@ -230,6 +237,7 @@ function renderRows(records) {
         <td>${item.id}</td>
         <td>${item.qr_image_url ? `<a href="${item.qr_image_url}" target="_blank" download="${item.id}.png">查看</a>` : '-'}</td>
         <td>${item.batch_id || '-'}</td>
+        <td>${getBatchNote(item.batch_id)}</td>
         <td>${item.issue_status}</td>
         <td>${item.activation_status}</td>
         <td>${item.hidden ? '隐藏' : '显示'}</td>
