@@ -46,6 +46,7 @@ router.get('/:qrId', (req, res) => {
     const batches = listBatches();
     const batch = batches.find((b) => b.id === qr.batch_id);
     if (batch) {
+      batchInfo.batch_brand_name = batch.brand_name || '';
       batchInfo.batch_brand_disclosure_text = batch.brand_disclosure_text || '';
       batchInfo.batch_brand_disclosure_default = batch.brand_disclosure_default === true;
     }
@@ -122,6 +123,16 @@ router.post('/:qrId/record', (req, res) => {
     });
   }
 
+  // 查找批次品牌名称
+  const batchInfo = {};
+  if (result.data.batch_id) {
+    const batches = listBatches();
+    const batch = batches.find((b) => b.id === result.data.batch_id);
+    if (batch) {
+      batchInfo.brand_name = batch.brand_name || '';
+    }
+  }
+
   return res.json({
     status: 'success',
     code: 'OK',
@@ -134,7 +145,8 @@ router.post('/:qrId/record', (req, res) => {
       activated_at: result.data.activated_at,
       activation_status: result.data.activation_status,
       show_brand_disclosure: result.data.show_brand_disclosure === true,
-      brand_disclosure_text_snapshot: result.data.brand_disclosure_text_snapshot || ''
+      brand_disclosure_text_snapshot: result.data.brand_disclosure_text_snapshot || '',
+      ...batchInfo
     }
   });
 });
