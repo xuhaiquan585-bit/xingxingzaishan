@@ -490,3 +490,87 @@ test('GET /api/nft/:id/download should return download_url after activation', as
   assert.equal(downloadRes.status, 200);
   assert.ok(downloadRes.body.data.download_url);
 });
+
+test('POST /api/admin/qr/generate should assign qr_access_token to new QR codes', async () => {
+  const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const token = login.body.data.token;
+
+  const genRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'TKN',
+    count: 3
+  }, token);
+  assert.equal(genRes.status, 200);
+
+  const records = genRes.body.data.records;
+  assert.equal(records.length, 3);
+
+  records.forEach((item) => {
+    assert.ok(item.qr_access_token, 'qr_access_token should exist');
+    assert.equal(item.qr_access_token.length, 32, 'qr_access_token should be 32 chars');
+  });
+
+  const tokens = records.map((item) => item.qr_access_token);
+  const uniqueTokens = new Set(tokens);
+  assert.equal(uniqueTokens.size, 3, 'tokens should be unique');
+});
+
+test('GET /api/qr/:key should return QR by token and reject invalid token', async () => {
+  const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const token = login.body.data.token;
+
+  const genRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'TQA',
+    count: 1
+  }, token);
+  assert.equal(genRes.status, 200);
+
+  const qrId = genRes.body.data.ids[0];
+  const accessToken = genRes.body.data.records[0].qr_access_token;
+
+  const resByToken = await getJson(`/api/qr/${accessToken}`);
+  assert.equal(resByToken.status, 200);
+  assert.equal(resByToken.body.data.id, qrId);
+
+  const resById = await getJson(`/api/qr/${qrId}`);
+  assert.equal(resById.status, 200);
+  assert.equal(resById.body.data.id, qrId);
+
+  const resByBadToken = await getJson('/api/qr/nonexistenttoken1234567890123456');
+  assert.equal(resByBadToken.status, 404);
+});
+
+test('POST /api/qr/:token/record should activate QR by access token', async () => {
+  const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const adminToken = login.body.data.token;
+
+  const genRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'TQR',
+    count: 1
+  }, adminToken);
+  assert.equal(genRes.status, 200);
+
+  const accessToken = genRes.body.data.records[0].qr_access_token;
+
+  const uploadRes = await postMultipart('/api/upload', {
+    fields: { qr_id: genRes.body.data.ids[0] },
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'tqr.png',
+        contentType: 'image/png',
+        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
+      }
+    ]
+  });
+  assert.equal(uploadRes.status, 200);
+
+  const recordRes = await postJson(`/api/qr/${accessToken}/record`, {
+    phone: '13900139000',
+    content: 'activated by token',
+    image_url: uploadRes.body.data.url,
+    image_object_key: uploadRes.body.data.object_key
+  });
+  assert.equal(recordRes.status, 200);
+  assert.equal(recordRes.body.data.activation_status, 'activated');
+  assert.equal(recordRes.body.data.content, 'activated by token');
+});

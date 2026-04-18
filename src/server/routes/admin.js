@@ -13,7 +13,8 @@ const {
   exportBatchCSV,
   listOperators,
   createOperator,
-  setOperatorEnabled
+  setOperatorEnabled,
+  changeOperatorPassword
 } = require('../services/dbService');
 const { generateToken, verifyToken } = require('../services/authService');
 
@@ -175,6 +176,32 @@ router.post('/operators/:id/enable', requireAdmin, (req, res) => {
   });
 });
 
+router.post('/operators/:id/change-password', requireAdmin, (req, res) => {
+  const { password } = req.body;
+  if (!password || !String(password).trim()) {
+    return res.status(400).json({
+      status: 'error',
+      code: 'VALIDATION_ERROR',
+      message: '新密码不能为空。'
+    });
+  }
+
+  const result = changeOperatorPassword(req.params.id, String(password).trim());
+  if (!result) {
+    return res.status(404).json({
+      status: 'error',
+      code: 'OPERATOR_NOT_FOUND',
+      message: '未找到该账号。'
+    });
+  }
+
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: result
+  });
+});
+
 router.post('/batches', requireAdmin, (req, res) => {
   const { name, brand_name: brandName, note, brand_disclosure_text: brandDisclosureText, brand_disclosure_default: brandDisclosureDefault } = req.body;
   if (!name || !String(name).trim()) {
@@ -271,7 +298,7 @@ router.get('/batches/:batchId/export', requireAdmin, (req, res) => {
   return res.send(`\uFEFF${result.data}`);
 });
 
-router.post('/qr/generate', requireAdmin, (req, res) => {
+router.post('/qr/generate', requireAdmin, async (req, res) => {
   const { prefix, count = 1, batch_id: batchId } = req.body;
   const normalizedPrefix = String(prefix || '').trim().toUpperCase();
 
@@ -292,7 +319,7 @@ router.post('/qr/generate', requireAdmin, (req, res) => {
     });
   }
 
-  const result = generateQRCodes({
+  const result = await generateQRCodes({
     prefix: normalizedPrefix,
     count: normalizedCount,
     batchId: batchId ? String(batchId).trim() : null
@@ -311,7 +338,8 @@ router.post('/qr/generate', requireAdmin, (req, res) => {
     code: 'OK',
     data: {
       count: result.data.count,
-      ids: result.data.ids
+      ids: result.data.ids,
+      records: result.data.records
     }
   });
 });

@@ -16,9 +16,10 @@ const resultImage = document.getElementById('resultImage');
 const resultContent = document.getElementById('resultContent');
 const resultHash = document.getElementById('resultHash');
 const resultTime = document.getElementById('resultTime');
+const resultBrandDisclosure = document.getElementById('resultBrandDisclosure');
 
 const params = new URLSearchParams(window.location.search);
-const qrId = params.get('qr');
+const qrId = params.get('t') || params.get('qr');
 const userPhone = localStorage.getItem('userPhone');
 
 let uploadedImageUrl = '';
@@ -38,10 +39,19 @@ function renderResult(data) {
   resultContent.textContent = data.content || '（未填写文字）';
   resultHash.textContent = data.blockchain_hash;
   resultTime.textContent = new Date(data.activated_at).toLocaleString('zh-CN', { hour12: false });
+
+  // 品牌露出：用户勾选了且有快照文案时显示
+  if (data.show_brand_disclosure && data.brand_disclosure_text_snapshot) {
+    resultBrandDisclosure.textContent = data.brand_disclosure_text_snapshot;
+    resultBrandDisclosure.classList.remove('hidden');
+  } else {
+    resultBrandDisclosure.classList.add('hidden');
+  }
 }
 
 async function loadQRStatus() {
   if (!qrId) {
+    formSection.classList.remove('hidden');
     showError('未找到星星编号，请重新扫码。');
     return;
   }
@@ -56,7 +66,9 @@ async function loadQRStatus() {
         image_url: res.data.image_url,
         content: res.data.content,
         blockchain_hash: res.data.blockchain_hash,
-        activated_at: res.data.activated_at
+        activated_at: res.data.activated_at,
+        show_brand_disclosure: res.data.show_brand_disclosure,
+        brand_disclosure_text_snapshot: res.data.brand_disclosure_text_snapshot
       });
       return;
     }
@@ -69,6 +81,7 @@ async function loadQRStatus() {
 
     formSection.classList.remove('hidden');
   } catch (error) {
+    formSection.classList.remove('hidden');
     showError(error.message || '加载失败，请稍后再试。');
   }
 }

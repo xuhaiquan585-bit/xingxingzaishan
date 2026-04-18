@@ -57,6 +57,11 @@ function renderBatchOptions() {
     .concat(batchList.map((batch) => `<option value="${batch.id}">${batch.name} (${batch.id})</option>`))
     .join('');
   document.getElementById('assignBatchSelect').innerHTML = assignOptions;
+
+  const qrBatchOptions = ['<option value="">选择批次（选填）</option>']
+    .concat(batchList.map((batch) => `<option value="${batch.id}">${batch.name} (${batch.id})</option>`))
+    .join('');
+  document.getElementById('qrBatchSelect').innerHTML = qrBatchOptions;
 }
 
 function renderBatchRows() {
@@ -109,6 +114,40 @@ async function createBatch() {
   await loadBatches();
 }
 
+async function generateQRCodes() {
+  const prefix = document.getElementById('qrPrefix').value.trim();
+  const count = parseInt(document.getElementById('qrCount').value, 10);
+  const batchId = document.getElementById('qrBatchSelect').value;
+
+  if (!prefix) {
+    batchMsg.textContent = '请输入二维码前缀。';
+    return;
+  }
+
+  if (!count || count < 1) {
+    batchMsg.textContent = '生成数量必须大于0。';
+    return;
+  }
+
+  try {
+    await request('/api/admin/qr/generate', {
+      method: 'POST',
+      headers: {
+        ...authHeaders(),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ prefix, count, batch_id: batchId || undefined })
+    });
+    batchMsg.textContent = `成功生成 ${count} 个二维码（前缀：${prefix}）。`;
+    document.getElementById('qrPrefix').value = '';
+    document.getElementById('qrCount').value = '10';
+    await loadBatches();
+    await loadRecords();
+  } catch (error) {
+    batchMsg.textContent = error.message || '二维码生成失败。';
+  }
+}
+
 
 function renderOperators(operators) {
   operatorTableBody.innerHTML = operators
@@ -121,7 +160,10 @@ function renderOperators(operators) {
         <td>${op.username}</td>
         <td>${op.role}</td>
         <td>${op.enabled ? '启用' : '禁用'}</td>
-        <td><button data-op-id="${op.id}" data-op-action="${action}">${actionLabel}</button></td>
+        <td>
+          <button data-op-id="${op.id}" data-op-action="${action}">${actionLabel}</button>
+          <button data-op-id="${op.id}" data-op-action="change-password">改密码</button>
+        </td>
       </tr>`;
     })
     .join('');
@@ -186,6 +228,7 @@ function renderRows(records) {
       return `<tr>
         <td><input type="checkbox" data-row-id="${item.id}" ${checked} /></td>
         <td>${item.id}</td>
+        <td>${item.qr_image_url ? `<a href="${item.qr_image_url}" target="_blank" download="${item.id}.png">查看</a>` : '-'}</td>
         <td>${item.batch_id || '-'}</td>
         <td>${item.issue_status}</td>
         <td>${item.activation_status}</td>
@@ -348,6 +391,7 @@ document.getElementById('createBatchBtn').addEventListener('click', () => create
   batchMsg.textContent = e.message || '创建失败';
 }));
 document.getElementById('refreshBatchBtn').addEventListener('click', () => loadBatches().catch(() => {}));
+document.getElementById('generateQrBtn').addEventListener('click', () => generateQRCodes());
 document.getElementById('createOpBtn').addEventListener('click', () => createOperator().catch((e) => { opMsg.textContent = e.message || '创建失败'; }));
 document.getElementById('refreshOpBtn').addEventListener('click', () => loadOperators().catch(() => {}));
 document.getElementById('filterBtn').addEventListener('click', async () => {
@@ -412,6 +456,28 @@ operatorTableBody.addEventListener('click', async (event) => {
   if (!btn) return;
   const opId = btn.getAttribute('data-op-id');
   const action = btn.getAttribute('data-op-action');
+
+  if (action === 'change-password') {
+    const newPassword = prompt('请输入新密码：');
+    if (!newPassword || !newPassword.trim()) {
+      return;
+    }
+    try {
+      await request(`/api/admin/operators/${encodeURIComponent(opId)}/change-password`, {
+        method: 'POST',
+        headers: {
+          ...authHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ password: newPassword.trim() })
+      });
+      opMsg.textContent = '密码修改成功。';
+    } catch (error) {
+      opMsg.textContent = error.message || '密码修改失败。';
+    }
+    return;
+  }
+
   try {
     await request(`/api/admin/operators/${encodeURIComponent(opId)}/${action}`, {
       method: 'POST',

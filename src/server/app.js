@@ -82,6 +82,7 @@ function createApp() {
 
   app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
   app.use('/cloud', express.static(path.join(__dirname, 'public', 'cloud')));
+  app.use('/qrcodes', express.static(path.join(__dirname, '..', '..', 'public', 'qrcodes')));
   app.use(express.static(path.join(__dirname, '..', 'frontend')));
   app.use('/admin', express.static(path.join(__dirname, '..', 'admin')));
   app.use('/qc', express.static(path.join(__dirname, '..', 'qc')));

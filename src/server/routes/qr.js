@@ -1,5 +1,5 @@
 const express = require('express');
-const { getQRCode, activateQRCodeOnce } = require('../services/dbService');
+const { getQRCode, findQRByKey, activateQRByKey } = require('../services/dbService');
 const { listBatches } = require('../services/dbService');
 const { generateMockBlockchainHash } = require('../services/hashService');
 const { getSignedUrl, getStorageMode } = require('../services/storageService');
@@ -22,7 +22,7 @@ function resolveImageUrl(qr) {
 }
 
 router.get('/:qrId', (req, res) => {
-  const qr = getQRCode(req.params.qrId);
+  const qr = findQRByKey(req.params.qrId);
 
   if (!qr) {
     return res.status(404).json({
@@ -97,7 +97,7 @@ router.post('/:qrId/record', (req, res) => {
   }
 
   const blockchainHash = generateMockBlockchainHash();
-  const result = activateQRCodeOnce(req.params.qrId, {
+  const result = activateQRByKey(req.params.qrId, {
     content: String(content),
     image_url: imageUrl,
     image_object_key: imageObjectKey,

@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const QRCode = require('qrcode');
 const { hashPassword, verifyPassword, isPasswordHashed } = require('./passwordService');
 
 const dataDir = process.env.DB_DIR
@@ -38,6 +40,8 @@ function seedQRCodes() {
       blockchain_hash: null,
       show_brand_disclosure: false,
       brand_disclosure_text_snapshot: '',
+      qr_image_url: null,
+      qr_access_token: null,
       created_at: nowISO()
     });
   }
@@ -159,6 +163,8 @@ function migrateSchema(db) {
     image_object_key: Object.prototype.hasOwnProperty.call(item, 'image_object_key') ? item.image_object_key : null,
     show_brand_disclosure: item.show_brand_disclosure === true,
     brand_disclosure_text_snapshot: typeof item.brand_disclosure_text_snapshot === 'string' ? item.brand_disclosure_text_snapshot : '',
+    qr_image_url: item.qr_image_url || null,
+    qr_access_token: item.qr_access_token || null,
     quality_check: item.quality_check || {
       checked: false,
       checked_at: null,
@@ -228,6 +234,17 @@ function getQRCode(qrId) {
   return db.qr_codes.find((item) => item.id === qrId) || null;
 }
 
+function findQRByToken(token) {
+  const db = readDB();
+  return db.qr_codes.find((item) => item.qr_access_token === token) || null;
+}
+
+function findQRByKey(key) {
+  const byToken = findQRByToken(key);
+  if (byToken) return byToken;
+  return getQRCode(key);
+}
+
 function activateQRCodeOnce(qrId, payload) {
   const db = readDB();
   const index = db.qr_codes.findIndex((item) => item.id === qrId);
@@ -261,6 +278,16 @@ function activateQRCodeOnce(qrId, payload) {
   writeDB(db);
 
   return { data: updated };
+}
+
+function activateQRByKey(key, payload) {
+  const db = readDB();
+  const byToken = db.qr_codes.findIndex((item) => item.qr_access_token === key);
+  if (byToken !== -1) {
+    const qr = db.qr_codes[byToken];
+    return activateQRCodeOnce(qr.id, payload);
+  }
+  return activateQRCodeOnce(key, payload);
 }
 
 function findAdmin(username, password) {
@@ -336,6 +363,25 @@ function setOperatorEnabled(id, enabled) {
     role: db.admins[index].role,
     name: db.admins[index].name,
     enabled: db.admins[index].enabled
+  };
+}
+
+function changeOperatorPassword(id, newPassword) {
+  const db = readDB();
+  const index = db.admins.findIndex((item) => String(item.id) === String(id));
+  if (index === -1) {
+    return null;
+  }
+
+  db.admins[index] = {
+    ...db.admins[index],
+    password: hashPassword(newPassword)
+  };
+  writeDB(db);
+
+  return {
+    id: db.admins[index].id,
+    username: db.admins[index].username
   };
 }
 
@@ -435,7 +481,7 @@ function listQRRecords({ issueStatus, activationStatus, hidden, idPrefix, batchI
   };
 }
 
-function generateQRCodes({ prefix, count, batchId }) {
+async function generateQRCodes({ prefix, count, batchId }) {
   const db = readDB();
   const normalizedPrefix = String(prefix).toUpperCase();
   const regex = new RegExp(`^${normalizedPrefix}(\\d{5})$`);
@@ -483,11 +529,51 @@ function generateQRCodes({ prefix, count, batchId }) {
       blockchain_hash: null,
       show_brand_disclosure: false,
       brand_disclosure_text_snapshot: '',
+      qr_image_url: null,
+      qr_access_token: null,
       created_at: nowISO()
     };
 
     records.push(record);
     ids.push(id);
+  }
+
+  // 生成唯一 qr_access_token
+  const usedTokens = new Set(db.qr_codes.map((item) => item.qr_access_token).filter(Boolean));
+  for (let i = 0; i < records.length; i += 1) {
+    let token;
+    do {
+      token = crypto.randomBytes(16).toString('hex');
+    } while (usedTokens.has(token));
+    usedTokens.add(token);
+    records[i].qr_access_token = token;
+  }
+
+  // 生成二维码 PNG 图片
+  const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+  const qrImageDir = path.join(__dirname, '..', '..', '..', 'public', 'qrcodes');
+  if (!fs.existsSync(qrImageDir)) {
+    fs.mkdirSync(qrImageDir, { recursive: true });
+  }
+
+  for (let i = 0; i < ids.length; i += 1) {
+    const qrId = ids[i];
+    const token = records[i].qr_access_token;
+    const qrContent = `${baseUrl}/record.html?t=${encodeURIComponent(token)}`;
+    const pngPath = path.join(qrImageDir, `${qrId}.png`);
+
+    try {
+      const pngBuffer = await QRCode.toBuffer(qrContent, {
+        type: 'png',
+        width: 300,
+        margin: 2,
+        errorCorrectionLevel: 'M'
+      });
+      fs.writeFileSync(pngPath, pngBuffer);
+      records[i].qr_image_url = `/qrcodes/${qrId}.png`;
+    } catch (_err) {
+      // 图片生成失败不阻断流程，qr_image_url 保持 null
+    }
   }
 
   db.qr_codes.push(...records);
@@ -625,7 +711,7 @@ function exportBatchCSV(batchId) {
     return { error: 'BATCH_NOT_FOUND' };
   }
 
-  const header = ['id', 'batch_id', 'issue_status', 'activation_status', 'hidden', 'phone', 'activated_at', 'created_at'];
+  const header = ['id', 'batch_id', 'issue_status', 'activation_status', 'hidden', 'phone', 'activated_at', 'created_at', 'qr_image_url'];
   const rows = detail.records.map((item) => [
     item.id,
     item.batch_id || '',
@@ -634,7 +720,8 @@ function exportBatchCSV(batchId) {
     item.hidden ? 'true' : 'false',
     item.phone || '',
     item.activated_at || '',
-    item.created_at || ''
+    item.created_at || '',
+    item.qr_image_url ? `${process.env.BASE_URL || 'http://localhost:3000'}${item.qr_image_url}` : ''
   ]);
 
   const csv = [header.join(','), ...rows.map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
@@ -725,11 +812,15 @@ module.exports = {
   initializeDB,
   createOrGetUser,
   getQRCode,
+  findQRByToken,
+  findQRByKey,
   activateQRCodeOnce,
+  activateQRByKey,
   findAdmin,
   listOperators,
   createOperator,
   setOperatorEnabled,
+  changeOperatorPassword,
   getDashboardStats,
   listQRRecords,
   generateQRCodes,
