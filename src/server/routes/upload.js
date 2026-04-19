@@ -71,7 +71,7 @@ router.post('/', upload.single('image'), async (req, res, next) => {
       return res.status(500).json({
         status: 'error',
         code: 'OSS_CONFIG_ERROR',
-        message: error.message
+        message: '上传服务暂时不可用，请联系客服'
       });
     }
 
@@ -79,12 +79,37 @@ router.post('/', upload.single('image'), async (req, res, next) => {
       return res.status(500).json({
         status: 'error',
         code: 'OSS_DEP_MISSING',
-        message: '云存储依赖未安装，请联系管理员。'
+        message: '上传服务暂时不可用，请联系客服'
       });
     }
 
     return next(error);
   }
+});
+
+// multer 中间件错误处理（文件过大等，走 next(err) 而非 try-catch）
+router.use((err, _req, res, _next) => {
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({
+      status: 'error',
+      code: 'UPLOAD_SIZE_EXCEEDED',
+      message: '图片过大，请选择 5MB 以内的图片'
+    });
+  }
+
+  if (err.message === '仅支持图片文件上传') {
+    return res.status(400).json({
+      status: 'error',
+      code: 'UPLOAD_FAILED',
+      message: '仅支持图片文件上传'
+    });
+  }
+
+  return res.status(500).json({
+    status: 'error',
+    code: 'SERVER_ERROR',
+    message: '服务器暂时繁忙，请稍后再试'
+  });
 });
 
 module.exports = router;

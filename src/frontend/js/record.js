@@ -97,7 +97,7 @@ async function loadQRStatus() {
     formSection.classList.remove('hidden');
   } catch (error) {
     formSection.classList.remove('hidden');
-    showError(error.message || '加载失败，请稍后再试。');
+    showError(error.message || '加载失败，请重新扫码或检查网络');
   }
 }
 
@@ -136,7 +136,7 @@ imageInput.addEventListener('change', async () => {
     }
     showError('图片上传成功。');
   } catch (error) {
-    showError(error.message || '上传失败，请重试。');
+    showError(error.message || '上传失败，请换张图片试试');
   }
 });
 
@@ -170,7 +170,7 @@ submitBtn.addEventListener('click', async () => {
 
     renderResult(res.data);
   } catch (error) {
-    showError(error.message || '提交失败，请稍后重试。');
+    showError(error.message || '提交失败，请检查网络后重试');
     submitBtn.disabled = false;
   }
 });
