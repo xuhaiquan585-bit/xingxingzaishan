@@ -1,5 +1,6 @@
 const express = require('express');
 const multer = require('multer');
+const sharp = require('sharp');
 
 const { saveImage, getStorageMode } = require('../services/storageService');
 
@@ -24,6 +25,21 @@ router.post('/', upload.single('image'), async (req, res, next) => {
         code: 'UPLOAD_FAILED',
         message: '上传失败，请重新选择图片。'
       });
+    }
+
+    // 图片压缩：最大宽1080，统一JPEG，质量80，自动EXIF旋转
+    // 压缩失败时回退原始buffer，不阻断上传
+    try {
+      const compressedBuffer = await sharp(req.file.buffer)
+        .rotate()
+        .resize({ width: 1080, withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+
+      req.file.buffer = compressedBuffer;
+      req.file.mimetype = 'image/jpeg';
+    } catch (_compressErr) {
+      // 压缩失败，保持原始文件不变
     }
 
     const qrId = req.body.qr_id || req.query.qr_id || 'unbound';

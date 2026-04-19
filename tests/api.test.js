@@ -574,3 +574,37 @@ test('POST /api/qr/:token/record should activate QR by access token', async () =
   assert.equal(recordRes.body.data.activation_status, 'activated');
   assert.equal(recordRes.body.data.content, 'activated by token');
 });
+
+test('POST /api/upload should compress image and return .jpg object_key', async () => {
+  // 用 sharp 生成 200x200 红色 PNG 作为测试图片
+  const sharp = require('sharp');
+  const rawPixels = Buffer.alloc(200 * 200 * 3, 0);
+  for (let i = 0; i < 200 * 200; i++) {
+    rawPixels[i * 3] = 255;     // R
+    rawPixels[i * 3 + 1] = 0;   // G
+    rawPixels[i * 3 + 2] = 0;   // B
+  }
+  const pngBuffer = await sharp(rawPixels, { raw: { width: 200, height: 200, channels: 3 } })
+    .png()
+    .toBuffer();
+
+  const uploadRes = await postMultipart('/api/upload', {
+    fields: { qr_id: 'COMPRESS_TEST' },
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'test-image.png',
+        contentType: 'image/png',
+        content: pngBuffer
+      }
+    ]
+  });
+
+  assert.equal(uploadRes.status, 200);
+  assert.equal(uploadRes.body.status, 'success');
+
+  // 压缩后 object_key 后缀应为 .jpg
+  const objectKey = uploadRes.body.data.object_key;
+  assert.ok(objectKey, 'object_key should exist');
+  assert.ok(objectKey.endsWith('.jpg'), `object_key should end with .jpg, got: ${objectKey}`);
+});
