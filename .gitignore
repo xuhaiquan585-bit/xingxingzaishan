@@ -5,3 +5,4 @@ src/server/public/uploads/
 src/server/public/cloud/
 public/qrcodes/
 src/server/logs/
+.env

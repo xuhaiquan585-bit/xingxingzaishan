@@ -82,7 +82,7 @@ function createApp() {
 
   app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
   app.use('/cloud', express.static(path.join(__dirname, 'public', 'cloud')));
-  app.use('/qrcodes', express.static(path.join(__dirname, '..', '..', 'public', 'qrcodes')));
+  // /qrcodes 已关闭公开访问，改为通过 /api/qr-image/:token 认证访问
   app.use(express.static(path.join(__dirname, '..', 'frontend')));
   app.use('/admin', express.static(path.join(__dirname, '..', 'admin')));
   app.use('/qc', express.static(path.join(__dirname, '..', 'qc')));

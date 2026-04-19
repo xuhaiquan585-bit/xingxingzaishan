@@ -235,7 +235,7 @@ function renderRows(records) {
       return `<tr>
         <td><input type="checkbox" data-row-id="${item.id}" ${checked} /></td>
         <td>${item.id}</td>
-        <td>${item.qr_image_url ? `<a href="${item.qr_image_url}" target="_blank" download="${item.id}.png">查看</a>` : '-'}</td>
+        <td>${item.qr_access_token ? `<a href="/api/qr/image/${item.qr_access_token}" target="_blank" download="${item.id}.png">查看</a>` : '-'}</td>
         <td>${item.batch_id || '-'}</td>
         <td>${getBatchNote(item.batch_id)}</td>
         <td>${item.issue_status}</td>

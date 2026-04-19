@@ -144,7 +144,8 @@ async function saveImage({ file, qrId }) {
       await putObjectToOss({ objectKey, localPath: bufferedPath });
       return {
         mode,
-        url: getSignedUrl(objectKey),
+        url: null,
+        preview_url: getSignedUrl(objectKey),
         object_key: objectKey,
         buffer_path: bufferedPath
       };
@@ -154,6 +155,7 @@ async function saveImage({ file, qrId }) {
         return {
           mode: 'local',
           url: `/uploads/${fileName}`,
+          preview_url: `/uploads/${fileName}`,
           object_key: fileName,
           buffer_path: bufferedPath,
           fallback: true
@@ -167,6 +169,7 @@ async function saveImage({ file, qrId }) {
   return {
     mode,
     url: `/uploads/${fileName}`,
+    preview_url: `/uploads/${fileName}`,
     object_key: fileName,
     buffer_path: bufferedPath
   };

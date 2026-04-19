@@ -34,6 +34,7 @@ router.post('/', upload.single('image'), async (req, res, next) => {
       code: 'OK',
       data: {
         url: stored.url,
+        preview_url: stored.preview_url || null,
         storage_mode: stored.mode,
         object_key: stored.object_key,
         buffered: true,

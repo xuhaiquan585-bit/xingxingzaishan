@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const QRCode = require('qrcode');
+const { addLabelToQR } = require('../utils/qrWithLabel');
 const { hashPassword, verifyPassword, isPasswordHashed } = require('./passwordService');
 
 const dataDir = process.env.DB_DIR
@@ -563,13 +564,15 @@ async function generateQRCodes({ prefix, count, batchId }) {
     const pngPath = path.join(qrImageDir, `${qrId}.png`);
 
     try {
-      const pngBuffer = await QRCode.toBuffer(qrContent, {
+      const rawPngBuffer = await QRCode.toBuffer(qrContent, {
         type: 'png',
         width: 300,
         margin: 2,
         errorCorrectionLevel: 'M'
       });
-      fs.writeFileSync(pngPath, pngBuffer);
+      // 在二维码下方拼接序号标签（如 OSSC00001），一次成型
+      const labeledPngBuffer = addLabelToQR(rawPngBuffer, qrId, { scale: 3 });
+      fs.writeFileSync(pngPath, labeledPngBuffer);
       records[i].qr_image_url = `/qrcodes/${qrId}.png`;
     } catch (_err) {
       // 图片生成失败不阻断流程，qr_image_url 保持 null

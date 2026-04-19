@@ -1,5 +1,7 @@
 const express = require('express');
-const { getQRCode, findQRByKey, activateQRByKey } = require('../services/dbService');
+const path = require('path');
+const fs = require('fs');
+const { getQRCode, findQRByKey, findQRByToken, activateQRByKey } = require('../services/dbService');
 const { listBatches } = require('../services/dbService');
 const { generateMockBlockchainHash } = require('../services/hashService');
 const { getSignedUrl, getStorageMode } = require('../services/storageService');
@@ -100,8 +102,8 @@ router.post('/:qrId/record', (req, res) => {
   const blockchainHash = generateMockBlockchainHash();
   const result = activateQRByKey(req.params.qrId, {
     content: String(content),
-    image_url: imageUrl,
-    image_object_key: imageObjectKey,
+    image_url: imageUrl || null,
+    image_object_key: imageObjectKey || null,
     phone,
     blockchain_hash: blockchainHash,
     show_brand_disclosure: showBrandDisclosure === true
@@ -149,6 +151,31 @@ router.post('/:qrId/record', (req, res) => {
       brand_name: brandName
     }
   });
+});
+
+// 通过 token 安全访问二维码图片（防枚举攻击）
+router.get('/image/:token', (req, res) => {
+  const qr = findQRByToken(req.params.token);
+
+  if (!qr) {
+    return res.status(404).json({
+      status: 'error',
+      code: 'QR_NOT_FOUND',
+      message: '未找到该二维码。'
+    });
+  }
+
+  const pngPath = path.join(__dirname, '..', '..', '..', 'public', 'qrcodes', `${qr.id}.png`);
+  if (!fs.existsSync(pngPath)) {
+    return res.status(404).json({
+      status: 'error',
+      code: 'IMAGE_NOT_FOUND',
+      message: '二维码图片不存在。'
+    });
+  }
+
+  res.setHeader('Content-Type', 'image/png');
+  return res.sendFile(pngPath);
 });
 
 module.exports = router;

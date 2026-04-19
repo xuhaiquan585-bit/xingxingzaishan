@@ -27,6 +27,7 @@ const userPhone = localStorage.getItem('userPhone');
 
 let uploadedImageUrl = '';
 let uploadedImageObjectKey = '';
+let uploadedStorageMode = '';
 let currentResult = null;
 
 function showError(message) {
@@ -64,6 +65,10 @@ async function loadQRStatus() {
 
   try {
     const res = await apiRequest(`/api/qr/${encodeURIComponent(qrId)}`);
+    // 用真实的序号 ID（如 OSSC00001）替换 token 显示
+    if (res.data && res.data.id) {
+      qrIdText.textContent = res.data.id;
+    }
     if (res.data.activation_status === 'activated') {
       renderResult({
         qr_id: res.data.id,
@@ -120,10 +125,15 @@ imageInput.addEventListener('change', async () => {
       body: formData
     });
 
-    uploadedImageUrl = res.data.url;
+    uploadedImageUrl = res.data.url; // cloud 模式下为 null，local 模式下为本地路径
     uploadedImageObjectKey = res.data.object_key || '';
-    preview.src = uploadedImageUrl;
-    preview.classList.remove('hidden');
+    uploadedStorageMode = res.data.storage_mode || 'local';
+
+    const previewSrc = res.data.preview_url || '';
+    if (previewSrc) {
+      preview.src = previewSrc;
+      preview.classList.remove('hidden');
+    }
     showError('图片上传成功。');
   } catch (error) {
     showError(error.message || '上传失败，请重试。');
@@ -137,7 +147,7 @@ contentInput.addEventListener('input', () => {
 submitBtn.addEventListener('click', async () => {
   const content = contentInput.value.trim();
 
-  if (!uploadedImageUrl) {
+  if (!uploadedImageObjectKey && !uploadedImageUrl) {
     showError('请先上传一张照片再点亮。');
     return;
   }
@@ -151,7 +161,7 @@ submitBtn.addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content,
-        image_url: uploadedImageUrl,
+        image_url: uploadedStorageMode === 'cloud' ? null : uploadedImageUrl,
         image_object_key: uploadedImageObjectKey,
         phone: userPhone,
         show_brand_disclosure: showBrandDisclosureInput ? showBrandDisclosureInput.checked : false
