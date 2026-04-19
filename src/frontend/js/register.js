@@ -26,7 +26,7 @@ registerBtn.addEventListener('click', async () => {
 
     localStorage.setItem('userPhone', result.data.phone);
     messageEl.textContent = '注册成功，正在返回点亮页面...';
-    window.location.href = `/record.html?qr=${encodeURIComponent(qrId || 'STAR0001')}`;
+    window.location.href = `/record.html?t=${encodeURIComponent(qrId || '')}`;
   } catch (error) {
     messageEl.textContent = error.message || '注册失败，请检查网络后重试';
     updateButtonState();

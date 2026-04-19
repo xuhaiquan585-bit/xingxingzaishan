@@ -82,7 +82,7 @@ router.get('/:qrId/share-meta', (req, res) => {
     data: {
       title: '星星在闪｜记在星上，闪到永远',
       text: qr.content || '我在星星在闪记录了一个珍贵时刻。',
-      url: `${baseUrl}/record.html?qr=${encodeURIComponent(qr.id)}`
+      url: `${baseUrl}/record.html?t=${encodeURIComponent(qr.qr_access_token || qr.id)}`
     }
   });
 });

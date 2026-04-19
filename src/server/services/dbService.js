@@ -246,6 +246,13 @@ function findQRByKey(key) {
   return getQRCode(key);
 }
 
+function getSampleUnactivated() {
+  const db = readDB();
+  return db.qr_codes.find((item) =>
+    item.activation_status === 'unactivated' && item.hidden !== true
+  ) || null;
+}
+
 function activateQRCodeOnce(qrId, payload) {
   const db = readDB();
   const index = db.qr_codes.findIndex((item) => item.id === qrId);
@@ -817,6 +824,7 @@ module.exports = {
   getQRCode,
   findQRByToken,
   findQRByKey,
+  getSampleUnactivated,
   activateQRCodeOnce,
   activateQRByKey,
   findAdmin,

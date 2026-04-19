@@ -102,7 +102,7 @@ async function loadQRStatus() {
 }
 
 if (!userPhone) {
-  window.location.href = `/register.html?qr=${encodeURIComponent(qrId || '')}`;
+  window.location.href = `/register.html?t=${encodeURIComponent(qrId || '')}`;
 } else {
   loadQRStatus();
 }

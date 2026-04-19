@@ -10,7 +10,25 @@
     <main class="container">
       <h1>星星在闪</h1>
       <p class="subtitle">记在星上，闪到永远</p>
-      <a class="btn" href="/record.html?qr=STAR0001">开始点亮（测试码 STAR0001）</a>
+      <a id="startBtn" class="btn">加载中...</a>
     </main>
+    <script src="/js/api.js"></script>
+    <script>
+      (async function () {
+        const btn = document.getElementById('startBtn');
+        try {
+          const res = await apiRequest('/api/qr/sample-unactivated');
+          if (res.data && res.data.token) {
+            btn.textContent = '开始点亮（' + res.data.id + '）';
+            btn.href = '/record.html?t=' + encodeURIComponent(res.data.token);
+          } else {
+            btn.textContent = '暂无可用的星星';
+            btn.style.pointerEvents = 'none';
+          }
+        } catch (_e) {
+          btn.textContent = '加载失败，请刷新';
+        }
+      })();
+    </script>
   </body>
 </html>

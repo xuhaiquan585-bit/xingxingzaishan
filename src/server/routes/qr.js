@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { getQRCode, findQRByKey, findQRByToken, activateQRByKey } = require('../services/dbService');
+const { getQRCode, findQRByKey, findQRByToken, activateQRByKey, getSampleUnactivated } = require('../services/dbService');
 const { listBatches } = require('../services/dbService');
 const { generateMockBlockchainHash } = require('../services/hashService');
 const { getSignedUrl, getStorageMode } = require('../services/storageService');
@@ -22,6 +22,28 @@ function resolveImageUrl(qr) {
   }
   return qr.image_url;
 }
+
+// 首页获取一个未激活的测试二维码（返回 token，不暴露序号到 URL）
+router.get('/sample-unactivated', (_req, res) => {
+  const qr = getSampleUnactivated();
+
+  if (!qr) {
+    return res.status(404).json({
+      status: 'error',
+      code: 'NO_AVAILABLE_QR',
+      message: '暂未可用的星星。'
+    });
+  }
+
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: {
+      id: qr.id,
+      token: qr.qr_access_token
+    }
+  });
+});
 
 router.get('/:qrId', (req, res) => {
   const qr = findQRByKey(req.params.qrId);
