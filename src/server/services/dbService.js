@@ -248,8 +248,11 @@ function findQRByKey(key) {
 
 function getSampleUnactivated() {
   const db = readDB();
+  // 优先返回有 token 的（新数据），旧数据无 token 跳过
   return db.qr_codes.find((item) =>
-    item.activation_status === 'unactivated' && item.hidden !== true
+    item.activation_status === 'unactivated' &&
+    item.hidden !== true &&
+    item.qr_access_token
   ) || null;
 }
 
