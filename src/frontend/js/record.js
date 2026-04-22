@@ -25,7 +25,8 @@ const resultBrandDisclosureText = document.getElementById('resultBrandDisclosure
 
 const params = new URLSearchParams(window.location.search);
 const qrId = params.get('t') || params.get('qr');
-const userPhone = localStorage.getItem('userPhone');
+const userPhoneStorageKey = qrId ? `userPhone:${qrId}` : '';
+const userPhone = userPhoneStorageKey ? localStorage.getItem(userPhoneStorageKey) : null;
 
 let uploadedImageUrl = '';
 let uploadedImageObjectKey = '';
@@ -142,6 +143,12 @@ imageInput.addEventListener('change', async () => {
     uploadFeedback.classList.remove('hidden');
     showError('');
   } catch (error) {
+    uploadedImageUrl = '';
+    uploadedImageObjectKey = '';
+    uploadedStorageMode = '';
+    preview.src = '';
+    preview.classList.add('hidden');
+    uploadFeedback.classList.add('hidden');
     showError(error.message || '上传失败，请换张图片试试');
   }
 });

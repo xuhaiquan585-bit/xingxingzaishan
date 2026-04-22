@@ -4,7 +4,7 @@ const registerBtn = document.getElementById('registerBtn');
 const messageEl = document.getElementById('message');
 
 const urlParams = new URLSearchParams(window.location.search);
-const qrId = urlParams.get('qr');
+const qrId = urlParams.get('t') || urlParams.get('qr');
 
 function updateButtonState() {
   const validPhone = /^1\d{10}$/.test(phoneInput.value.trim());
@@ -24,7 +24,9 @@ registerBtn.addEventListener('click', async () => {
       body: JSON.stringify({ phone })
     });
 
-    localStorage.setItem('userPhone', result.data.phone);
+    if (qrId) {
+      localStorage.setItem(`userPhone:${qrId}`, result.data.phone);
+    }
     messageEl.textContent = '注册成功，正在返回点亮页面...';
     window.location.href = `/record.html?t=${encodeURIComponent(qrId || '')}`;
   } catch (error) {
