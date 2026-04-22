@@ -12,6 +12,8 @@ const brandSection = document.getElementById('brandSection');
 const brandPreviewText = document.getElementById('brandPreviewText');
 const submitBtn = document.getElementById('submitBtn');
 const formMessage = document.getElementById('formMessage');
+const currentPhoneText = document.getElementById('currentPhoneText');
+const switchPhoneBtn = document.getElementById('switchPhoneBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const shareBtn = document.getElementById('shareBtn');
 
@@ -25,7 +27,16 @@ const resultBrandDisclosureText = document.getElementById('resultBrandDisclosure
 
 const params = new URLSearchParams(window.location.search);
 const qrId = params.get('t') || params.get('qr');
-const userPhone = localStorage.getItem('userPhone');
+const userPhoneStorageKey = 'userPhone';
+const legacyPhoneStorageKey = qrId ? `userPhone:${qrId}` : '';
+let userPhone = localStorage.getItem(userPhoneStorageKey);
+if (!userPhone && legacyPhoneStorageKey) {
+  const legacyPhone = localStorage.getItem(legacyPhoneStorageKey);
+  if (legacyPhone) {
+    userPhone = legacyPhone;
+    localStorage.setItem(userPhoneStorageKey, legacyPhone);
+  }
+}
 
 let uploadedImageUrl = '';
 let uploadedImageObjectKey = '';
@@ -34,6 +45,14 @@ let currentResult = null;
 
 function showError(message) {
   formMessage.textContent = message;
+}
+
+function maskPhone(phone) {
+  const value = String(phone || '').trim();
+  if (!/^1\d{10}$/.test(value)) {
+    return value || '未登录';
+  }
+  return `${value.slice(0, 3)}****${value.slice(-4)}`;
 }
 
 function renderResult(data) {
@@ -85,6 +104,11 @@ async function loadQRStatus() {
       return;
     }
 
+    if (!userPhone) {
+      window.location.href = `/register.html?t=${encodeURIComponent(qrId)}`;
+      return;
+    }
+
     // 根据 batch 的 brand_disclosure_text 决定是否显示品牌露出开关
     if (res.data.batch_id && res.data.batch_brand_disclosure_text) {
       brandSection.classList.remove('hidden');
@@ -103,10 +127,23 @@ async function loadQRStatus() {
   }
 }
 
-if (!userPhone) {
-  window.location.href = `/register.html?t=${encodeURIComponent(qrId || '')}`;
-} else {
-  loadQRStatus();
+loadQRStatus();
+
+if (currentPhoneText) {
+  currentPhoneText.textContent = maskPhone(userPhone);
+}
+
+if (switchPhoneBtn) {
+  switchPhoneBtn.addEventListener('click', () => {
+    const confirmed = window.confirm('确认更换手机号吗？更换后需要重新注册。');
+    if (!confirmed) {
+      return;
+    }
+
+    localStorage.removeItem(userPhoneStorageKey);
+    userPhone = null;
+    window.location.href = `/register.html?t=${encodeURIComponent(qrId || '')}`;
+  });
 }
 
 imageInput.addEventListener('change', async () => {
@@ -142,6 +179,12 @@ imageInput.addEventListener('change', async () => {
     uploadFeedback.classList.remove('hidden');
     showError('');
   } catch (error) {
+    uploadedImageUrl = '';
+    uploadedImageObjectKey = '';
+    uploadedStorageMode = '';
+    preview.src = '';
+    preview.classList.add('hidden');
+    uploadFeedback.classList.add('hidden');
     showError(error.message || '上传失败，请换张图片试试');
   }
 });

@@ -583,7 +583,7 @@ async function generateQRCodes({ prefix, count, batchId }) {
       // 在二维码下方拼接序号标签（如 OSSC00001），一次成型
       const labeledPngBuffer = addLabelToQR(rawPngBuffer, qrId, { scale: 3 });
       fs.writeFileSync(pngPath, labeledPngBuffer);
-      records[i].qr_image_url = `/qrcodes/${qrId}.png`;
+      records[i].qr_image_url = `/api/qr/image/${token}`;
     } catch (_err) {
       // 图片生成失败不阻断流程，qr_image_url 保持 null
     }
