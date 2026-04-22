@@ -86,6 +86,11 @@ async function loadQRStatus() {
       return;
     }
 
+    if (!userPhone) {
+      window.location.href = `/register.html?t=${encodeURIComponent(qrId)}`;
+      return;
+    }
+
     // 根据 batch 的 brand_disclosure_text 决定是否显示品牌露出开关
     if (res.data.batch_id && res.data.batch_brand_disclosure_text) {
       brandSection.classList.remove('hidden');
@@ -104,11 +109,7 @@ async function loadQRStatus() {
   }
 }
 
-if (!userPhone) {
-  window.location.href = `/register.html?t=${encodeURIComponent(qrId || '')}`;
-} else {
-  loadQRStatus();
-}
+loadQRStatus();
 
 imageInput.addEventListener('change', async () => {
   if (!imageInput.files || imageInput.files.length === 0) {
