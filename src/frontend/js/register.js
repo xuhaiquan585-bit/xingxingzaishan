@@ -24,6 +24,7 @@ registerBtn.addEventListener('click', async () => {
       body: JSON.stringify({ phone })
     });
 
+    localStorage.setItem('userPhone', result.data.phone);
     if (qrId) {
       localStorage.setItem(`userPhone:${qrId}`, result.data.phone);
     }
