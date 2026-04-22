@@ -3,6 +3,8 @@ const resultSection = document.getElementById('resultSection');
 const qrIdText = document.getElementById('qrIdText');
 const imageInput = document.getElementById('imageInput');
 const preview = document.getElementById('preview');
+const uploadFeedback = document.getElementById('uploadFeedback');
+const uploadFeedbackText = document.getElementById('uploadFeedbackText');
 const contentInput = document.getElementById('content');
 const countEl = document.getElementById('count');
 const showBrandDisclosureInput = document.getElementById('showBrandDisclosure');
@@ -133,8 +135,12 @@ imageInput.addEventListener('change', async () => {
     if (previewSrc) {
       preview.src = previewSrc;
       preview.classList.remove('hidden');
+      uploadFeedbackText.textContent = '已选图片，可继续填写祝福';
+    } else {
+      uploadFeedbackText.textContent = '图片已上传';
     }
-    showError('图片上传成功。');
+    uploadFeedback.classList.remove('hidden');
+    showError('');
   } catch (error) {
     showError(error.message || '上传失败，请换张图片试试');
   }
@@ -153,7 +159,8 @@ submitBtn.addEventListener('click', async () => {
   }
 
   submitBtn.disabled = true;
-  showError('正在点亮，请稍候...');
+  submitBtn.textContent = '正在点亮...';
+  showError('');
 
   try {
     const res = await apiRequest(`/api/qr/${encodeURIComponent(qrId)}/record`, {
@@ -172,6 +179,7 @@ submitBtn.addEventListener('click', async () => {
   } catch (error) {
     showError(error.message || '提交失败，请检查网络后重试');
     submitBtn.disabled = false;
+    submitBtn.textContent = '点亮这颗星 ⭐';
   }
 });
 

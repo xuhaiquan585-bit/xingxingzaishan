@@ -8,39 +8,48 @@
   </head>
   <body>
     <main class="container">
-      <h1>点亮这颗星</h1>
-      <p class="subtitle">每一瓶酒，可以保存一个你的故事。</p>
+      <div class="page-intro">
+        <h1>点亮这颗星，留下你的祝福 ✨</h1>
+        <p class="subtitle">上传一张照片 + 写一句话，就能完成点亮</p>
+      </div>
 
       <section id="formSection" class="card hidden">
-        <p>星星ID：<strong id="qrIdText"></strong></p>
+        <p class="qr-id-hint">星星ID：<strong id="qrIdText"></strong></p>
 
-        <label for="imageInput">上传照片（单张）</label>
+        <label for="imageInput">选择一张照片</label>
         <input id="imageInput" type="file" accept="image/*" />
+        <div id="uploadFeedback" class="upload-feedback hidden">
+          <span id="uploadFeedbackIcon">✅</span> <span id="uploadFeedbackText">图片已上传</span>
+        </div>
         <img id="preview" class="preview hidden" alt="预览图" />
 
-        <label for="content">想说的话（0-200字）</label>
-        <textarea id="content" maxlength="200" placeholder="把愿望写在星上..."></textarea>
+        <label for="content">写下你想说的话（0-200字）</label>
+        <textarea id="content" maxlength="200" placeholder="写下你想说的话（例如：生日快乐 🎂）"></textarea>
         <p id="count">0 / 200</p>
 
         <div id="brandSection" class="brand-card hidden">
           <p id="brandPreviewText" class="brand-preview"></p>
           <div class="checkbox-row">
             <input id="showBrandDisclosure" type="checkbox" />
-            <label for="showBrandDisclosure">在纪念页中展示品牌露出信息</label>
+            <label for="showBrandDisclosure">展示品牌信息（不影响内容）</label>
           </div>
         </div>
 
-        <button id="submitBtn" class="btn">点亮这颗星</button>
+        <button id="submitBtn" class="btn">点亮这颗星 ⭐</button>
         <p id="formMessage" class="message"></p>
       </section>
 
       <section id="resultSection" class="card hidden">
-        <h2>点亮成功</h2>
+        <div class="result-success-banner">
+          <p class="result-success-title">✨ 点亮成功！</p>
+          <p class="result-success-sub">这颗星已被成功点亮</p>
+        </div>
         <img id="resultImage" class="preview" alt="NFT图片" />
         <p id="resultContent"></p>
         <p>哈希：<span id="resultHash"></span></p>
         <p class="brand-line"><span class="brand">⭐ 星星在闪</span> - <span id="resultTime"></span></p>
         <p id="resultBrandDisclosure" class="brand-disclosure hidden"><span id="resultBrandName"></span> <span id="resultBrandDisclosureText"></span></p>
+        <p class="save-hint">📸 截图保存这一刻</p>
         <button id="downloadBtn" class="btn btn-secondary">下载 NFT 图片</button>
         <button id="shareBtn" class="btn btn-secondary">分享给朋友</button>
       </section>

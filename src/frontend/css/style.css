@@ -11,8 +11,26 @@ body {
   margin: 0 auto;
   padding: 24px 16px 40px;
 }
+
+/* 页面顶部引导区 */
+.page-intro {
+  text-align: center;
+  margin-bottom: 24px;
+}
+.page-intro h1 {
+  font-size: 22px;
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+.page-intro .subtitle {
+  opacity: .75;
+  font-size: 14px;
+  margin: 0;
+}
+
 h1 { margin-bottom: 8px; }
 .subtitle { opacity: .9; margin-bottom: 20px; }
+.qr-id-hint { margin: 0 0 12px; font-size: 13px; opacity: .7; }
 .card {
   background: rgba(255,255,255,0.12);
   border: 1px solid rgba(255,255,255,0.2);
@@ -30,22 +48,47 @@ input, textarea {
   color: #fff;
 }
 textarea { min-height: 100px; resize: vertical; }
+
+/* 上传成功反馈 */
+.upload-feedback {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 7px 12px;
+  background: rgba(100, 220, 150, 0.15);
+  border: 1px solid rgba(100, 220, 150, 0.35);
+  border-radius: 8px;
+  color: #7effc0;
+  font-size: 14px;
+}
+
 .btn {
   width: 100%;
   margin-top: 14px;
-  padding: 12px;
+  padding: 13px;
   border: 0;
   border-radius: 8px;
   background: #ffd166;
   color: #1a1a1a;
   font-weight: 700;
+  font-size: 16px;
   text-decoration: none;
   display: inline-block;
   text-align: center;
   cursor: pointer;
+  transition: opacity 0.2s, transform 0.15s;
 }
-.btn:disabled { opacity: .5; cursor: not-allowed; }
-.btn-secondary { background: #d5d8e8; }
+.btn:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+.btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+  transform: none;
+}
+.btn-secondary { background: #d5d8e8; font-size: 15px; }
 .preview {
   width: 100%;
   max-height: 400px;
@@ -98,4 +141,33 @@ textarea { min-height: 100px; resize: vertical; }
 .brand-card .checkbox-row {
   margin-top: 0;
   gap: 6px;
+}
+
+/* 结果页成功横幅 */
+.result-success-banner {
+  text-align: center;
+  padding: 16px 0 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  margin-bottom: 16px;
+}
+.result-success-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #ffd166;
+  margin: 0 0 4px;
+}
+.result-success-sub {
+  font-size: 14px;
+  opacity: .75;
+  margin: 0;
+}
+
+/* 截图保存提示 */
+.save-hint {
+  text-align: center;
+  font-size: 14px;
+  color: #ffe9b2;
+  opacity: .8;
+  margin: 14px 0 0;
+  letter-spacing: 0.5px;
 }
