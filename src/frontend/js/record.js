@@ -25,7 +25,8 @@ const resultBrandDisclosureText = document.getElementById('resultBrandDisclosure
 
 const params = new URLSearchParams(window.location.search);
 const qrId = params.get('t') || params.get('qr');
-const userPhone = localStorage.getItem('userPhone');
+const userPhoneStorageKey = qrId ? `userPhone:${qrId}` : '';
+const userPhone = userPhoneStorageKey ? localStorage.getItem(userPhoneStorageKey) : null;
 
 let uploadedImageUrl = '';
 let uploadedImageObjectKey = '';
@@ -85,6 +86,11 @@ async function loadQRStatus() {
       return;
     }
 
+    if (!userPhone) {
+      window.location.href = `/register.html?t=${encodeURIComponent(qrId)}`;
+      return;
+    }
+
     // 根据 batch 的 brand_disclosure_text 决定是否显示品牌露出开关
     if (res.data.batch_id && res.data.batch_brand_disclosure_text) {
       brandSection.classList.remove('hidden');
@@ -103,11 +109,7 @@ async function loadQRStatus() {
   }
 }
 
-if (!userPhone) {
-  window.location.href = `/register.html?t=${encodeURIComponent(qrId || '')}`;
-} else {
-  loadQRStatus();
-}
+loadQRStatus();
 
 imageInput.addEventListener('change', async () => {
   if (!imageInput.files || imageInput.files.length === 0) {
@@ -142,6 +144,12 @@ imageInput.addEventListener('change', async () => {
     uploadFeedback.classList.remove('hidden');
     showError('');
   } catch (error) {
+    uploadedImageUrl = '';
+    uploadedImageObjectKey = '';
+    uploadedStorageMode = '';
+    preview.src = '';
+    preview.classList.add('hidden');
+    uploadFeedback.classList.add('hidden');
     showError(error.message || '上传失败，请换张图片试试');
   }
 });
