@@ -30,11 +30,14 @@ function renderRecords(records) {
   emptySection.classList.add('hidden');
   recordsSection.classList.remove('hidden');
   recordsSection.innerHTML = records.map((item) => `
-    <article class="card" style="margin-top: 14px;">
-      <img class="preview" src="${item.image_url || ''}" alt="点亮图片" />
-      <p>${item.content || '（未填写文字）'}</p>
-      <p class="qr-id-hint">点亮时间：${formatTime(item.activated_at)}</p>
-      <p class="qr-id-hint">二维码序号：<strong>${item.id || ''}</strong></p>
+    <article class="card record-item">
+      <img class="record-cover" src="${item.image_url || ''}" alt="点亮图片" />
+      <div class="record-body">
+        <p class="record-content">${item.content || '（未填写文字）'}</p>
+        <p class="qr-id-hint">点亮时间：${formatTime(item.activated_at)}</p>
+        <p class="qr-id-hint">二维码序号：<strong>${item.id || ''}</strong></p>
+        <a class="btn btn-secondary" href="/me-detail.html?id=${encodeURIComponent(item.id || '')}">查看详情</a>
+      </div>
     </article>
   `).join('');
 }
@@ -72,4 +75,3 @@ if (switchPhoneBtn) {
 }
 
 loadMyRecords();
-
