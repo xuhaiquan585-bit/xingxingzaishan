@@ -27,16 +27,7 @@ const resultBrandDisclosureText = document.getElementById('resultBrandDisclosure
 
 const params = new URLSearchParams(window.location.search);
 const qrId = params.get('t') || params.get('qr');
-const userPhoneStorageKey = 'userPhone';
-const legacyPhoneStorageKey = qrId ? `userPhone:${qrId}` : '';
-let userPhone = localStorage.getItem(userPhoneStorageKey);
-if (!userPhone && legacyPhoneStorageKey) {
-  const legacyPhone = localStorage.getItem(legacyPhoneStorageKey);
-  if (legacyPhone) {
-    userPhone = legacyPhone;
-    localStorage.setItem(userPhoneStorageKey, legacyPhone);
-  }
-}
+let userPhone = '';
 
 let uploadedImageUrl = '';
 let uploadedImageObjectKey = '';
@@ -127,21 +118,42 @@ async function loadQRStatus() {
   }
 }
 
-loadQRStatus();
+async function syncSessionUser() {
+  try {
+    const res = await apiRequest('/api/user/me');
+    userPhone = res.data.phone || '';
+  } catch (_error) {
+    userPhone = '';
+  }
 
-if (currentPhoneText) {
-  currentPhoneText.textContent = maskPhone(userPhone);
+  if (currentPhoneText) {
+    currentPhoneText.textContent = maskPhone(userPhone);
+  }
 }
 
+async function initPage() {
+  await syncSessionUser();
+  await loadQRStatus();
+}
+
+initPage();
+
 if (switchPhoneBtn) {
-  switchPhoneBtn.addEventListener('click', () => {
+  switchPhoneBtn.addEventListener('click', async () => {
     const confirmed = window.confirm('确认更换手机号吗？更换后需要重新注册。');
     if (!confirmed) {
       return;
     }
 
-    localStorage.removeItem(userPhoneStorageKey);
-    userPhone = null;
+    try {
+      await apiRequest('/api/user/logout', {
+        method: 'POST'
+      });
+    } catch (_error) {
+      // 忽略退出失败，继续跳转注册页
+    }
+
+    userPhone = '';
     window.location.href = `/register.html?t=${encodeURIComponent(qrId || '')}`;
   });
 }
@@ -213,7 +225,6 @@ submitBtn.addEventListener('click', async () => {
         content,
         image_url: uploadedStorageMode === 'cloud' ? null : uploadedImageUrl,
         image_object_key: uploadedImageObjectKey,
-        phone: userPhone,
         show_brand_disclosure: showBrandDisclosureInput ? showBrandDisclosureInput.checked : false
       })
     });

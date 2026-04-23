@@ -24,10 +24,6 @@ registerBtn.addEventListener('click', async () => {
       body: JSON.stringify({ phone })
     });
 
-    localStorage.setItem('userPhone', result.data.phone);
-    if (qrId) {
-      localStorage.setItem(`userPhone:${qrId}`, result.data.phone);
-    }
     messageEl.textContent = '注册成功，正在返回点亮页面...';
     window.location.href = `/record.html?t=${encodeURIComponent(qrId || '')}`;
   } catch (error) {
