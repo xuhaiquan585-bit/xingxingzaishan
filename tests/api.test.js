@@ -158,6 +158,7 @@ test.before(async () => {
   process.env.DB_FILE = path.join(tmpDir, 'db.json');
   process.env.STORAGE_ROOT = path.join(tmpDir, 'storage');
   process.env.AUTH_SECRET = 'test-secret-123';
+  process.env.RATE_LIMIT_LOGIN_MAX = '1000';
   process.env.ADMIN_INIT_ACCOUNTS_JSON = JSON.stringify([
     { username: 'admin', password: 'test-admin-pass', role: 'admin', name: '系统管理员' },
     { username: 'qc', password: 'test-qc-pass', role: 'qc', name: '质检员' }
@@ -194,6 +195,7 @@ test.after(async () => {
   delete process.env.DB_FILE;
   delete process.env.STORAGE_ROOT;
   delete process.env.AUTH_SECRET;
+  delete process.env.RATE_LIMIT_LOGIN_MAX;
   delete process.env.ADMIN_INIT_ACCOUNTS_JSON;
 });
 
@@ -228,6 +230,45 @@ test('POST /api/user/logout should clear session and cookie', async () => {
   assert.equal(logoutRes.body.data.logged_out, true);
   assert.ok(Array.isArray(logoutRes.headers['set-cookie']));
   assert.ok(logoutRes.headers['set-cookie'][0].includes('Max-Age=0'));
+});
+
+test('GET /api/user/records should return only current user activated records', async () => {
+  const imageData = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+    'base64'
+  );
+
+  const uploadRes = await postMultipart('/api/upload', {
+    fields: { qr_id: 'STAR0003' },
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'mine.png',
+        contentType: 'image/png',
+        content: imageData
+      }
+    ]
+  });
+  assert.equal(uploadRes.status, 200);
+
+  const userACookie = await loginUserAndGetCookie('13600136000');
+  const activateRes = await postJsonWithCookie('/api/qr/STAR0003/record', {
+    content: 'my record',
+    image_url: uploadRes.body.data.url,
+    image_object_key: uploadRes.body.data.object_key
+  }, userACookie);
+  assert.equal(activateRes.status, 200);
+
+  const userARecords = await getJsonWithCookie('/api/user/records', userACookie);
+  assert.equal(userARecords.status, 200);
+  assert.equal(userARecords.body.data.total, 1);
+  assert.equal(userARecords.body.data.records[0].id, 'STAR0003');
+  assert.ok(userARecords.body.data.records[0].image_url);
+
+  const userBCookie = await loginUserAndGetCookie('13500135000');
+  const userBRecords = await getJsonWithCookie('/api/user/records', userBCookie);
+  assert.equal(userBRecords.status, 200);
+  assert.equal(userBRecords.body.data.total, 0);
 });
 
 test('POST /api/upload should reject non-image file', async () => {

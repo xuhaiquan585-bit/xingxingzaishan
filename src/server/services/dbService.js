@@ -492,6 +492,24 @@ function listQRRecords({ issueStatus, activationStatus, hidden, idPrefix, batchI
   };
 }
 
+function listActivatedRecordsByPhone(phone) {
+  const db = readDB();
+  const target = String(phone || '').trim();
+  if (!target) return [];
+
+  return db.qr_codes
+    .filter((item) => item.activation_status === 'activated' && item.phone === target)
+    .sort((a, b) => new Date(b.activated_at || b.created_at) - new Date(a.activated_at || a.created_at))
+    .map((item) => ({
+      id: item.id,
+      content: item.content || '',
+      image_url: item.image_url || null,
+      image_object_key: item.image_object_key || null,
+      activated_at: item.activated_at,
+      blockchain_hash: item.blockchain_hash || null
+    }));
+}
+
 async function generateQRCodes({ prefix, count, batchId }) {
   const db = readDB();
   const normalizedPrefix = String(prefix).toUpperCase();
@@ -837,6 +855,7 @@ module.exports = {
   changeOperatorPassword,
   getDashboardStats,
   listQRRecords,
+  listActivatedRecordsByPhone,
   generateQRCodes,
   setQRHiddenStatus,
   setQRHiddenStatusBatch,
