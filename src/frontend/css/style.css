@@ -171,3 +171,37 @@ textarea { min-height: 100px; resize: vertical; }
   margin: 14px 0 0;
   letter-spacing: 0.5px;
 }
+
+/* 我的记录页卡片 */
+.record-feed {
+  margin-top: 14px;
+}
+.record-item {
+  padding: 0;
+  overflow: hidden;
+  margin-top: 14px;
+}
+.record-cover,
+.detail-cover {
+  width: 100%;
+  max-height: 460px;
+  object-fit: cover;
+  display: block;
+}
+.record-body,
+.detail-body {
+  padding: 14px 16px 16px;
+}
+.record-content {
+  margin: 0 0 12px;
+  line-height: 1.6;
+  color: #fff;
+}
+.detail-card {
+  padding: 0;
+  overflow: hidden;
+  margin-top: 14px;
+}
+.detail-body .qr-id-hint {
+  margin-bottom: 10px;
+}
