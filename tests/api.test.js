@@ -265,10 +265,20 @@ test('GET /api/user/records should return only current user activated records', 
   assert.equal(userARecords.body.data.records[0].id, 'STAR0003');
   assert.ok(userARecords.body.data.records[0].image_url);
 
+  const userADetail = await getJsonWithCookie('/api/user/records/STAR0003', userACookie);
+  assert.equal(userADetail.status, 200);
+  assert.equal(userADetail.body.data.id, 'STAR0003');
+  assert.ok(userADetail.body.data.blockchain_hash);
+  assert.ok(userADetail.body.data.image_url);
+
   const userBCookie = await loginUserAndGetCookie('13500135000');
   const userBRecords = await getJsonWithCookie('/api/user/records', userBCookie);
   assert.equal(userBRecords.status, 200);
   assert.equal(userBRecords.body.data.total, 0);
+
+  const userBDetail = await getJsonWithCookie('/api/user/records/STAR0003', userBCookie);
+  assert.equal(userBDetail.status, 404);
+  assert.equal(userBDetail.body.code, 'RECORD_NOT_FOUND');
 });
 
 test('POST /api/upload should reject non-image file', async () => {

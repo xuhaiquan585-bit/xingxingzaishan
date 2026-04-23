@@ -1,5 +1,10 @@
 const express = require('express');
-const { createOrGetUser, listActivatedRecordsByPhone } = require('../services/dbService');
+const {
+  createOrGetUser,
+  listActivatedRecordsByPhone,
+  getActivatedRecordByPhoneAndId,
+  listBatches
+} = require('../services/dbService');
 const { createSession, destroySession } = require('../services/userSessionService');
 const {
   requireUserSession,
@@ -96,9 +101,49 @@ function handleRecords(req, res) {
   });
 }
 
+function handleRecordDetail(req, res) {
+  const record = getActivatedRecordByPhoneAndId({
+    phone: req.user.phone,
+    id: req.params.id
+  });
+
+  if (!record) {
+    return res.status(404).json({
+      status: 'error',
+      code: 'RECORD_NOT_FOUND',
+      message: '未找到该点亮记录。'
+    });
+  }
+
+  let brandName = '';
+  if (record.batch_id) {
+    const batch = listBatches().find((item) => item.id === record.batch_id);
+    if (batch) {
+      brandName = batch.brand_name || '';
+    }
+  }
+
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: {
+      id: record.id,
+      content: record.content,
+      activated_at: record.activated_at,
+      blockchain_hash: record.blockchain_hash,
+      image_url: resolveImageUrl(record),
+      show_brand_disclosure: record.show_brand_disclosure,
+      brand_disclosure_text_snapshot: record.brand_disclosure_text_snapshot,
+      brand_name: brandName
+    }
+  });
+}
+
+
 router.post('/login', handleLogin);
 router.get('/me', requireUserSession, handleMe);
 router.post('/logout', requireUserSession, handleLogout);
 router.get('/records', requireUserSession, handleRecords);
+router.get('/records/:id', requireUserSession, handleRecordDetail);
 
 module.exports = router;

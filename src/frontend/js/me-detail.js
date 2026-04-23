@@ -57,19 +57,16 @@ async function loadDetail() {
     const me = await apiRequest('/api/user/me');
     currentPhoneText.textContent = maskPhone(me.data.phone || '');
 
-    const myRecords = await apiRequest('/api/user/records');
-    const ownsRecord = (myRecords.data.records || []).some((item) => item.id === recordId);
-    if (!ownsRecord) {
-      detailMessage.textContent = '未找到该记录，或你无权查看。';
-      return;
-    }
-
-    const detailRes = await apiRequest(`/api/qr/${encodeURIComponent(recordId)}`);
+    const detailRes = await apiRequest(`/api/user/records/${encodeURIComponent(recordId)}`);
     renderDetail(detailRes.data || {});
     detailMessage.textContent = '';
   } catch (error) {
     if (error.code === 'UNAUTHORIZED') {
       window.location.href = '/register.html';
+      return;
+    }
+    if (error.code === 'RECORD_NOT_FOUND') {
+      detailMessage.textContent = '未找到该记录，或你无权查看。';
       return;
     }
     detailMessage.textContent = error.message || '加载失败，请稍后重试';
@@ -91,4 +88,3 @@ if (switchPhoneBtn) {
 }
 
 loadDetail();
-

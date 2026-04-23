@@ -510,6 +510,34 @@ function listActivatedRecordsByPhone(phone) {
     }));
 }
 
+function getActivatedRecordByPhoneAndId({ phone, id }) {
+  const db = readDB();
+  const targetPhone = String(phone || '').trim();
+  const targetId = String(id || '').trim();
+  if (!targetPhone || !targetId) return null;
+
+  const matched = db.qr_codes.find((item) =>
+    item.activation_status === 'activated'
+    && item.phone === targetPhone
+    && item.id === targetId
+  );
+
+  if (!matched) return null;
+
+  return {
+    id: matched.id,
+    content: matched.content || '',
+    image_url: matched.image_url || null,
+    image_object_key: matched.image_object_key || null,
+    activated_at: matched.activated_at,
+    blockchain_hash: matched.blockchain_hash || null,
+    show_brand_disclosure: matched.show_brand_disclosure === true,
+    brand_disclosure_text_snapshot: matched.brand_disclosure_text_snapshot || '',
+    batch_id: matched.batch_id || null
+  };
+}
+
+
 async function generateQRCodes({ prefix, count, batchId }) {
   const db = readDB();
   const normalizedPrefix = String(prefix).toUpperCase();
@@ -856,6 +884,7 @@ module.exports = {
   getDashboardStats,
   listQRRecords,
   listActivatedRecordsByPhone,
+  getActivatedRecordByPhoneAndId,
   generateQRCodes,
   setQRHiddenStatus,
   setQRHiddenStatusBatch,

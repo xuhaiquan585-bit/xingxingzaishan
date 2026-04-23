@@ -181,11 +181,16 @@ textarea { min-height: 100px; resize: vertical; }
   overflow: hidden;
   margin-top: 14px;
 }
-.record-cover,
-.detail-cover {
+.record-cover {
   width: 100%;
   max-height: 460px;
   object-fit: cover;
+  display: block;
+}
+.detail-cover {
+  width: 100%;
+  max-height: 460px;
+  object-fit: contain;
   display: block;
 }
 .record-body,
