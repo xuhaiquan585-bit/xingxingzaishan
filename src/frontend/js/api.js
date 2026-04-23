@@ -19,9 +19,14 @@ const ERROR_MESSAGES = {
 };
 
 async function apiRequest(url, options = {}) {
+  const requestOptions = {
+    credentials: 'include',
+    ...options
+  };
+
   let response;
   try {
-    response = await fetch(url, options);
+    response = await fetch(url, requestOptions);
   } catch (_networkError) {
     // fetch 本身抛异常：网络断开、DNS 失败、超时等
     const error = new Error(ERROR_MESSAGES.NETWORK_ERROR);
