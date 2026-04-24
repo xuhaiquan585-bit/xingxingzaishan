@@ -3,6 +3,7 @@ const multer = require('multer');
 const sharp = require('sharp');
 
 const { saveImage, getStorageMode } = require('../services/storageService');
+const { requireUserSession } = require('../middlewares/userSession');
 
 const router = express.Router();
 
@@ -17,7 +18,7 @@ const upload = multer({
   }
 });
 
-router.post('/', upload.single('image'), async (req, res, next) => {
+router.post('/', requireUserSession, upload.single('image'), async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({

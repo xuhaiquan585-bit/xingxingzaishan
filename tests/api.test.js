@@ -137,6 +137,18 @@ function postMultipart(urlPath, { fields = {}, files = [] }, token) {
   });
 }
 
+function postMultipartWithCookie(urlPath, { fields = {}, files = [] }, cookie = '') {
+  const multipart = createMultipartBody(fields, files);
+  return requestRaw('POST', urlPath, {
+    headers: {
+      'Content-Type': multipart.contentType,
+      'Content-Length': multipart.body.length,
+      ...(cookie ? { Cookie: cookie } : {})
+    },
+    body: multipart.body
+  });
+}
+
 function getSessionCookie(response) {
   const setCookie = response.headers['set-cookie'];
   if (!Array.isArray(setCookie) || setCookie.length === 0) {
@@ -232,13 +244,24 @@ test('POST /api/user/logout should clear session and cookie', async () => {
   assert.ok(logoutRes.headers['set-cookie'][0].includes('Max-Age=0'));
 });
 
+test('malformed Cookie header should not trigger 500', async () => {
+  const res = await requestRaw('GET', '/api/user/me', {
+    headers: {
+      Cookie: 'user_session_id=%E0%A4%A'
+    }
+  });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, 'UNAUTHORIZED');
+});
+
 test('GET /api/user/records should return only current user activated records', async () => {
   const imageData = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
     'base64'
   );
 
-  const uploadRes = await postMultipart('/api/upload', {
+  const uploaderCookie = await loginUserAndGetCookie('13600136000');
+  const uploadRes = await postMultipartWithCookie('/api/upload', {
     fields: { qr_id: 'STAR0003' },
     files: [
       {
@@ -248,10 +271,10 @@ test('GET /api/user/records should return only current user activated records', 
         content: imageData
       }
     ]
-  });
+  }, uploaderCookie);
   assert.equal(uploadRes.status, 200);
 
-  const userACookie = await loginUserAndGetCookie('13600136000');
+  const userACookie = uploaderCookie;
   const activateRes = await postJsonWithCookie('/api/qr/STAR0003/record', {
     content: 'my record',
     image_url: uploadRes.body.data.url,
@@ -279,10 +302,28 @@ test('GET /api/user/records should return only current user activated records', 
   const userBDetail = await getJsonWithCookie('/api/user/records/STAR0003', userBCookie);
   assert.equal(userBDetail.status, 404);
   assert.equal(userBDetail.body.code, 'RECORD_NOT_FOUND');
+
+
+test('POST /api/upload should reject unauthenticated request', async () => {
+  const response = await postMultipart('/api/upload', {
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'unauth.png',
+        contentType: 'image/png',
+        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
+      }
+    ]
+  });
+
+  assert.equal(response.status, 401);
+  assert.equal(response.body.code, 'UNAUTHORIZED');
+});
 });
 
 test('POST /api/upload should reject non-image file', async () => {
-  const response = await postMultipart('/api/upload', {
+  const cookie = await loginUserAndGetCookie('13800138000');
+  const response = await postMultipartWithCookie('/api/upload', {
     files: [
       {
         fieldName: 'image',
@@ -291,7 +332,7 @@ test('POST /api/upload should reject non-image file', async () => {
         content: 'not-image'
       }
     ]
-  });
+  }, cookie);
 
   assert.equal(response.status, 400);
   assert.equal(response.body.code, 'UPLOAD_FAILED');
@@ -380,7 +421,8 @@ test('POST /api/qr/:id/record should persist batch disclosure snapshot when enab
   assert.equal(genRes.status, 200);
   const qrId = genRes.body.data.ids[0];
 
-  const uploadRes = await postMultipart('/api/upload', {
+  const userCookie = await loginUserAndGetCookie('13800138000');
+  const uploadRes = await postMultipartWithCookie('/api/upload', {
     fields: { qr_id: qrId },
     files: [
       {
@@ -390,9 +432,8 @@ test('POST /api/qr/:id/record should persist batch disclosure snapshot when enab
         content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
       }
     ]
-  });
+  }, userCookie);
   assert.equal(uploadRes.status, 200);
-  const userCookie = await loginUserAndGetCookie('13800138000');
 
   const recordRes = await postJsonWithCookie(`/api/qr/${encodeURIComponent(qrId)}/record`, {
     content: 'd3 test',
@@ -427,7 +468,8 @@ test('POST /api/qr/:id/record should NOT fallback to note when brand_disclosure_
   assert.equal(genRes.status, 200);
   const qrId = genRes.body.data.ids[0];
 
-  const uploadRes = await postMultipart('/api/upload', {
+  const userCookie = await loginUserAndGetCookie('13800138001');
+  const uploadRes = await postMultipartWithCookie('/api/upload', {
     fields: { qr_id: qrId },
     files: [
       {
@@ -437,9 +479,8 @@ test('POST /api/qr/:id/record should NOT fallback to note when brand_disclosure_
         content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
       }
     ]
-  });
+  }, userCookie);
   assert.equal(uploadRes.status, 200);
-  const userCookie = await loginUserAndGetCookie('13800138001');
 
   const recordRes = await postJsonWithCookie(`/api/qr/${encodeURIComponent(qrId)}/record`, {
     content: 'd3y test',
@@ -568,7 +609,8 @@ test('GET /api/nft/:id/download should return download_url after activation', as
     'base64'
   );
 
-  const uploadRes = await postMultipart('/api/upload', {
+  const userCookie = await loginUserAndGetCookie('13800138000');
+  const uploadRes = await postMultipartWithCookie('/api/upload', {
     fields: { qr_id: 'STAR0002' },
     files: [
       {
@@ -578,13 +620,13 @@ test('GET /api/nft/:id/download should return download_url after activation', as
         content: imageData
       }
     ]
-  });
+  }, userCookie);
 
   assert.equal(uploadRes.status, 200);
   const uploadBody = uploadRes.body;
   assert.ok(uploadBody.data.object_key);
 
-  const userCookie = await loginUserAndGetCookie('13800138000');
+
   const recordRes = await postJsonWithCookie('/api/qr/STAR0002/record', {
     content: 'demo',
     image_url: uploadBody.data.url,
@@ -657,7 +699,8 @@ test('POST /api/qr/:token/record should activate QR by access token', async () =
 
   const accessToken = genRes.body.data.records[0].qr_access_token;
 
-  const uploadRes = await postMultipart('/api/upload', {
+  const userCookie = await loginUserAndGetCookie('13900139000');
+  const uploadRes = await postMultipartWithCookie('/api/upload', {
     fields: { qr_id: genRes.body.data.ids[0] },
     files: [
       {
@@ -667,10 +710,10 @@ test('POST /api/qr/:token/record should activate QR by access token', async () =
         content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
       }
     ]
-  });
+  }, userCookie);
   assert.equal(uploadRes.status, 200);
 
-  const userCookie = await loginUserAndGetCookie('13900139000');
+
   const recordRes = await postJsonWithCookie(`/api/qr/${accessToken}/record`, {
     content: 'activated by token',
     image_url: uploadRes.body.data.url,
@@ -694,7 +737,8 @@ test('POST /api/upload should compress image and return .jpg object_key', async 
     .png()
     .toBuffer();
 
-  const uploadRes = await postMultipart('/api/upload', {
+  const userCookie = await loginUserAndGetCookie('13800138000');
+  const uploadRes = await postMultipartWithCookie('/api/upload', {
     fields: { qr_id: 'COMPRESS_TEST' },
     files: [
       {
@@ -704,7 +748,7 @@ test('POST /api/upload should compress image and return .jpg object_key', async 
         content: pngBuffer
       }
     ]
-  });
+  }, userCookie);
 
   assert.equal(uploadRes.status, 200);
   assert.equal(uploadRes.body.status, 'success');

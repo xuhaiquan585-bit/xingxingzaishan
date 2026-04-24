@@ -75,7 +75,7 @@ async function loadDetail() {
 
 if (switchPhoneBtn) {
   switchPhoneBtn.addEventListener('click', async () => {
-    const confirmed = window.confirm('确认更换手机号吗？更换后需要重新注册。');
+    const confirmed = window.confirm('确认更换手机号吗？更换后会退出当前设备登录状态，需要重新验证手机号。');
     if (!confirmed) return;
 
     try {

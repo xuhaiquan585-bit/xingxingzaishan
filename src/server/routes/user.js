@@ -139,7 +139,6 @@ function handleRecordDetail(req, res) {
   });
 }
 
-
 router.post('/login', handleLogin);
 router.get('/me', requireUserSession, handleMe);
 router.post('/logout', requireUserSession, handleLogout);

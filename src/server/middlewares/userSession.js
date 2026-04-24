@@ -13,7 +13,12 @@ function parseCookies(rawCookie = '') {
       const index = part.indexOf('=');
       if (index <= 0) return acc;
       const key = part.slice(0, index).trim();
-      const value = decodeURIComponent(part.slice(index + 1).trim());
+      let value = part.slice(index + 1).trim();
+      try {
+        value = decodeURIComponent(value);
+      } catch (_error) {
+        return acc;
+      }
       acc[key] = value;
       return acc;
     }, {});
@@ -84,4 +89,3 @@ module.exports = {
   parseCookies,
   getCookieMaxAge
 };
-

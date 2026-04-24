@@ -537,7 +537,6 @@ function getActivatedRecordByPhoneAndId({ phone, id }) {
   };
 }
 
-
 async function generateQRCodes({ prefix, count, batchId }) {
   const db = readDB();
   const normalizedPrefix = String(prefix).toUpperCase();
