@@ -47,6 +47,21 @@ input, textarea {
   background: rgba(255,255,255,0.15);
   color: #fff;
 }
+.sms-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.sms-row input {
+  flex: 1;
+}
+.sms-btn {
+  width: 128px;
+  margin-top: 0;
+  padding: 10px 8px;
+  font-size: 14px;
+}
 textarea { min-height: 100px; resize: vertical; }
 
 /* 上传成功反馈 */
@@ -170,4 +185,43 @@ textarea { min-height: 100px; resize: vertical; }
   opacity: .8;
   margin: 14px 0 0;
   letter-spacing: 0.5px;
+}
+
+/* 我的记录页卡片 */
+.record-feed {
+  margin-top: 14px;
+}
+.record-item {
+  padding: 0;
+  overflow: hidden;
+  margin-top: 14px;
+}
+.record-cover {
+  width: 100%;
+  max-height: 460px;
+  object-fit: cover;
+  display: block;
+}
+.detail-cover {
+  width: 100%;
+  max-height: 460px;
+  object-fit: contain;
+  display: block;
+}
+.record-body,
+.detail-body {
+  padding: 14px 16px 16px;
+}
+.record-content {
+  margin: 0 0 12px;
+  line-height: 1.6;
+  color: #fff;
+}
+.detail-card {
+  padding: 0;
+  overflow: hidden;
+  margin-top: 14px;
+}
+.detail-body .qr-id-hint {
+  margin-bottom: 10px;
 }
