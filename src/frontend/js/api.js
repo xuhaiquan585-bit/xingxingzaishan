@@ -14,6 +14,10 @@ const ERROR_MESSAGES = {
   QR_HIDDEN: '这颗星暂不可见',
   QR_ALREADY_ACTIVATED: '该星已被点亮，无法重复绑定',
   INVALID_PHONE: '手机号格式不正确，请检查后重试',
+  INVALID_VERIFY_CODE: '验证码错误或已过期，请重新获取',
+  SMS_SEND_TOO_FREQUENT: '发送过于频繁，请稍后再试',
+  SMS_SERVICE_UNAVAILABLE: '短信服务暂时不可用，请稍后再试',
+  LEGACY_LOGIN_DISABLED: '当前登录方式已下线，请使用短信验证码登录',
   VALIDATION_ERROR: '请先上传一张照片再点亮',
   UPLOAD_SIZE_EXCEEDED: '图片过大，请选择 5MB 以内的图片'
 };

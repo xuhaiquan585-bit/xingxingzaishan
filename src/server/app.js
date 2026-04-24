@@ -104,6 +104,8 @@ function createApp() {
   });
 
   app.use('/api/user/login', loginRateLimiter);
+  app.use('/api/user/sms/send-code', loginRateLimiter);
+  app.use('/api/user/sms/verify-code', loginRateLimiter);
   app.use('/api/admin/login', loginRateLimiter);
   app.use('/api/upload', writeRateLimiter);
   app.use('/api/qr', writeRateLimiter);

@@ -158,9 +158,16 @@ function getSessionCookie(response) {
 }
 
 async function loginUserAndGetCookie(phone = '13800138000') {
-  const loginRes = await postJson('/api/user/login', { phone });
-  assert.equal(loginRes.status, 200);
-  const cookie = getSessionCookie(loginRes);
+  const sendRes = await postJson('/api/user/sms/send-code', { phone });
+  assert.equal(sendRes.status, 200);
+  assert.ok(sendRes.body.data.verification_code);
+
+  const verifyRes = await postJson('/api/user/sms/verify-code', {
+    phone,
+    code: sendRes.body.data.verification_code
+  });
+  assert.equal(verifyRes.status, 200);
+  const cookie = getSessionCookie(verifyRes);
   assert.ok(cookie);
   return cookie;
 }
@@ -171,6 +178,7 @@ test.before(async () => {
   process.env.STORAGE_ROOT = path.join(tmpDir, 'storage');
   process.env.AUTH_SECRET = 'test-secret-123';
   process.env.RATE_LIMIT_LOGIN_MAX = '1000';
+  process.env.SMS_PROVIDER = 'mock';
   process.env.ADMIN_INIT_ACCOUNTS_JSON = JSON.stringify([
     { username: 'admin', password: 'test-admin-pass', role: 'admin', name: '系统管理员' },
     { username: 'qc', password: 'test-qc-pass', role: 'qc', name: '质检员' }
@@ -208,6 +216,7 @@ test.after(async () => {
   delete process.env.STORAGE_ROOT;
   delete process.env.AUTH_SECRET;
   delete process.env.RATE_LIMIT_LOGIN_MAX;
+  delete process.env.SMS_PROVIDER;
   delete process.env.ADMIN_INIT_ACCOUNTS_JSON;
 });
 
@@ -224,6 +233,67 @@ test('POST /api/user/login should login with valid phone', async () => {
   assert.equal(res.body.data.phone, '13800138000');
   assert.ok(getSessionCookie(res).startsWith('user_session_id='));
 });
+
+test('POST /api/user/sms/send-code and /verify-code should create session', async () => {
+  const sendRes = await postJson('/api/user/sms/send-code', { phone: '13800138002' });
+  assert.equal(sendRes.status, 200);
+  assert.equal(sendRes.body.status, 'success');
+  assert.ok(sendRes.body.data.verification_code);
+  assert.ok(sendRes.body.data.expires_in_seconds > 0);
+
+  const verifyRes = await postJson('/api/user/sms/verify-code', {
+    phone: '13800138002',
+    code: sendRes.body.data.verification_code
+  });
+  assert.equal(verifyRes.status, 200);
+  assert.equal(verifyRes.body.data.phone, '13800138002');
+  assert.ok(getSessionCookie(verifyRes).startsWith('user_session_id='));
+});
+
+test('POST /api/user/sms/verify-code should return generic message on mismatch', async () => {
+  const sendRes = await postJson('/api/user/sms/send-code', { phone: '13800138003' });
+  assert.equal(sendRes.status, 200);
+  const verifyRes = await postJson('/api/user/sms/verify-code', {
+    phone: '13800138003',
+    code: '000000'
+  });
+  assert.equal(verifyRes.status, 400);
+  assert.equal(verifyRes.body.code, 'INVALID_VERIFY_CODE');
+  assert.equal(verifyRes.body.message, '验证码错误或已过期，请重新获取');
+});
+
+test('POST /api/user/login should be disabled by default in production', async () => {
+  const oldNodeEnv = process.env.NODE_ENV;
+  const oldLegacy = process.env.USER_LEGACY_LOGIN_ENABLED;
+  try {
+    process.env.NODE_ENV = 'production';
+    delete process.env.USER_LEGACY_LOGIN_ENABLED;
+    const res = await postJson('/api/user/login', { phone: '13800138004' });
+    assert.equal(res.status, 403);
+    assert.equal(res.body.code, 'LEGACY_LOGIN_DISABLED');
+  } finally {
+    if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = oldNodeEnv;
+    if (oldLegacy === undefined) delete process.env.USER_LEGACY_LOGIN_ENABLED;
+    else process.env.USER_LEGACY_LOGIN_ENABLED = oldLegacy;
+  }
+});
+
+test('POST /api/user/sms/send-code should not expose verification code in production error response', async () => {
+  const oldNodeEnv = process.env.NODE_ENV;
+  try {
+    process.env.NODE_ENV = 'production';
+    const res = await postJson('/api/user/sms/send-code', { phone: '13800138005' });
+    assert.equal(res.status, 503);
+    assert.equal(res.body.code, 'SMS_SERVICE_UNAVAILABLE');
+    assert.equal(Object.hasOwn(res.body, 'verification_code'), false);
+    assert.equal(Object.hasOwn(res.body.data || {}, 'verification_code'), false);
+  } finally {
+    if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = oldNodeEnv;
+  }
+});
+
 
 test('GET /api/user/me should require session and return current user', async () => {
   const unauthorized = await getJson('/api/user/me');
@@ -302,7 +372,7 @@ test('GET /api/user/records should return only current user activated records', 
   const userBDetail = await getJsonWithCookie('/api/user/records/STAR0003', userBCookie);
   assert.equal(userBDetail.status, 404);
   assert.equal(userBDetail.body.code, 'RECORD_NOT_FOUND');
-
+});
 
 test('POST /api/upload should reject unauthenticated request', async () => {
   const response = await postMultipart('/api/upload', {
@@ -318,7 +388,6 @@ test('POST /api/upload should reject unauthenticated request', async () => {
 
   assert.equal(response.status, 401);
   assert.equal(response.body.code, 'UNAUTHORIZED');
-});
 });
 
 test('POST /api/upload should reject non-image file', async () => {
@@ -481,7 +550,6 @@ test('POST /api/qr/:id/record should NOT fallback to note when brand_disclosure_
     ]
   }, userCookie);
   assert.equal(uploadRes.status, 200);
-
   const recordRes = await postJsonWithCookie(`/api/qr/${encodeURIComponent(qrId)}/record`, {
     content: 'd3y test',
     image_url: uploadRes.body.data.url,
@@ -712,7 +780,6 @@ test('POST /api/qr/:token/record should activate QR by access token', async () =
     ]
   }, userCookie);
   assert.equal(uploadRes.status, 200);
-
 
   const recordRes = await postJsonWithCookie(`/api/qr/${accessToken}/record`, {
     content: 'activated by token',

@@ -47,6 +47,21 @@ input, textarea {
   background: rgba(255,255,255,0.15);
   color: #fff;
 }
+.sms-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.sms-row input {
+  flex: 1;
+}
+.sms-btn {
+  width: 128px;
+  margin-top: 0;
+  padding: 10px 8px;
+  font-size: 14px;
+}
 textarea { min-height: 100px; resize: vertical; }
 
 /* 上传成功反馈 */
