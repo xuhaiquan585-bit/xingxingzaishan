@@ -47,6 +47,21 @@ input, textarea {
   background: rgba(255,255,255,0.15);
   color: #fff;
 }
+.sms-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.sms-row input {
+  flex: 1;
+}
+.sms-btn {
+  width: 128px;
+  margin-top: 0;
+  padding: 10px 8px;
+  font-size: 14px;
+}
 textarea { min-height: 100px; resize: vertical; }
 
 /* 上传成功反馈 */
@@ -170,4 +185,106 @@ textarea { min-height: 100px; resize: vertical; }
   opacity: .8;
   margin: 14px 0 0;
   letter-spacing: 0.5px;
+}
+
+/* 我的记录页卡片 */
+.record-feed {
+  margin-top: 14px;
+}
+.record-item {
+  padding: 0;
+  overflow: hidden;
+  margin-top: 14px;
+}
+.record-cover {
+  width: 100%;
+  max-height: 460px;
+  object-fit: cover;
+  display: block;
+}
+.detail-cover {
+  width: 100%;
+  max-height: 460px;
+  object-fit: contain;
+  display: block;
+}
+.record-body,
+.detail-body {
+  padding: 14px 16px 16px;
+}
+.record-content {
+  margin: 0 0 12px;
+  line-height: 1.6;
+  color: #fff;
+}
+.detail-card {
+  padding: 0;
+  overflow: hidden;
+  margin-top: 14px;
+}
+.detail-body .qr-id-hint {
+  margin-bottom: 10px;
+}
+
+/* Landing page */
+.landing-page {
+  padding-top: 20px;
+}
+.landing-hero {
+  text-align: center;
+}
+.landing-eyebrow {
+  margin: 0 0 8px;
+  color: #ffe9b2;
+  opacity: .9;
+  font-size: 13px;
+  letter-spacing: .5px;
+}
+.landing-slogan {
+  margin: 12px 0 0;
+  color: #ffd166;
+  font-weight: 700;
+}
+.landing-cta-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+.landing-section {
+  margin-top: 14px;
+}
+.landing-section h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+}
+.landing-flow-list,
+.landing-value-list {
+  margin: 0;
+  padding-left: 20px;
+  line-height: 1.7;
+}
+.landing-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+.landing-item {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.landing-item h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  color: #ffd166;
+}
+.landing-item p {
+  margin: 0;
+  line-height: 1.6;
+}
+.landing-contact-copy {
+  margin: 0 0 10px;
+  color: #ffe9b2;
 }
