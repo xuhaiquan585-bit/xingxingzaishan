@@ -42,7 +42,6 @@ function handleLogin(req, res) {
     });
   }
 
-
   const { phone } = req.body;
   if (!phone || !isValidPhone(phone)) {
     return res.status(400).json({
@@ -155,7 +154,6 @@ function handleVerifyCode(req, res) {
     }
   });
 }
-
 
 function handleMe(req, res) {
   return res.json({

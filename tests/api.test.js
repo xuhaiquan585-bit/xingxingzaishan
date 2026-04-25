@@ -294,7 +294,6 @@ test('POST /api/user/sms/send-code should not expose verification code in produc
   }
 });
 
-
 test('GET /api/user/me should require session and return current user', async () => {
   const unauthorized = await getJson('/api/user/me');
   assert.equal(unauthorized.status, 401);
@@ -693,7 +692,6 @@ test('GET /api/nft/:id/download should return download_url after activation', as
   assert.equal(uploadRes.status, 200);
   const uploadBody = uploadRes.body;
   assert.ok(uploadBody.data.object_key);
-
 
   const recordRes = await postJsonWithCookie('/api/qr/STAR0002/record', {
     content: 'demo',

@@ -225,3 +225,66 @@ textarea { min-height: 100px; resize: vertical; }
 .detail-body .qr-id-hint {
   margin-bottom: 10px;
 }
+
+/* Landing page */
+.landing-page {
+  padding-top: 20px;
+}
+.landing-hero {
+  text-align: center;
+}
+.landing-eyebrow {
+  margin: 0 0 8px;
+  color: #ffe9b2;
+  opacity: .9;
+  font-size: 13px;
+  letter-spacing: .5px;
+}
+.landing-slogan {
+  margin: 12px 0 0;
+  color: #ffd166;
+  font-weight: 700;
+}
+.landing-cta-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+.landing-section {
+  margin-top: 14px;
+}
+.landing-section h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+}
+.landing-flow-list,
+.landing-value-list {
+  margin: 0;
+  padding-left: 20px;
+  line-height: 1.7;
+}
+.landing-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+.landing-item {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.landing-item h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  color: #ffd166;
+}
+.landing-item p {
+  margin: 0;
+  line-height: 1.6;
+}
+.landing-contact-copy {
+  margin: 0 0 10px;
+  color: #ffe9b2;
+}
