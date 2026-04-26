@@ -10,6 +10,7 @@ const qcRoutes = require('./routes/qc');
 const nftRoutes = require('./routes/nft');
 const { createRateLimiter } = require('./middlewares/rateLimit');
 const { auditLogger } = require('./middlewares/auditLogger');
+const { attachUserSession } = require('./middlewares/userSession');
 const { assertRuntimeConfig, parseOrigins } = require('./services/configService');
 
 function corsMiddleware() {
@@ -57,6 +58,7 @@ function createApp() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   app.use(corsMiddleware());
+  app.use(attachUserSession());
 
 
   const loginRateLimiter = createRateLimiter({
@@ -102,6 +104,8 @@ function createApp() {
   });
 
   app.use('/api/user/login', loginRateLimiter);
+  app.use('/api/user/sms/send-code', loginRateLimiter);
+  app.use('/api/user/sms/verify-code', loginRateLimiter);
   app.use('/api/admin/login', loginRateLimiter);
   app.use('/api/upload', writeRateLimiter);
   app.use('/api/qr', writeRateLimiter);

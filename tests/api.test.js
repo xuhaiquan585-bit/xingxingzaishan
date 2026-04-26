@@ -67,12 +67,30 @@ function postJson(urlPath, body, token) {
   });
 }
 
+function postJsonWithCookie(urlPath, body, cookie = '') {
+  const payload = Buffer.from(JSON.stringify(body), 'utf8');
+  return requestRaw('POST', urlPath, {
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': payload.length,
+      ...(cookie ? { Cookie: cookie } : {})
+    },
+    body: payload
+  });
+}
+
 function getJson(urlPath, token) {
   const headers = {};
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
   return requestRaw('GET', urlPath, { headers });
+}
+
+function getJsonWithCookie(urlPath, cookie = '') {
+  return requestRaw('GET', urlPath, {
+    headers: cookie ? { Cookie: cookie } : {}
+  });
 }
 
 function createMultipartBody(fields = {}, files = []) {
@@ -119,11 +137,48 @@ function postMultipart(urlPath, { fields = {}, files = [] }, token) {
   });
 }
 
+function postMultipartWithCookie(urlPath, { fields = {}, files = [] }, cookie = '') {
+  const multipart = createMultipartBody(fields, files);
+  return requestRaw('POST', urlPath, {
+    headers: {
+      'Content-Type': multipart.contentType,
+      'Content-Length': multipart.body.length,
+      ...(cookie ? { Cookie: cookie } : {})
+    },
+    body: multipart.body
+  });
+}
+
+function getSessionCookie(response) {
+  const setCookie = response.headers['set-cookie'];
+  if (!Array.isArray(setCookie) || setCookie.length === 0) {
+    return '';
+  }
+  return setCookie[0].split(';')[0];
+}
+
+async function loginUserAndGetCookie(phone = '13800138000') {
+  const sendRes = await postJson('/api/user/sms/send-code', { phone });
+  assert.equal(sendRes.status, 200);
+  assert.ok(sendRes.body.data.verification_code);
+
+  const verifyRes = await postJson('/api/user/sms/verify-code', {
+    phone,
+    code: sendRes.body.data.verification_code
+  });
+  assert.equal(verifyRes.status, 200);
+  const cookie = getSessionCookie(verifyRes);
+  assert.ok(cookie);
+  return cookie;
+}
+
 test.before(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xingxingzaishan-'));
   process.env.DB_FILE = path.join(tmpDir, 'db.json');
   process.env.STORAGE_ROOT = path.join(tmpDir, 'storage');
   process.env.AUTH_SECRET = 'test-secret-123';
+  process.env.RATE_LIMIT_LOGIN_MAX = '1000';
+  process.env.SMS_PROVIDER = 'mock';
   process.env.ADMIN_INIT_ACCOUNTS_JSON = JSON.stringify([
     { username: 'admin', password: 'test-admin-pass', role: 'admin', name: '系统管理员' },
     { username: 'qc', password: 'test-qc-pass', role: 'qc', name: '质检员' }
@@ -160,6 +215,8 @@ test.after(async () => {
   delete process.env.DB_FILE;
   delete process.env.STORAGE_ROOT;
   delete process.env.AUTH_SECRET;
+  delete process.env.RATE_LIMIT_LOGIN_MAX;
+  delete process.env.SMS_PROVIDER;
   delete process.env.ADMIN_INIT_ACCOUNTS_JSON;
 });
 
@@ -174,10 +231,199 @@ test('POST /api/user/login should login with valid phone', async () => {
   assert.equal(res.status, 200);
   assert.equal(res.body.status, 'success');
   assert.equal(res.body.data.phone, '13800138000');
+  assert.ok(getSessionCookie(res).startsWith('user_session_id='));
+});
+
+test('POST /api/user/sms/send-code and /verify-code should create session', async () => {
+  const sendRes = await postJson('/api/user/sms/send-code', { phone: '13800138002' });
+  assert.equal(sendRes.status, 200);
+  assert.equal(sendRes.body.status, 'success');
+  assert.ok(sendRes.body.data.verification_code);
+  assert.ok(sendRes.body.data.expires_in_seconds > 0);
+
+  const verifyRes = await postJson('/api/user/sms/verify-code', {
+    phone: '13800138002',
+    code: sendRes.body.data.verification_code
+  });
+  assert.equal(verifyRes.status, 200);
+  assert.equal(verifyRes.body.data.phone, '13800138002');
+  assert.ok(getSessionCookie(verifyRes).startsWith('user_session_id='));
+});
+
+test('POST /api/user/sms/verify-code should return generic message on mismatch', async () => {
+  const sendRes = await postJson('/api/user/sms/send-code', { phone: '13800138003' });
+  assert.equal(sendRes.status, 200);
+  const verifyRes = await postJson('/api/user/sms/verify-code', {
+    phone: '13800138003',
+    code: '000000'
+  });
+  assert.equal(verifyRes.status, 400);
+  assert.equal(verifyRes.body.code, 'INVALID_VERIFY_CODE');
+  assert.equal(verifyRes.body.message, '验证码错误或已过期，请重新获取');
+});
+
+test('POST /api/user/login should be disabled by default in production', async () => {
+  const oldNodeEnv = process.env.NODE_ENV;
+  const oldLegacy = process.env.USER_LEGACY_LOGIN_ENABLED;
+  try {
+    process.env.NODE_ENV = 'production';
+    delete process.env.USER_LEGACY_LOGIN_ENABLED;
+    const res = await postJson('/api/user/login', { phone: '13800138004' });
+    assert.equal(res.status, 403);
+    assert.equal(res.body.code, 'LEGACY_LOGIN_DISABLED');
+  } finally {
+    if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = oldNodeEnv;
+    if (oldLegacy === undefined) delete process.env.USER_LEGACY_LOGIN_ENABLED;
+    else process.env.USER_LEGACY_LOGIN_ENABLED = oldLegacy;
+  }
+});
+
+test('POST /api/user/sms/send-code should not expose verification code in production error response', async () => {
+  const oldNodeEnv = process.env.NODE_ENV;
+  try {
+    process.env.NODE_ENV = 'production';
+    const res = await postJson('/api/user/sms/send-code', { phone: '13800138005' });
+    assert.equal(res.status, 503);
+    assert.equal(res.body.code, 'SMS_SERVICE_UNAVAILABLE');
+    assert.equal(Object.hasOwn(res.body, 'verification_code'), false);
+    assert.equal(Object.hasOwn(res.body.data || {}, 'verification_code'), false);
+  } finally {
+    if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = oldNodeEnv;
+  }
+});
+
+test('GET /api/user/me should require session and return current user', async () => {
+  const unauthorized = await getJson('/api/user/me');
+  assert.equal(unauthorized.status, 401);
+
+  const cookie = await loginUserAndGetCookie('13900139000');
+  const meRes = await getJsonWithCookie('/api/user/me', cookie);
+  assert.equal(meRes.status, 200);
+  assert.equal(meRes.body.data.phone, '13900139000');
+});
+
+test('POST /api/user/logout should clear session and cookie', async () => {
+  const cookie = await loginUserAndGetCookie('13700137000');
+  const logoutRes = await postJsonWithCookie('/api/user/logout', {}, cookie);
+  assert.equal(logoutRes.status, 200);
+  assert.equal(logoutRes.body.data.logged_out, true);
+  assert.ok(Array.isArray(logoutRes.headers['set-cookie']));
+  assert.ok(logoutRes.headers['set-cookie'][0].includes('Max-Age=0'));
+});
+
+test('malformed Cookie header should not trigger 500', async () => {
+  const res = await requestRaw('GET', '/api/user/me', {
+    headers: {
+      Cookie: 'user_session_id=%E0%A4%A'
+    }
+  });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, 'UNAUTHORIZED');
+});
+
+test('GET /api/user/records should return only current user activated records', async () => {
+  const imageData = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+    'base64'
+  );
+
+  const uploaderCookie = await loginUserAndGetCookie('13600136000');
+  const uploadRes = await postMultipartWithCookie('/api/upload', {
+    fields: { qr_id: 'STAR0003' },
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'mine.png',
+        contentType: 'image/png',
+        content: imageData
+      }
+    ]
+  }, uploaderCookie);
+  assert.equal(uploadRes.status, 200);
+
+  const userACookie = uploaderCookie;
+  const activateRes = await postJsonWithCookie('/api/qr/STAR0003/record', {
+    content: 'my record',
+    image_url: uploadRes.body.data.url,
+    image_object_key: uploadRes.body.data.object_key
+  }, userACookie);
+  assert.equal(activateRes.status, 200);
+
+  const userARecords = await getJsonWithCookie('/api/user/records', userACookie);
+  assert.equal(userARecords.status, 200);
+  assert.equal(userARecords.body.data.total, 1);
+  assert.equal(userARecords.body.data.records[0].id, 'STAR0003');
+  assert.ok(userARecords.body.data.records[0].image_url);
+
+  const userADetail = await getJsonWithCookie('/api/user/records/STAR0003', userACookie);
+  assert.equal(userADetail.status, 200);
+  assert.equal(userADetail.body.data.id, 'STAR0003');
+  assert.ok(userADetail.body.data.blockchain_hash);
+  assert.ok(userADetail.body.data.image_url);
+  assert.equal(typeof userADetail.body.data.brand_name, 'string');
+
+  const userBCookie = await loginUserAndGetCookie('13500135000');
+  const userBRecords = await getJsonWithCookie('/api/user/records', userBCookie);
+  assert.equal(userBRecords.status, 200);
+  assert.equal(userBRecords.body.data.total, 0);
+
+  const userBDetail = await getJsonWithCookie('/api/user/records/STAR0003', userBCookie);
+  assert.equal(userBDetail.status, 404);
+  assert.equal(userBDetail.body.code, 'RECORD_NOT_FOUND');
+});
+
+test('frontend me.js should avoid innerHTML rendering for user content (basic XSS guard)', () => {
+  const meJsPath = path.join(__dirname, '..', 'src', 'frontend', 'js', 'me.js');
+  const content = fs.readFileSync(meJsPath, 'utf8');
+
+  assert.equal(content.includes('recordsSection.innerHTML = records.map'), false);
+  assert.equal(content.includes('content.textContent = item.content ||'), true);
+});
+
+test('frontend me-detail.js should read brand_name from record detail payload', () => {
+  const detailJsPath = path.join(__dirname, '..', 'src', 'frontend', 'js', 'me-detail.js');
+  const content = fs.readFileSync(detailJsPath, 'utf8');
+
+  assert.equal(content.includes('record.brand_name ||'), true);
+  assert.equal(content.includes('record.batch_brand_name ||'), false);
+});
+
+test('POST /api/user/logout should clear cookie with same SameSite policy as session cookie', async () => {
+  const oldSameSite = process.env.USER_SESSION_SAMESITE;
+  process.env.USER_SESSION_SAMESITE = 'None';
+  try {
+    const cookie = await loginUserAndGetCookie('13800138009');
+    const logoutRes = await postJsonWithCookie('/api/user/logout', {}, cookie);
+    assert.equal(logoutRes.status, 200);
+    assert.ok(Array.isArray(logoutRes.headers['set-cookie']));
+    assert.ok(logoutRes.headers['set-cookie'][0].includes('SameSite=None'));
+  } finally {
+    if (oldSameSite === undefined) delete process.env.USER_SESSION_SAMESITE;
+    else process.env.USER_SESSION_SAMESITE = oldSameSite;
+  }
+});
+
+test('POST /api/upload should reject unauthenticated request', async () => {
+  const response = await postMultipart('/api/upload', {
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'unauth.png',
+        contentType: 'image/png',
+        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
+      }
+    ]
+  });
+
+  assert.equal(response.status, 401);
+  assert.equal(response.body.code, 'UNAUTHORIZED');
 });
 
 test('POST /api/upload should reject non-image file', async () => {
-  const response = await postMultipart('/api/upload', {
+  const cookie = await loginUserAndGetCookie('13800138000');
+  const response = await postMultipartWithCookie('/api/upload', {
     files: [
       {
         fieldName: 'image',
@@ -186,14 +432,15 @@ test('POST /api/upload should reject non-image file', async () => {
         content: 'not-image'
       }
     ]
-  });
+  }, cookie);
 
   assert.equal(response.status, 400);
   assert.equal(response.body.code, 'UPLOAD_FAILED');
 });
 
 test('POST /api/qr/:id/record should validate image_url required', async () => {
-  const res = await postJson('/api/qr/STAR0001/record', { phone: '13800138000', content: 'hello' });
+  const cookie = await loginUserAndGetCookie('13800138000');
+  const res = await postJsonWithCookie('/api/qr/STAR0001/record', { content: 'hello' }, cookie);
   assert.equal(res.status, 400);
   assert.equal(res.body.code, 'VALIDATION_ERROR');
 });
@@ -274,7 +521,8 @@ test('POST /api/qr/:id/record should persist batch disclosure snapshot when enab
   assert.equal(genRes.status, 200);
   const qrId = genRes.body.data.ids[0];
 
-  const uploadRes = await postMultipart('/api/upload', {
+  const userCookie = await loginUserAndGetCookie('13800138000');
+  const uploadRes = await postMultipartWithCookie('/api/upload', {
     fields: { qr_id: qrId },
     files: [
       {
@@ -284,16 +532,15 @@ test('POST /api/qr/:id/record should persist batch disclosure snapshot when enab
         content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
       }
     ]
-  });
+  }, userCookie);
   assert.equal(uploadRes.status, 200);
 
-  const recordRes = await postJson(`/api/qr/${encodeURIComponent(qrId)}/record`, {
-    phone: '13800138000',
+  const recordRes = await postJsonWithCookie(`/api/qr/${encodeURIComponent(qrId)}/record`, {
     content: 'd3 test',
     image_url: uploadRes.body.data.url,
     image_object_key: uploadRes.body.data.object_key,
     show_brand_disclosure: true
-  });
+  }, userCookie);
 
   assert.equal(recordRes.status, 200);
   assert.equal(recordRes.body.data.show_brand_disclosure, true);
@@ -321,7 +568,8 @@ test('POST /api/qr/:id/record should NOT fallback to note when brand_disclosure_
   assert.equal(genRes.status, 200);
   const qrId = genRes.body.data.ids[0];
 
-  const uploadRes = await postMultipart('/api/upload', {
+  const userCookie = await loginUserAndGetCookie('13800138001');
+  const uploadRes = await postMultipartWithCookie('/api/upload', {
     fields: { qr_id: qrId },
     files: [
       {
@@ -331,16 +579,14 @@ test('POST /api/qr/:id/record should NOT fallback to note when brand_disclosure_
         content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
       }
     ]
-  });
+  }, userCookie);
   assert.equal(uploadRes.status, 200);
-
-  const recordRes = await postJson(`/api/qr/${encodeURIComponent(qrId)}/record`, {
-    phone: '13800138001',
+  const recordRes = await postJsonWithCookie(`/api/qr/${encodeURIComponent(qrId)}/record`, {
     content: 'd3y test',
     image_url: uploadRes.body.data.url,
     image_object_key: uploadRes.body.data.object_key,
     show_brand_disclosure: true
-  });
+  }, userCookie);
 
   // brand_disclosure_text 为空时，即使开关打开，快照也必须是空字符串，不能 fallback 到 note
   assert.equal(recordRes.status, 200);
@@ -462,7 +708,8 @@ test('GET /api/nft/:id/download should return download_url after activation', as
     'base64'
   );
 
-  const uploadRes = await postMultipart('/api/upload', {
+  const userCookie = await loginUserAndGetCookie('13800138000');
+  const uploadRes = await postMultipartWithCookie('/api/upload', {
     fields: { qr_id: 'STAR0002' },
     files: [
       {
@@ -472,18 +719,17 @@ test('GET /api/nft/:id/download should return download_url after activation', as
         content: imageData
       }
     ]
-  });
+  }, userCookie);
 
   assert.equal(uploadRes.status, 200);
   const uploadBody = uploadRes.body;
   assert.ok(uploadBody.data.object_key);
 
-  const recordRes = await postJson('/api/qr/STAR0002/record', {
-    phone: '13800138000',
+  const recordRes = await postJsonWithCookie('/api/qr/STAR0002/record', {
     content: 'demo',
     image_url: uploadBody.data.url,
     image_object_key: uploadBody.data.object_key
-  });
+  }, userCookie);
   assert.equal(recordRes.status, 200);
 
   const downloadRes = await getJson('/api/nft/STAR0002/download');
@@ -551,7 +797,8 @@ test('POST /api/qr/:token/record should activate QR by access token', async () =
 
   const accessToken = genRes.body.data.records[0].qr_access_token;
 
-  const uploadRes = await postMultipart('/api/upload', {
+  const userCookie = await loginUserAndGetCookie('13900139000');
+  const uploadRes = await postMultipartWithCookie('/api/upload', {
     fields: { qr_id: genRes.body.data.ids[0] },
     files: [
       {
@@ -561,15 +808,14 @@ test('POST /api/qr/:token/record should activate QR by access token', async () =
         content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
       }
     ]
-  });
+  }, userCookie);
   assert.equal(uploadRes.status, 200);
 
-  const recordRes = await postJson(`/api/qr/${accessToken}/record`, {
-    phone: '13900139000',
+  const recordRes = await postJsonWithCookie(`/api/qr/${accessToken}/record`, {
     content: 'activated by token',
     image_url: uploadRes.body.data.url,
     image_object_key: uploadRes.body.data.object_key
-  });
+  }, userCookie);
   assert.equal(recordRes.status, 200);
   assert.equal(recordRes.body.data.activation_status, 'activated');
   assert.equal(recordRes.body.data.content, 'activated by token');
@@ -588,7 +834,8 @@ test('POST /api/upload should compress image and return .jpg object_key', async 
     .png()
     .toBuffer();
 
-  const uploadRes = await postMultipart('/api/upload', {
+  const userCookie = await loginUserAndGetCookie('13800138000');
+  const uploadRes = await postMultipartWithCookie('/api/upload', {
     fields: { qr_id: 'COMPRESS_TEST' },
     files: [
       {
@@ -598,7 +845,7 @@ test('POST /api/upload should compress image and return .jpg object_key', async 
         content: pngBuffer
       }
     ]
-  });
+  }, userCookie);
 
   assert.equal(uploadRes.status, 200);
   assert.equal(uploadRes.body.status, 'success');
