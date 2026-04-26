@@ -12,8 +12,14 @@ const brandSection = document.getElementById('brandSection');
 const brandPreviewText = document.getElementById('brandPreviewText');
 const submitBtn = document.getElementById('submitBtn');
 const formMessage = document.getElementById('formMessage');
+const currentPhoneText = document.getElementById('currentPhoneText');
+const switchPhoneBtn = document.getElementById('switchPhoneBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const shareBtn = document.getElementById('shareBtn');
+const confirmOverlay = document.getElementById('confirmOverlay');
+const confirmSubmitBtn = document.getElementById('confirmSubmitBtn');
+const cancelSubmitBtn = document.getElementById('cancelSubmitBtn');
+const stageHint = document.getElementById('stageHint');
 
 const resultImage = document.getElementById('resultImage');
 const resultContent = document.getElementById('resultContent');
@@ -25,21 +31,39 @@ const resultBrandDisclosureText = document.getElementById('resultBrandDisclosure
 
 const params = new URLSearchParams(window.location.search);
 const qrId = params.get('t') || params.get('qr');
-const userPhone = localStorage.getItem('userPhone');
+let userPhone = '';
 
 let uploadedImageUrl = '';
 let uploadedImageObjectKey = '';
 let uploadedStorageMode = '';
 let currentResult = null;
+let submitting = false;
 
 function showError(message) {
   formMessage.textContent = message;
+}
+
+function maskPhone(phone) {
+  const value = String(phone || '').trim();
+  if (!/^1\d{10}$/.test(value)) {
+    return value || '未登录';
+  }
+  return `${value.slice(0, 3)}****${value.slice(-4)}`;
 }
 
 function renderResult(data) {
   currentResult = data;
   formSection.classList.add('hidden');
   resultSection.classList.remove('hidden');
+  resultSection.classList.remove('result-animate');
+  resultSection.classList.remove('show-actions');
+  // force reflow for replay animation
+  // eslint-disable-next-line no-unused-expressions
+  resultSection.offsetHeight;
+  resultSection.classList.add('result-animate');
+  window.setTimeout(() => {
+    resultSection.classList.add('show-actions');
+  }, 900);
 
   resultImage.src = data.image_url;
   resultContent.textContent = data.content || '（未填写文字）';
@@ -54,6 +78,24 @@ function renderResult(data) {
   } else {
     resultBrandDisclosure.classList.add('hidden');
   }
+}
+
+function openConfirmOverlay() {
+  if (!confirmOverlay) return;
+  confirmOverlay.classList.remove('hidden');
+  requestAnimationFrame(() => {
+    confirmOverlay.classList.add('show');
+  });
+}
+
+function closeConfirmOverlay() {
+  if (!confirmOverlay) return;
+  confirmOverlay.classList.remove('show');
+  window.setTimeout(() => {
+    if (!confirmOverlay.classList.contains('show')) {
+      confirmOverlay.classList.add('hidden');
+    }
+  }, 250);
 }
 
 async function loadQRStatus() {
@@ -85,6 +127,11 @@ async function loadQRStatus() {
       return;
     }
 
+    if (!userPhone) {
+      window.location.href = `/register.html?t=${encodeURIComponent(qrId)}`;
+      return;
+    }
+
     // 根据 batch 的 brand_disclosure_text 决定是否显示品牌露出开关
     if (res.data.batch_id && res.data.batch_brand_disclosure_text) {
       brandSection.classList.remove('hidden');
@@ -103,10 +150,44 @@ async function loadQRStatus() {
   }
 }
 
-if (!userPhone) {
-  window.location.href = `/register.html?t=${encodeURIComponent(qrId || '')}`;
-} else {
-  loadQRStatus();
+async function syncSessionUser() {
+  try {
+    const res = await apiRequest('/api/user/me');
+    userPhone = res.data.phone || '';
+  } catch (_error) {
+    userPhone = '';
+  }
+
+  if (currentPhoneText) {
+    currentPhoneText.textContent = maskPhone(userPhone);
+  }
+}
+
+async function initPage() {
+  await syncSessionUser();
+  await loadQRStatus();
+}
+
+initPage();
+
+if (switchPhoneBtn) {
+  switchPhoneBtn.addEventListener('click', async () => {
+    const confirmed = window.confirm('确认更换手机号吗？更换后会退出当前设备登录状态，需要重新验证手机号。');
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await apiRequest('/api/user/logout', {
+        method: 'POST'
+      });
+    } catch (_error) {
+      // 忽略退出失败，继续跳转注册页
+    }
+
+    userPhone = '';
+    window.location.href = `/register.html?t=${encodeURIComponent(qrId || '')}`;
+  });
 }
 
 imageInput.addEventListener('change', async () => {
@@ -142,6 +223,12 @@ imageInput.addEventListener('change', async () => {
     uploadFeedback.classList.remove('hidden');
     showError('');
   } catch (error) {
+    uploadedImageUrl = '';
+    uploadedImageObjectKey = '';
+    uploadedStorageMode = '';
+    preview.src = '';
+    preview.classList.add('hidden');
+    uploadFeedback.classList.add('hidden');
     showError(error.message || '上传失败，请换张图片试试');
   }
 });
@@ -151,6 +238,7 @@ contentInput.addEventListener('input', () => {
 });
 
 submitBtn.addEventListener('click', async () => {
+  if (submitting) return;
   const content = contentInput.value.trim();
 
   if (!uploadedImageObjectKey && !uploadedImageUrl) {
@@ -158,30 +246,74 @@ submitBtn.addEventListener('click', async () => {
     return;
   }
 
-  submitBtn.disabled = true;
-  submitBtn.textContent = '正在点亮...';
-  showError('');
-
-  try {
-    const res = await apiRequest(`/api/qr/${encodeURIComponent(qrId)}/record`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        content,
-        image_url: uploadedStorageMode === 'cloud' ? null : uploadedImageUrl,
-        image_object_key: uploadedImageObjectKey,
-        phone: userPhone,
-        show_brand_disclosure: showBrandDisclosureInput ? showBrandDisclosureInput.checked : false
-      })
-    });
-
-    renderResult(res.data);
-  } catch (error) {
-    showError(error.message || '提交失败，请检查网络后重试');
-    submitBtn.disabled = false;
-    submitBtn.textContent = '点亮这颗星 ⭐';
-  }
+  openConfirmOverlay();
 });
+
+if (cancelSubmitBtn) {
+  cancelSubmitBtn.addEventListener('click', () => {
+    if (submitting) return;
+    closeConfirmOverlay();
+  });
+}
+
+if (confirmOverlay) {
+  confirmOverlay.addEventListener('click', (event) => {
+    if (event.target === confirmOverlay || event.target.classList.contains('overlay-mask')) {
+      if (submitting) return;
+      closeConfirmOverlay();
+    }
+  });
+}
+
+if (confirmSubmitBtn) {
+  confirmSubmitBtn.addEventListener('click', async () => {
+    if (submitting) return;
+    const content = contentInput.value.trim();
+    submitting = true;
+    confirmSubmitBtn.classList.add('btn-glow');
+    window.setTimeout(() => confirmSubmitBtn.classList.remove('btn-glow'), 220);
+    closeConfirmOverlay();
+
+    stageHint.classList.remove('hidden');
+    formSection.classList.add('content-fade-out');
+
+    const startAt = Date.now();
+    const minimumDelayMs = 650;
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = '正在点亮...';
+    showError('');
+
+    try {
+      const res = await apiRequest(`/api/qr/${encodeURIComponent(qrId)}/record`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content,
+          image_url: uploadedStorageMode === 'cloud' ? null : uploadedImageUrl,
+          image_object_key: uploadedImageObjectKey,
+          show_brand_disclosure: showBrandDisclosureInput ? showBrandDisclosureInput.checked : false
+        })
+      });
+
+      const elapsed = Date.now() - startAt;
+      const remain = Math.max(0, minimumDelayMs - elapsed);
+      window.setTimeout(() => {
+        stageHint.classList.add('hidden');
+        formSection.classList.remove('content-fade-out');
+        renderResult(res.data);
+        submitting = false;
+      }, remain);
+    } catch (error) {
+      stageHint.classList.add('hidden');
+      formSection.classList.remove('content-fade-out');
+      showError(error.message || '提交失败，请检查网络后重试');
+      submitBtn.disabled = false;
+      submitBtn.textContent = '点亮这颗星 ⭐';
+      submitting = false;
+    }
+  });
+}
 
 downloadBtn.addEventListener('click', async () => {
   if (!currentResult || !currentResult.qr_id) {
