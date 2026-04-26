@@ -16,6 +16,10 @@ const currentPhoneText = document.getElementById('currentPhoneText');
 const switchPhoneBtn = document.getElementById('switchPhoneBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const shareBtn = document.getElementById('shareBtn');
+const confirmOverlay = document.getElementById('confirmOverlay');
+const confirmSubmitBtn = document.getElementById('confirmSubmitBtn');
+const cancelSubmitBtn = document.getElementById('cancelSubmitBtn');
+const stageHint = document.getElementById('stageHint');
 
 const resultImage = document.getElementById('resultImage');
 const resultContent = document.getElementById('resultContent');
@@ -33,6 +37,7 @@ let uploadedImageUrl = '';
 let uploadedImageObjectKey = '';
 let uploadedStorageMode = '';
 let currentResult = null;
+let submitting = false;
 
 function showError(message) {
   formMessage.textContent = message;
@@ -50,6 +55,11 @@ function renderResult(data) {
   currentResult = data;
   formSection.classList.add('hidden');
   resultSection.classList.remove('hidden');
+  resultSection.classList.remove('result-animate');
+  // force reflow for replay animation
+  // eslint-disable-next-line no-unused-expressions
+  resultSection.offsetHeight;
+  resultSection.classList.add('result-animate');
 
   resultImage.src = data.image_url;
   resultContent.textContent = data.content || '（未填写文字）';
@@ -64,6 +74,24 @@ function renderResult(data) {
   } else {
     resultBrandDisclosure.classList.add('hidden');
   }
+}
+
+function openConfirmOverlay() {
+  if (!confirmOverlay) return;
+  confirmOverlay.classList.remove('hidden');
+  requestAnimationFrame(() => {
+    confirmOverlay.classList.add('show');
+  });
+}
+
+function closeConfirmOverlay() {
+  if (!confirmOverlay) return;
+  confirmOverlay.classList.remove('show');
+  window.setTimeout(() => {
+    if (!confirmOverlay.classList.contains('show')) {
+      confirmOverlay.classList.add('hidden');
+    }
+  }, 250);
 }
 
 async function loadQRStatus() {
@@ -206,6 +234,7 @@ contentInput.addEventListener('input', () => {
 });
 
 submitBtn.addEventListener('click', async () => {
+  if (submitting) return;
   const content = contentInput.value.trim();
 
   if (!uploadedImageObjectKey && !uploadedImageUrl) {
@@ -213,29 +242,74 @@ submitBtn.addEventListener('click', async () => {
     return;
   }
 
-  submitBtn.disabled = true;
-  submitBtn.textContent = '正在点亮...';
-  showError('');
-
-  try {
-    const res = await apiRequest(`/api/qr/${encodeURIComponent(qrId)}/record`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        content,
-        image_url: uploadedStorageMode === 'cloud' ? null : uploadedImageUrl,
-        image_object_key: uploadedImageObjectKey,
-        show_brand_disclosure: showBrandDisclosureInput ? showBrandDisclosureInput.checked : false
-      })
-    });
-
-    renderResult(res.data);
-  } catch (error) {
-    showError(error.message || '提交失败，请检查网络后重试');
-    submitBtn.disabled = false;
-    submitBtn.textContent = '点亮这颗星 ⭐';
-  }
+  openConfirmOverlay();
 });
+
+if (cancelSubmitBtn) {
+  cancelSubmitBtn.addEventListener('click', () => {
+    if (submitting) return;
+    closeConfirmOverlay();
+  });
+}
+
+if (confirmOverlay) {
+  confirmOverlay.addEventListener('click', (event) => {
+    if (event.target === confirmOverlay || event.target.classList.contains('overlay-mask')) {
+      if (submitting) return;
+      closeConfirmOverlay();
+    }
+  });
+}
+
+if (confirmSubmitBtn) {
+  confirmSubmitBtn.addEventListener('click', async () => {
+    if (submitting) return;
+    const content = contentInput.value.trim();
+    submitting = true;
+    confirmSubmitBtn.classList.add('btn-glow');
+    window.setTimeout(() => confirmSubmitBtn.classList.remove('btn-glow'), 220);
+    closeConfirmOverlay();
+
+    stageHint.classList.remove('hidden');
+    formSection.classList.add('content-fade-out');
+
+    const startAt = Date.now();
+    const minimumDelayMs = 650;
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = '正在点亮...';
+    showError('');
+
+    try {
+      const res = await apiRequest(`/api/qr/${encodeURIComponent(qrId)}/record`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content,
+          image_url: uploadedStorageMode === 'cloud' ? null : uploadedImageUrl,
+          image_object_key: uploadedImageObjectKey,
+          show_brand_disclosure: showBrandDisclosureInput ? showBrandDisclosureInput.checked : false
+        })
+      });
+
+      const elapsed = Date.now() - startAt;
+      const remain = Math.max(0, minimumDelayMs - elapsed);
+      window.setTimeout(() => {
+        stageHint.classList.add('hidden');
+        formSection.classList.remove('content-fade-out');
+        renderResult(res.data);
+        submitting = false;
+      }, remain);
+    } catch (error) {
+      stageHint.classList.add('hidden');
+      formSection.classList.remove('content-fade-out');
+      showError(error.message || '提交失败，请检查网络后重试');
+      submitBtn.disabled = false;
+      submitBtn.textContent = '点亮这颗星 ⭐';
+      submitting = false;
+    }
+  });
+}
 
 downloadBtn.addEventListener('click', async () => {
   if (!currentResult || !currentResult.qr_id) {

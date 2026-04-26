@@ -56,6 +56,18 @@
         <a id="myRecordsBtn" class="btn btn-secondary" href="/me.html">查看我的点亮记录</a>
         <a class="btn btn-secondary" href="/landing.html?from=success">了解这个项目</a>
       </section>
+
+      <div id="confirmOverlay" class="overlay hidden">
+        <div class="overlay-mask"></div>
+        <div class="overlay-panel">
+          <p class="overlay-title">确认点亮这颗星吗？</p>
+          <p class="overlay-subtitle">将记录你的照片与祝福内容</p>
+          <button id="confirmSubmitBtn" class="btn">确认点亮</button>
+          <button id="cancelSubmitBtn" class="btn btn-secondary">再看看</button>
+        </div>
+      </div>
+
+      <div id="stageHint" class="stage-hint hidden">正在记录这一刻…</div>
     </main>
 
     <script src="/js/api.js"></script>
