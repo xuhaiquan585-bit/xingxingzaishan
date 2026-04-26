@@ -43,7 +43,7 @@
       <section id="resultSection" class="card hidden">
         <div class="result-success-banner">
           <p class="result-success-title">✨ 点亮成功！</p>
-          <p class="result-success-sub">这颗星已被成功点亮</p>
+          <p class="result-success-sub">记在星上，闪到永远</p>
         </div>
         <img id="resultImage" class="preview" alt="NFT图片" />
         <p id="resultContent"></p>
@@ -51,23 +51,25 @@
         <p class="brand-line"><span class="brand">⭐ 星星在闪</span> - <span id="resultTime"></span></p>
         <p id="resultBrandDisclosure" class="brand-disclosure hidden"><span id="resultBrandName"></span> <span id="resultBrandDisclosureText"></span></p>
         <p class="save-hint">📸 截图保存这一刻</p>
-        <button id="downloadBtn" class="btn btn-secondary">下载 NFT 图片</button>
-        <button id="shareBtn" class="btn btn-secondary">分享给朋友</button>
-        <a id="myRecordsBtn" class="btn btn-secondary" href="/me.html">查看我的点亮记录</a>
-        <a class="btn btn-secondary" href="/landing.html?from=success">了解这个项目</a>
+        <div class="result-actions">
+          <button id="downloadBtn" class="btn btn-secondary">下载 NFT 图片</button>
+          <button id="shareBtn" class="btn btn-secondary">分享给朋友</button>
+          <a id="myRecordsBtn" class="btn btn-secondary" href="/me.html">查看我的点亮记录</a>
+          <a class="btn btn-secondary" href="/landing.html?from=success">了解这个项目</a>
+        </div>
       </section>
 
       <div id="confirmOverlay" class="overlay hidden">
         <div class="overlay-mask"></div>
         <div class="overlay-panel">
-          <p class="overlay-title">确认点亮这颗星吗？</p>
-          <p class="overlay-subtitle">将记录你的照片与祝福内容</p>
+          <p class="overlay-title">把这一刻记在星上</p>
+          <p class="overlay-subtitle">这颗星将闪到永远<br />提交后将无法修改</p>
           <button id="confirmSubmitBtn" class="btn">确认点亮</button>
           <button id="cancelSubmitBtn" class="btn btn-secondary">再看看</button>
         </div>
       </div>
 
-      <div id="stageHint" class="stage-hint hidden">正在记录这一刻…</div>
+      <div id="stageHint" class="stage-hint hidden">✨ 这一刻，正在被记在星上…</div>
     </main>
 
     <script src="/js/api.js"></script>

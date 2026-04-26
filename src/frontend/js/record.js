@@ -56,10 +56,14 @@ function renderResult(data) {
   formSection.classList.add('hidden');
   resultSection.classList.remove('hidden');
   resultSection.classList.remove('result-animate');
+  resultSection.classList.remove('show-actions');
   // force reflow for replay animation
   // eslint-disable-next-line no-unused-expressions
   resultSection.offsetHeight;
   resultSection.classList.add('result-animate');
+  window.setTimeout(() => {
+    resultSection.classList.add('show-actions');
+  }, 900);
 
   resultImage.src = data.image_url;
   resultContent.textContent = data.content || '（未填写文字）';

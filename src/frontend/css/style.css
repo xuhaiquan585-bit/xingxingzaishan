@@ -277,10 +277,21 @@ textarea { min-height: 100px; resize: vertical; }
   transform: translateY(8px);
 }
 .result-animate .result-success-title {
-  animation: textRiseIn 0.28s ease 0.3s forwards;
+  animation: textRiseIn 0.28s ease 0.3s forwards, starBlink 0.3s ease 0.3s 1;
 }
 .result-animate .result-success-sub {
   animation: textRiseIn 0.28s ease 0.6s forwards;
+}
+.result-actions {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition: opacity 0.26s ease, transform 0.26s ease;
+}
+.result-animate.show-actions .result-actions {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 @keyframes resultFadeIn {
   from { opacity: 0; transform: translateY(10px); }
@@ -289,6 +300,11 @@ textarea { min-height: 100px; resize: vertical; }
 @keyframes textRiseIn {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+@keyframes starBlink {
+  0% { filter: brightness(1); text-shadow: 0 0 0 rgba(255,209,102,0); }
+  50% { filter: brightness(1.35); text-shadow: 0 0 12px rgba(255,209,102,0.85); }
+  100% { filter: brightness(1); text-shadow: 0 0 0 rgba(255,209,102,0); }
 }
 
 /* 我的记录页卡片 */
