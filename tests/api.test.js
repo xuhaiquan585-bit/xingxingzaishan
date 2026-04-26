@@ -362,6 +362,7 @@ test('GET /api/user/records should return only current user activated records', 
   assert.equal(userADetail.body.data.id, 'STAR0003');
   assert.ok(userADetail.body.data.blockchain_hash);
   assert.ok(userADetail.body.data.image_url);
+  assert.equal(typeof userADetail.body.data.brand_name, 'string');
 
   const userBCookie = await loginUserAndGetCookie('13500135000');
   const userBRecords = await getJsonWithCookie('/api/user/records', userBCookie);
@@ -371,6 +372,37 @@ test('GET /api/user/records should return only current user activated records', 
   const userBDetail = await getJsonWithCookie('/api/user/records/STAR0003', userBCookie);
   assert.equal(userBDetail.status, 404);
   assert.equal(userBDetail.body.code, 'RECORD_NOT_FOUND');
+});
+
+test('frontend me.js should avoid innerHTML rendering for user content (basic XSS guard)', () => {
+  const meJsPath = path.join(__dirname, '..', 'src', 'frontend', 'js', 'me.js');
+  const content = fs.readFileSync(meJsPath, 'utf8');
+
+  assert.equal(content.includes('recordsSection.innerHTML = records.map'), false);
+  assert.equal(content.includes('content.textContent = item.content ||'), true);
+});
+
+test('frontend me-detail.js should read brand_name from record detail payload', () => {
+  const detailJsPath = path.join(__dirname, '..', 'src', 'frontend', 'js', 'me-detail.js');
+  const content = fs.readFileSync(detailJsPath, 'utf8');
+
+  assert.equal(content.includes('record.brand_name ||'), true);
+  assert.equal(content.includes('record.batch_brand_name ||'), false);
+});
+
+test('POST /api/user/logout should clear cookie with same SameSite policy as session cookie', async () => {
+  const oldSameSite = process.env.USER_SESSION_SAMESITE;
+  process.env.USER_SESSION_SAMESITE = 'None';
+  try {
+    const cookie = await loginUserAndGetCookie('13800138009');
+    const logoutRes = await postJsonWithCookie('/api/user/logout', {}, cookie);
+    assert.equal(logoutRes.status, 200);
+    assert.ok(Array.isArray(logoutRes.headers['set-cookie']));
+    assert.ok(logoutRes.headers['set-cookie'][0].includes('SameSite=None'));
+  } finally {
+    if (oldSameSite === undefined) delete process.env.USER_SESSION_SAMESITE;
+    else process.env.USER_SESSION_SAMESITE = oldSameSite;
+  }
 });
 
 test('POST /api/upload should reject unauthenticated request', async () => {

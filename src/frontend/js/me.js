@@ -23,23 +23,54 @@ function renderRecords(records) {
   if (!Array.isArray(records) || records.length === 0) {
     emptySection.classList.remove('hidden');
     recordsSection.classList.add('hidden');
-    recordsSection.innerHTML = '';
+    recordsSection.replaceChildren();
     return;
   }
 
   emptySection.classList.add('hidden');
   recordsSection.classList.remove('hidden');
-  recordsSection.innerHTML = records.map((item) => `
-    <article class="card record-item">
-      <img class="record-cover" src="${item.image_url || ''}" alt="点亮图片" />
-      <div class="record-body">
-        <p class="record-content">${item.content || '（未填写文字）'}</p>
-        <p class="qr-id-hint">点亮时间：${formatTime(item.activated_at)}</p>
-        <p class="qr-id-hint">二维码序号：<strong>${item.id || ''}</strong></p>
-        <a class="btn btn-secondary" href="/me-detail.html?id=${encodeURIComponent(item.id || '')}">查看详情</a>
-      </div>
-    </article>
-  `).join('');
+  recordsSection.replaceChildren();
+
+  records.forEach((item) => {
+    const article = document.createElement('article');
+    article.className = 'card record-item';
+
+    const image = document.createElement('img');
+    image.className = 'record-cover';
+    image.alt = '点亮图片';
+    image.src = item.image_url || '';
+
+    const body = document.createElement('div');
+    body.className = 'record-body';
+
+    const content = document.createElement('p');
+    content.className = 'record-content';
+    content.textContent = item.content || '（未填写文字）';
+
+    const timeHint = document.createElement('p');
+    timeHint.className = 'qr-id-hint';
+    timeHint.textContent = `点亮时间：${formatTime(item.activated_at)}`;
+
+    const idHint = document.createElement('p');
+    idHint.className = 'qr-id-hint';
+    idHint.textContent = '二维码序号：';
+    const idStrong = document.createElement('strong');
+    idStrong.textContent = item.id || '';
+    idHint.appendChild(idStrong);
+
+    const detailLink = document.createElement('a');
+    detailLink.className = 'btn btn-secondary';
+    detailLink.textContent = '查看详情';
+    detailLink.href = `/me-detail.html?id=${encodeURIComponent(item.id || '')}`;
+
+    body.appendChild(content);
+    body.appendChild(timeHint);
+    body.appendChild(idHint);
+    body.appendChild(detailLink);
+    article.appendChild(image);
+    article.appendChild(body);
+    recordsSection.appendChild(article);
+  });
 }
 
 async function loadMyRecords() {

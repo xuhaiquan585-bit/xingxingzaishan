@@ -25,12 +25,13 @@ function parseCookies(rawCookie = '') {
 }
 
 function buildCookieHeader(value, maxAgeSeconds) {
+  const sameSite = process.env.USER_SESSION_SAMESITE || 'Lax';
   const attrs = [
     `${getCookieName()}=${encodeURIComponent(value)}`,
     'Path=/',
     'HttpOnly',
     `Max-Age=${maxAgeSeconds}`,
-    `SameSite=${process.env.USER_SESSION_SAMESITE || 'Lax'}`
+    `SameSite=${sameSite}`
   ];
   if (process.env.USER_SESSION_SECURE === 'true') {
     attrs.push('Secure');
@@ -39,12 +40,13 @@ function buildCookieHeader(value, maxAgeSeconds) {
 }
 
 function clearCookieHeader() {
+  const sameSite = process.env.USER_SESSION_SAMESITE || 'Lax';
   const attrs = [
     `${getCookieName()}=`,
     'Path=/',
     'HttpOnly',
     'Max-Age=0',
-    'SameSite=Lax'
+    `SameSite=${sameSite}`
   ];
   if (process.env.USER_SESSION_SECURE === 'true') {
     attrs.push('Secure');

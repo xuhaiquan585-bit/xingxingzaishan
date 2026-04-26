@@ -36,7 +36,7 @@ function renderDetail(record) {
   detailHash.textContent = record.blockchain_hash || '-';
 
   if (record.show_brand_disclosure && record.brand_disclosure_text_snapshot) {
-    const brandName = record.batch_brand_name || '';
+    const brandName = record.brand_name || '';
     detailBrand.textContent = brandName
       ? `${brandName} - ${record.brand_disclosure_text_snapshot}`
       : record.brand_disclosure_text_snapshot;
