@@ -5,6 +5,7 @@ const { getQRCode, findQRByKey, findQRByToken, activateQRByKey, getSampleUnactiv
 const { listBatches } = require('../services/dbService');
 const { generateMockBlockchainHash } = require('../services/hashService');
 const { getSignedUrl, getStorageMode } = require('../services/storageService');
+const { requireUserSession } = require('../middlewares/userSession');
 
 const router = express.Router();
 
@@ -88,14 +89,14 @@ router.get('/:qrId', (req, res) => {
   });
 });
 
-router.post('/:qrId/record', (req, res) => {
+router.post('/:qrId/record', requireUserSession, (req, res) => {
   const {
     content = '',
     image_url: imageUrl,
     image_object_key: imageObjectKey,
-    phone,
     show_brand_disclosure: showBrandDisclosure
   } = req.body;
+  const phone = req.user.phone;
 
   if (!isValidPhone(phone)) {
     return res.status(400).json({
