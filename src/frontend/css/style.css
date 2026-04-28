@@ -6,6 +6,16 @@ body {
   color: #fff;
   min-height: 100vh;
 }
+/* 注册/登录页容器垂直居中 */
+.auth-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-top: 40px;
+  padding-bottom: 60px;
+}
+
 .container {
   max-width: 520px;
   margin: 0 auto;
@@ -41,11 +51,15 @@ h1 { margin-bottom: 8px; }
 label { display:block; margin: 10px 0 6px; }
 input, textarea {
   width: 100%;
-  padding: 10px;
-  border-radius: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
   border: 1px solid rgba(255,255,255,0.3);
   background: rgba(255,255,255,0.15);
   color: #fff;
+  font-size: 16px;
+}
+input:not([type="checkbox"]) {
+  height: 48px;
 }
 .sms-row {
   display: grid;
@@ -59,9 +73,11 @@ input, textarea {
 }
 .sms-btn {
   margin-top: 0;
-  padding: 10px 8px;
+  padding: 0 14px;
+  height: 48px;
   font-size: 14px;
   white-space: nowrap;
+  border-radius: 9999px;
 }
 textarea { min-height: 100px; resize: vertical; }
 
@@ -74,26 +90,65 @@ textarea { min-height: 100px; resize: vertical; }
   padding: 7px 12px;
   background: rgba(100, 220, 150, 0.15);
   border: 1px solid rgba(100, 220, 150, 0.35);
-  border-radius: 8px;
+  border-radius: 12px;
   color: #7effc0;
   font-size: 14px;
+}
+
+/* 自定义上传卡片 */
+.upload-area {
+  position: relative;
+  border: 2px dashed rgba(255,255,255,0.3);
+  border-radius: 12px;
+  padding: 24px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  background: rgba(255,255,255,0.04);
+}
+.upload-area:hover {
+  border-color: rgba(255,209,102,0.5);
+  background: rgba(255,209,102,0.04);
+}
+.upload-area input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  height: 100%;
+  padding: 0;
+}
+.upload-area-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: rgba(255,255,255,0.5);
+  font-size: 14px;
+  pointer-events: none;
+}
+.upload-icon {
+  font-size: 28px;
 }
 
 .btn {
   width: 100%;
   margin-top: 14px;
-  padding: 13px;
+  padding: 0 24px;
+  height: 48px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 9999px;
   background: #ffd166;
   color: #1a1a1a;
   font-weight: 700;
   font-size: 16px;
   text-decoration: none;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   cursor: pointer;
-  transition: opacity 0.2s, transform 0.15s;
+  transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
 }
 .btn:active:not(:disabled) {
   transform: scale(0.97);
@@ -107,17 +162,75 @@ textarea { min-height: 100px; resize: vertical; }
   cursor: not-allowed;
   transform: none;
 }
-.btn-secondary { background: #d5d8e8; font-size: 15px; }
+/* 次要按钮：描边灰 */
+.btn-secondary {
+  background: rgba(255,255,255,0.1);
+  color: #d5d8e8;
+  font-size: 15px;
+  border: 1.5px solid rgba(255,255,255,0.25);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: rgba(255,255,255,0.16);
+}
+
+/* 主操作描边按钮：金色边框（成功页核心操作用） */
+.btn-primary-outline {
+  background: transparent;
+  color: #ffd166;
+  font-size: 15px;
+  border: 1.5px solid #ffd166;
+}
+.btn-primary-outline:hover:not(:disabled) {
+  background: rgba(255,209,102,0.12);
+  box-shadow: 0 0 12px rgba(255,209,102,0.2);
+}
+
+/* 文字链接按钮（弱化操作用） */
+.btn-text-link {
+  background: transparent;
+  color: rgba(255,255,255,0.55);
+  font-size: 14px;
+  font-weight: 500;
+  border: none;
+  height: auto;
+  padding: 6px 0;
+  margin-top: 10px;
+}
+.btn-text-link:hover {
+  color: rgba(255,255,255,0.8);
+  opacity: 1;
+  transform: none;
+}
 .sms-row .btn.sms-btn {
   width: 132px;
   min-width: 132px;
 }
 .preview {
+  position: relative;
   width: 100%;
   max-height: 400px;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: 12px;
   margin-top: 10px;
+}
+/* 图片编辑角标 */
+.preview-wrap {
+  position: relative;
+}
+.preview-wrap .preview {
+  margin-top: 0;
+}
+.preview-edit-badge {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  padding: 4px 10px;
+  background: rgba(12,20,56,0.7);
+  backdrop-filter: blur(4px);
+  border-radius: 9999px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.85);
+  pointer-events: none;
 }
 .checkbox-row {
   display: flex;
@@ -127,8 +240,9 @@ textarea { min-height: 100px; resize: vertical; }
 }
 .checkbox-row input[type="checkbox"] {
   width: auto;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
   accent-color: #ffd166;
   cursor: pointer;
 }
@@ -149,8 +263,8 @@ textarea { min-height: 100px; resize: vertical; }
 .brand-card {
   margin-top: 16px;
   padding: 12px 14px;
-  background: rgba(255, 215, 0, 0.06);
-  border: 1px solid rgba(255, 215, 0, 0.18);
+  background: rgba(255, 215, 0, 0.09);
+  border: 1px solid rgba(255, 215, 0, 0.25);
   border-radius: 10px;
 }
 .brand-preview {
@@ -184,6 +298,25 @@ textarea { min-height: 100px; resize: vertical; }
   font-size: 14px;
   opacity: .75;
   margin: 0;
+}
+
+/* 结果页分区 */
+.result-section {
+  margin-bottom: 16px;
+}
+.result-image-section {
+  border-radius: 12px;
+  overflow: hidden;
+}
+.result-info-section {
+  padding: 12px 0;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.result-message-label {
+  font-size: 12px;
+  color: rgba(255,255,255,0.45);
+  margin: 0 0 4px;
 }
 
 /* 截图保存提示 */
@@ -225,7 +358,9 @@ textarea { min-height: 100px; resize: vertical; }
 .overlay-mask {
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(12,20,56,0.15), rgba(12,20,56,0.6));
+  background: rgba(12, 20, 56, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   opacity: 0;
   transition: opacity 0.25s ease;
 }
@@ -256,6 +391,14 @@ textarea { min-height: 100px; resize: vertical; }
 .overlay-subtitle {
   margin: 8px 0 6px;
   opacity: .8;
+}
+/* 确认按钮增加量感——最终提交动作 */
+#confirmSubmitBtn {
+  background: linear-gradient(135deg, #ffd166, #f0c040);
+  box-shadow: 0 2px 12px rgba(255,209,102,0.35);
+}
+#confirmSubmitBtn:hover:not(:disabled) {
+  box-shadow: 0 4px 20px rgba(255,209,102,0.5);
 }
 .stage-hint {
   position: fixed;
@@ -295,10 +438,24 @@ textarea { min-height: 100px; resize: vertical; }
   animation: textRiseIn 0.28s ease 0.6s forwards;
 }
 .result-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
   opacity: 0;
   transform: translateY(8px);
   pointer-events: none;
   transition: opacity 0.26s ease, transform 0.26s ease;
+}
+/* 主操作按钮横排 */
+.result-primary-actions {
+  display: flex;
+  gap: 10px;
+}
+.result-primary-actions .btn-primary-outline {
+  flex: 1;
+  width: auto;
+  margin-top: 0;
 }
 .result-animate.show-actions .result-actions {
   opacity: 1;

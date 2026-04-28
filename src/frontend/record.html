@@ -9,7 +9,7 @@
   <body>
     <main class="container">
       <div class="page-intro">
-        <h1>点亮这颗星，留下你的祝福 ✨</h1>
+        <h1>点亮这颗星 ⭐</h1>
         <p class="subtitle">上传一张照片 + 写一句话，就能完成点亮</p>
       </div>
 
@@ -18,7 +18,13 @@
         <p class="qr-id-hint">当前手机号：<strong id="currentPhoneText"></strong>（<a id="switchPhoneBtn" href="javascript:void(0)">更换手机号</a>）</p>
 
         <label for="imageInput">选择一张照片</label>
-        <input id="imageInput" type="file" accept="image/*" />
+        <div class="upload-area" id="uploadArea">
+          <input id="imageInput" type="file" accept="image/*" />
+          <div class="upload-area-placeholder">
+            <span class="upload-icon">📷</span>
+            <span>点击选择或拖拽图片</span>
+          </div>
+        </div>
         <div id="uploadFeedback" class="upload-feedback hidden">
           <span id="uploadFeedbackIcon">✅</span> <span id="uploadFeedbackText">图片已上传</span>
         </div>
@@ -45,19 +51,33 @@
           <p class="result-success-title">✨ 点亮成功！</p>
           <p class="result-success-sub">记在星上，闪到永远</p>
         </div>
-        <img id="resultImage" class="preview" alt="NFT图片" />
-        <p id="resultContent"></p>
-        <p><span id="resultHashToggle" class="hash-toggle">🔗 区块链存证编号</span></p>
-        <p id="resultHash" class="qr-id-hint hidden"></p>
-        <p class="brand-line"><span class="brand">⭐ 星星在闪</span> - <span id="resultTime"></span></p>
-        <p id="resultBrandDisclosure" class="brand-disclosure hidden"><span id="resultBrandName"></span> <span id="resultBrandDisclosureText"></span></p>
-        <p class="save-hint">📸 截图保存这一刻</p>
-        <div class="result-actions">
-          <button id="downloadBtn" class="btn btn-secondary">下载 NFT 图片</button>
-          <button id="shareBtn" class="btn btn-secondary">分享给朋友</button>
-          <a id="myRecordsBtn" class="btn btn-secondary" href="/me.html">查看我的点亮记录</a>
-          <a class="btn btn-secondary" href="/landing.html?from=success">了解这个项目</a>
+
+        <!-- 图片区 -->
+        <div class="result-section result-image-section">
+          <img id="resultImage" class="preview" alt="NFT图片" />
         </div>
+
+        <!-- 信息区 -->
+        <div class="result-section result-info-section">
+          <p class="result-message-label">✉️ 你的留言</p>
+          <p id="resultContent"></p>
+          <p><span id="resultHashToggle" class="hash-toggle">🔗 区块链存证编号</span></p>
+          <p id="resultHash" class="qr-id-hint hidden"></p>
+          <p class="brand-line"><span class="brand">⭐ 星星在闪</span> - <span id="resultTime"></span></p>
+          <p id="resultBrandDisclosure" class="brand-disclosure hidden"><span id="resultBrandName"></span> <span id="resultBrandDisclosureText"></span></p>
+        </div>
+
+        <!-- 操作区 -->
+        <div class="result-actions">
+          <div class="result-primary-actions">
+            <button id="downloadBtn" class="btn btn-primary-outline">下载 NFT 图片</button>
+            <button id="shareBtn" class="btn btn-primary-outline">分享给朋友</button>
+          </div>
+          <a id="myRecordsBtn" class="btn btn-text-link" href="/me.html">查看我的点亮记录</a>
+          <a class="btn btn-text-link" href="/landing.html?from=success">了解这个项目</a>
+        </div>
+
+        <p class="save-hint">📸 截图保存这一刻</p>
       </section>
 
       <div id="confirmOverlay" class="overlay hidden">
