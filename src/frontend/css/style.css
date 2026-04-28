@@ -50,7 +50,7 @@ input, textarea {
 .sms-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: stretch;
+  align-items: center;
   gap: 8px;
   margin-top: 8px;
 }
@@ -143,6 +143,7 @@ textarea { min-height: 100px; resize: vertical; }
 .brand-line { margin-top: 10px; color: #f6f1d4; }
 .brand-disclosure { margin-top: 8px; padding: 8px 12px; background: rgba(255,215,0,0.12); border-left: 3px solid #ffd700; border-radius: 4px; color: #ffd700; font-size: 14px; }
 .brand { font-weight: 700; color: #ffd166; }
+.hash-toggle { color: #ffe9b2; text-decoration: underline; cursor: pointer; }
 
 /* 品牌露出卡片 */
 .brand-card {
@@ -218,6 +219,9 @@ textarea { min-height: 100px; resize: vertical; }
   align-items: flex-end;
   justify-content: center;
 }
+.overlay.hidden {
+  display: none !important;
+}
 .overlay-mask {
   position: absolute;
   inset: 0;
@@ -266,6 +270,9 @@ textarea { min-height: 100px; resize: vertical; }
   color: #ffe9b2;
   opacity: 0;
   animation: stageHintFade 0.25s ease forwards;
+}
+.stage-hint.hidden {
+  display: none !important;
 }
 @keyframes stageHintFade {
   from { opacity: 0; transform: translate(-50%, -46%); }
