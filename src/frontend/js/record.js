@@ -23,6 +23,7 @@ const stageHint = document.getElementById('stageHint');
 
 const resultImage = document.getElementById('resultImage');
 const resultContent = document.getElementById('resultContent');
+const resultHashToggle = document.getElementById('resultHashToggle');
 const resultHash = document.getElementById('resultHash');
 const resultTime = document.getElementById('resultTime');
 const resultBrandDisclosure = document.getElementById('resultBrandDisclosure');
@@ -38,6 +39,7 @@ let uploadedImageObjectKey = '';
 let uploadedStorageMode = '';
 let currentResult = null;
 let submitting = false;
+let hashExpanded = false;
 
 function showError(message) {
   formMessage.textContent = message;
@@ -49,6 +51,17 @@ function maskPhone(phone) {
     return value || '未登录';
   }
   return `${value.slice(0, 3)}****${value.slice(-4)}`;
+}
+
+function formatMinuteTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  return `${y}/${m}/${d} ${hh}:${mm}`;
 }
 
 function renderResult(data) {
@@ -67,8 +80,11 @@ function renderResult(data) {
 
   resultImage.src = data.image_url;
   resultContent.textContent = data.content || '（未填写文字）';
-  resultHash.textContent = data.blockchain_hash;
-  resultTime.textContent = new Date(data.activated_at).toLocaleString('zh-CN', { hour12: false });
+  hashExpanded = false;
+  resultHash.textContent = data.blockchain_hash || '-';
+  resultHash.classList.add('hidden');
+  resultHashToggle.textContent = '🔗 区块链存证编号';
+  resultTime.textContent = formatMinuteTime(data.activated_at);
 
   // 品牌露出：品牌名称 + 品牌文案作为一组，用户勾选了且有快照文案时一起显示
   if (data.show_brand_disclosure && data.brand_disclosure_text_snapshot) {
@@ -216,10 +232,11 @@ imageInput.addEventListener('change', async () => {
     if (previewSrc) {
       preview.src = previewSrc;
       preview.classList.remove('hidden');
-      uploadFeedbackText.textContent = '已选图片，可继续填写祝福';
+      uploadFeedbackText.textContent = '✅ 已选择图片';
     } else {
-      uploadFeedbackText.textContent = '图片已上传';
+      uploadFeedbackText.textContent = '✅ 已选择图片';
     }
+    imageInput.value = '';
     uploadFeedback.classList.remove('hidden');
     showError('');
   } catch (error) {
@@ -228,10 +245,24 @@ imageInput.addEventListener('change', async () => {
     uploadedStorageMode = '';
     preview.src = '';
     preview.classList.add('hidden');
+    imageInput.value = '';
     uploadFeedback.classList.add('hidden');
     showError(error.message || '上传失败，请换张图片试试');
   }
 });
+
+if (resultHashToggle) {
+  resultHashToggle.addEventListener('click', () => {
+    hashExpanded = !hashExpanded;
+    if (hashExpanded) {
+      resultHash.classList.remove('hidden');
+      resultHashToggle.textContent = '🔗 区块链存证编号（点击收起）';
+      return;
+    }
+    resultHash.classList.add('hidden');
+    resultHashToggle.textContent = '🔗 区块链存证编号';
+  });
+}
 
 contentInput.addEventListener('input', () => {
   countEl.textContent = `${contentInput.value.length} / 200`;
