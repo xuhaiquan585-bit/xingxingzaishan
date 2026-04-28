@@ -14,7 +14,6 @@ const submitBtn = document.getElementById('submitBtn');
 const formMessage = document.getElementById('formMessage');
 const currentPhoneText = document.getElementById('currentPhoneText');
 const switchPhoneBtn = document.getElementById('switchPhoneBtn');
-const downloadBtn = document.getElementById('downloadBtn');
 const shareBtn = document.getElementById('shareBtn');
 const confirmOverlay = document.getElementById('confirmOverlay');
 const confirmSubmitBtn = document.getElementById('confirmSubmitBtn');
@@ -83,13 +82,17 @@ function renderResult(data) {
   hashExpanded = false;
   resultHash.textContent = data.blockchain_hash || '-';
   resultHash.classList.add('hidden');
-  resultHashToggle.textContent = '🔗 区块链存证编号';
+  resultHashToggle.textContent = '这一刻，已被永久记录';
   resultTime.textContent = formatMinuteTime(data.activated_at);
 
-  // 品牌露出：品牌名称 + 品牌文案作为一组，用户勾选了且有快照文案时一起显示
-  if (data.show_brand_disclosure && data.brand_disclosure_text_snapshot) {
-    resultBrandName.textContent = data.brand_name || '';
-    resultBrandDisclosureText.textContent = data.brand_disclosure_text_snapshot;
+  const brandName = String(data.brand_name || '').trim();
+  const brandDisclosureText = String(data.brand_disclosure_text_snapshot || '').trim();
+  const hasBrandInfo = Boolean(brandName || brandDisclosureText);
+
+  // 品牌露出：勾选展示且有有效品牌信息时显示
+  if (data.show_brand_disclosure && hasBrandInfo) {
+    resultBrandName.textContent = brandName;
+    resultBrandDisclosureText.textContent = brandDisclosureText;
     resultBrandDisclosure.classList.remove('hidden');
   } else {
     resultBrandDisclosure.classList.add('hidden');
@@ -256,11 +259,11 @@ if (resultHashToggle) {
     hashExpanded = !hashExpanded;
     if (hashExpanded) {
       resultHash.classList.remove('hidden');
-      resultHashToggle.textContent = '🔗 区块链存证编号（点击收起）';
+      resultHashToggle.textContent = '这一刻，已被永久记录（点击收起）';
       return;
     }
     resultHash.classList.add('hidden');
-    resultHashToggle.textContent = '🔗 区块链存证编号';
+    resultHashToggle.textContent = '这一刻，已被永久记录';
   });
 }
 
@@ -346,24 +349,6 @@ if (confirmSubmitBtn) {
   });
 }
 
-downloadBtn.addEventListener('click', async () => {
-  if (!currentResult || !currentResult.qr_id) {
-    alert('请先完成点亮后再下载。');
-    return;
-  }
-
-  try {
-    const res = await apiRequest(`/api/nft/${encodeURIComponent(currentResult.qr_id)}/download`);
-    if (res.data && res.data.download_url) {
-      window.open(res.data.download_url, '_blank');
-      return;
-    }
-    alert('暂未生成可下载链接，请稍后再试。');
-  } catch (error) {
-    alert(error.message || '下载失败，请稍后再试。');
-  }
-});
-
 shareBtn.addEventListener('click', async () => {
   if (!currentResult || !currentResult.qr_id) {
     alert('请先完成点亮后再分享。');
@@ -380,6 +365,12 @@ shareBtn.addEventListener('click', async () => {
 
     if (navigator.share) {
       await navigator.share(payload);
+      return;
+    }
+
+    const downloadRes = await apiRequest(`/api/nft/${encodeURIComponent(currentResult.qr_id)}/download`);
+    if (downloadRes.data && downloadRes.data.download_url) {
+      window.open(downloadRes.data.download_url, '_blank');
       return;
     }
 
