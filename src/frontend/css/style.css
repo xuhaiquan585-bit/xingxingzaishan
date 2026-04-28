@@ -48,19 +48,20 @@ input, textarea {
   color: #fff;
 }
 .sms-row {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
   gap: 8px;
   margin-top: 8px;
 }
 .sms-row input {
-  flex: 1;
+  min-width: 0;
 }
 .sms-btn {
-  width: 128px;
   margin-top: 0;
   padding: 10px 8px;
   font-size: 14px;
+  white-space: nowrap;
 }
 textarea { min-height: 100px; resize: vertical; }
 
@@ -107,6 +108,10 @@ textarea { min-height: 100px; resize: vertical; }
   transform: none;
 }
 .btn-secondary { background: #d5d8e8; font-size: 15px; }
+.sms-row .btn.sms-btn {
+  width: 132px;
+  min-width: 132px;
+}
 .preview {
   width: 100%;
   max-height: 400px;
