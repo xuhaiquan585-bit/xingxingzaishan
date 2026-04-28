@@ -30,6 +30,20 @@ function validateRuntimeConfig() {
     warnings.push('CORS_ORIGINS is empty: cross-origin browser requests are disabled by default.');
   }
 
+  const smsProvider = String(process.env.SMS_PROVIDER || 'mock').trim().toLowerCase();
+  const smsRequired = ['SMS_ACCESS_KEY_ID', 'SMS_ACCESS_KEY_SECRET', 'SMS_SIGN_NAME', 'SMS_TEMPLATE_CODE'];
+  if (smsProvider === 'aliyun') {
+    smsRequired.forEach((name) => {
+      if (!process.env[name]) {
+        errors.push(`${name} is required when SMS_PROVIDER=aliyun.`);
+      }
+    });
+  }
+
+  if (process.env.NODE_ENV === 'production' && smsProvider === 'mock') {
+    errors.push('SMS_PROVIDER must not be mock in production.');
+  }
+
   return {
     errors,
     warnings
