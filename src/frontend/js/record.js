@@ -68,7 +68,7 @@ function renderResult(data) {
   resultImage.src = data.image_url;
   resultContent.textContent = data.content || '（未填写文字）';
   resultHash.textContent = data.blockchain_hash;
-  resultTime.textContent = new Date(data.activated_at).toLocaleString('zh-CN', { hour12: false });
+  resultTime.textContent = new Date(data.activated_at).toLocaleString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' });
 
   // 品牌露出：品牌名称 + 品牌文案作为一组，用户勾选了且有快照文案时一起显示
   if (data.show_brand_disclosure && data.brand_disclosure_text_snapshot) {
