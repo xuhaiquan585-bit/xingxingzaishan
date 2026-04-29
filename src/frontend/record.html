@@ -15,6 +15,7 @@
 
       <section id="formSection" class="card hidden">
         <p class="qr-id-hint">星星ID：<strong id="qrIdText"></strong></p>
+        <p class="qr-id-hint">当前手机号：<strong id="currentPhoneText"></strong>（<a id="switchPhoneBtn" href="javascript:void(0)">更换手机号</a>）</p>
 
         <label for="imageInput">选择一张照片</label>
         <input id="imageInput" type="file" accept="image/*" />
@@ -42,17 +43,35 @@
       <section id="resultSection" class="card hidden">
         <div class="result-success-banner">
           <p class="result-success-title">✨ 点亮成功！</p>
-          <p class="result-success-sub">这颗星已被成功点亮</p>
+          <p class="result-success-sub">记在星上，闪到永远</p>
         </div>
         <img id="resultImage" class="preview" alt="NFT图片" />
         <p id="resultContent"></p>
-        <p>哈希：<span id="resultHash"></span></p>
-        <p class="brand-line"><span class="brand">⭐ 星星在闪</span> - <span id="resultTime"></span></p>
-        <p id="resultBrandDisclosure" class="brand-disclosure hidden"><span id="resultBrandName"></span> <span id="resultBrandDisclosureText"></span></p>
+        <div class="result-meta">
+          <p class="brand-line"><span class="brand">⭐ 星星在闪</span> - <span id="resultTime"></span></p>
+          <p><span id="resultHashToggle" class="hash-toggle">这一刻，已被永久记录</span></p>
+          <p id="resultHash" class="qr-id-hint hidden"></p>
+          <p id="resultBrandDisclosure" class="brand-disclosure hidden"><span id="resultBrandName"></span> <span id="resultBrandDisclosureText"></span></p>
+        </div>
         <p class="save-hint">📸 截图保存这一刻</p>
-        <button id="downloadBtn" class="btn btn-secondary">下载 NFT 图片</button>
-        <button id="shareBtn" class="btn btn-secondary">分享给朋友</button>
+        <div class="result-actions">
+          <button id="shareBtn" class="btn">分享给朋友</button>
+          <a id="myRecordsBtn" class="btn btn-secondary" href="/me.html">查看我的点亮记录</a>
+        </div>
+        <p class="project-link-wrap"><a class="project-link" href="/landing.html?from=success">了解这个项目</a></p>
       </section>
+
+      <div id="confirmOverlay" class="overlay hidden">
+        <div class="overlay-mask"></div>
+        <div class="overlay-panel">
+          <p class="overlay-title">把这一刻记下来</p>
+          <p class="overlay-subtitle">这一刻会被记在星上<br />提交后将无法修改</p>
+          <button id="confirmSubmitBtn" class="btn">确认点亮</button>
+          <button id="cancelSubmitBtn" class="btn btn-secondary">返回修改</button>
+        </div>
+      </div>
+
+      <div id="stageHint" class="stage-hint hidden">✨ 这一刻，正在被记在星上…</div>
     </main>
 
     <script src="/js/api.js"></script>
