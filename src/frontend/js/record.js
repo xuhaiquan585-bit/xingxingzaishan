@@ -430,14 +430,8 @@ shareBtn.addEventListener('click', async () => {
       return;
     }
 
-    const downloadRes = await apiRequest(`/api/nft/${encodeURIComponent(currentResult.qr_id)}/download`);
-    if (downloadRes.data && downloadRes.data.download_url) {
-      window.open(downloadRes.data.download_url, '_blank');
-      return;
-    }
-
     await navigator.clipboard.writeText(payload.url);
-    alert('分享链接已复制，快发给朋友吧！');
+    alert('链接已复制，可以发送给朋友');
   } catch (error) {
     alert(error.message || '分享失败，请稍后重试。');
   }
