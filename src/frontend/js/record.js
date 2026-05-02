@@ -14,6 +14,8 @@ const submitBtn = document.getElementById('submitBtn');
 const formMessage = document.getElementById('formMessage');
 const currentPhoneText = document.getElementById('currentPhoneText');
 const switchPhoneBtn = document.getElementById('switchPhoneBtn');
+
+
 const shareBtn = document.getElementById('shareBtn');
 const confirmOverlay = document.getElementById('confirmOverlay');
 const confirmSubmitBtn = document.getElementById('confirmSubmitBtn');
@@ -51,6 +53,7 @@ function maskPhone(phone) {
   }
   return `${value.slice(0, 3)}****${value.slice(-4)}`;
 }
+
 
 function formatMinuteTime(value) {
   const date = new Date(value);
@@ -308,16 +311,8 @@ if (confirmSubmitBtn) {
     window.setTimeout(() => confirmSubmitBtn.classList.remove('btn-glow'), 220);
     closeConfirmOverlay();
 
-    stageHint.textContent = '正在读取这一刻...';
     stageHint.classList.remove('hidden');
     formSection.classList.add('content-fade-out');
-    let secondStageTimer = null;
-    let requestFinished = false;
-    secondStageTimer = window.setTimeout(() => {
-      if (!requestFinished) {
-        stageHint.textContent = '正在生成时光烙印...';
-      }
-    }, 1000);
 
     const startAt = Date.now();
     const minimumDelayMs = 650;
@@ -341,20 +336,71 @@ if (confirmSubmitBtn) {
       const elapsed = Date.now() - startAt;
       const remain = Math.max(0, minimumDelayMs - elapsed);
       window.setTimeout(() => {
-        requestFinished = true;
-        if (secondStageTimer) {
-          window.clearTimeout(secondStageTimer);
-        }
         stageHint.classList.add('hidden');
         formSection.classList.remove('content-fade-out');
         renderResult(res.data);
         submitting = false;
       }, remain);
     } catch (error) {
-      requestFinished = true;
-      if (secondStageTimer) {
-        window.clearTimeout(secondStageTimer);
-      }
+      stageHint.classList.add('hidden');
+      formSection.classList.remove('content-fade-out');
+      showError(error.message || '提交失败，请检查网络后重试');
+      submitBtn.disabled = false;
+      submitBtn.textContent = '点亮这颗星 ⭐';
+      submitting = false;
+    }
+  });
+}
+
+if (confirmOverlay) {
+  confirmOverlay.addEventListener('click', (event) => {
+    if (event.target === confirmOverlay || event.target.classList.contains('overlay-mask')) {
+      if (submitting) return;
+      closeConfirmOverlay();
+    }
+  });
+}
+
+if (confirmSubmitBtn) {
+  confirmSubmitBtn.addEventListener('click', async () => {
+    if (submitting) return;
+    const content = contentInput.value.trim();
+    submitting = true;
+    confirmSubmitBtn.classList.add('btn-glow');
+    window.setTimeout(() => confirmSubmitBtn.classList.remove('btn-glow'), 220);
+    closeConfirmOverlay();
+
+    stageHint.classList.remove('hidden');
+    formSection.classList.add('content-fade-out');
+
+    const startAt = Date.now();
+    const minimumDelayMs = 650;
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = '正在点亮...';
+    showError('');
+
+    try {
+      const res = await apiRequest(`/api/qr/${encodeURIComponent(qrId)}/record`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content,
+          image_url: uploadedStorageMode === 'cloud' ? null : uploadedImageUrl,
+          image_object_key: uploadedImageObjectKey,
+          show_brand_disclosure: showBrandDisclosureInput ? showBrandDisclosureInput.checked : false
+        })
+      });
+
+      const elapsed = Date.now() - startAt;
+      const remain = Math.max(0, minimumDelayMs - elapsed);
+      window.setTimeout(() => {
+        stageHint.classList.add('hidden');
+        formSection.classList.remove('content-fade-out');
+        renderResult(res.data);
+        submitting = false;
+      }, remain);
+    } catch (error) {
       stageHint.classList.add('hidden');
       formSection.classList.remove('content-fade-out');
       showError(error.message || '提交失败，请检查网络后重试');

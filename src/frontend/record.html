@@ -9,26 +9,29 @@
   <body>
     <main class="container">
       <div class="page-intro">
-        <h1>星星在闪</h1>
-        <p class="subtitle">把这一刻，温柔封存</p>
+        <h1>点亮这颗星 ⭐</h1>
+        <p class="subtitle">上传一张照片 + 写一句话，就能完成点亮</p>
       </div>
 
       <section id="formSection" class="card hidden">
         <p class="qr-id-hint">星星ID：<strong id="qrIdText"></strong></p>
         <p class="qr-id-hint">当前手机号：<strong id="currentPhoneText"></strong>（<a id="switchPhoneBtn" href="javascript:void(0)">更换手机号</a>）</p>
 
-        <label for="imageInput">上传影像</label>
-        <label class="upload-area" for="imageInput">
+        <label for="imageInput">选择一张照片</label>
+        <div class="upload-area" id="uploadArea">
           <input id="imageInput" type="file" accept="image/*" />
-          <span class="upload-area-placeholder">+ 封存一张影像</span>
-        </label>
+          <div class="upload-area-placeholder">
+            <span class="upload-icon">📷</span>
+            <span>点击选择或拖拽图片</span>
+          </div>
+        </div>
         <div id="uploadFeedback" class="upload-feedback hidden">
           <span id="uploadFeedbackIcon">✅</span> <span id="uploadFeedbackText">图片已上传</span>
         </div>
         <img id="preview" class="preview hidden" alt="预览图" />
 
         <label for="content">写下你想说的话（0-200字）</label>
-        <textarea id="content" maxlength="200" placeholder="写下你想说的话..."></textarea>
+        <textarea id="content" maxlength="200" placeholder="写下你想说的话（例如：生日快乐 🎂）"></textarea>
         <p id="count">0 / 200</p>
 
         <div id="brandSection" class="brand-card hidden">
@@ -48,16 +51,13 @@
           <p class="result-success-title">✨ 点亮成功！</p>
           <p class="result-success-sub">记在星上，闪到永远</p>
         </div>
-        <div class="exhibit-card">
-          <div class="gold-seal">时光封印</div>
-          <img id="resultImage" class="preview" alt="NFT图片" />
-          <p id="resultContent" class="exhibit-text"></p>
-          <div class="result-meta">
-            <p class="brand-line"><span class="brand">⭐ 星星在闪</span> - <span id="resultTime"></span></p>
-            <p><span id="resultHashToggle" class="hash-toggle">这一刻，已被永久记录</span></p>
-            <p id="resultHash" class="qr-id-hint hidden"></p>
-            <p id="resultBrandDisclosure" class="brand-disclosure hidden"><span id="resultBrandName"></span> <span id="resultBrandDisclosureText"></span></p>
-          </div>
+        <img id="resultImage" class="preview" alt="NFT图片" />
+        <p id="resultContent"></p>
+        <div class="result-meta">
+          <p class="brand-line"><span class="brand">⭐ 星星在闪</span> - <span id="resultTime"></span></p>
+          <p><span id="resultHashToggle" class="hash-toggle">这一刻，已被永久记录</span></p>
+          <p id="resultHash" class="qr-id-hint hidden"></p>
+          <p id="resultBrandDisclosure" class="brand-disclosure hidden"><span id="resultBrandName"></span> <span id="resultBrandDisclosureText"></span></p>
         </div>
         <p class="save-hint">📸 截图保存这一刻</p>
         <div class="result-actions">
