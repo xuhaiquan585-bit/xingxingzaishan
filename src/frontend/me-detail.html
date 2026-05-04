@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>记录详情 - 星星在闪</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <div class="page-intro">
+        <h1>记录详情</h1>
+        <p class="subtitle">查看这条点亮记录的完整信息</p>
+      </div>
+
+      <section class="card">
+        <p class="qr-id-hint">当前手机号：<strong id="currentPhoneText"></strong>（<a id="switchPhoneBtn" href="javascript:void(0)">更换手机号</a>）</p>
+        <a href="/me.html" class="btn btn-secondary">返回我的记录</a>
+        <p id="detailMessage" class="message"></p>
+      </section>
+
+      <section id="detailSection" class="card detail-card hidden">
+        <img id="detailImage" class="detail-cover" alt="点亮图片" />
+        <div class="detail-body">
+          <p id="detailContent" class="record-content"></p>
+          <p class="qr-id-hint">点亮时间：<strong id="detailTime"></strong></p>
+          <p class="qr-id-hint">二维码序号：<strong id="detailId"></strong></p>
+          <p class="qr-id-hint">哈希值：<strong id="detailHash"></strong></p>
+          <p id="detailBrand" class="brand-disclosure hidden"></p>
+        </div>
+      </section>
+    </main>
+
+    <script src="/js/api.js"></script>
+    <script src="/js/me-detail.js"></script>
+  </body>
+</html>
+
