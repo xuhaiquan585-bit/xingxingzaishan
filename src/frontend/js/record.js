@@ -97,6 +97,11 @@ function renderResult(data) {
     resultSection.classList.add('show-actions');
   }, 900);
 
+  const resultSuccessTitle = document.querySelector('.result-success-title');
+  if (resultSuccessTitle) {
+    resultSuccessTitle.textContent = '✨ 保存成功';
+  }
+
   resultImage.src = data.image_url;
   resultContent.textContent = data.content || '（未填写文字）';
   hashExpanded = false;
