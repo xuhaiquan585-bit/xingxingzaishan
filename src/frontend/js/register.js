@@ -79,10 +79,10 @@ registerBtn.addEventListener('click', async () => {
       body: JSON.stringify({ phone, code })
     });
 
-    showMessage('登录成功，正在返回点亮页面...');
+    showMessage('验证成功，正在返回填写页面...');
     window.location.href = `/record.html?t=${encodeURIComponent(qrId || '')}`;
   } catch (error) {
-    showMessage(error.message || '登录失败，请稍后重试');
+    showMessage(error.message || '验证失败，请稍后重试');
     updateButtonState();
   }
 });

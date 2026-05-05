@@ -35,13 +35,15 @@ function renderDetail(record) {
   detailId.textContent = record.id || '';
   detailHash.textContent = record.blockchain_hash || '-';
 
-  if (record.show_brand_disclosure && record.brand_disclosure_text_snapshot) {
-    const brandName = record.brand_name || '';
+  const brandDisclosureText = String(record.brand_disclosure_text_snapshot || '').trim();
+  if (record.show_brand_disclosure && brandDisclosureText) {
+    const brandName = String(record.brand_name || '').trim();
     detailBrand.textContent = brandName
-      ? `${brandName} - ${record.brand_disclosure_text_snapshot}`
-      : record.brand_disclosure_text_snapshot;
+      ? `${brandName} - ${brandDisclosureText}`
+      : brandDisclosureText;
     detailBrand.classList.remove('hidden');
   } else {
+    detailBrand.textContent = '';
     detailBrand.classList.add('hidden');
   }
   detailSection.classList.remove('hidden');

@@ -42,6 +42,23 @@ let currentResult = null;
 let submitting = false;
 let hashExpanded = false;
 
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  document.body.removeChild(textarea);
+}
+
 function showError(message) {
   formMessage.textContent = message;
 }
@@ -83,21 +100,26 @@ function renderResult(data) {
   resultImage.src = data.image_url;
   resultContent.textContent = data.content || '（未填写文字）';
   hashExpanded = false;
-  resultHash.textContent = data.blockchain_hash || '-';
+  const blockchainHash = String(data.blockchain_hash || '').trim();
+  resultHash.textContent = blockchainHash ? `区块链凭证编号：${blockchainHash}` : '';
   resultHash.classList.add('hidden');
-  resultHashToggle.textContent = '这一刻，已被永久记录';
+  resultHashToggle.textContent = blockchainHash
+    ? '这一刻，已被永久记录（点击查看凭证）'
+    : '正在生成永久记录…';
   resultTime.textContent = formatMinuteTime(data.activated_at);
 
   const brandName = String(data.brand_name || '').trim();
   const brandDisclosureText = String(data.brand_disclosure_text_snapshot || '').trim();
-  const hasBrandInfo = Boolean(brandName || brandDisclosureText);
+  const hasBrandInfo = Boolean(brandDisclosureText);
 
-  // 品牌露出：勾选展示且有有效品牌信息时显示
+  // 品牌露出：勾选展示且有有效品牌文案时显示
   if (data.show_brand_disclosure && hasBrandInfo) {
     resultBrandName.textContent = brandName;
     resultBrandDisclosureText.textContent = brandDisclosureText;
     resultBrandDisclosure.classList.remove('hidden');
   } else {
+    resultBrandName.textContent = '';
+    resultBrandDisclosureText.textContent = '';
     resultBrandDisclosure.classList.add('hidden');
   }
 }
@@ -155,14 +177,20 @@ async function loadQRStatus() {
     }
 
     // 根据 batch 的 brand_disclosure_text 决定是否显示品牌露出开关
-    if (res.data.batch_id && res.data.batch_brand_disclosure_text) {
+    const batchBrandDisclosureText = String(res.data.batch_brand_disclosure_text || '').trim();
+    if (res.data.batch_id && batchBrandDisclosureText) {
       brandSection.classList.remove('hidden');
       showBrandDisclosureInput.checked = !!res.data.batch_brand_disclosure_default;
       // 显示品牌名称 + 品牌文案预览
       const previewParts = [];
-      if (res.data.batch_brand_name) previewParts.push(res.data.batch_brand_name);
-      previewParts.push(res.data.batch_brand_disclosure_text);
+      const batchBrandName = String(res.data.batch_brand_name || '').trim();
+      if (batchBrandName) previewParts.push(batchBrandName);
+      previewParts.push(batchBrandDisclosureText);
       brandPreviewText.textContent = previewParts.join(' - ');
+    } else {
+      brandSection.classList.add('hidden');
+      showBrandDisclosureInput.checked = false;
+      brandPreviewText.textContent = '';
     }
 
     formSection.classList.remove('hidden');
@@ -238,9 +266,9 @@ imageInput.addEventListener('change', async () => {
     if (previewSrc) {
       preview.src = previewSrc;
       preview.classList.remove('hidden');
-      uploadFeedbackText.textContent = '✅ 已选择图片';
+      uploadFeedbackText.textContent = '已选择照片';
     } else {
-      uploadFeedbackText.textContent = '✅ 已选择图片';
+      uploadFeedbackText.textContent = '已选择照片';
     }
     imageInput.value = '';
     uploadFeedback.classList.remove('hidden');
@@ -259,14 +287,15 @@ imageInput.addEventListener('change', async () => {
 
 if (resultHashToggle) {
   resultHashToggle.addEventListener('click', () => {
+    if (!resultHash.textContent) return;
     hashExpanded = !hashExpanded;
     if (hashExpanded) {
       resultHash.classList.remove('hidden');
-      resultHashToggle.textContent = '这一刻，已被永久记录（点击收起）';
+      resultHashToggle.textContent = '区块链凭证编号（点击收起）';
       return;
     }
     resultHash.classList.add('hidden');
-    resultHashToggle.textContent = '这一刻，已被永久记录';
+    resultHashToggle.textContent = '这一刻，已被永久记录（点击查看凭证）';
   });
 }
 
@@ -279,7 +308,7 @@ submitBtn.addEventListener('click', async () => {
   const content = contentInput.value.trim();
 
   if (!uploadedImageObjectKey && !uploadedImageUrl) {
-    showError('请先上传一张照片再点亮。');
+    showError('请先添加一张照片。');
     return;
   }
 
@@ -318,7 +347,7 @@ if (confirmSubmitBtn) {
     const minimumDelayMs = 650;
 
     submitBtn.disabled = true;
-    submitBtn.textContent = '正在点亮...';
+    submitBtn.textContent = '正在保存...';
     showError('');
 
     try {
@@ -346,7 +375,7 @@ if (confirmSubmitBtn) {
       formSection.classList.remove('content-fade-out');
       showError(error.message || '提交失败，请检查网络后重试');
       submitBtn.disabled = false;
-      submitBtn.textContent = '点亮这颗星 ⭐';
+      submitBtn.textContent = '预览并确认';
       submitting = false;
     }
   });
@@ -377,7 +406,7 @@ if (confirmSubmitBtn) {
     const minimumDelayMs = 650;
 
     submitBtn.disabled = true;
-    submitBtn.textContent = '正在点亮...';
+    submitBtn.textContent = '正在保存...';
     showError('');
 
     try {
@@ -405,7 +434,7 @@ if (confirmSubmitBtn) {
       formSection.classList.remove('content-fade-out');
       showError(error.message || '提交失败，请检查网络后重试');
       submitBtn.disabled = false;
-      submitBtn.textContent = '点亮这颗星 ⭐';
+      submitBtn.textContent = '预览并确认';
       submitting = false;
     }
   });
@@ -430,7 +459,7 @@ shareBtn.addEventListener('click', async () => {
       return;
     }
 
-    await navigator.clipboard.writeText(payload.url);
+    await copyText(payload.url);
     alert('链接已复制，可以发送给朋友');
   } catch (error) {
     alert(error.message || '分享失败，请稍后重试。');

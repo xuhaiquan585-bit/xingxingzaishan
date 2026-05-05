@@ -40,6 +40,11 @@ h1 { margin-bottom: 8px; }
   backdrop-filter: blur(4px);
 }
 label { display:block; margin: 10px 0 6px; }
+.field-hint {
+  margin: -2px 0 6px;
+  font-size: 13px;
+  opacity: .72;
+}
 input, textarea {
   width: 100%;
   padding: 10px;
