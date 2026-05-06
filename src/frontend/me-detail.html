@@ -22,10 +22,14 @@
         <img id="detailImage" class="detail-cover" alt="点亮图片" />
         <div class="detail-body">
           <p id="detailContent" class="record-content"></p>
-          <p class="qr-id-hint">保存时间：<strong id="detailTime"></strong></p>
-          <p class="qr-id-hint">二维码编号：<strong id="detailId"></strong></p>
-          <p class="qr-id-hint">区块链凭证编号：<strong id="detailHash"></strong></p>
-          <p id="detailBrand" class="credential-brand hidden"></p>
+          <div class="detail-meta-group">
+            <p class="qr-id-hint">保存时间：<strong id="detailTime"></strong></p>
+            <p class="qr-id-hint">二维码编号：<strong id="detailId"></strong></p>
+          </div>
+          <div class="detail-credential-group">
+            <p class="qr-id-hint">区块链凭证编号：<strong id="detailHash"></strong></p>
+            <p id="detailBrand" class="credential-brand hidden"></p>
+          </div>
         </div>
       </section>
 

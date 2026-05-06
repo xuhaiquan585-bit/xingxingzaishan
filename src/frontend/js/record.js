@@ -405,6 +405,7 @@ async function submitRecord() {
   window.setTimeout(() => confirmSubmitBtn.classList.remove('btn-glow'), 220);
   closeConfirmOverlay();
 
+  stageHint.textContent = '正在保存这一刻…';
   stageHint.classList.remove('hidden');
   formSection.classList.add('content-fade-out');
 
