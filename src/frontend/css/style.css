@@ -75,6 +75,30 @@ input, textarea {
 }
 textarea { min-height: 100px; resize: vertical; }
 
+.upload-area {
+  position: relative;
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.15);
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.upload-area-placeholder {
+  pointer-events: none;
+  color: rgba(255,255,255,0.9);
+  font-weight: 700;
+}
+
 /* 上传成功反馈 */
 .upload-feedback {
   display: flex;
@@ -184,9 +208,22 @@ textarea { min-height: 100px; resize: vertical; }
   line-height: 1.6;
 }
 .brand-line { margin: 0 0 6px; color: inherit; font-size: 13px; }
-.brand-disclosure { margin-top: 8px; margin-bottom: 0; padding: 8px 12px; background: rgba(255,215,0,0.08); border-left: 2px solid rgba(255, 215, 0, 0.45); border-radius: 4px; color: rgba(255, 215, 0, 0.85); font-size: 13px; }
 .brand { font-weight: 700; color: #ffd166; }
-.hash-toggle { color: rgba(255, 233, 178, 0.9); text-decoration: underline; cursor: pointer; font-size: 13px; }
+.hash-toggle {
+  display: inline;
+  width: auto;
+  margin: 4px 0 0;
+  padding: 0;
+  height: auto;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 233, 178, 0.9);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
+}
 
 /* 品牌露出卡片 */
 .brand-card {
@@ -229,14 +266,53 @@ textarea { min-height: 100px; resize: vertical; }
   margin: 0;
 }
 
-
-.save-hint {
-  text-align: center;
-  font-size: 14px;
-  color: #ffe9b2;
-  opacity: .8;
-  margin: 14px 0 0;
-  letter-spacing: 0.5px;
+.memory-card {
+  padding: 0 0 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.result-image {
+  max-height: 360px;
+}
+.memory-content {
+  margin: 12px 0 0;
+  line-height: 1.7;
+  font-size: 16px;
+  color: rgba(255,255,255,0.95);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.credential-card {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.06);
+  color: rgba(245, 241, 212, 0.72);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.credential-detail {
+  margin-top: 10px;
+}
+.credential-label {
+  margin: 0 0 4px;
+  color: rgba(255,255,255,0.85);
+  font-weight: 700;
+}
+.credential-hash {
+  margin: 0;
+  color: rgba(255,255,255,0.72);
+  word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+}
+.credential-brand {
+  margin: 10px 0 0;
+  color: rgba(255, 233, 178, 0.84);
+}
+.credential-slogan {
+  margin: 10px 0 0;
+  color: rgba(255, 233, 178, 0.66);
 }
 .result-actions {
   margin-top: 10px;
@@ -292,6 +368,8 @@ textarea { min-height: 100px; resize: vertical; }
   width: min(520px, 100%);
   margin: 0 12px 18px;
   padding: 16px;
+  max-height: 80vh;
+  overflow-y: auto;
   background: rgba(20, 32, 80, 0.95);
   border: 1px solid rgba(255,255,255,0.22);
   border-radius: 14px;
@@ -314,6 +392,30 @@ textarea { min-height: 100px; resize: vertical; }
 .overlay-subtitle {
   margin: 8px 0 6px;
   opacity: .8;
+}
+.confirm-preview {
+  margin-top: 12px;
+}
+.confirm-preview-image {
+  width: 100%;
+  max-height: 260px;
+  object-fit: contain;
+  border-radius: 10px;
+  display: block;
+  background: rgba(0,0,0,0.12);
+}
+.confirm-preview-content {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.92);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.confirm-preview-content.empty {
+  color: rgba(255,255,255,0.58);
 }
 
 
@@ -357,7 +459,7 @@ textarea { min-height: 100px; resize: vertical; }
 .result-actions {
   opacity: 0;
   transform: translateY(8px);
-  pointer-events: none;
+  pointer-events: auto;
   transition: opacity 0.26s ease, transform 0.26s ease;
 }
 

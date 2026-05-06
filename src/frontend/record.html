@@ -8,7 +8,7 @@
   </head>
   <body>
     <main class="container">
-      <div class="page-intro">
+      <div id="pageIntro" class="page-intro">
         <h1>把这一刻留在这瓶酒里</h1>
         <p class="subtitle">选一张照片，写一句话，以后还能再看到。</p>
       </div>
@@ -19,9 +19,9 @@
 
         <label for="imageInput">添加照片</label>
         <div class="upload-area" id="uploadArea">
-          <input id="imageInput" type="file" accept="image/*" />
+          <input id="imageInput" class="file-input" type="file" accept="image/*" />
           <div class="upload-area-placeholder">
-            <span>添加照片</span>
+            <span id="uploadActionText">添加照片</span>
           </div>
         </div>
         <div id="uploadFeedback" class="upload-feedback hidden">
@@ -51,15 +51,23 @@
           <p class="result-success-title">✨ 保存成功</p>
           <p class="result-success-sub">记在星上，闪到永远</p>
         </div>
-        <img id="resultImage" class="preview" alt="NFT图片" />
-        <p id="resultContent"></p>
-        <div class="result-meta">
-          <p class="brand-line"><span class="brand">⭐ 星星在闪</span> - <span id="resultTime"></span></p>
-          <p><span id="resultHashToggle" class="hash-toggle">这一刻，已被永久记录（点击查看凭证）</span></p>
-          <p id="resultHash" class="qr-id-hint hidden"></p>
-          <p id="resultBrandDisclosure" class="brand-disclosure hidden"><span id="resultBrandName"></span> <span id="resultBrandDisclosureText"></span></p>
+
+        <div class="memory-card">
+          <img id="resultImage" class="preview result-image" alt="保存的照片" />
+          <p id="resultContent" class="memory-content"></p>
         </div>
-        <p class="save-hint">📸 截图保存这一刻</p>
+
+        <div class="credential-card">
+          <p class="brand-line"><span class="brand">星星在闪</span> - <span id="resultTime"></span></p>
+          <button id="resultHashToggle" class="hash-toggle" type="button">这一刻，已被永久记录（点击查看凭证）</button>
+          <div id="resultHash" class="credential-detail hidden">
+            <p class="credential-label">区块链凭证编号</p>
+            <p id="resultHashValue" class="credential-hash"></p>
+          </div>
+          <p id="resultBrandDisclosure" class="credential-brand hidden"><span id="resultBrandName"></span><span id="resultBrandSeparator"></span><span id="resultBrandDisclosureText"></span></p>
+          <p class="credential-slogan">星星在闪 · 记在星上，闪到永远</p>
+        </div>
+
         <div class="result-actions">
           <button id="shareBtn" class="btn">分享给朋友</button>
           <a id="myRecordsBtn" class="btn btn-secondary" href="/me.html">查看我的记录</a>
@@ -72,6 +80,10 @@
         <div class="overlay-mask"></div>
         <div class="overlay-panel">
           <p class="overlay-title">确认保存这一刻</p>
+          <div class="confirm-preview">
+            <img id="confirmPreviewImage" class="confirm-preview-image hidden" alt="即将保存的照片" />
+            <p id="confirmPreviewContent" class="confirm-preview-content"></p>
+          </div>
           <p class="overlay-subtitle">提交后，这张照片和这句话将被保存，不能再修改。</p>
           <button id="confirmSubmitBtn" class="btn">确认提交</button>
           <button id="cancelSubmitBtn" class="btn btn-secondary">返回修改</button>

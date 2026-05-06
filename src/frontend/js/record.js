@@ -1,10 +1,13 @@
+const pageIntro = document.getElementById('pageIntro');
 const formSection = document.getElementById('formSection');
 const resultSection = document.getElementById('resultSection');
 const qrIdText = document.getElementById('qrIdText');
+const uploadArea = document.getElementById('uploadArea');
 const imageInput = document.getElementById('imageInput');
 const preview = document.getElementById('preview');
 const uploadFeedback = document.getElementById('uploadFeedback');
 const uploadFeedbackText = document.getElementById('uploadFeedbackText');
+const uploadActionText = document.getElementById('uploadActionText');
 const contentInput = document.getElementById('content');
 const countEl = document.getElementById('count');
 const showBrandDisclosureInput = document.getElementById('showBrandDisclosure');
@@ -15,20 +18,23 @@ const formMessage = document.getElementById('formMessage');
 const currentPhoneText = document.getElementById('currentPhoneText');
 const switchPhoneBtn = document.getElementById('switchPhoneBtn');
 
-
 const shareBtn = document.getElementById('shareBtn');
 const confirmOverlay = document.getElementById('confirmOverlay');
 const confirmSubmitBtn = document.getElementById('confirmSubmitBtn');
 const cancelSubmitBtn = document.getElementById('cancelSubmitBtn');
+const confirmPreviewImage = document.getElementById('confirmPreviewImage');
+const confirmPreviewContent = document.getElementById('confirmPreviewContent');
 const stageHint = document.getElementById('stageHint');
 
 const resultImage = document.getElementById('resultImage');
 const resultContent = document.getElementById('resultContent');
 const resultHashToggle = document.getElementById('resultHashToggle');
 const resultHash = document.getElementById('resultHash');
+const resultHashValue = document.getElementById('resultHashValue');
 const resultTime = document.getElementById('resultTime');
 const resultBrandDisclosure = document.getElementById('resultBrandDisclosure');
 const resultBrandName = document.getElementById('resultBrandName');
+const resultBrandSeparator = document.getElementById('resultBrandSeparator');
 const resultBrandDisclosureText = document.getElementById('resultBrandDisclosureText');
 
 const params = new URLSearchParams(window.location.search);
@@ -71,7 +77,6 @@ function maskPhone(phone) {
   return `${value.slice(0, 3)}****${value.slice(-4)}`;
 }
 
-
 function formatMinuteTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
@@ -83,10 +88,22 @@ function formatMinuteTime(value) {
   return `${y}/${m}/${d} ${hh}:${mm}`;
 }
 
-function renderResult(data) {
+function setPageMode(mode) {
+  if (mode === 'result') {
+    if (pageIntro) pageIntro.classList.add('hidden');
+    formSection.classList.add('hidden');
+    resultSection.classList.remove('hidden');
+    return;
+  }
+
+  if (pageIntro) pageIntro.classList.remove('hidden');
+  resultSection.classList.add('hidden');
+  formSection.classList.remove('hidden');
+}
+
+function renderResult(data, { justSaved = false } = {}) {
   currentResult = data;
-  formSection.classList.add('hidden');
-  resultSection.classList.remove('hidden');
+  setPageMode('result');
   resultSection.classList.remove('result-animate');
   resultSection.classList.remove('show-actions');
   // force reflow for replay animation
@@ -99,15 +116,16 @@ function renderResult(data) {
 
   const resultSuccessTitle = document.querySelector('.result-success-title');
   if (resultSuccessTitle) {
-    resultSuccessTitle.textContent = '✨ 保存成功';
+    resultSuccessTitle.textContent = justSaved ? '✨ 保存成功' : '这瓶酒里的记录';
   }
 
-  resultImage.src = data.image_url;
-  resultContent.textContent = data.content || '（未填写文字）';
+  resultImage.src = data.image_url || '';
+  resultContent.textContent = data.content || '（未填写留言）';
   hashExpanded = false;
   const blockchainHash = String(data.blockchain_hash || '').trim();
-  resultHash.textContent = blockchainHash ? `区块链凭证编号：${blockchainHash}` : '';
+  resultHashValue.textContent = blockchainHash;
   resultHash.classList.add('hidden');
+  resultHashToggle.disabled = !blockchainHash;
   resultHashToggle.textContent = blockchainHash
     ? '这一刻，已被永久记录（点击查看凭证）'
     : '正在生成永久记录…';
@@ -115,15 +133,14 @@ function renderResult(data) {
 
   const brandName = String(data.brand_name || '').trim();
   const brandDisclosureText = String(data.brand_disclosure_text_snapshot || '').trim();
-  const hasBrandInfo = Boolean(brandDisclosureText);
-
-  // 品牌露出：勾选展示且有有效品牌文案时显示
-  if (data.show_brand_disclosure && hasBrandInfo) {
+  if (data.show_brand_disclosure && brandDisclosureText) {
     resultBrandName.textContent = brandName;
+    resultBrandSeparator.textContent = brandName ? ' · ' : '';
     resultBrandDisclosureText.textContent = brandDisclosureText;
     resultBrandDisclosure.classList.remove('hidden');
   } else {
     resultBrandName.textContent = '';
+    resultBrandSeparator.textContent = '';
     resultBrandDisclosureText.textContent = '';
     resultBrandDisclosure.classList.add('hidden');
   }
@@ -131,6 +148,22 @@ function renderResult(data) {
 
 function openConfirmOverlay() {
   if (!confirmOverlay) return;
+
+  const previewSrc = preview.getAttribute('src') || '';
+  if (confirmPreviewImage && previewSrc) {
+    confirmPreviewImage.src = previewSrc;
+    confirmPreviewImage.classList.remove('hidden');
+  } else if (confirmPreviewImage) {
+    confirmPreviewImage.removeAttribute('src');
+    confirmPreviewImage.classList.add('hidden');
+  }
+
+  if (confirmPreviewContent) {
+    const content = contentInput.value.trim();
+    confirmPreviewContent.textContent = content || '未填写留言';
+    confirmPreviewContent.classList.toggle('empty', !content);
+  }
+
   confirmOverlay.classList.remove('hidden');
   requestAnimationFrame(() => {
     confirmOverlay.classList.add('show');
@@ -149,7 +182,7 @@ function closeConfirmOverlay() {
 
 async function loadQRStatus() {
   if (!qrId) {
-    formSection.classList.remove('hidden');
+    setPageMode('form');
     showError('未找到星星编号，请重新扫码。');
     return;
   }
@@ -158,10 +191,10 @@ async function loadQRStatus() {
 
   try {
     const res = await apiRequest(`/api/qr/${encodeURIComponent(qrId)}`);
-    // 用真实的序号 ID（如 OSSC00001）替换 token 显示
     if (res.data && res.data.id) {
       qrIdText.textContent = res.data.id;
     }
+
     if (res.data.activation_status === 'activated') {
       renderResult({
         qr_id: res.data.id,
@@ -172,7 +205,7 @@ async function loadQRStatus() {
         show_brand_disclosure: res.data.show_brand_disclosure,
         brand_disclosure_text_snapshot: res.data.brand_disclosure_text_snapshot,
         brand_name: res.data.batch_brand_name || ''
-      });
+      }, { justSaved: false });
       return;
     }
 
@@ -181,12 +214,10 @@ async function loadQRStatus() {
       return;
     }
 
-    // 根据 batch 的 brand_disclosure_text 决定是否显示品牌露出开关
     const batchBrandDisclosureText = String(res.data.batch_brand_disclosure_text || '').trim();
     if (res.data.batch_id && batchBrandDisclosureText) {
       brandSection.classList.remove('hidden');
       showBrandDisclosureInput.checked = !!res.data.batch_brand_disclosure_default;
-      // 显示品牌名称 + 品牌文案预览
       const previewParts = [];
       const batchBrandName = String(res.data.batch_brand_name || '').trim();
       if (batchBrandName) previewParts.push(batchBrandName);
@@ -198,9 +229,9 @@ async function loadQRStatus() {
       brandPreviewText.textContent = '';
     }
 
-    formSection.classList.remove('hidden');
+    setPageMode('form');
   } catch (error) {
-    formSection.classList.remove('hidden');
+    setPageMode('form');
     showError(error.message || '加载失败，请重新扫码或检查网络');
   }
 }
@@ -245,6 +276,13 @@ if (switchPhoneBtn) {
   });
 }
 
+if (uploadArea) {
+  uploadArea.addEventListener('click', () => {
+    if (submitting) return;
+    imageInput.click();
+  });
+}
+
 imageInput.addEventListener('change', async () => {
   if (!imageInput.files || imageInput.files.length === 0) {
     return;
@@ -263,7 +301,7 @@ imageInput.addEventListener('change', async () => {
       body: formData
     });
 
-    uploadedImageUrl = res.data.url; // cloud 模式下为 null，local 模式下为本地路径
+    uploadedImageUrl = res.data.url;
     uploadedImageObjectKey = res.data.object_key || '';
     uploadedStorageMode = res.data.storage_mode || 'local';
 
@@ -271,9 +309,10 @@ imageInput.addEventListener('change', async () => {
     if (previewSrc) {
       preview.src = previewSrc;
       preview.classList.remove('hidden');
-      uploadFeedbackText.textContent = '已选择照片';
-    } else {
-      uploadFeedbackText.textContent = '已选择照片';
+    }
+    uploadFeedbackText.textContent = '已选择照片';
+    if (uploadActionText) {
+      uploadActionText.textContent = '更换照片';
     }
     imageInput.value = '';
     uploadFeedback.classList.remove('hidden');
@@ -286,17 +325,20 @@ imageInput.addEventListener('change', async () => {
     preview.classList.add('hidden');
     imageInput.value = '';
     uploadFeedback.classList.add('hidden');
+    if (uploadActionText) {
+      uploadActionText.textContent = '添加照片';
+    }
     showError(error.message || '上传失败，请换张图片试试');
   }
 });
 
 if (resultHashToggle) {
   resultHashToggle.addEventListener('click', () => {
-    if (!resultHash.textContent) return;
+    if (!resultHashValue.textContent) return;
     hashExpanded = !hashExpanded;
     if (hashExpanded) {
       resultHash.classList.remove('hidden');
-      resultHashToggle.textContent = '区块链凭证编号（点击收起）';
+      resultHashToggle.textContent = '收起凭证 ▲';
       return;
     }
     resultHash.classList.add('hidden');
@@ -310,7 +352,6 @@ contentInput.addEventListener('input', () => {
 
 submitBtn.addEventListener('click', async () => {
   if (submitting) return;
-  const content = contentInput.value.trim();
 
   if (!uploadedImageObjectKey && !uploadedImageUrl) {
     showError('请先添加一张照片。');
@@ -336,118 +377,61 @@ if (confirmOverlay) {
   });
 }
 
-if (confirmSubmitBtn) {
-  confirmSubmitBtn.addEventListener('click', async () => {
-    if (submitting) return;
-    const content = contentInput.value.trim();
-    submitting = true;
-    confirmSubmitBtn.classList.add('btn-glow');
-    window.setTimeout(() => confirmSubmitBtn.classList.remove('btn-glow'), 220);
-    closeConfirmOverlay();
+async function submitRecord() {
+  if (submitting) return;
+  const content = contentInput.value.trim();
+  submitting = true;
+  confirmSubmitBtn.classList.add('btn-glow');
+  window.setTimeout(() => confirmSubmitBtn.classList.remove('btn-glow'), 220);
+  closeConfirmOverlay();
 
-    stageHint.classList.remove('hidden');
-    formSection.classList.add('content-fade-out');
+  stageHint.classList.remove('hidden');
+  formSection.classList.add('content-fade-out');
 
-    const startAt = Date.now();
-    const minimumDelayMs = 650;
+  const startAt = Date.now();
+  const minimumDelayMs = 650;
 
-    submitBtn.disabled = true;
-    submitBtn.textContent = '正在保存...';
-    showError('');
+  submitBtn.disabled = true;
+  submitBtn.textContent = '正在保存...';
+  showError('');
 
-    try {
-      const res = await apiRequest(`/api/qr/${encodeURIComponent(qrId)}/record`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content,
-          image_url: uploadedStorageMode === 'cloud' ? null : uploadedImageUrl,
-          image_object_key: uploadedImageObjectKey,
-          show_brand_disclosure: showBrandDisclosureInput ? showBrandDisclosureInput.checked : false
-        })
-      });
+  try {
+    const res = await apiRequest(`/api/qr/${encodeURIComponent(qrId)}/record`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content,
+        image_url: uploadedStorageMode === 'cloud' ? null : uploadedImageUrl,
+        image_object_key: uploadedImageObjectKey,
+        show_brand_disclosure: showBrandDisclosureInput ? showBrandDisclosureInput.checked : false
+      })
+    });
 
-      const elapsed = Date.now() - startAt;
-      const remain = Math.max(0, minimumDelayMs - elapsed);
-      window.setTimeout(() => {
-        stageHint.classList.add('hidden');
-        formSection.classList.remove('content-fade-out');
-        renderResult(res.data);
-        submitting = false;
-      }, remain);
-    } catch (error) {
+    const elapsed = Date.now() - startAt;
+    const remain = Math.max(0, minimumDelayMs - elapsed);
+    window.setTimeout(() => {
       stageHint.classList.add('hidden');
       formSection.classList.remove('content-fade-out');
-      showError(error.message || '提交失败，请检查网络后重试');
-      submitBtn.disabled = false;
-      submitBtn.textContent = '预览并确认';
+      renderResult(res.data, { justSaved: true });
       submitting = false;
-    }
-  });
-}
-
-if (confirmOverlay) {
-  confirmOverlay.addEventListener('click', (event) => {
-    if (event.target === confirmOverlay || event.target.classList.contains('overlay-mask')) {
-      if (submitting) return;
-      closeConfirmOverlay();
-    }
-  });
+    }, remain);
+  } catch (error) {
+    stageHint.classList.add('hidden');
+    formSection.classList.remove('content-fade-out');
+    showError(error.message || '提交失败，请检查网络后重试');
+    submitBtn.disabled = false;
+    submitBtn.textContent = '预览并确认';
+    submitting = false;
+  }
 }
 
 if (confirmSubmitBtn) {
-  confirmSubmitBtn.addEventListener('click', async () => {
-    if (submitting) return;
-    const content = contentInput.value.trim();
-    submitting = true;
-    confirmSubmitBtn.classList.add('btn-glow');
-    window.setTimeout(() => confirmSubmitBtn.classList.remove('btn-glow'), 220);
-    closeConfirmOverlay();
-
-    stageHint.classList.remove('hidden');
-    formSection.classList.add('content-fade-out');
-
-    const startAt = Date.now();
-    const minimumDelayMs = 650;
-
-    submitBtn.disabled = true;
-    submitBtn.textContent = '正在保存...';
-    showError('');
-
-    try {
-      const res = await apiRequest(`/api/qr/${encodeURIComponent(qrId)}/record`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content,
-          image_url: uploadedStorageMode === 'cloud' ? null : uploadedImageUrl,
-          image_object_key: uploadedImageObjectKey,
-          show_brand_disclosure: showBrandDisclosureInput ? showBrandDisclosureInput.checked : false
-        })
-      });
-
-      const elapsed = Date.now() - startAt;
-      const remain = Math.max(0, minimumDelayMs - elapsed);
-      window.setTimeout(() => {
-        stageHint.classList.add('hidden');
-        formSection.classList.remove('content-fade-out');
-        renderResult(res.data);
-        submitting = false;
-      }, remain);
-    } catch (error) {
-      stageHint.classList.add('hidden');
-      formSection.classList.remove('content-fade-out');
-      showError(error.message || '提交失败，请检查网络后重试');
-      submitBtn.disabled = false;
-      submitBtn.textContent = '预览并确认';
-      submitting = false;
-    }
-  });
+  confirmSubmitBtn.addEventListener('click', submitRecord);
 }
 
 shareBtn.addEventListener('click', async () => {
   if (!currentResult || !currentResult.qr_id) {
-    alert('请先完成点亮后再分享。');
+    alert('请先完成保存后再分享。');
     return;
   }
 
