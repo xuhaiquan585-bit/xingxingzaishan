@@ -3,24 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>我的点亮记录 - 星星在闪</title>
+    <title>我的记录 - 星星在闪</title>
     <link rel="stylesheet" href="/css/style.css" />
   </head>
   <body>
     <main class="container">
       <div class="page-intro">
-        <h1>我的点亮记录</h1>
-        <p class="subtitle">查看你点亮过的所有星星</p>
+        <h1>我的记录</h1>
+        <p class="subtitle">查看你留在酒里的照片和留言</p>
       </div>
 
-      <section class="card">
+      <section class="card account-card">
         <p class="qr-id-hint">当前手机号：<strong id="currentPhoneText"></strong>（<a id="switchPhoneBtn" href="javascript:void(0)">更换手机号</a>）</p>
         <p id="pageMessage" class="message"></p>
       </section>
 
       <section id="emptySection" class="card hidden">
-        <p class="subtitle">你还没有点亮记录，去扫码点亮第一颗星吧 ✨</p>
-        <a href="/" class="btn">去点亮星星</a>
+        <p class="subtitle">你还没有留下记录，扫码后可以把照片和留言留在酒里。</p>
+        <a href="/" class="btn">去留下记录</a>
       </section>
 
       <section id="recordsSection" class="record-feed hidden"></section>

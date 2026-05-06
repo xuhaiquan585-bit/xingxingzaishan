@@ -16,7 +16,12 @@ function formatTime(value) {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString('zh-CN', { hour12: false });
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  return `${y}/${m}/${d} ${hh}:${mm}`;
 }
 
 function renderRecords(records) {
@@ -37,7 +42,7 @@ function renderRecords(records) {
 
     const image = document.createElement('img');
     image.className = 'record-cover';
-    image.alt = '点亮图片';
+    image.alt = '保存的照片';
     image.src = item.image_url || '';
 
     const body = document.createElement('div');
@@ -45,15 +50,15 @@ function renderRecords(records) {
 
     const content = document.createElement('p');
     content.className = 'record-content';
-    content.textContent = item.content || '（未填写文字）';
+    content.textContent = item.content || '（未填写留言）';
 
     const timeHint = document.createElement('p');
     timeHint.className = 'qr-id-hint';
-    timeHint.textContent = `点亮时间：${formatTime(item.activated_at)}`;
+    timeHint.textContent = `保存时间：${formatTime(item.activated_at)}`;
 
     const idHint = document.createElement('p');
     idHint.className = 'qr-id-hint';
-    idHint.textContent = '二维码序号：';
+    idHint.textContent = '二维码编号：';
     const idStrong = document.createElement('strong');
     idStrong.textContent = item.id || '';
     idHint.appendChild(idStrong);

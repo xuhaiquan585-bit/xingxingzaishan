@@ -5,6 +5,7 @@ const qrIdText = document.getElementById('qrIdText');
 const uploadArea = document.getElementById('uploadArea');
 const imageInput = document.getElementById('imageInput');
 const preview = document.getElementById('preview');
+const changePhotoBtn = document.getElementById('changePhotoBtn');
 const uploadFeedback = document.getElementById('uploadFeedback');
 const uploadFeedbackText = document.getElementById('uploadFeedbackText');
 const uploadActionText = document.getElementById('uploadActionText');
@@ -283,6 +284,13 @@ if (uploadArea) {
   });
 }
 
+if (changePhotoBtn) {
+  changePhotoBtn.addEventListener('click', () => {
+    if (submitting) return;
+    imageInput.click();
+  });
+}
+
 imageInput.addEventListener('change', async () => {
   if (!imageInput.files || imageInput.files.length === 0) {
     return;
@@ -310,6 +318,9 @@ imageInput.addEventListener('change', async () => {
       preview.src = previewSrc;
       preview.classList.remove('hidden');
     }
+    if (changePhotoBtn) {
+      changePhotoBtn.classList.remove('hidden');
+    }
     uploadFeedbackText.textContent = '已选择照片';
     if (uploadActionText) {
       uploadActionText.textContent = '更换照片';
@@ -323,6 +334,9 @@ imageInput.addEventListener('change', async () => {
     uploadedStorageMode = '';
     preview.src = '';
     preview.classList.add('hidden');
+    if (changePhotoBtn) {
+      changePhotoBtn.classList.add('hidden');
+    }
     imageInput.value = '';
     uploadFeedback.classList.add('hidden');
     if (uploadActionText) {

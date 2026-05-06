@@ -25,12 +25,17 @@ function formatTime(value) {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString('zh-CN', { hour12: false });
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  return `${y}/${m}/${d} ${hh}:${mm}`;
 }
 
 function renderDetail(record) {
   detailImage.src = record.image_url || '';
-  detailContent.textContent = record.content || '（未填写文字）';
+  detailContent.textContent = record.content || '（未填写留言）';
   detailTime.textContent = formatTime(record.activated_at);
   detailId.textContent = record.id || '';
   detailHash.textContent = record.blockchain_hash || '-';
@@ -39,7 +44,7 @@ function renderDetail(record) {
   if (record.show_brand_disclosure && brandDisclosureText) {
     const brandName = String(record.brand_name || '').trim();
     detailBrand.textContent = brandName
-      ? `${brandName} - ${brandDisclosureText}`
+      ? `${brandName} · ${brandDisclosureText}`
       : brandDisclosureText;
     detailBrand.classList.remove('hidden');
   } else {

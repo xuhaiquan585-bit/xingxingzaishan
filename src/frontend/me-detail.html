@@ -10,12 +10,11 @@
     <main class="container">
       <div class="page-intro">
         <h1>记录详情</h1>
-        <p class="subtitle">查看这条点亮记录的完整信息</p>
+        <p class="subtitle">查看这瓶酒里的完整记录</p>
       </div>
 
-      <section class="card">
+      <section class="card account-card">
         <p class="qr-id-hint">当前手机号：<strong id="currentPhoneText"></strong>（<a id="switchPhoneBtn" href="javascript:void(0)">更换手机号</a>）</p>
-        <a href="/me.html" class="btn btn-secondary">返回我的记录</a>
         <p id="detailMessage" class="message"></p>
       </section>
 
@@ -23,12 +22,14 @@
         <img id="detailImage" class="detail-cover" alt="点亮图片" />
         <div class="detail-body">
           <p id="detailContent" class="record-content"></p>
-          <p class="qr-id-hint">点亮时间：<strong id="detailTime"></strong></p>
-          <p class="qr-id-hint">二维码序号：<strong id="detailId"></strong></p>
-          <p class="qr-id-hint">哈希值：<strong id="detailHash"></strong></p>
-          <p id="detailBrand" class="brand-disclosure hidden"></p>
+          <p class="qr-id-hint">保存时间：<strong id="detailTime"></strong></p>
+          <p class="qr-id-hint">二维码编号：<strong id="detailId"></strong></p>
+          <p class="qr-id-hint">区块链凭证编号：<strong id="detailHash"></strong></p>
+          <p id="detailBrand" class="credential-brand hidden"></p>
         </div>
       </section>
+
+      <a href="/me.html" class="btn btn-secondary">返回我的记录</a>
     </main>
 
     <script src="/js/api.js"></script>
