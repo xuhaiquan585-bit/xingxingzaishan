@@ -18,8 +18,8 @@
         <p class="qr-id-hint">当前手机号：<strong id="currentPhoneText"></strong>（<a id="switchPhoneBtn" href="javascript:void(0)">更换手机号</a>）</p>
 
         <label for="imageInput">添加照片</label>
+        <input id="imageInput" class="file-input" type="file" accept="image/*" />
         <div class="upload-area" id="uploadArea">
-          <input id="imageInput" class="file-input" type="file" accept="image/*" />
           <div class="upload-area-placeholder">
             <span id="uploadActionText">添加照片</span>
           </div>
@@ -39,7 +39,7 @@
           <p id="brandPreviewText" class="brand-preview"></p>
           <div class="checkbox-row">
             <input id="showBrandDisclosure" type="checkbox" />
-            <label for="showBrandDisclosure">展示品牌信息（不影响内容）</label>
+            <label for="showBrandDisclosure">展示品牌信息</label>
           </div>
         </div>
 
@@ -60,13 +60,12 @@
 
         <div class="credential-card">
           <p class="brand-line"><span class="brand">星星在闪</span> - <span id="resultTime"></span></p>
-          <button id="resultHashToggle" class="hash-toggle" type="button">这一刻，已被永久记录（点击查看凭证）</button>
+          <button id="resultHashToggle" class="hash-toggle" type="button">查看永久记录凭证</button>
           <div id="resultHash" class="credential-detail hidden">
             <p class="credential-label">区块链凭证编号</p>
             <p id="resultHashValue" class="credential-hash"></p>
           </div>
           <p id="resultBrandDisclosure" class="credential-brand hidden"><span id="resultBrandName"></span><span id="resultBrandSeparator"></span><span id="resultBrandDisclosureText"></span></p>
-          <p class="credential-slogan">星星在闪 · 记在星上，闪到永远</p>
         </div>
 
         <div class="result-actions">

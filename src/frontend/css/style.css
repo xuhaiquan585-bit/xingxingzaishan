@@ -28,6 +28,16 @@ body {
   font-size: 14px;
   margin: 0;
 }
+.auth-intro {
+  margin-bottom: 18px;
+}
+.auth-intro h1 {
+  font-size: 21px;
+  font-weight: 700;
+}
+.auth-card {
+  padding-bottom: 12px;
+}
 
 h1 { margin-bottom: 8px; }
 .subtitle { opacity: .9; margin-bottom: 20px; }
@@ -92,6 +102,7 @@ textarea { min-height: 100px; resize: vertical; }
 }
 .file-input {
   position: absolute;
+  left: -9999px;
   width: 1px;
   height: 1px;
   opacity: 0;
@@ -166,6 +177,14 @@ textarea { min-height: 100px; resize: vertical; }
 .sms-row .btn.sms-btn {
   width: 132px;
   min-width: 132px;
+  border: 1px solid rgba(255, 209, 102, 0.48);
+  background: rgba(255, 209, 102, 0.16);
+  color: #ffe9b2;
+}
+.sms-row .btn.sms-btn:disabled {
+  border-color: rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.55);
 }
 .preview {
   position: relative;
@@ -212,9 +231,10 @@ textarea { min-height: 100px; resize: vertical; }
   padding: 0;
   height: auto;
   border: 0;
+  border-bottom: 1px solid rgba(255, 233, 178, 0.45);
   background: transparent;
   color: rgba(255, 233, 178, 0.9);
-  text-decoration: underline;
+  text-decoration: none;
   cursor: pointer;
   font-size: 13px;
   font-weight: 400;
@@ -224,23 +244,31 @@ textarea { min-height: 100px; resize: vertical; }
 /* 品牌露出卡片 */
 .brand-card {
   margin-top: 16px;
-  padding: 12px 14px;
-  background: rgba(255, 215, 0, 0.09);
-  border: 1px solid rgba(255, 215, 0, 0.25);
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.045);
+  border: 1px solid rgba(255, 215, 0, 0.13);
   border-radius: 10px;
 }
 .brand-preview {
-  margin: 0 0 10px 0;
-  padding: 8px 10px;
-  background: rgba(255, 215, 0, 0.08);
+  margin: 0 0 8px 0;
+  padding: 7px 9px;
+  background: rgba(255,255,255,0.055);
   border-radius: 6px;
-  color: #ffe9b2;
+  color: rgba(255, 233, 178, 0.78);
   font-size: 13px;
   line-height: 1.5;
 }
 .brand-card .checkbox-row {
   margin-top: 0;
   gap: 6px;
+}
+.brand-card .checkbox-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+}
+.brand-card .checkbox-row label {
+  font-size: 14px;
 }
 
 /* 结果页成功横幅 */
@@ -306,10 +334,6 @@ textarea { min-height: 100px; resize: vertical; }
   margin: 10px 0 0;
   color: rgba(255, 233, 178, 0.84);
 }
-.credential-slogan {
-  margin: 10px 0 0;
-  color: rgba(255, 233, 178, 0.66);
-}
 .result-actions {
   margin-top: 10px;
 }
@@ -355,7 +379,7 @@ textarea { min-height: 100px; resize: vertical; }
 .overlay-mask {
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(12,20,56,0.15), rgba(12,20,56,0.6));
+  background: linear-gradient(180deg, rgba(12,20,56,0.45), rgba(12,20,56,0.78));
   opacity: 0;
   transition: opacity 0.25s ease;
 }
@@ -394,7 +418,7 @@ textarea { min-height: 100px; resize: vertical; }
 }
 .confirm-preview-image {
   width: 100%;
-  max-height: 260px;
+  max-height: 220px;
   object-fit: contain;
   border-radius: 10px;
   display: block;
@@ -402,9 +426,9 @@ textarea { min-height: 100px; resize: vertical; }
 }
 .confirm-preview-content {
   margin: 12px 0 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: rgba(255,255,255,0.08);
+  padding: 4px 0 0;
+  border-radius: 0;
+  background: transparent;
   color: rgba(255,255,255,0.92);
   line-height: 1.6;
   white-space: pre-wrap;
@@ -490,7 +514,8 @@ textarea { min-height: 100px; resize: vertical; }
 }
 .record-cover {
   width: 100%;
-  max-height: 460px;
+  aspect-ratio: 16 / 10;
+  max-height: none;
   object-fit: cover;
   display: block;
 }

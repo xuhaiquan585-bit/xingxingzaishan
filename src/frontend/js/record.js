@@ -128,7 +128,7 @@ function renderResult(data, { justSaved = false } = {}) {
   resultHash.classList.add('hidden');
   resultHashToggle.disabled = !blockchainHash;
   resultHashToggle.textContent = blockchainHash
-    ? '这一刻，已被永久记录（点击查看凭证）'
+    ? '查看永久记录凭证'
     : '正在生成永久记录…';
   resultTime.textContent = formatMinuteTime(data.activated_at);
 
@@ -318,12 +318,15 @@ imageInput.addEventListener('change', async () => {
       preview.src = previewSrc;
       preview.classList.remove('hidden');
     }
+    if (uploadArea) {
+      uploadArea.classList.add('hidden');
+    }
     if (changePhotoBtn) {
       changePhotoBtn.classList.remove('hidden');
     }
     uploadFeedbackText.textContent = '已选择照片';
     if (uploadActionText) {
-      uploadActionText.textContent = '更换照片';
+      uploadActionText.textContent = '添加照片';
     }
     imageInput.value = '';
     uploadFeedback.classList.remove('hidden');
@@ -334,6 +337,9 @@ imageInput.addEventListener('change', async () => {
     uploadedStorageMode = '';
     preview.src = '';
     preview.classList.add('hidden');
+    if (uploadArea) {
+      uploadArea.classList.remove('hidden');
+    }
     if (changePhotoBtn) {
       changePhotoBtn.classList.add('hidden');
     }
@@ -352,11 +358,11 @@ if (resultHashToggle) {
     hashExpanded = !hashExpanded;
     if (hashExpanded) {
       resultHash.classList.remove('hidden');
-      resultHashToggle.textContent = '收起凭证 ▲';
+      resultHashToggle.textContent = '收起凭证';
       return;
     }
     resultHash.classList.add('hidden');
-    resultHashToggle.textContent = '这一刻，已被永久记录（点击查看凭证）';
+    resultHashToggle.textContent = '查看永久记录凭证';
   });
 }
 
