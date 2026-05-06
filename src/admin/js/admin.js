@@ -53,6 +53,22 @@ function getBatchNote(batchId) {
   return batch && batch.note ? batch.note : '-';
 }
 
+function formatIssueStatus(status) {
+  const map = {
+    issued: '待记录',
+    unissued: '未生成'
+  };
+  return map[status] || status || '-';
+}
+
+function formatActivationStatus(status) {
+  const map = {
+    activated: '已记录',
+    unactivated: '待记录'
+  };
+  return map[status] || status || '-';
+}
+
 function renderBatchOptions() {
   const options = ['<option value="">批次（全部）</option>']
     .concat(batchList.map((batch) => `<option value="${batch.id}">${batch.name} (${batch.id})</option>`))
@@ -238,8 +254,8 @@ function renderRows(records) {
         <td>${item.qr_access_token ? `<a href="/api/qr/image/${item.qr_access_token}" target="_blank" download="${item.id}.png">查看</a>` : '-'}</td>
         <td>${item.batch_id || '-'}</td>
         <td>${getBatchNote(item.batch_id)}</td>
-        <td>${item.issue_status}</td>
-        <td>${item.activation_status}</td>
+        <td>${formatIssueStatus(item.issue_status)}</td>
+        <td>${formatActivationStatus(item.activation_status)}</td>
         <td>${item.hidden ? '隐藏' : '显示'}</td>
         <td>${item.phone || '-'}</td>
         <td>${item.activated_at || item.created_at}</td>
