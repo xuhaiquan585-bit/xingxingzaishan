@@ -582,10 +582,12 @@ textarea { min-height: 100px; resize: vertical; }
 .detail-body .qr-id-hint {
   margin-bottom: 10px;
 }
-.detail-meta-group {
-  margin-top: 12px;
-}
 .detail-credential-group {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.1);
+}
+.detail-bottle-group {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid rgba(255,255,255,0.1);
@@ -594,7 +596,7 @@ textarea { min-height: 100px; resize: vertical; }
   color: rgba(255, 233, 178, 0.72);
 }
 .detail-credential-group strong,
-.detail-meta-group strong {
+.detail-bottle-group strong {
   font-family: var(--font-mono);
   letter-spacing: 0;
 }
