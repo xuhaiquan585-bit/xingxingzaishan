@@ -590,6 +590,9 @@ textarea { min-height: 100px; resize: vertical; }
   padding-top: 12px;
   border-top: 1px solid rgba(255,255,255,0.1);
 }
+.detail-slogan {
+  color: rgba(255, 233, 178, 0.72);
+}
 .detail-credential-group strong,
 .detail-meta-group strong {
   font-family: var(--font-mono);
