@@ -127,7 +127,7 @@ function renderResult(data, { justSaved = false } = {}) {
   resultHash.classList.add('hidden');
   resultHashToggle.disabled = !blockchainHash;
   resultHashToggle.textContent = blockchainHash
-    ? '查看永久记录凭证'
+    ? '查看区块链永久凭证'
     : '正在生成永久记录…';
   resultTime.textContent = formatMinuteTime(data.activated_at);
 
@@ -345,7 +345,7 @@ if (resultHashToggle) {
       return;
     }
     resultHash.classList.add('hidden');
-    resultHashToggle.textContent = '查看永久记录凭证';
+    resultHashToggle.textContent = '查看区块链永久凭证';
   });
 }
 

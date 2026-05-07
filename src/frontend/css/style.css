@@ -443,6 +443,10 @@ textarea { min-height: 100px; resize: vertical; }
   opacity: .8;
   line-height: 1.65;
 }
+.overlay-subtitle strong {
+  color: #fff;
+  font-weight: 600;
+}
 .confirm-preview {
   margin-top: 12px;
 }
