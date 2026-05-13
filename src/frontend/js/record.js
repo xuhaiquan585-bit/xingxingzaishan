@@ -46,11 +46,14 @@ const coCreateContent = document.getElementById('coCreateContent');
 const coCreateShareBtn = document.getElementById('coCreateShareBtn');
 const coCreateOwnerActions = document.getElementById('coCreateOwnerActions');
 const finalizeCoCreateBtn = document.getElementById('finalizeCoCreateBtn');
+const coCreateStatusMessage = document.getElementById('coCreateStatusMessage');
+const commentFormCard = document.getElementById('commentFormCard');
 const commentAuthor = document.getElementById('commentAuthor');
 const commentContent = document.getElementById('commentContent');
 const commentCount = document.getElementById('commentCount');
 const submitCommentBtn = document.getElementById('submitCommentBtn');
 const coCreateMessage = document.getElementById('coCreateMessage');
+const commentsOwnerHint = document.getElementById('commentsOwnerHint');
 const commentsList = document.getElementById('commentsList');
 
 const params = new URLSearchParams(window.location.search);
@@ -259,15 +262,34 @@ function renderCoCreate(data) {
 
   coCreateImage.src = data.image_url || '';
   coCreateContent.textContent = data.content || '（未填写留言）';
-  coCreateOwnerActions.classList.toggle('hidden', !data.is_co_creation_owner);
+  const isOwner = data.is_co_creation_owner === true;
+  const commentCountValue = Number(data.co_creation_comment_count || 0);
+  const commentLimit = Number(data.co_creation_comment_limit || 12);
+  const hasMyComment = data.has_my_co_creation_comment === true;
+  const isCommentFull = commentCountValue >= commentLimit;
+
+  coCreateShareBtn.classList.toggle('hidden', !isOwner);
+  coCreateOwnerActions.classList.toggle('hidden', !isOwner);
+  commentsOwnerHint.classList.toggle('hidden', !isOwner);
   renderComments(commentsList, data.co_creation_comments, {
-    canDelete: data.is_co_creation_owner
+    canDelete: isOwner
   });
 
+  commentFormCard.classList.toggle('hidden', isOwner || hasMyComment || isCommentFull);
+  if (coCreateStatusMessage) {
+    coCreateStatusMessage.classList.add('hidden');
+    coCreateStatusMessage.textContent = '';
+    if (!isOwner && hasMyComment) {
+      coCreateStatusMessage.textContent = '你已留下见证，等待发起人确认封存。';
+      coCreateStatusMessage.classList.remove('hidden');
+    } else if (!isOwner && isCommentFull) {
+      coCreateStatusMessage.textContent = '共创留言已满，等待发起人确认封存。';
+      coCreateStatusMessage.classList.remove('hidden');
+    }
+  }
+
   if (coCreateMessage) {
-    coCreateMessage.textContent = data.is_co_creation_owner
-      ? '共创中，确认封存前可删除不合适的留言。'
-      : '留言会先保存，最终由发起人确认封存。';
+    coCreateMessage.textContent = '';
   }
 }
 
@@ -369,7 +391,10 @@ async function loadQRStatus() {
         image_url: res.data.image_url,
         content: res.data.content,
         co_creation_comments: res.data.co_creation_comments || [],
-        is_co_creation_owner: res.data.is_co_creation_owner
+        is_co_creation_owner: res.data.is_co_creation_owner,
+        has_my_co_creation_comment: res.data.has_my_co_creation_comment,
+        co_creation_comment_count: res.data.co_creation_comment_count,
+        co_creation_comment_limit: res.data.co_creation_comment_limit
       });
       return;
     }

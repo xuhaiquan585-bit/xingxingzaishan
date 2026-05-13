@@ -864,6 +864,8 @@ test('co-creation flow should collect comments and owner finalize record', async
   assert.equal(startRes.body.data.activation_status, 'co_creating');
   assert.equal(startRes.body.data.is_co_creation_owner, true);
   assert.equal(startRes.body.data.blockchain_hash, null);
+  assert.equal(startRes.body.data.co_creation_comment_count, 0);
+  assert.equal(startRes.body.data.co_creation_comment_limit, 12);
 
   const anonymousStatus = await getJson(`/api/qr/${accessToken}`);
   assert.equal(anonymousStatus.status, 200);
@@ -887,9 +889,19 @@ test('co-creation flow should collect comments and owner finalize record', async
   assert.equal(commentRes.status, 200);
   assert.equal(commentRes.body.data.content, '一起见证');
 
+  const duplicateCommentRes = await postJsonWithCookie(`/api/qr/${accessToken}/comments`, {
+    author_name: '朋友',
+    content: '第二次留言'
+  }, participantCookie);
+  assert.equal(duplicateCommentRes.status, 409);
+  assert.equal(duplicateCommentRes.body.code, 'CO_CREATION_COMMENT_EXISTS');
+
   const participantStatus = await getJsonWithCookie(`/api/qr/${accessToken}`, participantCookie);
   assert.equal(participantStatus.status, 200);
   assert.equal(participantStatus.body.data.is_co_creation_owner, false);
+  assert.equal(participantStatus.body.data.has_my_co_creation_comment, true);
+  assert.equal(participantStatus.body.data.co_creation_comment_count, 1);
+  assert.equal(participantStatus.body.data.co_creation_comment_limit, 12);
   assert.equal(participantStatus.body.data.content, startRes.body.data.content);
   assert.ok(participantStatus.body.data.image_url);
   assert.equal(Object.prototype.hasOwnProperty.call(participantStatus.body.data, 'phone'), false);
@@ -902,6 +914,7 @@ test('co-creation flow should collect comments and owner finalize record', async
   const deleteRes = await deleteJsonWithCookie(`/api/qr/${accessToken}/comments/${commentRes.body.data.id}`, ownerCookie);
   assert.equal(deleteRes.status, 200);
   assert.equal(deleteRes.body.data.co_creation_comments.length, 0);
+  assert.equal(deleteRes.body.data.co_creation_comment_count, 0);
 
   const keptCommentRes = await postJsonWithCookie(`/api/qr/${accessToken}/comments`, {
     author_name: '家人',
@@ -923,6 +936,75 @@ test('co-creation flow should collect comments and owner finalize record', async
   assert.equal(finalizedRecord.activation_status, 'activated');
   assert.equal(finalizeRes.body.data.co_creation_comments.length, 1);
   assert.equal(finalizeRes.body.data.co_creation_comments[0].content, '留在酒里');
+});
+
+test('co-creation comments should be limited to 12 active comments', async () => {
+  const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const adminToken = adminLogin.body.data.token;
+
+  const genRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'LIM',
+    count: 1
+  }, adminToken);
+  assert.equal(genRes.status, 200);
+
+  const qrId = genRes.body.data.ids[0];
+  const accessToken = genRes.body.data.records[0].qr_access_token;
+  const ownerCookie = await loginUserAndGetCookie('13700000000');
+  const uploadRes = await postMultipartWithCookie('/api/upload', {
+    fields: { qr_id: qrId },
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'limit.png',
+        contentType: 'image/png',
+        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
+      }
+    ]
+  }, ownerCookie);
+  assert.equal(uploadRes.status, 200);
+
+  const startRes = await postJsonWithCookie(`/api/qr/${accessToken}/record`, {
+    mode: 'co_create',
+    content: '主留言',
+    image_url: uploadRes.body.data.url,
+    image_object_key: uploadRes.body.data.object_key
+  }, ownerCookie);
+  assert.equal(startRes.status, 200);
+
+  const commentIds = [];
+  for (let i = 0; i < 12; i += 1) {
+    const participantCookie = await loginUserAndGetCookie(`137000000${String(i + 1).padStart(2, '0')}`);
+    const commentRes = await postJsonWithCookie(`/api/qr/${accessToken}/comments`, {
+      author_name: `见证人${i + 1}`,
+      content: `留言${i + 1}`
+    }, participantCookie);
+    assert.equal(commentRes.status, 200);
+    commentIds.push(commentRes.body.data.id);
+  }
+
+  const fullStatus = await getJsonWithCookie(`/api/qr/${accessToken}`, ownerCookie);
+  assert.equal(fullStatus.status, 200);
+  assert.equal(fullStatus.body.data.co_creation_comment_count, 12);
+  assert.equal(fullStatus.body.data.co_creation_comment_limit, 12);
+
+  const extraCookie = await loginUserAndGetCookie('13700000013');
+  const limitRes = await postJsonWithCookie(`/api/qr/${accessToken}/comments`, {
+    author_name: '第十三人',
+    content: '第十三条'
+  }, extraCookie);
+  assert.equal(limitRes.status, 409);
+  assert.equal(limitRes.body.code, 'CO_CREATION_COMMENT_LIMIT_REACHED');
+
+  const deleteRes = await deleteJsonWithCookie(`/api/qr/${accessToken}/comments/${commentIds[0]}`, ownerCookie);
+  assert.equal(deleteRes.status, 200);
+  assert.equal(deleteRes.body.data.co_creation_comment_count, 11);
+
+  const retryRes = await postJsonWithCookie(`/api/qr/${accessToken}/comments`, {
+    author_name: '第十三人',
+    content: '补位留言'
+  }, extraCookie);
+  assert.equal(retryRes.status, 200);
 });
 
 test('POST /api/upload should compress image and return .jpg object_key', async () => {

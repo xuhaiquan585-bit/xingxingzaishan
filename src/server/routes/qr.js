@@ -18,6 +18,7 @@ const { getSignedUrl, getStorageMode } = require('../services/storageService');
 const { requireUserSession } = require('../middlewares/userSession');
 
 const router = express.Router();
+const CO_CREATION_COMMENT_LIMIT = 12;
 
 function isValidPhone(phone) {
   return /^1\d{10}$/.test(phone);
@@ -44,6 +45,21 @@ function visibleComments(qr) {
       content: comment.content || '',
       created_at: comment.created_at || ''
     }));
+}
+
+function activeCoCreationComments(qr) {
+  return (Array.isArray(qr.co_creation_comments) ? qr.co_creation_comments : [])
+    .filter((comment) => comment.status !== 'deleted');
+}
+
+function coCreationMeta(qr, req) {
+  const activeComments = activeCoCreationComments(qr);
+  const phone = req.user && req.user.phone ? req.user.phone : '';
+  return {
+    has_my_co_creation_comment: !!phone && activeComments.some((comment) => comment.phone === phone),
+    co_creation_comment_count: activeComments.length,
+    co_creation_comment_limit: CO_CREATION_COMMENT_LIMIT
+  };
 }
 
 function getBatchInfo(qr) {
@@ -81,6 +97,7 @@ function formatRecordPayload(qr, req) {
     co_creation_enabled: qr.co_creation_enabled === true,
     is_co_creation_owner: !!(req.user && qr.co_creation_owner_phone === req.user.phone),
     co_creation_comments: visibleComments(qr),
+    ...coCreationMeta(qr, req),
     show_brand_disclosure: qr.show_brand_disclosure === true,
     brand_disclosure_text_snapshot: qr.brand_disclosure_text_snapshot || '',
     brand_name: getBrandName(qr)
@@ -110,6 +127,7 @@ function formatQRStatusPayload(qr, req) {
       co_creation_enabled: qr.co_creation_enabled === true,
       is_co_creation_owner: !!(req.user && qr.co_creation_owner_phone === req.user.phone),
       co_creation_comments: visibleComments(qr),
+      ...coCreationMeta(qr, req),
       show_brand_disclosure: qr.show_brand_disclosure === true,
       brand_disclosure_text_snapshot: qr.brand_disclosure_text_snapshot || ''
     };
@@ -129,6 +147,7 @@ function formatQRStatusPayload(qr, req) {
       co_creation_enabled: true,
       is_co_creation_owner: qr.co_creation_owner_phone === req.user.phone,
       co_creation_comments: visibleComments(qr),
+      ...coCreationMeta(qr, req),
       show_brand_disclosure: qr.show_brand_disclosure === true,
       brand_disclosure_text_snapshot: qr.brand_disclosure_text_snapshot || ''
     };
@@ -298,6 +317,20 @@ router.post('/:qrId/comments', requireUserSession, (req, res) => {
       status: 'error',
       code: 'CO_CREATION_CLOSED',
       message: '这瓶酒已经封存，不能继续留言。'
+    });
+  }
+  if (result.error === 'CO_CREATION_COMMENT_EXISTS') {
+    return res.status(409).json({
+      status: 'error',
+      code: 'CO_CREATION_COMMENT_EXISTS',
+      message: '你已经留下过见证，每个人只能留言一次。'
+    });
+  }
+  if (result.error === 'CO_CREATION_COMMENT_LIMIT_REACHED') {
+    return res.status(409).json({
+      status: 'error',
+      code: 'CO_CREATION_COMMENT_LIMIT_REACHED',
+      message: '共创留言已满，等待发起人确认封存。'
     });
   }
 

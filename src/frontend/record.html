@@ -78,7 +78,8 @@
           <p class="field-hint">你是这条记录的发起人，可以管理留言并最终确认封存。</p>
           <button id="finalizeCoCreateBtn" class="btn">确认封存</button>
         </div>
-        <div class="comment-form-card">
+        <p id="coCreateStatusMessage" class="message hidden"></p>
+        <div id="commentFormCard" class="comment-form-card">
           <p class="section-title">留下你的见证</p>
           <label for="commentAuthor">姓名或身份</label>
           <input id="commentAuthor" maxlength="20" placeholder="例：老友 / 妈妈 / 见证人" />
@@ -90,6 +91,7 @@
         </div>
         <div class="comments-card">
           <p class="section-title">共创留言</p>
+          <p id="commentsOwnerHint" class="field-hint hidden">共创中，确认封存前可删除不合适的留言。</p>
           <div id="commentsList" class="comments-list"></div>
         </div>
       </section>

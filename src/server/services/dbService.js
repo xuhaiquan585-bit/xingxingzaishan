@@ -11,6 +11,7 @@ const dataDir = process.env.DB_DIR
 const dataFile = process.env.DB_FILE
   ? path.resolve(process.env.DB_FILE)
   : path.join(dataDir, 'db.json');
+const CO_CREATION_COMMENT_LIMIT = 12;
 
 function nowISO() {
   return new Date().toISOString();
@@ -374,6 +375,14 @@ function addCoCreationCommentByKey(key, { phone, authorName, content }) {
   }
 
   const comments = Array.isArray(qrCode.co_creation_comments) ? qrCode.co_creation_comments.slice() : [];
+  const activeComments = comments.filter((item) => item.status !== 'deleted');
+  if (activeComments.some((item) => item.phone === phone)) {
+    return { error: 'CO_CREATION_COMMENT_EXISTS' };
+  }
+  if (activeComments.length >= CO_CREATION_COMMENT_LIMIT) {
+    return { error: 'CO_CREATION_COMMENT_LIMIT_REACHED' };
+  }
+
   const comment = {
     id: comments.length > 0 ? Math.max(...comments.map((item) => Number(item.id) || 0)) + 1 : 1,
     phone,

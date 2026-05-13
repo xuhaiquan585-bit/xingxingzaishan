@@ -312,6 +312,7 @@ textarea { min-height: 100px; resize: vertical; }
   color: #fff;
 }
 .mode-option {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -321,14 +322,31 @@ textarea { min-height: 100px; resize: vertical; }
   margin-top: 8px;
   background: rgba(255,255,255,0.05);
 }
+.mode-option::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  border: 2px solid rgba(255,255,255,0.82);
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: transparent;
+}
 .mode-option.selected {
   border-color: rgba(255, 209, 102, 0.72);
   background: rgba(255, 209, 102, 0.1);
 }
+.mode-option.selected::before {
+  border-color: #7fb2ff;
+  background:
+    radial-gradient(circle, #fff 0 37%, transparent 40%),
+    #2f7cff;
+}
 .mode-option input {
-  width: 18px;
-  height: 18px;
-  margin-top: 2px;
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
 }
 .mode-option strong,
 .mode-option small {
