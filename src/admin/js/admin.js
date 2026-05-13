@@ -64,6 +64,7 @@ function formatIssueStatus(status) {
 function formatActivationStatus(status) {
   const map = {
     activated: '已记录',
+    co_creating: '共创中',
     unactivated: '待记录'
   };
   return map[status] || status || '-';

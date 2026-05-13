@@ -189,11 +189,25 @@ function resolveImageUrl(record) {
   return record.image_url;
 }
 
+function visibleComments(record) {
+  return (Array.isArray(record.co_creation_comments) ? record.co_creation_comments : [])
+    .filter((comment) => comment.status !== 'deleted')
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .map((comment) => ({
+      id: comment.id,
+      author_name: comment.author_name || '',
+      content: comment.content || '',
+      created_at: comment.created_at || ''
+    }));
+}
+
 function handleRecords(req, res) {
   const records = listActivatedRecordsByPhone(req.user.phone).map((item) => ({
     id: item.id,
     content: item.content,
     activated_at: item.activated_at,
+    display_at: item.display_at,
+    activation_status: item.activation_status,
     image_url: resolveImageUrl(item)
   }));
 
@@ -237,6 +251,8 @@ function handleRecordDetail(req, res) {
       content: record.content,
       activated_at: record.activated_at,
       blockchain_hash: record.blockchain_hash,
+      co_creation_enabled: record.co_creation_enabled === true,
+      co_creation_comments: visibleComments(record),
       image_url: resolveImageUrl(record),
       show_brand_disclosure: record.show_brand_disclosure,
       brand_disclosure_text_snapshot: record.brand_disclosure_text_snapshot,

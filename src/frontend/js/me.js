@@ -37,6 +37,9 @@ function renderRecords(records) {
   recordsSection.replaceChildren();
 
   records.forEach((item) => {
+    const isCoCreating = item.activation_status === 'co_creating';
+    const displayTime = item.display_at || item.activated_at;
+
     const article = document.createElement('article');
     article.className = 'card record-item';
 
@@ -54,7 +57,11 @@ function renderRecords(records) {
 
     const timeHint = document.createElement('p');
     timeHint.className = 'qr-id-hint';
-    timeHint.textContent = `保存时间：${formatTime(item.activated_at)}`;
+    timeHint.textContent = `保存时间：${formatTime(displayTime)}`;
+
+    const statusHint = document.createElement('p');
+    statusHint.className = 'qr-id-hint record-status-hint';
+    statusHint.textContent = isCoCreating ? '状态：共创中' : '';
 
     const idHint = document.createElement('p');
     idHint.className = 'qr-id-hint';
@@ -65,11 +72,19 @@ function renderRecords(records) {
 
     const detailLink = document.createElement('a');
     detailLink.className = 'btn btn-secondary';
-    detailLink.textContent = '查看详情';
-    detailLink.href = `/me-detail.html?id=${encodeURIComponent(item.id || '')}`;
+    if (isCoCreating) {
+      detailLink.textContent = '继续共创';
+      detailLink.href = `/record.html?t=${encodeURIComponent(item.id || '')}`;
+    } else {
+      detailLink.textContent = '查看详情';
+      detailLink.href = `/me-detail.html?id=${encodeURIComponent(item.id || '')}`;
+    }
 
     body.appendChild(content);
     body.appendChild(timeHint);
+    if (isCoCreating) {
+      body.appendChild(statusHint);
+    }
     body.appendChild(idHint);
     body.appendChild(detailLink);
     article.appendChild(image);

@@ -5,6 +5,7 @@ const detailMessage = document.getElementById('detailMessage');
 const detailSection = document.getElementById('detailSection');
 const detailImage = document.getElementById('detailImage');
 const detailContent = document.getElementById('detailContent');
+const detailComments = document.getElementById('detailComments');
 const detailTime = document.getElementById('detailTime');
 const detailId = document.getElementById('detailId');
 const detailHash = document.getElementById('detailHash');
@@ -33,12 +34,52 @@ function formatTime(value) {
   return `${y}/${m}/${d} ${hh}:${mm}`;
 }
 
+function renderComments(comments = []) {
+  detailComments.textContent = '';
+  const visible = (Array.isArray(comments) ? comments : [])
+    .filter((item) => item && item.content)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  if (visible.length === 0) {
+    detailComments.classList.add('hidden');
+    return;
+  }
+
+  const title = document.createElement('p');
+  title.className = 'section-title';
+  title.textContent = '共创留言';
+  detailComments.appendChild(title);
+
+  const list = document.createElement('div');
+  list.className = 'comments-list';
+  visible.forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'comment-item';
+
+    const head = document.createElement('div');
+    head.className = 'comment-head';
+    const author = document.createElement('strong');
+    author.textContent = item.author_name || '匿名';
+    const time = document.createElement('span');
+    time.textContent = formatTime(item.created_at);
+    head.append(author, time);
+
+    const content = document.createElement('p');
+    content.textContent = item.content || '';
+    row.append(head, content);
+    list.appendChild(row);
+  });
+  detailComments.appendChild(list);
+  detailComments.classList.remove('hidden');
+}
+
 function renderDetail(record) {
   detailImage.src = record.image_url || '';
   detailContent.textContent = record.content || '（未填写留言）';
   detailTime.textContent = formatTime(record.activated_at);
   detailId.textContent = record.id || '';
   detailHash.textContent = record.blockchain_hash || '-';
+  renderComments(record.co_creation_comments || []);
 
   const brandDisclosureText = String(record.brand_disclosure_text_snapshot || '').trim();
   if (record.show_brand_disclosure && brandDisclosureText) {

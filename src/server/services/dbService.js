@@ -39,6 +39,10 @@ function seedQRCodes() {
       phone: null,
       activated_at: null,
       blockchain_hash: null,
+      co_creation_enabled: false,
+      co_creation_owner_phone: null,
+      co_creation_comments: [],
+      co_creation_started_at: null,
       show_brand_disclosure: false,
       brand_disclosure_text_snapshot: '',
       qr_image_url: null,
@@ -162,6 +166,10 @@ function migrateSchema(db) {
     batch_id: Object.prototype.hasOwnProperty.call(item, 'batch_id') ? item.batch_id : null,
     print_batch_id: Object.prototype.hasOwnProperty.call(item, 'print_batch_id') ? item.print_batch_id : null,
     image_object_key: Object.prototype.hasOwnProperty.call(item, 'image_object_key') ? item.image_object_key : null,
+    co_creation_enabled: item.co_creation_enabled === true,
+    co_creation_owner_phone: item.co_creation_owner_phone || null,
+    co_creation_comments: Array.isArray(item.co_creation_comments) ? item.co_creation_comments : [],
+    co_creation_started_at: item.co_creation_started_at || null,
     show_brand_disclosure: item.show_brand_disclosure === true,
     brand_disclosure_text_snapshot: typeof item.brand_disclosure_text_snapshot === 'string' ? item.brand_disclosure_text_snapshot : '',
     qr_image_url: item.qr_image_url || null,
@@ -264,7 +272,7 @@ function activateQRCodeOnce(qrId, payload) {
   }
 
   const qrCode = db.qr_codes[index];
-  if (qrCode.activation_status === 'activated') {
+  if (qrCode.activation_status !== 'unactivated') {
     return { error: 'QR_ALREADY_ACTIVATED', data: qrCode };
   }
 
@@ -281,6 +289,12 @@ function activateQRCodeOnce(qrId, payload) {
     phone: payload.phone,
     activated_at: nowISO(),
     blockchain_hash: payload.blockchain_hash,
+    co_creation_enabled: qrCode.co_creation_enabled === true,
+    co_creation_owner_phone: qrCode.co_creation_owner_phone || null,
+    co_creation_comments: (qrCode.co_creation_comments || []).map((comment) => ({
+      ...comment,
+      status: comment.status || 'kept'
+    })),
     show_brand_disclosure: showBrandDisclosure,
     brand_disclosure_text_snapshot: showBrandDisclosure ? batchDisclosure : ''
   };
@@ -299,6 +313,149 @@ function activateQRByKey(key, payload) {
     return activateQRCodeOnce(qr.id, payload);
   }
   return activateQRCodeOnce(key, payload);
+}
+
+function startCoCreationOnce(qrId, payload) {
+  const db = readDB();
+  const index = db.qr_codes.findIndex((item) => item.id === qrId);
+  if (index === -1) {
+    return { error: 'QR_NOT_FOUND' };
+  }
+
+  const qrCode = db.qr_codes[index];
+  if (qrCode.activation_status !== 'unactivated') {
+    return { error: 'QR_ALREADY_ACTIVATED', data: qrCode };
+  }
+
+  const showBrandDisclosure = payload.show_brand_disclosure === true;
+  const batch = qrCode.batch_id ? db.batches.find((item) => item.id === qrCode.batch_id) : null;
+  const batchDisclosure = batch ? String(batch.brand_disclosure_text || '') : '';
+
+  const updated = {
+    ...qrCode,
+    activation_status: 'co_creating',
+    co_creation_enabled: true,
+    co_creation_owner_phone: payload.phone,
+    co_creation_comments: [],
+    co_creation_started_at: nowISO(),
+    content: payload.content,
+    image_url: payload.image_url,
+    image_object_key: payload.image_object_key || null,
+    phone: payload.phone,
+    show_brand_disclosure: showBrandDisclosure,
+    brand_disclosure_text_snapshot: showBrandDisclosure ? batchDisclosure : ''
+  };
+
+  db.qr_codes[index] = updated;
+  writeDB(db);
+
+  return { data: updated };
+}
+
+function startCoCreationByKey(key, payload) {
+  const db = readDB();
+  const byToken = db.qr_codes.findIndex((item) => item.qr_access_token === key);
+  if (byToken !== -1) {
+    return startCoCreationOnce(db.qr_codes[byToken].id, payload);
+  }
+  return startCoCreationOnce(key, payload);
+}
+
+function addCoCreationCommentByKey(key, { phone, authorName, content }) {
+  const db = readDB();
+  const index = db.qr_codes.findIndex((item) => item.qr_access_token === key || item.id === key);
+  if (index === -1) {
+    return { error: 'QR_NOT_FOUND' };
+  }
+
+  const qrCode = db.qr_codes[index];
+  if (qrCode.activation_status !== 'co_creating' || qrCode.co_creation_enabled !== true) {
+    return { error: 'CO_CREATION_CLOSED' };
+  }
+
+  const comments = Array.isArray(qrCode.co_creation_comments) ? qrCode.co_creation_comments.slice() : [];
+  const comment = {
+    id: comments.length > 0 ? Math.max(...comments.map((item) => Number(item.id) || 0)) + 1 : 1,
+    phone,
+    author_name: authorName,
+    content,
+    status: 'kept',
+    created_at: nowISO()
+  };
+
+  comments.push(comment);
+  db.qr_codes[index] = {
+    ...qrCode,
+    co_creation_comments: comments
+  };
+  writeDB(db);
+
+  return { data: comment };
+}
+
+function deleteCoCreationCommentByKey(key, { commentId, phone }) {
+  const db = readDB();
+  const index = db.qr_codes.findIndex((item) => item.qr_access_token === key || item.id === key);
+  if (index === -1) {
+    return { error: 'QR_NOT_FOUND' };
+  }
+
+  const qrCode = db.qr_codes[index];
+  if (qrCode.activation_status !== 'co_creating' || qrCode.co_creation_owner_phone !== phone) {
+    return { error: 'FORBIDDEN' };
+  }
+
+  const comments = Array.isArray(qrCode.co_creation_comments) ? qrCode.co_creation_comments : [];
+  const found = comments.some((item) => String(item.id) === String(commentId) && item.status !== 'deleted');
+  if (!found) {
+    return { error: 'COMMENT_NOT_FOUND' };
+  }
+
+  const next = {
+    ...qrCode,
+    co_creation_comments: comments.map((item) => (
+      String(item.id) === String(commentId)
+        ? { ...item, status: 'deleted', deleted_at: nowISO() }
+        : item
+    ))
+  };
+
+  db.qr_codes[index] = next;
+  writeDB(db);
+
+  return { data: next };
+}
+
+function finalizeCoCreationByKey(key, { phone, blockchain_hash: blockchainHash }) {
+  const db = readDB();
+  const index = db.qr_codes.findIndex((item) => item.qr_access_token === key || item.id === key);
+  if (index === -1) {
+    return { error: 'QR_NOT_FOUND' };
+  }
+
+  const qrCode = db.qr_codes[index];
+  if (qrCode.activation_status !== 'co_creating' || qrCode.co_creation_enabled !== true) {
+    return { error: 'CO_CREATION_CLOSED' };
+  }
+  if (qrCode.co_creation_owner_phone !== phone) {
+    return { error: 'FORBIDDEN' };
+  }
+
+  const updated = {
+    ...qrCode,
+    activation_status: 'activated',
+    activated_at: nowISO(),
+    blockchain_hash: blockchainHash,
+    co_creation_comments: (qrCode.co_creation_comments || []).map((comment) => ({
+      ...comment,
+      status: comment.status || 'kept'
+    }))
+  };
+
+  db.qr_codes[index] = updated;
+  writeDB(db);
+
+  return { data: updated };
 }
 
 function findAdmin(username, password) {
@@ -498,15 +655,26 @@ function listActivatedRecordsByPhone(phone) {
   if (!target) return [];
 
   return db.qr_codes
-    .filter((item) => item.activation_status === 'activated' && item.phone === target)
-    .sort((a, b) => new Date(b.activated_at || b.created_at) - new Date(a.activated_at || a.created_at))
+    .filter((item) => (
+      (item.activation_status === 'activated' && item.phone === target)
+      || (item.activation_status === 'co_creating' && item.co_creation_owner_phone === target)
+    ))
+    .sort((a, b) => {
+      const aTime = a.activated_at || a.co_creation_started_at || a.created_at;
+      const bTime = b.activated_at || b.co_creation_started_at || b.created_at;
+      return new Date(bTime) - new Date(aTime);
+    })
     .map((item) => ({
       id: item.id,
       content: item.content || '',
       image_url: item.image_url || null,
       image_object_key: item.image_object_key || null,
-      activated_at: item.activated_at,
-      blockchain_hash: item.blockchain_hash || null
+      activated_at: item.activated_at || null,
+      display_at: item.activated_at || item.co_creation_started_at || item.created_at,
+      activation_status: item.activation_status,
+      blockchain_hash: item.blockchain_hash || null,
+      co_creation_enabled: item.co_creation_enabled === true,
+      co_creation_comments: Array.isArray(item.co_creation_comments) ? item.co_creation_comments : []
     }));
 }
 
@@ -531,6 +699,8 @@ function getActivatedRecordByPhoneAndId({ phone, id }) {
     image_object_key: matched.image_object_key || null,
     activated_at: matched.activated_at,
     blockchain_hash: matched.blockchain_hash || null,
+    co_creation_enabled: matched.co_creation_enabled === true,
+    co_creation_comments: Array.isArray(matched.co_creation_comments) ? matched.co_creation_comments : [],
     show_brand_disclosure: matched.show_brand_disclosure === true,
     brand_disclosure_text_snapshot: matched.brand_disclosure_text_snapshot || '',
     batch_id: matched.batch_id || null
@@ -583,6 +753,10 @@ async function generateQRCodes({ prefix, count, batchId }) {
       phone: null,
       activated_at: null,
       blockchain_hash: null,
+      co_creation_enabled: false,
+      co_creation_owner_phone: null,
+      co_creation_comments: [],
+      co_creation_started_at: null,
       show_brand_disclosure: false,
       brand_disclosure_text_snapshot: '',
       qr_image_url: null,
@@ -875,6 +1049,10 @@ module.exports = {
   getSampleUnactivated,
   activateQRCodeOnce,
   activateQRByKey,
+  startCoCreationByKey,
+  addCoCreationCommentByKey,
+  deleteCoCreationCommentByKey,
+  finalizeCoCreationByKey,
   findAdmin,
   listOperators,
   createOperator,

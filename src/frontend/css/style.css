@@ -294,6 +294,96 @@ textarea { min-height: 100px; resize: vertical; }
   font-size: 14px;
 }
 
+.save-mode-card,
+.comment-form-card,
+.comments-card,
+.co-owner-actions,
+.result-comments {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid rgba(255, 209, 102, 0.22);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.06);
+}
+.section-title {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+}
+.mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 10px;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 10px;
+  margin-top: 8px;
+  background: rgba(255,255,255,0.05);
+}
+.mode-option.selected {
+  border-color: rgba(255, 209, 102, 0.72);
+  background: rgba(255, 209, 102, 0.1);
+}
+.mode-option input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+}
+.mode-option strong,
+.mode-option small {
+  display: block;
+}
+.mode-option small {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: .72;
+}
+.co-status-banner {
+  text-align: center;
+  padding: 12px 0 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  margin-bottom: 14px;
+}
+.comment-form-card label {
+  margin-top: 10px;
+}
+.comments-list {
+  display: grid;
+  gap: 10px;
+}
+.comment-item {
+  padding: 10px;
+  border-radius: 9px;
+  background: rgba(255,255,255,0.06);
+}
+.comment-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  opacity: .78;
+}
+.comment-head strong {
+  color: #ffe39b;
+  font-size: 13px;
+}
+.comment-item p {
+  margin: 8px 0 0;
+  line-height: 1.7;
+}
+.comment-delete {
+  margin-top: 8px;
+  padding: 4px 10px;
+  border: 1px solid rgba(255,255,255,0.28);
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255,255,255,0.76);
+  font-size: 12px;
+}
+
 /* 结果页成功横幅 */
 .result-success-banner {
   text-align: center;

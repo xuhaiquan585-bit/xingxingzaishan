@@ -6,4 +6,5 @@ src/server/public/cloud/
 public/qrcodes/
 src/server/public/qrcodes/
 src/server/logs/
+server-start.log
 .env

@@ -34,6 +34,24 @@
         <textarea id="content" maxlength="200" placeholder="例：这一刻，我想记下的是……"></textarea>
         <p id="count">0 / 200</p>
 
+        <div class="save-mode-card">
+          <p class="section-title">保存方式</p>
+          <label class="mode-option selected">
+            <input type="radio" name="saveMode" value="direct" checked />
+            <span>
+              <strong>直接保存</strong>
+              <small>现在封存，之后扫码只能查看。</small>
+            </span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="saveMode" value="co_create" />
+            <span>
+              <strong>邀请共创</strong>
+              <small>先邀请他人留言，最后由你确认封存。</small>
+            </span>
+          </label>
+        </div>
+
         <div id="brandSection" class="brand-card hidden">
           <p id="brandPreviewText" class="brand-preview"></p>
           <div class="checkbox-row">
@@ -46,6 +64,36 @@
         <p id="formMessage" class="message"></p>
       </section>
 
+      <section id="coCreateSection" class="card hidden">
+        <div class="co-status-banner">
+          <p class="result-success-title">这瓶酒正在共创中</p>
+          <p class="result-success-sub">邀请朋友扫码，为这瓶酒留下一句话。</p>
+        </div>
+        <div class="memory-card">
+          <img id="coCreateImage" class="preview result-image" alt="共创照片" />
+          <p id="coCreateContent" class="memory-content"></p>
+        </div>
+        <button id="coCreateShareBtn" class="btn">分享给朋友</button>
+        <div id="coCreateOwnerActions" class="co-owner-actions hidden">
+          <p class="field-hint">你是这条记录的发起人，可以管理留言并最终确认封存。</p>
+          <button id="finalizeCoCreateBtn" class="btn">确认封存</button>
+        </div>
+        <div class="comment-form-card">
+          <p class="section-title">留下你的见证</p>
+          <label for="commentAuthor">姓名或身份</label>
+          <input id="commentAuthor" maxlength="20" placeholder="例：老友 / 妈妈 / 见证人" />
+          <label for="commentContent">留言</label>
+          <textarea id="commentContent" maxlength="50" placeholder="写一句 50 字以内的话"></textarea>
+          <p id="commentCount" class="field-hint">0 / 50</p>
+          <button id="submitCommentBtn" class="btn">提交留言</button>
+          <p id="coCreateMessage" class="message"></p>
+        </div>
+        <div class="comments-card">
+          <p class="section-title">共创留言</p>
+          <div id="commentsList" class="comments-list"></div>
+        </div>
+      </section>
+
       <section id="resultSection" class="card hidden">
         <div class="result-success-banner">
           <p class="result-success-title">✨ 保存成功</p>
@@ -55,6 +103,7 @@
         <div class="memory-card">
           <img id="resultImage" class="preview result-image" alt="保存的照片" />
           <p id="resultContent" class="memory-content"></p>
+          <div id="resultComments" class="result-comments hidden"></div>
         </div>
 
         <div class="credential-card">
@@ -83,7 +132,7 @@
             <img id="confirmPreviewImage" class="confirm-preview-image hidden" alt="即将保存的照片" />
             <p id="confirmPreviewContent" class="confirm-preview-content"></p>
           </div>
-          <p class="overlay-subtitle">
+          <p id="confirmOverlaySubtitle" class="overlay-subtitle">
             提交后，这张照片和这句话，将生成这瓶酒的<strong>区块链永久记录</strong>。<br />
             以后扫码只能查看，<strong>不能修改</strong>。
           </p>

@@ -93,6 +93,12 @@ function getJsonWithCookie(urlPath, cookie = '') {
   });
 }
 
+function deleteJsonWithCookie(urlPath, cookie = '') {
+  return requestRaw('DELETE', urlPath, {
+    headers: cookie ? { Cookie: cookie } : {}
+  });
+}
+
 function createMultipartBody(fields = {}, files = []) {
   const boundary = `----NodeFormBoundary${crypto.randomBytes(12).toString('hex')}`;
   const chunks = [];
@@ -819,6 +825,104 @@ test('POST /api/qr/:token/record should activate QR by access token', async () =
   assert.equal(recordRes.status, 200);
   assert.equal(recordRes.body.data.activation_status, 'activated');
   assert.equal(recordRes.body.data.content, 'activated by token');
+});
+
+test('co-creation flow should collect comments and owner finalize record', async () => {
+  const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const adminToken = adminLogin.body.data.token;
+
+  const genRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'COC',
+    count: 1
+  }, adminToken);
+  assert.equal(genRes.status, 200);
+
+  const qrId = genRes.body.data.ids[0];
+  const accessToken = genRes.body.data.records[0].qr_access_token;
+
+  const ownerCookie = await loginUserAndGetCookie('13811112222');
+  const uploadRes = await postMultipartWithCookie('/api/upload', {
+    fields: { qr_id: qrId },
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'co-create.png',
+        contentType: 'image/png',
+        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
+      }
+    ]
+  }, ownerCookie);
+  assert.equal(uploadRes.status, 200);
+
+  const startRes = await postJsonWithCookie(`/api/qr/${accessToken}/record`, {
+    mode: 'co_create',
+    content: '主留言',
+    image_url: uploadRes.body.data.url,
+    image_object_key: uploadRes.body.data.object_key
+  }, ownerCookie);
+  assert.equal(startRes.status, 200);
+  assert.equal(startRes.body.data.activation_status, 'co_creating');
+  assert.equal(startRes.body.data.is_co_creation_owner, true);
+  assert.equal(startRes.body.data.blockchain_hash, null);
+
+  const anonymousStatus = await getJson(`/api/qr/${accessToken}`);
+  assert.equal(anonymousStatus.status, 200);
+  assert.equal(anonymousStatus.body.data.activation_status, 'co_creating');
+  assert.equal(Object.prototype.hasOwnProperty.call(anonymousStatus.body.data, 'phone'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(anonymousStatus.body.data, 'content'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(anonymousStatus.body.data, 'image_url'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(anonymousStatus.body.data, 'co_creation_comments'), false);
+
+  const ownerRecordsBeforeFinalize = await getJsonWithCookie('/api/user/records', ownerCookie);
+  assert.equal(ownerRecordsBeforeFinalize.status, 200);
+  const coCreatingRecord = ownerRecordsBeforeFinalize.body.data.records.find((item) => item.id === qrId);
+  assert.ok(coCreatingRecord);
+  assert.equal(coCreatingRecord.activation_status, 'co_creating');
+
+  const participantCookie = await loginUserAndGetCookie('13811113333');
+  const commentRes = await postJsonWithCookie(`/api/qr/${accessToken}/comments`, {
+    author_name: '朋友',
+    content: '一起见证'
+  }, participantCookie);
+  assert.equal(commentRes.status, 200);
+  assert.equal(commentRes.body.data.content, '一起见证');
+
+  const participantStatus = await getJsonWithCookie(`/api/qr/${accessToken}`, participantCookie);
+  assert.equal(participantStatus.status, 200);
+  assert.equal(participantStatus.body.data.is_co_creation_owner, false);
+  assert.equal(participantStatus.body.data.content, startRes.body.data.content);
+  assert.ok(participantStatus.body.data.image_url);
+  assert.equal(Object.prototype.hasOwnProperty.call(participantStatus.body.data, 'phone'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(participantStatus.body.data, 'co_creation_owner_phone'), false);
+  assert.equal(participantStatus.body.data.co_creation_comments.length, 1);
+
+  const forbiddenDelete = await deleteJsonWithCookie(`/api/qr/${accessToken}/comments/${commentRes.body.data.id}`, participantCookie);
+  assert.equal(forbiddenDelete.status, 403);
+
+  const deleteRes = await deleteJsonWithCookie(`/api/qr/${accessToken}/comments/${commentRes.body.data.id}`, ownerCookie);
+  assert.equal(deleteRes.status, 200);
+  assert.equal(deleteRes.body.data.co_creation_comments.length, 0);
+
+  const keptCommentRes = await postJsonWithCookie(`/api/qr/${accessToken}/comments`, {
+    author_name: '家人',
+    content: '留在酒里'
+  }, participantCookie);
+  assert.equal(keptCommentRes.status, 200);
+
+  const forbiddenFinalize = await postJsonWithCookie(`/api/qr/${accessToken}/finalize`, {}, participantCookie);
+  assert.equal(forbiddenFinalize.status, 403);
+
+  const finalizeRes = await postJsonWithCookie(`/api/qr/${accessToken}/finalize`, {}, ownerCookie);
+  assert.equal(finalizeRes.status, 200);
+  assert.equal(finalizeRes.body.data.activation_status, 'activated');
+  assert.ok(finalizeRes.body.data.blockchain_hash);
+  const ownerRecordsAfterFinalize = await getJsonWithCookie('/api/user/records', ownerCookie);
+  assert.equal(ownerRecordsAfterFinalize.status, 200);
+  const finalizedRecord = ownerRecordsAfterFinalize.body.data.records.find((item) => item.id === qrId);
+  assert.ok(finalizedRecord);
+  assert.equal(finalizedRecord.activation_status, 'activated');
+  assert.equal(finalizeRes.body.data.co_creation_comments.length, 1);
+  assert.equal(finalizeRes.body.data.co_creation_comments[0].content, '留在酒里');
 });
 
 test('POST /api/upload should compress image and return .jpg object_key', async () => {
