@@ -22,9 +22,11 @@ const switchPhoneBtn = document.getElementById('switchPhoneBtn');
 
 const shareBtn = document.getElementById('shareBtn');
 const confirmOverlay = document.getElementById('confirmOverlay');
+const confirmOverlayTitle = confirmOverlay ? confirmOverlay.querySelector('.overlay-title') : null;
 const confirmSubmitBtn = document.getElementById('confirmSubmitBtn');
 const cancelSubmitBtn = document.getElementById('cancelSubmitBtn');
 const confirmPreviewImage = document.getElementById('confirmPreviewImage');
+const confirmPreview = confirmPreviewImage ? confirmPreviewImage.closest('.confirm-preview') : null;
 const confirmPreviewContent = document.getElementById('confirmPreviewContent');
 const confirmOverlaySubtitle = document.getElementById('confirmOverlaySubtitle');
 const stageHint = document.getElementById('stageHint');
@@ -67,6 +69,7 @@ let currentResult = null;
 let currentCoCreate = null;
 let submitting = false;
 let hashExpanded = false;
+let confirmOverlayMode = 'record';
 
 async function copyText(text) {
   if (navigator.clipboard && window.isSecureContext) {
@@ -293,9 +296,57 @@ function renderCoCreate(data) {
   }
 }
 
-function openConfirmOverlay() {
+function openConfirmOverlay(mode = 'record') {
   if (!confirmOverlay) return;
+  confirmOverlayMode = mode;
+
+  if (confirmSubmitBtn) {
+    confirmSubmitBtn.disabled = false;
+  }
+  if (confirmOverlayTitle) {
+    confirmOverlayTitle.textContent = mode === 'finalize'
+      ? '确认封存共创记录'
+      : '确认保存这一刻';
+  }
+  if (confirmSubmitBtn) {
+    confirmSubmitBtn.textContent = mode === 'finalize' ? '确认封存' : '确认提交';
+  }
+  if (cancelSubmitBtn) {
+    cancelSubmitBtn.textContent = mode === 'finalize' ? '再检查一下' : '返回修改';
+  }
+
+  if (mode === 'finalize') {
+    if (confirmPreview) confirmPreview.classList.add('hidden');
+    if (confirmPreviewImage) {
+      confirmPreviewImage.removeAttribute('src');
+      confirmPreviewImage.classList.add('hidden');
+    }
+    if (confirmPreviewContent) {
+      confirmPreviewContent.textContent = '';
+      confirmPreviewContent.classList.remove('empty');
+    }
+    if (confirmOverlaySubtitle) {
+      confirmOverlaySubtitle.textContent = '';
+      confirmOverlaySubtitle.append(
+        document.createTextNode('封存后，这张照片、这句话和保留的共创留言，将生成这瓶酒的'),
+        Object.assign(document.createElement('strong'), { textContent: '区块链永久记录' }),
+        document.createTextNode('。'),
+        document.createElement('br'),
+        document.createTextNode('以后扫码只能查看，'),
+        Object.assign(document.createElement('strong'), { textContent: '不能修改' }),
+        document.createTextNode('。')
+      );
+    }
+
+    confirmOverlay.classList.remove('hidden');
+    requestAnimationFrame(() => {
+      confirmOverlay.classList.add('show');
+    });
+    return;
+  }
+
   const saveMode = getSaveMode();
+  if (confirmPreview) confirmPreview.classList.remove('hidden');
 
   const previewSrc = preview.getAttribute('src') || '';
   if (confirmPreviewImage && previewSrc) {
@@ -631,7 +682,13 @@ async function submitRecord() {
 }
 
 if (confirmSubmitBtn) {
-  confirmSubmitBtn.addEventListener('click', submitRecord);
+  confirmSubmitBtn.addEventListener('click', () => {
+    if (confirmOverlayMode === 'finalize') {
+      finalizeCoCreate();
+      return;
+    }
+    submitRecord();
+  });
 }
 
 if (commentContent) {
@@ -696,24 +753,44 @@ if (commentsList) {
   });
 }
 
-if (finalizeCoCreateBtn) {
-  finalizeCoCreateBtn.addEventListener('click', async () => {
-    if (!currentCoCreate || !currentCoCreate.is_co_creation_owner) return;
-    const confirmed = window.confirm('确认封存吗？封存后，这张照片、这句话和保留的共创留言将生成区块链永久记录，不能修改。');
-    if (!confirmed) return;
+async function finalizeCoCreate() {
+  if (submitting || !currentCoCreate || !currentCoCreate.is_co_creation_owner) return;
 
+  submitting = true;
+  if (confirmSubmitBtn) {
+    confirmSubmitBtn.disabled = true;
+    confirmSubmitBtn.textContent = '正在封存...';
+  }
+  if (finalizeCoCreateBtn) {
     finalizeCoCreateBtn.disabled = true;
     finalizeCoCreateBtn.textContent = '正在封存...';
-    try {
-      const res = await apiRequest(`/api/qr/${encodeURIComponent(qrId)}/finalize`, {
-        method: 'POST'
-      });
-      renderResult(res.data, { justSaved: true });
-    } catch (error) {
-      coCreateMessage.textContent = error.message || '封存失败，请稍后重试。';
+  }
+  closeConfirmOverlay();
+
+  try {
+    const res = await apiRequest(`/api/qr/${encodeURIComponent(qrId)}/finalize`, {
+      method: 'POST'
+    });
+    renderResult(res.data, { justSaved: true });
+    submitting = false;
+  } catch (error) {
+    coCreateMessage.textContent = error.message || '封存失败，请稍后重试。';
+    if (finalizeCoCreateBtn) {
       finalizeCoCreateBtn.disabled = false;
       finalizeCoCreateBtn.textContent = '确认封存';
     }
+    if (confirmSubmitBtn) {
+      confirmSubmitBtn.disabled = false;
+      confirmSubmitBtn.textContent = '确认封存';
+    }
+    submitting = false;
+  }
+}
+
+if (finalizeCoCreateBtn) {
+  finalizeCoCreateBtn.addEventListener('click', () => {
+    if (!currentCoCreate || !currentCoCreate.is_co_creation_owner || submitting) return;
+    openConfirmOverlay('finalize');
   });
 }
 
