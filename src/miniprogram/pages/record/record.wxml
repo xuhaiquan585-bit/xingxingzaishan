@@ -1,0 +1,21 @@
+<view class="page">
+  <view class="hero-title">留下这瓶酒的专属记录</view>
+  <view class="subtitle">选一张照片，写一句话，下次扫码还能看到</view>
+
+  <view class="card">
+    <view class="meta">星星ID：{{displayKey}}</view>
+    <button class="btn secondary" bindtap="chooseImage">{{imageButtonText}}</button>
+    <image wx:if="{{previewUrl}}" class="cover preview" mode="aspectFill" src="{{previewUrl}}" />
+
+    <textarea class="textarea" maxlength="200" placeholder="例：这一刻，我想记下的是……" value="{{content}}" bindinput="onContentInput" />
+    <view class="meta">{{contentCount}} / 200</view>
+
+    <radio-group bindchange="onModeChange">
+      <label class="mode-row"><radio value="direct" checked="{{isDirectMode}}" />直接保存</label>
+      <label class="mode-row"><radio value="co_create" checked="{{isCoCreateMode}}" />邀请共创</label>
+    </radio-group>
+
+    <button class="btn" bindtap="submitRecord">预览并确认</button>
+    <view class="meta">{{message}}</view>
+  </view>
+</view>

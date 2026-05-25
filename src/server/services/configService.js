@@ -44,6 +44,14 @@ function validateRuntimeConfig() {
     errors.push('SMS_PROVIDER must not be mock in production.');
   }
 
+  if (process.env.NODE_ENV === 'production') {
+    ['WECHAT_MINIAPP_APPID', 'WECHAT_MINIAPP_SECRET'].forEach((name) => {
+      if (!process.env[name]) {
+        errors.push(`${name} is required in production for miniapp login and content safety.`);
+      }
+    });
+  }
+
   return {
     errors,
     warnings

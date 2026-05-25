@@ -3,18 +3,23 @@ const dashboardPanel = document.getElementById('dashboardPanel');
 const batchPanel = document.getElementById('batchPanel');
 const recordsPanel = document.getElementById('recordsPanel');
 const operatorPanel = document.getElementById('operatorPanel');
+const productPanel = document.getElementById('productPanel');
 const loginMsg = document.getElementById('loginMsg');
 const batchMsg = document.getElementById('batchMsg');
 const opMsg = document.getElementById('opMsg');
+const productMsg = document.getElementById('productMsg');
 const tableBody = document.getElementById('recordTable');
 const batchTableBody = document.getElementById('batchTable');
 const operatorTableBody = document.getElementById('operatorTable');
+const productTableBody = document.getElementById('productTable');
 const selectedCount = document.getElementById('selectedCount');
 const selectAll = document.getElementById('selectAll');
 
 let adminToken = localStorage.getItem('adminToken') || '';
 let currentRecords = [];
 let batchList = [];
+let productList = [];
+let editingProductId = '';
 const selectedIds = new Set();
 const REQUEST_TIMEOUT_MS = 15000;
 const EXPORT_TIMEOUT_MS = 60000;
@@ -77,6 +82,16 @@ function showPanelsAfterLogin() {
   batchPanel.classList.remove('hidden');
   recordsPanel.classList.remove('hidden');
   operatorPanel.classList.remove('hidden');
+  productPanel.classList.remove('hidden');
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function updateSelectedUI() {
@@ -235,6 +250,101 @@ function renderOperators(operators) {
 async function loadOperators() {
   const data = await request('/api/admin/operators', { headers: authHeaders() });
   renderOperators(data.operators || []);
+}
+
+function clearProductForm() {
+  editingProductId = '';
+  document.getElementById('productTitle').value = '';
+  document.getElementById('productSubtitle').value = '';
+  document.getElementById('productCover').value = '';
+  document.getElementById('productPrice').value = '';
+  document.getElementById('productBuyUrl').value = '';
+  document.getElementById('productSort').value = '0';
+  document.getElementById('productStatus').value = 'draft';
+  document.getElementById('productImages').value = '';
+  document.getElementById('productDescription').value = '';
+  document.getElementById('saveProductBtn').textContent = '新增商品';
+  document.getElementById('cancelProductEditBtn').classList.add('hidden');
+}
+
+function readProductForm() {
+  return {
+    title: document.getElementById('productTitle').value.trim(),
+    subtitle: document.getElementById('productSubtitle').value.trim(),
+    cover_image: document.getElementById('productCover').value.trim(),
+    price_text: document.getElementById('productPrice').value.trim(),
+    buy_url: document.getElementById('productBuyUrl').value.trim(),
+    sort_order: Number(document.getElementById('productSort').value || 0),
+    status: document.getElementById('productStatus').value,
+    images: document.getElementById('productImages').value
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean),
+    description: document.getElementById('productDescription').value.trim()
+  };
+}
+
+function renderProducts(products) {
+  productTableBody.innerHTML = products
+    .map((product) => `<tr>
+      <td>${Number(product.sort_order || 0)}</td>
+      <td>${escapeHtml(product.title)}<br /><small>${escapeHtml(product.subtitle || '')}</small></td>
+      <td>${escapeHtml(product.price_text || '-')}</td>
+      <td>${escapeHtml(product.status)}</td>
+      <td>${product.buy_url ? `<a href="${escapeHtml(product.buy_url)}" target="_blank">查看链接</a>` : '-'}</td>
+      <td>${escapeHtml(product.updated_at || product.created_at || '-')}</td>
+      <td><button data-product-edit="${escapeHtml(product.id)}">编辑</button></td>
+    </tr>`)
+    .join('');
+}
+
+async function loadProducts() {
+  const data = await request('/api/admin/products', { headers: authHeaders() });
+  productList = data.products || [];
+  renderProducts(productList);
+}
+
+async function saveProduct() {
+  const payload = readProductForm();
+  if (!payload.title) {
+    productMsg.textContent = '商品名称不能为空。';
+    return;
+  }
+
+  const url = editingProductId
+    ? `/api/admin/products/${encodeURIComponent(editingProductId)}`
+    : '/api/admin/products';
+
+  await request(url, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  productMsg.textContent = editingProductId ? '商品已更新。' : '商品已新增。';
+  clearProductForm();
+  await loadProducts();
+}
+
+function editProduct(productId) {
+  const product = productList.find((item) => item.id === productId);
+  if (!product) return;
+  editingProductId = product.id;
+  document.getElementById('productTitle').value = product.title || '';
+  document.getElementById('productSubtitle').value = product.subtitle || '';
+  document.getElementById('productCover').value = product.cover_image || '';
+  document.getElementById('productPrice').value = product.price_text || '';
+  document.getElementById('productBuyUrl').value = product.buy_url || '';
+  document.getElementById('productSort').value = Number(product.sort_order || 0);
+  document.getElementById('productStatus').value = product.status || 'draft';
+  document.getElementById('productImages').value = Array.isArray(product.images) ? product.images.join('\n') : '';
+  document.getElementById('productDescription').value = product.description || '';
+  document.getElementById('saveProductBtn').textContent = '保存修改';
+  document.getElementById('cancelProductEditBtn').classList.remove('hidden');
+  productMsg.textContent = `正在编辑：${product.title}`;
 }
 
 async function createOperator() {
@@ -447,6 +557,7 @@ document.getElementById('loginBtn').addEventListener('click', async () => {
     await loadBatches();
     await loadRecords();
     await loadOperators();
+    await loadProducts();
   } catch (error) {
     loginMsg.textContent = error.message || '登录失败';
   }
@@ -460,6 +571,12 @@ document.getElementById('refreshBatchBtn').addEventListener('click', () => loadB
 document.getElementById('generateQrBtn').addEventListener('click', () => generateQRCodes());
 document.getElementById('createOpBtn').addEventListener('click', () => createOperator().catch((e) => { opMsg.textContent = e.message || '创建失败'; }));
 document.getElementById('refreshOpBtn').addEventListener('click', () => loadOperators().catch(() => {}));
+document.getElementById('saveProductBtn').addEventListener('click', () => saveProduct().catch((e) => { productMsg.textContent = e.message || '保存失败'; }));
+document.getElementById('refreshProductBtn').addEventListener('click', () => loadProducts().catch(() => {}));
+document.getElementById('cancelProductEditBtn').addEventListener('click', () => {
+  clearProductForm();
+  productMsg.textContent = '';
+});
 document.getElementById('filterBtn').addEventListener('click', async () => {
   selectedIds.clear();
   await loadRecords();
@@ -555,9 +672,15 @@ operatorTableBody.addEventListener('click', async (event) => {
   }
 });
 
+productTableBody.addEventListener('click', (event) => {
+  const btn = event.target.closest('button[data-product-edit]');
+  if (!btn) return;
+  editProduct(btn.getAttribute('data-product-edit'));
+});
+
 if (adminToken) {
   showPanelsAfterLogin();
-  Promise.all([loadDashboard(), loadBatches(), loadRecords(), loadOperators()]).catch(() => {
+  Promise.all([loadDashboard(), loadBatches(), loadRecords(), loadOperators(), loadProducts()]).catch(() => {
     localStorage.removeItem('adminToken');
     location.reload();
   });

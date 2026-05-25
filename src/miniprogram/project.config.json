@@ -1,0 +1,12 @@
+{
+  "appid": "wx8b85b181e784722f",
+  "projectname": "jizaixingshang",
+  "setting": {
+    "urlCheck": true,
+    "es6": true,
+    "postcss": true,
+    "minified": true
+  },
+  "compileType": "miniprogram",
+  "libVersion": "latest"
+}

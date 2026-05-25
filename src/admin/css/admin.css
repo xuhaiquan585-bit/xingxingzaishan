@@ -16,7 +16,7 @@ body {
   margin-bottom: 16px;
   box-shadow: 0 2px 10px rgba(22, 29, 45, 0.08);
 }
-input, select, button {
+input, select, button, textarea {
   padding: 8px;
   margin: 4px;
 }
@@ -29,6 +29,11 @@ input, select, button {
 }
 .toolbar.multi-line input {
   min-width: 220px;
+}
+.toolbar.multi-line textarea {
+  min-width: 320px;
+  min-height: 72px;
+  resize: vertical;
 }
 .stats {
   display: grid;

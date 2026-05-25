@@ -1,0 +1,10 @@
+<view class="page">
+  <view class="hero-title">把这一刻，记在这瓶酒里</view>
+  <view class="subtitle">这瓶酒还未被记录——留下的内容，以后扫码都能看到</view>
+
+  <view class="card">
+    <view class="hint">为了以后找回你的记录，需要绑定手机号。</view>
+    <button class="btn" open-type="getPhoneNumber" bindgetphonenumber="onGetPhoneNumber">授权手机号并继续</button>
+    <view class="meta">{{message}}</view>
+  </view>
+</view>

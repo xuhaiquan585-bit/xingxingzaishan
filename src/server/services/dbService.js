@@ -136,6 +136,15 @@ function migrateSchema(db) {
     db.users = [];
   }
 
+  db.users = db.users.map((item, idx) => ({
+    id: item.id || idx + 1,
+    phone: item.phone || null,
+    openid: item.openid || null,
+    unionid: item.unionid || null,
+    source: item.source || (item.openid ? 'miniapp' : 'web'),
+    created_at: item.created_at || nowISO()
+  }));
+
   if (!Array.isArray(db.qr_codes)) {
     db.qr_codes = seedQRCodes();
   }
@@ -158,6 +167,42 @@ function migrateSchema(db) {
   if (!Array.isArray(db.batches)) {
     db.batches = [];
   }
+
+  if (!Array.isArray(db.products)) {
+    db.products = [];
+  }
+
+  if (!Array.isArray(db.content_pages)) {
+    db.content_pages = [];
+  }
+
+  if (!Array.isArray(db.banners)) {
+    db.banners = [];
+  }
+
+  if (!Array.isArray(db.orders)) {
+    db.orders = [];
+  }
+
+  if (!Array.isArray(db.payment_logs)) {
+    db.payment_logs = [];
+  }
+
+  db.products = db.products.map((item, idx) => ({
+    id: item.id || `PROD_${String(idx + 1).padStart(4, '0')}`,
+    title: item.title || '',
+    subtitle: item.subtitle || '',
+    cover_image: item.cover_image || '',
+    images: Array.isArray(item.images) ? item.images : [],
+    price_text: item.price_text || '',
+    description: item.description || '',
+    status: ['draft', 'published', 'hidden'].includes(item.status) ? item.status : 'draft',
+    buy_type: item.buy_type || 'copy_link',
+    buy_url: item.buy_url || '',
+    sort_order: Number.isFinite(Number(item.sort_order)) ? Number(item.sort_order) : idx + 1,
+    created_at: item.created_at || nowISO(),
+    updated_at: item.updated_at || item.created_at || nowISO()
+  }));
 
   db.qr_codes = db.qr_codes.map((item) => ({
     ...item,
@@ -205,7 +250,12 @@ function initializeDB() {
       qr_codes: seedQRCodes(),
       admins: [],
       quality_check_logs: [],
-      batches: []
+      batches: [],
+      products: [],
+      content_pages: [],
+      banners: [],
+      orders: [],
+      payment_logs: []
     });
     fs.writeFileSync(dataFile, JSON.stringify(initialData, null, 2), 'utf-8');
     return;
@@ -231,12 +281,80 @@ function createOrGetUser(phone) {
     user = {
       id: db.users.length + 1,
       phone,
+      openid: null,
+      unionid: null,
+      source: 'web',
       created_at: nowISO()
     };
     db.users.push(user);
     writeDB(db);
   }
   return user;
+}
+
+function findUserByOpenid(openid) {
+  const db = readDB();
+  return db.users.find((item) => item.openid === openid) || null;
+}
+
+function createOrGetMiniappUser({ openid, unionid = null }) {
+  const db = readDB();
+  let user = db.users.find((item) => item.openid === openid);
+  if (user) {
+    if (unionid && user.unionid !== unionid) {
+      user = { ...user, unionid };
+      db.users = db.users.map((item) => (item.openid === openid ? user : item));
+      writeDB(db);
+    }
+    return user;
+  }
+
+  user = {
+    id: db.users.length + 1,
+    phone: null,
+    openid,
+    unionid,
+    source: 'miniapp',
+    created_at: nowISO()
+  };
+  db.users.push(user);
+  writeDB(db);
+  return user;
+}
+
+function bindMiniappUserPhone({ openid, phone, unionid = null }) {
+  const db = readDB();
+  const miniUser = db.users.find((item) => item.openid === openid);
+  if (!miniUser) {
+    return { error: 'MINIAPP_USER_NOT_FOUND' };
+  }
+
+  const phoneUser = db.users.find((item) => item.phone === phone);
+  const nextUnionid = unionid || miniUser.unionid || null;
+
+  if (phoneUser && phoneUser.id !== miniUser.id) {
+    const merged = {
+      ...phoneUser,
+      openid,
+      unionid: nextUnionid,
+      source: phoneUser.source === 'web' ? 'web+miniapp' : phoneUser.source || 'miniapp'
+    };
+    db.users = db.users
+      .filter((item) => item.id !== miniUser.id)
+      .map((item) => (item.id === phoneUser.id ? merged : item));
+    writeDB(db);
+    return { data: merged };
+  }
+
+  const updated = {
+    ...miniUser,
+    phone,
+    unionid: nextUnionid,
+    source: miniUser.source || 'miniapp'
+  };
+  db.users = db.users.map((item) => (item.openid === openid ? updated : item));
+  writeDB(db);
+  return { data: updated };
 }
 
 function getQRCode(qrId) {
@@ -687,6 +805,14 @@ function listActivatedRecordsByPhone(phone) {
     }));
 }
 
+function listActivatedRecordsByMiniappOpenid(openid) {
+  const user = findUserByOpenid(openid);
+  if (!user || !user.phone) {
+    return [];
+  }
+  return listActivatedRecordsByPhone(user.phone);
+}
+
 function getActivatedRecordByPhoneAndId({ phone, id }) {
   const db = readDB();
   const targetPhone = String(phone || '').trim();
@@ -714,6 +840,109 @@ function getActivatedRecordByPhoneAndId({ phone, id }) {
     brand_disclosure_text_snapshot: matched.brand_disclosure_text_snapshot || '',
     batch_id: matched.batch_id || null
   };
+}
+
+function getActivatedRecordByMiniappOpenidAndId({ openid, id }) {
+  const user = findUserByOpenid(openid);
+  if (!user || !user.phone) {
+    return null;
+  }
+  return getActivatedRecordByPhoneAndId({ phone: user.phone, id });
+}
+
+function normalizeProductInput(input = {}, existing = {}) {
+  const images = Array.isArray(input.images)
+    ? input.images
+    : String(input.images || '')
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+  return {
+    title: String(input.title ?? existing.title ?? '').trim(),
+    subtitle: String(input.subtitle ?? existing.subtitle ?? '').trim(),
+    cover_image: String(input.cover_image ?? existing.cover_image ?? '').trim(),
+    images,
+    price_text: String(input.price_text ?? existing.price_text ?? '').trim(),
+    description: String(input.description ?? existing.description ?? '').trim(),
+    status: ['draft', 'published', 'hidden'].includes(input.status) ? input.status : (existing.status || 'draft'),
+    buy_type: 'copy_link',
+    buy_url: String(input.buy_url ?? existing.buy_url ?? '').trim(),
+    sort_order: Number.isFinite(Number(input.sort_order ?? existing.sort_order))
+      ? Number(input.sort_order ?? existing.sort_order)
+      : 0
+  };
+}
+
+function validateProductData(data) {
+  if (!data.title) {
+    return '商品名称不能为空。';
+  }
+  if (data.buy_url && !/^https?:\/\//i.test(data.buy_url)) {
+    return '购买链接必须以 http:// 或 https:// 开头。';
+  }
+  return '';
+}
+
+function createProduct(input) {
+  const db = readDB();
+  const data = normalizeProductInput(input);
+  const validationMessage = validateProductData(data);
+  if (validationMessage) {
+    return { error: 'VALIDATION_ERROR', message: validationMessage };
+  }
+
+  const product = {
+    id: `PROD_${Date.now()}_${String(db.products.length + 1).padStart(3, '0')}`,
+    ...data,
+    created_at: nowISO(),
+    updated_at: nowISO()
+  };
+  db.products.push(product);
+  writeDB(db);
+  return { data: product };
+}
+
+function updateProduct(id, input) {
+  const db = readDB();
+  const index = db.products.findIndex((item) => item.id === id);
+  if (index === -1) {
+    return { error: 'PRODUCT_NOT_FOUND' };
+  }
+
+  const data = normalizeProductInput(input, db.products[index]);
+  const validationMessage = validateProductData(data);
+  if (validationMessage) {
+    return { error: 'VALIDATION_ERROR', message: validationMessage };
+  }
+
+  const updated = {
+    ...db.products[index],
+    ...data,
+    updated_at: nowISO()
+  };
+  db.products[index] = updated;
+  writeDB(db);
+  return { data: updated };
+}
+
+function listProducts({ publicOnly = false } = {}) {
+  const db = readDB();
+  let products = db.products.slice();
+  if (publicOnly) {
+    products = products.filter((item) => item.status === 'published');
+  }
+
+  return products.sort((a, b) => {
+    const sortDiff = Number(a.sort_order || 0) - Number(b.sort_order || 0);
+    if (sortDiff !== 0) return sortDiff;
+    return new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at);
+  });
+}
+
+function getProduct(id, { publicOnly = false } = {}) {
+  const product = listProducts({ publicOnly }).find((item) => item.id === id);
+  return product || null;
 }
 
 async function generateQRCodes({ prefix, count, batchId }) {
@@ -1052,6 +1281,9 @@ function getQualityCheckStats() {
 module.exports = {
   initializeDB,
   createOrGetUser,
+  findUserByOpenid,
+  createOrGetMiniappUser,
+  bindMiniappUserPhone,
   getQRCode,
   findQRByToken,
   findQRByKey,
@@ -1070,7 +1302,13 @@ module.exports = {
   getDashboardStats,
   listQRRecords,
   listActivatedRecordsByPhone,
+  listActivatedRecordsByMiniappOpenid,
   getActivatedRecordByPhoneAndId,
+  getActivatedRecordByMiniappOpenidAndId,
+  createProduct,
+  updateProduct,
+  listProducts,
+  getProduct,
   generateQRCodes,
   setQRHiddenStatus,
   setQRHiddenStatusBatch,

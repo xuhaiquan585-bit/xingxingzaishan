@@ -1,0 +1,33 @@
+.memory-image {
+  height: 420rpx;
+  margin-bottom: 20rpx;
+}
+
+.memory-content {
+  margin-bottom: 24rpx;
+  color: #fff;
+  font-size: 32rpx;
+  line-height: 1.7;
+}
+
+.comment-box {
+  margin-top: 28rpx;
+}
+
+.comment-item {
+  margin-top: 20rpx;
+  padding: 20rpx;
+  border-radius: 16rpx;
+  background: rgba(0, 0, 0, .16);
+  line-height: 1.7;
+}
+
+.comment-head {
+  color: #ffe39b;
+  font-size: 24rpx;
+}
+
+.small {
+  min-height: 64rpx;
+  font-size: 24rpx;
+}

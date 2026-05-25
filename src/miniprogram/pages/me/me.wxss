@@ -1,0 +1,4 @@
+.record-card .cover {
+  height: 300rpx;
+  margin-bottom: 18rpx;
+}

@@ -178,6 +178,22 @@ async function loginUserAndGetCookie(phone = '13800138000') {
   return cookie;
 }
 
+async function loginMiniappAndGetToken(code = 'mini-code') {
+  const loginRes = await postJson('/api/miniapp/auth/login', { code });
+  assert.equal(loginRes.status, 200);
+  assert.ok(loginRes.body.data.token);
+  return loginRes.body.data.token;
+}
+
+async function loginMiniappBindPhoneAndGetToken({ code = 'mini-code', phone = '13800138000' } = {}) {
+  const token = await loginMiniappAndGetToken(code);
+  const bindRes = await postJson('/api/miniapp/auth/bind-phone', { code: phone }, token);
+  assert.equal(bindRes.status, 200);
+  assert.ok(bindRes.body.data.token);
+  assert.equal(bindRes.body.data.phone, phone);
+  return bindRes.body.data.token;
+}
+
 test.before(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xingxingzaishan-'));
   process.env.DB_FILE = path.join(tmpDir, 'db.json');
@@ -661,6 +677,218 @@ test('GET /api/qc/logs should reject missing token', async () => {
   const res = await getJson('/api/qc/logs');
   assert.equal(res.status, 401);
   assert.equal(res.body.code, 'UNAUTHORIZED');
+});
+
+test('miniapp auth should login, reject bad token, and bind phone', async () => {
+  const loginRes = await postJson('/api/miniapp/auth/login', { code: 'mini-auth' });
+  assert.equal(loginRes.status, 200);
+  assert.equal(loginRes.body.data.phone_bound, false);
+  assert.ok(loginRes.body.data.token);
+
+  const badTokenRes = await getJson('/api/miniapp/user/records', 'bad.token.value');
+  assert.equal(badTokenRes.status, 401);
+  assert.equal(badTokenRes.body.code, 'UNAUTHORIZED');
+
+  const bindRes = await postJson('/api/miniapp/auth/bind-phone', {
+    code: '13888889999'
+  }, loginRes.body.data.token);
+  assert.equal(bindRes.status, 200);
+  assert.equal(bindRes.body.data.phone_bound, true);
+  assert.equal(bindRes.body.data.phone, '13888889999');
+
+  const unauthedBind = await postJson('/api/miniapp/auth/bind-phone', { code: '13888889999' });
+  assert.equal(unauthedBind.status, 401);
+});
+
+test('admin product management should expose only published products to miniapp', async () => {
+  const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const token = login.body.data.token;
+
+  const publishedRes = await postJson('/api/admin/products', {
+    title: '成年礼星酒',
+    subtitle: '把祝福记在酒里',
+    cover_image: '/uploads/product.jpg',
+    images: ['/uploads/detail-1.jpg'],
+    price_text: '¥399 / 礼盒装',
+    description: '适合成年礼和纪念日。',
+    buy_url: 'https://ktt.example.com/buy/1',
+    status: 'published',
+    sort_order: 1
+  }, token);
+  assert.equal(publishedRes.status, 200);
+  const productId = publishedRes.body.data.id;
+
+  const invalidUrlRes = await postJson('/api/admin/products', {
+    title: '错误链接商品',
+    buy_url: 'javascript:alert(1)'
+  }, token);
+  assert.equal(invalidUrlRes.status, 400);
+  assert.equal(invalidUrlRes.body.code, 'VALIDATION_ERROR');
+
+  const draftRes = await postJson('/api/admin/products', {
+    title: '隐藏商品',
+    status: 'draft',
+    sort_order: 2
+  }, token);
+  assert.equal(draftRes.status, 200);
+
+  const adminList = await getJson('/api/admin/products', token);
+  assert.equal(adminList.status, 200);
+  assert.ok(adminList.body.data.products.some((item) => item.id === productId));
+
+  const miniList = await getJson('/api/miniapp/products');
+  assert.equal(miniList.status, 200);
+  assert.equal(miniList.body.data.products.some((item) => item.id === productId), true);
+  assert.equal(miniList.body.data.products.some((item) => item.title === '隐藏商品'), false);
+
+  const detail = await getJson(`/api/miniapp/products/${productId}`);
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.data.buy_type, 'copy_link');
+  assert.equal(detail.body.data.buy_url, 'https://ktt.example.com/buy/1');
+});
+
+test('miniapp upload and record flow should require bound phone and reject duplicate activation', async () => {
+  const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const adminToken = adminLogin.body.data.token;
+  const genRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'MQR',
+    count: 1
+  }, adminToken);
+  assert.equal(genRes.status, 200);
+  const accessToken = genRes.body.data.records[0].qr_access_token;
+
+  const loginToken = await loginMiniappAndGetToken('mini-record-unbound');
+  const unboundRecord = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
+    content: 'unbound',
+    image_object_key: 'demo.jpg'
+  }, loginToken);
+  assert.equal(unboundRecord.status, 403);
+  assert.equal(unboundRecord.body.code, 'PHONE_NOT_BOUND');
+
+  const token = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-record-bound',
+    phone: '13877770001'
+  });
+  const imageData = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+    'base64'
+  );
+  const uploadRes = await postMultipart('/api/miniapp/upload', {
+    fields: { qr_id: 'MQR00001' },
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'mini.png',
+        contentType: 'image/png',
+        content: imageData
+      }
+    ]
+  }, token);
+  assert.equal(uploadRes.status, 200);
+  assert.ok(uploadRes.body.data.object_key);
+
+  const recordRes = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
+    content: '小程序记录',
+    image_url: uploadRes.body.data.url,
+    image_object_key: uploadRes.body.data.object_key
+  }, token);
+  assert.equal(recordRes.status, 200);
+  assert.equal(recordRes.body.data.activation_status, 'activated');
+
+  const duplicateRes = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
+    content: '重复记录',
+    image_object_key: uploadRes.body.data.object_key
+  }, token);
+  assert.equal(duplicateRes.status, 409);
+  assert.equal(duplicateRes.body.code, 'QR_ALREADY_ACTIVATED');
+
+  const recordsRes = await getJson('/api/miniapp/user/records', token);
+  assert.equal(recordsRes.status, 200);
+  assert.equal(recordsRes.body.data.records.some((item) => item.id === 'MQR00001'), true);
+});
+
+test('miniapp content safety mock should reject unsafe text and image', async () => {
+  const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const adminToken = adminLogin.body.data.token;
+  const genRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'MSF',
+    count: 1
+  }, adminToken);
+  assert.equal(genRes.status, 200);
+  const accessToken = genRes.body.data.records[0].qr_access_token;
+  const token = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-safety',
+    phone: '13877770002'
+  });
+
+  const rejectText = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
+    content: 'mock-reject',
+    image_object_key: 'demo.jpg'
+  }, token);
+  assert.equal(rejectText.status, 400);
+  assert.equal(rejectText.body.code, 'CONTENT_REJECTED');
+
+  const rejectImage = await postMultipart('/api/miniapp/upload', {
+    fields: { qr_id: 'MSF00001' },
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'mock-reject.png',
+        contentType: 'image/png',
+        content: Buffer.from('not-real-but-image-mimetype')
+      }
+    ]
+  }, token);
+  assert.equal(rejectImage.status, 400);
+  assert.equal(rejectImage.body.code, 'IMAGE_REJECTED');
+});
+
+test('miniapp co-creation flow should collect comments and finalize', async () => {
+  const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const adminToken = adminLogin.body.data.token;
+  const genRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'MCO',
+    count: 1
+  }, adminToken);
+  assert.equal(genRes.status, 200);
+  const accessToken = genRes.body.data.records[0].qr_access_token;
+
+  const ownerToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-owner',
+    phone: '13877770003'
+  });
+  const startRes = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
+    mode: 'co_create',
+    content: '主留言',
+    image_object_key: 'owner.jpg'
+  }, ownerToken);
+  assert.equal(startRes.status, 200);
+  assert.equal(startRes.body.data.activation_status, 'co_creating');
+  assert.equal(startRes.body.data.is_co_creation_owner, true);
+
+  const participantToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-participant',
+    phone: '13877770004'
+  });
+  const commentRes = await postJson(`/api/miniapp/qr/${accessToken}/comments`, {
+    author_name: '朋友',
+    content: '一起见证'
+  }, participantToken);
+  assert.equal(commentRes.status, 200);
+
+  const duplicateCommentRes = await postJson(`/api/miniapp/qr/${accessToken}/comments`, {
+    author_name: '朋友',
+    content: '第二次'
+  }, participantToken);
+  assert.equal(duplicateCommentRes.status, 409);
+
+  const forbiddenFinalize = await postJson(`/api/miniapp/qr/${accessToken}/finalize`, {}, participantToken);
+  assert.equal(forbiddenFinalize.status, 403);
+
+  const finalizeRes = await postJson(`/api/miniapp/qr/${accessToken}/finalize`, {}, ownerToken);
+  assert.equal(finalizeRes.status, 200);
+  assert.equal(finalizeRes.body.data.activation_status, 'activated');
+  assert.ok(finalizeRes.body.data.blockchain_hash);
 });
 
 

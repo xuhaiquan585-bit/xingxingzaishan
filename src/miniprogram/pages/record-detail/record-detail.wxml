@@ -1,0 +1,19 @@
+<view class="page">
+  <view class="hero-title">记录详情</view>
+  <view class="subtitle">记在星上，闪到永远</view>
+
+  <view wx:if="{{record}}" class="card">
+    <image class="cover detail-image" mode="aspectFill" src="{{record.image_url}}" />
+    <view class="memory-content">{{record.display_content}}</view>
+    <view class="meta">保存时间：{{record.activated_at}}</view>
+    <view class="meta">二维码编号：{{record.id}}</view>
+    <view class="hash">{{record.blockchain_hash}}</view>
+
+    <view wx:if="{{record.has_comments}}" class="list-title">共创留言</view>
+    <block wx:for="{{record.co_creation_comments}}" wx:key="id">
+      <view class="comment-item">{{item.author_name}}：{{item.content}}</view>
+    </block>
+  </view>
+
+  <view class="meta">{{message}}</view>
+</view>

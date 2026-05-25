@@ -14,7 +14,11 @@ const {
   listOperators,
   createOperator,
   setOperatorEnabled,
-  changeOperatorPassword
+  changeOperatorPassword,
+  createProduct,
+  updateProduct,
+  listProducts,
+  getProduct
 } = require('../services/dbService');
 const { generateToken, verifyToken } = require('../services/authService');
 
@@ -296,6 +300,73 @@ router.get('/batches/:batchId/export', requireAdmin, (req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
   return res.send(`\uFEFF${result.data}`);
+});
+
+router.get('/products', requireAdmin, (_req, res) => {
+  const products = listProducts({ publicOnly: false });
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: {
+      total: products.length,
+      products
+    }
+  });
+});
+
+router.post('/products', requireAdmin, (req, res) => {
+  const result = createProduct(req.body);
+  if (result.error === 'VALIDATION_ERROR') {
+    return res.status(400).json({
+      status: 'error',
+      code: 'VALIDATION_ERROR',
+      message: result.message || '商品信息不完整。'
+    });
+  }
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: result.data
+  });
+});
+
+router.get('/products/:productId', requireAdmin, (req, res) => {
+  const product = getProduct(req.params.productId, { publicOnly: false });
+  if (!product) {
+    return res.status(404).json({
+      status: 'error',
+      code: 'PRODUCT_NOT_FOUND',
+      message: '未找到该商品。'
+    });
+  }
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: product
+  });
+});
+
+router.post('/products/:productId', requireAdmin, (req, res) => {
+  const result = updateProduct(req.params.productId, req.body);
+  if (result.error === 'PRODUCT_NOT_FOUND') {
+    return res.status(404).json({
+      status: 'error',
+      code: 'PRODUCT_NOT_FOUND',
+      message: '未找到该商品。'
+    });
+  }
+  if (result.error === 'VALIDATION_ERROR') {
+    return res.status(400).json({
+      status: 'error',
+      code: 'VALIDATION_ERROR',
+      message: result.message || '商品信息不完整。'
+    });
+  }
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: result.data
+  });
 });
 
 router.post('/qr/generate', requireAdmin, async (req, res) => {

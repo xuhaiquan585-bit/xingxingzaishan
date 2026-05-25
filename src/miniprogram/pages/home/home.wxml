@@ -1,0 +1,12 @@
+<view class="page">
+  <view class="hero-title">记在星上</view>
+  <view class="subtitle">一瓶酒，一张照片，一句话。下次扫码，还能看到这一刻。</view>
+
+  <view class="card">
+    <view class="list-title">星星在闪</view>
+    <view class="hint">把值得记住的时刻，存在这瓶酒里。适合成年礼、婚礼、生日、纪念日和送礼。</view>
+    <button class="btn" bindtap="scanCode">扫码记录</button>
+    <button class="btn secondary" bindtap="goProducts">查看商品</button>
+    <button class="btn secondary" bindtap="goMe">我的记录</button>
+  </view>
+</view>

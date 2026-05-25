@@ -1,0 +1,10 @@
+.preview {
+  height: 420rpx;
+  margin-top: 20rpx;
+}
+
+.mode-row {
+  display: block;
+  margin: 20rpx 0;
+  color: #fff;
+}

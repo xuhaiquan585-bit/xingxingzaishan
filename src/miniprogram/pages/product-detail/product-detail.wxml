@@ -1,0 +1,19 @@
+<view class="page">
+  <block wx:if="{{product}}">
+    <image wx:if="{{product.cover_image}}" class="cover hero-cover" mode="aspectFill" src="{{product.cover_image}}" />
+    <view class="hero-title">{{product.title}}</view>
+    <view class="subtitle">{{product.subtitle}}</view>
+
+    <view class="card">
+      <view class="price">{{product.price_text}}</view>
+      <view class="hint">{{product.description}}</view>
+      <block wx:for="{{product.images}}" wx:key="*this">
+        <image class="cover detail-image" mode="widthFix" src="{{item}}" />
+      </block>
+      <button class="btn" bindtap="copyBuyLink">去快团团购买</button>
+      <view class="meta">点击后复制购买链接，请在微信中打开。</view>
+    </view>
+  </block>
+
+  <view class="meta">{{message}}</view>
+</view>

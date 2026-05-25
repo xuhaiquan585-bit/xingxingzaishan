@@ -1,0 +1,21 @@
+{
+  "pages": [
+    "pages/home/home",
+    "pages/bind-phone/bind-phone",
+    "pages/products/products",
+    "pages/product-detail/product-detail",
+    "pages/record/record",
+    "pages/co-create/co-create",
+    "pages/result/result",
+    "pages/me/me",
+    "pages/record-detail/record-detail"
+  ],
+  "window": {
+    "navigationBarTitleText": "记在星上",
+    "navigationBarBackgroundColor": "#101c4d",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#101c4d"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

@@ -1,0 +1,11 @@
+.product-card .cover {
+  height: 360rpx;
+  margin-bottom: 20rpx;
+}
+
+.price {
+  margin-top: 12rpx;
+  color: #ffd166;
+  font-size: 30rpx;
+  font-weight: 700;
+}

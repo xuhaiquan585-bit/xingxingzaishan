@@ -1,0 +1,19 @@
+.result-image {
+  height: 460rpx;
+  margin-bottom: 20rpx;
+}
+
+.memory-content {
+  color: #fff;
+  font-size: 32rpx;
+  line-height: 1.7;
+}
+
+.hash,
+.comment-item {
+  margin-top: 16rpx;
+  padding: 18rpx;
+  border-radius: 14rpx;
+  background: rgba(0, 0, 0, .18);
+  word-break: break-all;
+}

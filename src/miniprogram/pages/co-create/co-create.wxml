@@ -1,0 +1,28 @@
+<view class="page">
+  <view class="hero-title">这瓶酒正在共创中</view>
+  <view class="subtitle">邀请朋友扫码，为这瓶酒留下一句话。</view>
+
+  <view wx:if="{{qr}}" class="card">
+    <image class="cover memory-image" mode="aspectFill" src="{{qr.image_url}}" />
+    <view class="memory-content">{{qr.display_content}}</view>
+    <button wx:if="{{qr.is_co_creation_owner}}" class="btn" open-type="share">分享给朋友</button>
+    <button wx:if="{{qr.is_co_creation_owner}}" class="btn secondary" bindtap="finalize">确认封存</button>
+
+    <view wx:if="{{canComment}}" class="comment-box">
+      <input class="input" maxlength="20" placeholder="姓名或身份" value="{{authorName}}" bindinput="onAuthorInput" />
+      <textarea class="textarea" maxlength="50" placeholder="写一句 50 字以内的话" value="{{commentContent}}" bindinput="onCommentInput" />
+      <button class="btn" bindtap="submitComment">提交留言</button>
+    </view>
+
+    <view class="list-title">共创留言</view>
+    <block wx:for="{{qr.co_creation_comments}}" wx:key="id">
+      <view class="comment-item">
+        <view class="comment-head">{{item.author_name}} · {{item.created_at}}</view>
+        <view>{{item.content}}</view>
+        <button wx:if="{{qr.is_co_creation_owner}}" class="btn secondary small" data-id="{{item.id}}" bindtap="deleteComment">删除</button>
+      </view>
+    </block>
+  </view>
+
+  <view class="meta">{{message}}</view>
+</view>

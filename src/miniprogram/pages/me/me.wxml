@@ -1,0 +1,15 @@
+<view class="page">
+  <view class="hero-title">我的记录</view>
+  <view class="subtitle">你保存过的酒瓶记录，会出现在这里。</view>
+
+  <block wx:for="{{records}}" wx:key="id">
+    <view class="card record-card" data-id="{{item.id}}" bindtap="openRecord">
+      <image wx:if="{{item.image_url}}" class="cover" mode="aspectFill" src="{{item.image_url}}" />
+      <view class="list-title">{{item.display_content}}</view>
+      <view class="meta">二维码编号：{{item.id}}</view>
+      <view class="meta">状态：{{item.status_label}}</view>
+    </view>
+  </block>
+
+  <view class="meta">{{message}}</view>
+</view>

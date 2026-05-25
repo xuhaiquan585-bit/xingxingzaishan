@@ -8,6 +8,7 @@ const uploadRoutes = require('./routes/upload');
 const adminRoutes = require('./routes/admin');
 const qcRoutes = require('./routes/qc');
 const nftRoutes = require('./routes/nft');
+const miniappRoutes = require('./routes/miniapp');
 const { createRateLimiter } = require('./middlewares/rateLimit');
 const { auditLogger } = require('./middlewares/auditLogger');
 const { attachUserSession } = require('./middlewares/userSession');
@@ -107,8 +108,12 @@ function createApp() {
   app.use('/api/user/sms/send-code', loginRateLimiter);
   app.use('/api/user/sms/verify-code', loginRateLimiter);
   app.use('/api/admin/login', loginRateLimiter);
+  app.use('/api/miniapp/auth/login', loginRateLimiter);
+  app.use('/api/miniapp/auth/bind-phone', loginRateLimiter);
   app.use('/api/upload', writeRateLimiter);
   app.use('/api/qr', writeRateLimiter);
+  app.use('/api/miniapp/upload', writeRateLimiter);
+  app.use('/api/miniapp/qr', writeRateLimiter);
 
   app.use('/api/user', userRoutes);
   app.use('/api/qr', qrRoutes);
@@ -116,6 +121,7 @@ function createApp() {
   app.use('/api/admin', adminRoutes);
   app.use('/api/qc', qcRoutes);
   app.use('/api/nft', nftRoutes);
+  app.use('/api/miniapp', miniappRoutes);
 
   app.use((err, _req, res, _next) => {
     if (err.message === '仅支持图片文件上传') {

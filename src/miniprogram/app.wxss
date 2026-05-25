@@ -1,0 +1,94 @@
+page {
+  min-height: 100%;
+  background: linear-gradient(160deg, #0f1c4d, #2c376d);
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+
+.page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 40rpx 28rpx 72rpx;
+}
+
+.hero-title {
+  margin: 0 0 12rpx;
+  color: #ffe39b;
+  font-size: 48rpx;
+  font-weight: 700;
+}
+
+.subtitle {
+  margin: 0 0 28rpx;
+  color: rgba(255, 255, 255, .86);
+  font-size: 28rpx;
+  line-height: 1.7;
+}
+
+.card {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0 0 24rpx;
+  padding: 28rpx;
+  border: 1rpx solid rgba(255, 255, 255, .18);
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, .1);
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 88rpx;
+  margin: 20rpx 0 0;
+  border-radius: 999rpx;
+  background: #ffd166;
+  color: #141414;
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.btn.secondary {
+  border: 1rpx solid rgba(255, 255, 255, .28);
+  background: rgba(255, 255, 255, .1);
+  color: #fff;
+}
+
+.input,
+.textarea {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 12rpx 0 20rpx;
+  padding: 22rpx;
+  border: 1rpx solid rgba(255, 255, 255, .18);
+  border-radius: 16rpx;
+  background: rgba(5, 10, 34, .32);
+  color: #fff;
+}
+
+.textarea {
+  min-height: 180rpx;
+}
+
+.hint,
+.meta {
+  color: rgba(255, 255, 255, .68);
+  font-size: 24rpx;
+  line-height: 1.7;
+}
+
+.cover {
+  width: 100%;
+  border-radius: 18rpx;
+  background: rgba(0, 0, 0, .2);
+}
+
+.list-title {
+  color: #ffe39b;
+  font-size: 32rpx;
+  font-weight: 700;
+}
+
+.hidden {
+  display: none;
+}

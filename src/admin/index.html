@@ -96,6 +96,43 @@
         </table>
       </section>
 
+      <section id="productPanel" class="card hidden">
+        <h2>商品管理（小程序展示）</h2>
+        <div class="toolbar multi-line">
+          <input id="productTitle" placeholder="商品名称（必填）" />
+          <input id="productSubtitle" placeholder="副标题（选填）" />
+          <input id="productCover" placeholder="封面图 URL（选填）" />
+          <input id="productPrice" placeholder="价格文案（如 ¥399/礼盒装）" />
+          <input id="productBuyUrl" placeholder="快团团购买链接（复制链接）" />
+          <input id="productSort" type="number" value="0" placeholder="排序（数字越小越靠前）" />
+          <select id="productStatus">
+            <option value="draft">草稿</option>
+            <option value="published">上架</option>
+            <option value="hidden">隐藏</option>
+          </select>
+          <textarea id="productImages" placeholder="商品多图 URL，每行一个"></textarea>
+          <textarea id="productDescription" placeholder="商品说明"></textarea>
+          <button id="saveProductBtn">新增商品</button>
+          <button id="cancelProductEditBtn" class="hidden">取消编辑</button>
+          <button id="refreshProductBtn">刷新商品</button>
+        </div>
+        <p id="productMsg" class="msg"></p>
+        <table>
+          <thead>
+            <tr>
+              <th>排序</th>
+              <th>名称</th>
+              <th>价格</th>
+              <th>状态</th>
+              <th>快团团链接</th>
+              <th>更新时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="productTable"></tbody>
+        </table>
+      </section>
+
       <section id="recordsPanel" class="card hidden">
         <div class="toolbar multi-line">
           <select id="batchFilter">
