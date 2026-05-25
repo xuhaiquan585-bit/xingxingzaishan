@@ -20,9 +20,11 @@ body {
   background: linear-gradient(160deg, #0f1c4d, #2c376d);
   color: var(--text-main);
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 .container {
+  width: 100%;
   max-width: 520px;
   margin: 0 auto;
   padding: 24px 16px 40px;
@@ -56,13 +58,20 @@ body {
 
 h1 { margin-bottom: 8px; }
 .subtitle { opacity: .9; margin-bottom: 20px; }
-.qr-id-hint { margin: 0 0 12px; font-size: 13px; opacity: .7; }
+.qr-id-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  opacity: .7;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
 .card {
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
   border-radius: 12px;
   padding: 16px;
   backdrop-filter: blur(4px);
+  min-width: 0;
 }
 label { display:block; margin: 10px 0 6px; }
 .field-hint {
@@ -91,6 +100,7 @@ textarea::placeholder {
   color: rgba(255,255,255,0.58);
 }
 .sms-row {
+  display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
   gap: 8px;
@@ -167,7 +177,7 @@ textarea { min-height: 100px; resize: vertical; }
   width: 100%;
   margin-top: 14px;
   padding: 0 24px;
-  height: 40px;
+  min-height: 40px;
   border: 0;
   background: #ffd166;
   color: #1a1a1a;
@@ -178,6 +188,8 @@ textarea { min-height: 100px; resize: vertical; }
   align-items: center;
   justify-content: center;
   text-align: center;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
   cursor: pointer;
   transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
 }
@@ -383,14 +395,17 @@ textarea { min-height: 100px; resize: vertical; }
   gap: 8px;
   font-size: 12px;
   opacity: .78;
+  min-width: 0;
 }
 .comment-head strong {
   color: #ffe39b;
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 .comment-item p {
   margin: 8px 0 0;
   line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 .comment-delete {
   margin-top: 8px;
@@ -685,6 +700,7 @@ textarea { min-height: 100px; resize: vertical; }
   color: #fff;
   font-family: var(--font-serif);
   font-size: 17px;
+  overflow-wrap: anywhere;
 }
 .detail-card {
   padding: 0;
@@ -780,8 +796,44 @@ textarea { min-height: 100px; resize: vertical; }
 .landing-item p {
   margin: 0;
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 .landing-contact-copy {
   margin: 0 0 10px;
   color: #ffe9b2;
+}
+
+@media (max-width: 380px) {
+  .container {
+    padding: 20px 12px 32px;
+  }
+
+  .card {
+    padding: 14px 12px;
+  }
+
+  .page-intro h1,
+  .auth-intro h1,
+  .result-success-title {
+    font-size: 20px;
+  }
+
+  .sms-row {
+    grid-template-columns: minmax(0, 1fr) 112px;
+  }
+
+  .sms-row .btn.sms-btn {
+    width: 112px;
+    min-width: 112px;
+    padding: 0 6px;
+    font-size: 13px;
+  }
+
+  .btn {
+    padding: 0 16px;
+  }
+
+  .checkbox-row {
+    align-items: flex-start;
+  }
 }

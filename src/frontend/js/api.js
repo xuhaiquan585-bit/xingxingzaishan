@@ -5,6 +5,7 @@
 /* 错误码 → 中文提示映射（后端未返回友好 message 时使用） */
 const ERROR_MESSAGES = {
   NETWORK_ERROR: '网络连接失败，请检查网络后重试',
+  REQUEST_TIMEOUT: '请求超时，请检查网络后重试',
   SERVER_ERROR: '服务器暂时繁忙，请稍后再试',
   UPLOAD_FAILED: '上传失败，请换张图片试试',
   OSS_UPLOAD_FAILED: '云存储暂时不可用，请稍后重试',
@@ -22,10 +23,38 @@ const ERROR_MESSAGES = {
   UPLOAD_SIZE_EXCEEDED: '图片过大，请选择 5MB 以内的图片'
 };
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
+const UPLOAD_REQUEST_TIMEOUT_MS = 60000;
+
+function getRequestTimeout(url, options) {
+  if (Number.isFinite(options.timeoutMs)) {
+    return options.timeoutMs;
+  }
+  const method = (options.method || 'GET').toUpperCase();
+  if (url === '/api/upload' || method !== 'GET') {
+    return UPLOAD_REQUEST_TIMEOUT_MS;
+  }
+  return DEFAULT_REQUEST_TIMEOUT_MS;
+}
+
 async function apiRequest(url, options = {}) {
+  const timeoutMs = getRequestTimeout(url, options);
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  const { timeoutMs: _timeoutMs, signal: externalSignal, ...fetchOptions } = options;
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+  }
+
   const requestOptions = {
     credentials: 'include',
-    ...options
+    ...fetchOptions,
+    signal: controller.signal
   };
 
   let response;
@@ -33,9 +62,12 @@ async function apiRequest(url, options = {}) {
     response = await fetch(url, requestOptions);
   } catch (_networkError) {
     // fetch 本身抛异常：网络断开、DNS 失败、超时等
-    const error = new Error(ERROR_MESSAGES.NETWORK_ERROR);
-    error.code = 'NETWORK_ERROR';
+    const isTimeout = controller.signal.aborted && !(externalSignal && externalSignal.aborted);
+    const error = new Error(isTimeout ? ERROR_MESSAGES.REQUEST_TIMEOUT : ERROR_MESSAGES.NETWORK_ERROR);
+    error.code = isTimeout ? 'REQUEST_TIMEOUT' : 'NETWORK_ERROR';
     throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 
   let json;

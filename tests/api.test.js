@@ -396,6 +396,28 @@ test('frontend me-detail.js should read brand_name from record detail payload', 
   assert.equal(content.includes('record.batch_brand_name ||'), false);
 });
 
+test('frontend api.js should abort stalled requests with a timeout message', () => {
+  const apiJsPath = path.join(__dirname, '..', 'src', 'frontend', 'js', 'api.js');
+  const content = fs.readFileSync(apiJsPath, 'utf8');
+
+  assert.equal(content.includes('new AbortController()'), true);
+  assert.equal(content.includes('REQUEST_TIMEOUT'), true);
+  assert.equal(content.includes('signal: controller.signal'), true);
+});
+
+test('admin and qc pages should use timeout-protected fetch wrappers', () => {
+  const adminJsPath = path.join(__dirname, '..', 'src', 'admin', 'js', 'admin.js');
+  const qcJsPath = path.join(__dirname, '..', 'src', 'qc', 'js', 'qc.js');
+  const adminContent = fs.readFileSync(adminJsPath, 'utf8');
+  const qcContent = fs.readFileSync(qcJsPath, 'utf8');
+
+  assert.equal(adminContent.includes('async function fetchWithTimeout'), true);
+  assert.equal(adminContent.includes('请求超时，请检查网络后重试'), true);
+  assert.equal(adminContent.includes('timeoutMs: EXPORT_TIMEOUT_MS'), true);
+  assert.equal(qcContent.includes('async function fetchWithTimeout'), true);
+  assert.equal(qcContent.includes('请求超时，请检查网络后重试'), true);
+});
+
 test('POST /api/user/logout should clear cookie with same SameSite policy as session cookie', async () => {
   const oldSameSite = process.env.USER_SESSION_SAMESITE;
   process.env.USER_SESSION_SAMESITE = 'None';

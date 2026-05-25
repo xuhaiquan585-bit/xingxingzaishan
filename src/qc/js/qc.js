@@ -5,6 +5,7 @@ const checkMsg = document.getElementById('checkMsg');
 const logBody = document.getElementById('logBody');
 
 let qcToken = localStorage.getItem('qcToken') || '';
+const REQUEST_TIMEOUT_MS = 15000;
 
 function authHeaders() {
   return {
@@ -13,12 +14,49 @@ function authHeaders() {
 }
 
 async function request(url, options = {}) {
-  const response = await fetch(url, options);
-  const json = await response.json();
+  const response = await fetchWithTimeout(url, options);
+  const json = await parseJsonResponse(response);
   if (!response.ok || json.status !== 'success') {
-    throw new Error(json.message || '请求失败');
+    throw new Error(json.message || '请求失败，请稍后重试');
   }
   return json.data;
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  const timeoutMs = options.timeoutMs || REQUEST_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  const { timeoutMs: _timeoutMs, signal: externalSignal, ...fetchOptions } = options;
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+  }
+
+  try {
+    return await fetch(url, {
+      ...fetchOptions,
+      signal: controller.signal
+    });
+  } catch (_error) {
+    if (controller.signal.aborted && !(externalSignal && externalSignal.aborted)) {
+      throw new Error('请求超时，请检查网络后重试');
+    }
+    throw new Error('网络连接失败，请检查网络后重试');
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function parseJsonResponse(response) {
+  try {
+    return await response.json();
+  } catch (_error) {
+    throw new Error('服务器暂时繁忙，请稍后再试');
+  }
 }
 
 function showQCPanel() {

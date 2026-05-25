@@ -16,6 +16,8 @@ let adminToken = localStorage.getItem('adminToken') || '';
 let currentRecords = [];
 let batchList = [];
 const selectedIds = new Set();
+const REQUEST_TIMEOUT_MS = 15000;
+const EXPORT_TIMEOUT_MS = 60000;
 
 function authHeaders() {
   return {
@@ -24,12 +26,49 @@ function authHeaders() {
 }
 
 async function request(url, options = {}) {
-  const response = await fetch(url, options);
-  const json = await response.json();
+  const response = await fetchWithTimeout(url, options);
+  const json = await parseJsonResponse(response);
   if (!response.ok || json.status !== 'success') {
-    throw new Error(json.message || '请求失败');
+    throw new Error(json.message || '请求失败，请稍后重试');
   }
   return json.data;
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  const timeoutMs = options.timeoutMs || REQUEST_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  const { timeoutMs: _timeoutMs, signal: externalSignal, ...fetchOptions } = options;
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+  }
+
+  try {
+    return await fetch(url, {
+      ...fetchOptions,
+      signal: controller.signal
+    });
+  } catch (_error) {
+    if (controller.signal.aborted && !(externalSignal && externalSignal.aborted)) {
+      throw new Error('请求超时，请检查网络后重试');
+    }
+    throw new Error('网络连接失败，请检查网络后重试');
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function parseJsonResponse(response) {
+  try {
+    return await response.json();
+  } catch (_error) {
+    throw new Error('服务器暂时繁忙，请稍后再试');
+  }
 }
 
 function showPanelsAfterLogin() {
@@ -358,17 +397,18 @@ async function batchExport() {
     return;
   }
 
-  const response = await fetch('/api/admin/records/export', {
+  const response = await fetchWithTimeout('/api/admin/records/export', {
     method: 'POST',
     headers: {
       ...authHeaders(),
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ ids: [...selectedIds] })
+    body: JSON.stringify({ ids: [...selectedIds] }),
+    timeoutMs: EXPORT_TIMEOUT_MS
   });
 
   if (!response.ok) {
-    const data = await response.json();
+    const data = await parseJsonResponse(response);
     throw new Error(data.message || '导出失败');
   }
 
@@ -376,12 +416,13 @@ async function batchExport() {
 }
 
 async function exportBatch(batchId) {
-  const response = await fetch(`/api/admin/batches/${encodeURIComponent(batchId)}/export`, {
-    headers: authHeaders()
+  const response = await fetchWithTimeout(`/api/admin/batches/${encodeURIComponent(batchId)}/export`, {
+    headers: authHeaders(),
+    timeoutMs: EXPORT_TIMEOUT_MS
   });
 
   if (!response.ok) {
-    const data = await response.json();
+    const data = await parseJsonResponse(response);
     throw new Error(data.message || '批次导出失败');
   }
 
