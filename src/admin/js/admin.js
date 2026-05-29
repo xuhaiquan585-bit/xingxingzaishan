@@ -1,14 +1,16 @@
 const loginPanel = document.getElementById('loginPanel');
-const dashboardPanel = document.getElementById('dashboardPanel');
-const batchPanel = document.getElementById('batchPanel');
-const recordsPanel = document.getElementById('recordsPanel');
-const operatorPanel = document.getElementById('operatorPanel');
-const productPanel = document.getElementById('productPanel');
+const adminShell = document.getElementById('adminShell');
+const navItems = Array.from(document.querySelectorAll('[data-admin-section]'));
+const adminPanels = Array.from(document.querySelectorAll('[data-admin-panel]'));
 const loginMsg = document.getElementById('loginMsg');
 const batchMsg = document.getElementById('batchMsg');
 const opMsg = document.getElementById('opMsg');
 const productMsg = document.getElementById('productMsg');
+const recordMsg = document.getElementById('recordMsg');
+const miniappContentMsg = document.getElementById('miniappContentMsg');
+const systemMsg = document.getElementById('systemMsg');
 const tableBody = document.getElementById('recordTable');
+const contentRecordTableBody = document.getElementById('contentRecordTable');
 const batchTableBody = document.getElementById('batchTable');
 const operatorTableBody = document.getElementById('operatorTable');
 const productTableBody = document.getElementById('productTable');
@@ -16,6 +18,7 @@ const selectedCount = document.getElementById('selectedCount');
 const selectAll = document.getElementById('selectAll');
 
 let adminToken = localStorage.getItem('adminToken') || '';
+let activeSection = localStorage.getItem('adminActiveSection') || 'dashboard';
 let currentRecords = [];
 let batchList = [];
 let productList = [];
@@ -76,15 +79,6 @@ async function parseJsonResponse(response) {
   }
 }
 
-function showPanelsAfterLogin() {
-  loginPanel.classList.add('hidden');
-  dashboardPanel.classList.remove('hidden');
-  batchPanel.classList.remove('hidden');
-  recordsPanel.classList.remove('hidden');
-  operatorPanel.classList.remove('hidden');
-  productPanel.classList.remove('hidden');
-}
-
 function escapeHtml(value) {
   return String(value || '')
     .replace(/&/g, '&amp;')
@@ -92,6 +86,77 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+function showPanelsAfterLogin() {
+  loginPanel.classList.add('hidden');
+  adminShell.classList.remove('hidden');
+  activateAdminSection(activeSection);
+}
+
+function activateAdminSection(section) {
+  activeSection = section || 'dashboard';
+  localStorage.setItem('adminActiveSection', activeSection);
+  navItems.forEach((item) => {
+    item.classList.toggle('active', item.dataset.adminSection === activeSection);
+  });
+  adminPanels.forEach((panel) => {
+    panel.classList.toggle('hidden', panel.dataset.adminPanel !== activeSection);
+  });
+  loadActiveSection().catch((error) => {
+    if (error.message === '请先登录后台账号。') {
+      localStorage.removeItem('adminToken');
+      location.reload();
+      return;
+    }
+    const targetMsg = {
+      dashboard: loginMsg,
+      bottles: batchMsg,
+      records: recordMsg,
+      miniappContent: miniappContentMsg,
+      products: productMsg,
+      operators: opMsg,
+      settings: systemMsg
+    }[activeSection];
+    if (targetMsg) targetMsg.textContent = error.message || '加载失败';
+  });
+}
+
+async function loadActiveSection() {
+  if (activeSection === 'dashboard') {
+    await loadDashboard();
+    return;
+  }
+  if (activeSection === 'bottles') {
+    await loadBatches();
+    await loadRecords();
+    return;
+  }
+  if (activeSection === 'records') {
+    if (batchList.length === 0) await loadBatches();
+    await loadContentRecords();
+    return;
+  }
+  if (activeSection === 'miniappContent') {
+    await loadMiniappContent();
+    return;
+  }
+  if (activeSection === 'products') {
+    await loadProducts();
+    return;
+  }
+  if (activeSection === 'operators') {
+    await loadOperators();
+    return;
+  }
+  if (activeSection === 'settings') {
+    await loadSystemStatus();
+  }
 }
 
 function updateSelectedUI() {
@@ -119,38 +184,37 @@ function formatActivationStatus(status) {
   const map = {
     activated: '已记录',
     co_creating: '共创中',
-    unactivated: '待记录'
+    unactivated: '待记录',
+    content: '有内容记录'
   };
   return map[status] || status || '-';
 }
 
+function formatConfigured(value) {
+  return value ? '已配置' : '未配置';
+}
+
 function renderBatchOptions() {
-  const options = ['<option value="">批次（全部）</option>']
-    .concat(batchList.map((batch) => `<option value="${batch.id}">${batch.name} (${batch.id})</option>`))
+  const batchOptions = batchList
+    .map((batch) => `<option value="${escapeHtml(batch.id)}">${escapeHtml(batch.name)} (${escapeHtml(batch.id)})</option>`)
     .join('');
-  document.getElementById('batchFilter').innerHTML = options;
 
-  const assignOptions = ['<option value="">选择批次后可绑定</option>']
-    .concat(batchList.map((batch) => `<option value="${batch.id}">${batch.name} (${batch.id})</option>`))
-    .join('');
-  document.getElementById('assignBatchSelect').innerHTML = assignOptions;
-
-  const qrBatchOptions = ['<option value="">选择批次（选填）</option>']
-    .concat(batchList.map((batch) => `<option value="${batch.id}">${batch.name} (${batch.id})</option>`))
-    .join('');
-  document.getElementById('qrBatchSelect').innerHTML = qrBatchOptions;
+  document.getElementById('batchFilter').innerHTML = `<option value="">批次（全部）</option>${batchOptions}`;
+  document.getElementById('recordBatchFilter').innerHTML = `<option value="">批次（全部）</option>${batchOptions}`;
+  document.getElementById('assignBatchSelect').innerHTML = `<option value="">选择批次后可绑定</option>${batchOptions}`;
+  document.getElementById('qrBatchSelect').innerHTML = `<option value="">选择批次（选填）</option>${batchOptions}`;
 }
 
 function renderBatchRows() {
   batchTableBody.innerHTML = batchList
     .map((batch) => `<tr>
-      <td>${batch.id}</td>
-      <td>${batch.name}</td>
-      <td>${batch.brand_name || '-'}</td>
-      <td>${batch.note || '-'}</td>
-      <td>${batch.total_codes}</td>
-      <td>${batch.activation_rate}%</td>
-      <td><button data-batch-export="${batch.id}">导出批次CSV</button></td>
+      <td>${escapeHtml(batch.id)}</td>
+      <td>${escapeHtml(batch.name)}</td>
+      <td>${escapeHtml(batch.brand_name || '-')}</td>
+      <td>${escapeHtml(batch.note || '-')}</td>
+      <td>${Number(batch.total_codes || 0)}</td>
+      <td>${Number(batch.activation_rate || 0)}%</td>
+      <td><button data-batch-export="${escapeHtml(batch.id)}">导出批次CSV</button></td>
     </tr>`)
     .join('');
 }
@@ -180,7 +244,13 @@ async function createBatch() {
       ...authHeaders(),
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ name, brand_name: brandName, note, brand_disclosure_text: disclosureText, brand_disclosure_default: disclosureDefault })
+    body: JSON.stringify({
+      name,
+      brand_name: brandName,
+      note,
+      brand_disclosure_text: disclosureText,
+      brand_disclosure_default: disclosureDefault
+    })
   });
 
   batchMsg.textContent = '批次创建成功。';
@@ -226,21 +296,20 @@ async function generateQRCodes() {
   }
 }
 
-
 function renderOperators(operators) {
   operatorTableBody.innerHTML = operators
     .map((op) => {
       const action = op.enabled ? 'disable' : 'enable';
       const actionLabel = op.enabled ? '禁用' : '启用';
       return `<tr>
-        <td>${op.id}</td>
-        <td>${op.name || '-'}</td>
-        <td>${op.username}</td>
-        <td>${op.role}</td>
+        <td>${escapeHtml(op.id)}</td>
+        <td>${escapeHtml(op.name || '-')}</td>
+        <td>${escapeHtml(op.username)}</td>
+        <td>${escapeHtml(op.role)}</td>
         <td>${op.enabled ? '启用' : '禁用'}</td>
         <td>
-          <button data-op-id="${op.id}" data-op-action="${action}">${actionLabel}</button>
-          <button data-op-id="${op.id}" data-op-action="change-password">改密码</button>
+          <button data-op-id="${escapeHtml(op.id)}" data-op-action="${action}">${actionLabel}</button>
+          <button data-op-id="${escapeHtml(op.id)}" data-op-action="change-password">改密码</button>
         </td>
       </tr>`;
     })
@@ -291,7 +360,7 @@ function renderProducts(products) {
       <td>${escapeHtml(product.title)}<br /><small>${escapeHtml(product.subtitle || '')}</small></td>
       <td>${escapeHtml(product.price_text || '-')}</td>
       <td>${escapeHtml(product.status)}</td>
-      <td>${product.buy_url ? `<a href="${escapeHtml(product.buy_url)}" target="_blank">查看链接</a>` : '-'}</td>
+      <td>${product.buy_url ? `<a href="${escapeHtml(product.buy_url)}" target="_blank" rel="noreferrer">查看链接</a>` : '-'}</td>
       <td>${escapeHtml(product.updated_at || product.created_at || '-')}</td>
       <td><button data-product-edit="${escapeHtml(product.id)}">编辑</button></td>
     </tr>`)
@@ -385,10 +454,15 @@ async function loadDashboard() {
     headers: authHeaders()
   });
 
-  document.getElementById('totalIssued').textContent = data.total_issued;
-  document.getElementById('totalActivated').textContent = data.total_activated;
-  document.getElementById('pendingCount').textContent = data.circulating_pending;
-  document.getElementById('activationRate').textContent = `${data.period_activation_rate}%`;
+  setText('totalIssued', data.total_issued);
+  setText('totalActivated', data.total_activated);
+  setText('pendingCount', data.circulating_pending);
+  setText('coCreatingCount', data.total_co_creating);
+  setText('todayNewRecords', data.today_new_records);
+  setText('publishedProducts', data.published_products);
+  setText('hiddenRecords', data.hidden_records);
+  setText('qualityAbnormal', data.today_quality_abnormal);
+  setText('activationRate', `${data.period_activation_rate}%`);
 }
 
 function renderRows(records) {
@@ -399,17 +473,17 @@ function renderRows(records) {
       const actionFn = item.hidden ? 'show' : 'hide';
       const checked = selectedIds.has(item.id) ? 'checked' : '';
       return `<tr>
-        <td><input type="checkbox" data-row-id="${item.id}" ${checked} /></td>
-        <td>${item.id}</td>
-        <td>${item.qr_access_token ? `<a href="/api/qr/image/${item.qr_access_token}" target="_blank" download="${item.id}.png">查看</a>` : '-'}</td>
-        <td>${item.batch_id || '-'}</td>
-        <td>${getBatchNote(item.batch_id)}</td>
-        <td>${formatIssueStatus(item.issue_status)}</td>
-        <td>${formatActivationStatus(item.activation_status)}</td>
+        <td><input type="checkbox" data-row-id="${escapeHtml(item.id)}" ${checked} /></td>
+        <td>${escapeHtml(item.id)}</td>
+        <td>${item.qr_access_token ? `<a href="/api/qr/image/${escapeHtml(item.qr_access_token)}" target="_blank" download="${escapeHtml(item.id)}.png">查看</a>` : '-'}</td>
+        <td>${escapeHtml(item.batch_id || '-')}</td>
+        <td>${escapeHtml(getBatchNote(item.batch_id))}</td>
+        <td>${escapeHtml(formatIssueStatus(item.issue_status))}</td>
+        <td>${escapeHtml(formatActivationStatus(item.activation_status))}</td>
         <td>${item.hidden ? '隐藏' : '显示'}</td>
-        <td>${item.phone || '-'}</td>
-        <td>${item.activated_at || item.created_at}</td>
-        <td><button data-id="${item.id}" data-action="${actionFn}">${actionLabel}</button></td>
+        <td>${escapeHtml(item.phone || '-')}</td>
+        <td>${escapeHtml(item.activated_at || item.co_creation_started_at || item.created_at || '-')}</td>
+        <td><button data-id="${escapeHtml(item.id)}" data-action="${actionFn}">${actionLabel}</button></td>
       </tr>`;
     })
     .join('');
@@ -437,12 +511,67 @@ async function loadRecords() {
   renderRows(data.records || []);
 }
 
+function activeCommentCount(item) {
+  const comments = Array.isArray(item.co_creation_comments) ? item.co_creation_comments : [];
+  return comments.filter((comment) => comment.status !== 'deleted').length;
+}
+
+function renderContentRows(records) {
+  contentRecordTableBody.innerHTML = records
+    .map((item) => {
+      const actionLabel = item.hidden ? '显示' : '隐藏';
+      const actionFn = item.hidden ? 'show' : 'hide';
+      const image = item.image_url
+        ? `<img class="record-thumb" src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.id)}" />`
+        : '-';
+      const credential = item.blockchain_hash
+        ? `已生成<br /><small>${escapeHtml(String(item.blockchain_hash).slice(0, 16))}...</small>`
+        : '-';
+      return `<tr>
+        <td>${escapeHtml(item.id)}</td>
+        <td>${image}</td>
+        <td><div class="text-clip">${escapeHtml(item.content || '（未填写留言）')}</div></td>
+        <td>${escapeHtml(formatActivationStatus(item.activation_status))}</td>
+        <td>${activeCommentCount(item)}</td>
+        <td>${credential}</td>
+        <td>${item.hidden ? '隐藏' : '显示'}</td>
+        <td>${escapeHtml(item.phone || '-')}</td>
+        <td>${escapeHtml(item.activated_at || item.co_creation_started_at || item.created_at || '-')}</td>
+        <td><button data-record-id="${escapeHtml(item.id)}" data-record-action="${actionFn}">${actionLabel}</button></td>
+      </tr>`;
+    })
+    .join('');
+}
+
+async function loadContentRecords() {
+  const batchId = document.getElementById('recordBatchFilter').value;
+  const activationStatus = document.getElementById('recordActivationStatus').value;
+  const hiddenStatus = document.getElementById('recordHiddenStatus').value;
+  const idSearch = document.getElementById('recordIdSearch').value.trim();
+  const query = new URLSearchParams({ page: '1', limit: '50' });
+  if (batchId) query.set('batch_id', batchId);
+  if (activationStatus) query.set('activation_status', activationStatus);
+  if (hiddenStatus !== '') query.set('hidden', hiddenStatus);
+  if (idSearch) query.set('id_prefix', idSearch);
+
+  const data = await request(`/api/admin/records?${query.toString()}`, {
+    headers: authHeaders()
+  });
+
+  renderContentRows(data.records || []);
+  recordMsg.textContent = data.total ? `共 ${data.total} 条内容记录，当前显示 ${data.records.length} 条。` : '暂无内容记录。';
+}
+
 async function toggleHiddenStatus(qrId, action) {
   await request(`/api/admin/records/${encodeURIComponent(qrId)}/${action}`, {
     method: 'POST',
     headers: authHeaders()
   });
-  await loadRecords();
+  if (activeSection === 'records') {
+    await loadContentRecords();
+  } else {
+    await loadRecords();
+  }
 }
 
 async function batchUpdate(action) {
@@ -539,6 +668,67 @@ async function exportBatch(batchId) {
   await downloadFromResponse(response, `batch-${batchId}-${Date.now()}.csv`);
 }
 
+function fillMiniappContentForm(data) {
+  document.getElementById('contentHomeTitle').value = data.home_title || '';
+  document.getElementById('contentHomeSubtitle').value = data.home_subtitle || '';
+  document.getElementById('contentHomeBanner').value = data.home_banner_image || '';
+  document.getElementById('contentProjectTitle').value = data.project_title || '';
+  document.getElementById('contentProjectBody').value = data.project_body || '';
+  document.getElementById('contentBrandTitle').value = data.brand_story_title || '';
+  document.getElementById('contentBrandBody').value = data.brand_story_body || '';
+  document.getElementById('contentConsultLabel').value = data.consult_label || '';
+  document.getElementById('contentConsultUrl').value = data.consult_url || '';
+  document.getElementById('contentShareTitle').value = data.share_title || '';
+  document.getElementById('contentShareDescription').value = data.share_description || '';
+  document.getElementById('miniappContentUpdated').textContent = data.updated_at ? `上次更新：${data.updated_at}` : '';
+}
+
+function readMiniappContentForm() {
+  return {
+    home_title: document.getElementById('contentHomeTitle').value.trim(),
+    home_subtitle: document.getElementById('contentHomeSubtitle').value.trim(),
+    home_banner_image: document.getElementById('contentHomeBanner').value.trim(),
+    project_title: document.getElementById('contentProjectTitle').value.trim(),
+    project_body: document.getElementById('contentProjectBody').value.trim(),
+    brand_story_title: document.getElementById('contentBrandTitle').value.trim(),
+    brand_story_body: document.getElementById('contentBrandBody').value.trim(),
+    consult_label: document.getElementById('contentConsultLabel').value.trim(),
+    consult_url: document.getElementById('contentConsultUrl').value.trim(),
+    share_title: document.getElementById('contentShareTitle').value.trim(),
+    share_description: document.getElementById('contentShareDescription').value.trim()
+  };
+}
+
+async function loadMiniappContent() {
+  const data = await request('/api/admin/miniapp-content', { headers: authHeaders() });
+  fillMiniappContentForm(data);
+}
+
+async function saveMiniappContent() {
+  const data = await request('/api/admin/miniapp-content', {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(readMiniappContentForm())
+  });
+  fillMiniappContentForm(data);
+  miniappContentMsg.textContent = '小程序内容已保存。';
+}
+
+async function loadSystemStatus() {
+  const data = await request('/api/admin/system-status', { headers: authHeaders() });
+  setText('systemStorageMode', data.storage.mode);
+  setText('systemOssConfigured', formatConfigured(data.storage.configured));
+  setText('systemMiniappConfigured', formatConfigured(data.miniapp.configured));
+  setText('systemSafetyConfigured', `${formatConfigured(data.content_safety.configured)}（${data.content_safety.mode}）`);
+  setText('systemDomain', data.domain.base_url || data.domain.expected_domain);
+  setText('systemPrivacy', formatConfigured(data.agreements.privacy_url_configured));
+  setText('systemService', formatConfigured(data.agreements.service_url_configured));
+  systemMsg.textContent = '';
+}
+
 document.getElementById('loginBtn').addEventListener('click', async () => {
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value.trim();
@@ -553,14 +743,13 @@ document.getElementById('loginBtn').addEventListener('click', async () => {
     adminToken = data.token;
     localStorage.setItem('adminToken', adminToken);
     showPanelsAfterLogin();
-    await loadDashboard();
-    await loadBatches();
-    await loadRecords();
-    await loadOperators();
-    await loadProducts();
   } catch (error) {
     loginMsg.textContent = error.message || '登录失败';
   }
+});
+
+navItems.forEach((item) => {
+  item.addEventListener('click', () => activateAdminSection(item.dataset.adminSection));
 });
 
 document.getElementById('refreshBtn').addEventListener('click', loadDashboard);
@@ -577,10 +766,22 @@ document.getElementById('cancelProductEditBtn').addEventListener('click', () => 
   clearProductForm();
   productMsg.textContent = '';
 });
+document.getElementById('refreshMiniappContentBtn').addEventListener('click', () => loadMiniappContent().catch((e) => {
+  miniappContentMsg.textContent = e.message || '刷新失败';
+}));
+document.getElementById('saveMiniappContentBtn').addEventListener('click', () => saveMiniappContent().catch((e) => {
+  miniappContentMsg.textContent = e.message || '保存失败';
+}));
+document.getElementById('refreshSystemBtn').addEventListener('click', () => loadSystemStatus().catch((e) => {
+  systemMsg.textContent = e.message || '刷新失败';
+}));
 document.getElementById('filterBtn').addEventListener('click', async () => {
   selectedIds.clear();
   await loadRecords();
 });
+document.getElementById('recordFilterBtn').addEventListener('click', () => loadContentRecords().catch((e) => {
+  recordMsg.textContent = e.message || '加载失败';
+}));
 
 document.getElementById('assignBatchBtn').addEventListener('click', () => batchAssignToBatch().catch((e) => alert(e.message || '绑定失败')));
 document.getElementById('batchHideBtn').addEventListener('click', () => batchUpdate('hide'));
@@ -623,6 +824,12 @@ tableBody.addEventListener('click', async (event) => {
   await toggleHiddenStatus(btn.getAttribute('data-id'), btn.getAttribute('data-action'));
 });
 
+contentRecordTableBody.addEventListener('click', async (event) => {
+  const btn = event.target.closest('button[data-record-id]');
+  if (!btn) return;
+  await toggleHiddenStatus(btn.getAttribute('data-record-id'), btn.getAttribute('data-record-action'));
+});
+
 batchTableBody.addEventListener('click', async (event) => {
   const btn = event.target.closest('button[data-batch-export]');
   if (!btn) return;
@@ -632,7 +839,6 @@ batchTableBody.addEventListener('click', async (event) => {
     alert(error.message || '导出失败');
   }
 });
-
 
 operatorTableBody.addEventListener('click', async (event) => {
   const btn = event.target.closest('button[data-op-id]');
@@ -680,8 +886,4 @@ productTableBody.addEventListener('click', (event) => {
 
 if (adminToken) {
   showPanelsAfterLogin();
-  Promise.all([loadDashboard(), loadBatches(), loadRecords(), loadOperators(), loadProducts()]).catch(() => {
-    localStorage.removeItem('adminToken');
-    location.reload();
-  });
 }

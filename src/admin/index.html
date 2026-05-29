@@ -8,186 +8,337 @@
   </head>
   <body>
     <main class="container">
-      <h1>星星在闪 - 管理后台</h1>
+      <header class="page-header">
+        <div>
+          <h1>星星在闪 - 管理后台</h1>
+          <p>瓶码、内容、商品和运营数据的统一工作台</p>
+        </div>
+      </header>
 
-      <section id="loginPanel" class="card">
+      <section id="loginPanel" class="login-panel">
         <h2>管理员登录</h2>
-        <input id="username" placeholder="账号（默认：admin）" />
-        <input id="password" type="password" placeholder="密码（默认：admin123）" />
-        <button id="loginBtn">登录</button>
+        <div class="login-form">
+          <input id="username" placeholder="账号（默认：admin）" />
+          <input id="password" type="password" placeholder="密码（默认：admin123）" />
+          <button id="loginBtn">登录</button>
+        </div>
         <p id="loginMsg" class="msg"></p>
       </section>
 
-      <section id="dashboardPanel" class="card hidden">
-        <div class="toolbar">
-          <label>开始日期 <input id="dateFrom" type="date" /></label>
-          <label>结束日期 <input id="dateTo" type="date" /></label>
-          <button id="refreshBtn">刷新看板</button>
-        </div>
-        <div class="stats">
-          <div>总发行：<strong id="totalIssued">0</strong></div>
-          <div>总激活：<strong id="totalActivated">0</strong></div>
-          <div>待激活流通：<strong id="pendingCount">0</strong></div>
-          <div>区间激活率：<strong id="activationRate">0%</strong></div>
-        </div>
-      </section>
+      <div id="adminShell" class="admin-shell hidden">
+        <aside class="sidebar">
+          <button class="nav-item active" data-admin-section="dashboard">工作台</button>
+          <button class="nav-item" data-admin-section="bottles">瓶码管理</button>
+          <button class="nav-item" data-admin-section="records">记录管理</button>
+          <button class="nav-item" data-admin-section="miniappContent">小程序内容</button>
+          <button class="nav-item" data-admin-section="products">商品管理</button>
+          <button class="nav-item" data-admin-section="operators">账号权限</button>
+          <button class="nav-item" data-admin-section="settings">系统设置</button>
+        </aside>
 
-      <section id="batchPanel" class="card hidden">
-        <h2>批次管理</h2>
-        <div class="toolbar multi-line">
-          <input id="batchName" placeholder="批次名称（必填）" />
-          <input id="batchBrand" placeholder="品牌名称（选填）" />
-          <input id="batchDisclosureText" placeholder="品牌露出文案（选填）" />
-          <input id="batchNote" placeholder="备注（选填）" />
-          <label class="checkbox-label"><input id="batchDisclosureDefault" type="checkbox" /><span>品牌露出默认开启</span></label>
-          <button id="createBatchBtn">创建批次</button>
-          <button id="refreshBatchBtn">刷新批次</button>
-        </div>
-        <div class="toolbar multi-line" style="margin-top:8px;">
-          <select id="qrBatchSelect"><option value="">选择批次（选填）</option></select>
-          <input id="qrPrefix" placeholder="二维码前缀（必填，如STAR）" />
-          <input id="qrCount" type="number" min="1" value="10" placeholder="生成数量" />
-          <button id="generateQrBtn">生成二维码</button>
-        </div>
-        <p id="batchMsg" class="msg"></p>
-        <table>
-          <thead>
-            <tr>
-              <th>批次ID</th>
-              <th>名称</th>
-              <th>品牌</th>
-              <th>备注</th>
-              <th>二维码数</th>
-              <th>激活率</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="batchTable"></tbody>
-        </table>
-      </section>
+        <div class="workspace">
+          <section id="dashboardPanel" class="admin-panel" data-admin-panel="dashboard">
+            <div class="panel-title">
+              <div>
+                <h2>工作台</h2>
+                <p>核心运营数据概览，不承载复杂操作。</p>
+              </div>
+              <div class="toolbar compact">
+                <label>开始日期 <input id="dateFrom" type="date" /></label>
+                <label>结束日期 <input id="dateTo" type="date" /></label>
+                <button id="refreshBtn">刷新看板</button>
+              </div>
+            </div>
+            <div class="stats">
+              <div>总发行：<strong id="totalIssued">0</strong></div>
+              <div>已记录：<strong id="totalActivated">0</strong></div>
+              <div>待记录：<strong id="pendingCount">0</strong></div>
+              <div>共创中：<strong id="coCreatingCount">0</strong></div>
+              <div>今日新增记录：<strong id="todayNewRecords">0</strong></div>
+              <div>上架商品：<strong id="publishedProducts">0</strong></div>
+              <div>隐藏内容：<strong id="hiddenRecords">0</strong></div>
+              <div>质检异常：<strong id="qualityAbnormal">0</strong></div>
+              <div>区间激活率：<strong id="activationRate">0%</strong></div>
+            </div>
+          </section>
 
+          <section id="bottlePanel" class="admin-panel hidden" data-admin-panel="bottles">
+            <div class="panel-title">
+              <div>
+                <h2>瓶码管理</h2>
+                <p>批次、二维码生成、发行状态、批量绑定和导出。</p>
+              </div>
+            </div>
 
-      <section id="operatorPanel" class="card hidden">
-        <h2>账号管理（管理员/质检员）</h2>
-        <div class="toolbar multi-line">
-          <input id="opName" placeholder="姓名（选填）" />
-          <input id="opUsername" placeholder="账号（必填）" />
-          <input id="opPassword" placeholder="密码（必填）" />
-          <select id="opRole">
-            <option value="qc">质检员</option>
-            <option value="admin">管理员</option>
-          </select>
-          <button id="createOpBtn">新增账号</button>
-          <button id="refreshOpBtn">刷新账号列表</button>
+            <div id="batchPanel" class="module-block">
+              <h3>批次与生成</h3>
+              <div class="toolbar multi-line">
+                <input id="batchName" placeholder="批次名称（必填）" />
+                <input id="batchBrand" placeholder="品牌名称（选填）" />
+                <input id="batchDisclosureText" placeholder="品牌露出文案（选填）" />
+                <input id="batchNote" placeholder="备注（选填）" />
+                <label class="checkbox-label"><input id="batchDisclosureDefault" type="checkbox" /><span>品牌露出默认开启</span></label>
+                <button id="createBatchBtn">创建批次</button>
+                <button id="refreshBatchBtn">刷新批次</button>
+              </div>
+              <div class="toolbar multi-line">
+                <select id="qrBatchSelect"><option value="">选择批次（选填）</option></select>
+                <input id="qrPrefix" placeholder="二维码前缀（必填，如STAR）" />
+                <input id="qrCount" type="number" min="1" value="10" placeholder="生成数量" />
+                <button id="generateQrBtn">生成二维码</button>
+              </div>
+              <p id="batchMsg" class="msg"></p>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>批次ID</th>
+                      <th>名称</th>
+                      <th>品牌</th>
+                      <th>备注</th>
+                      <th>二维码数</th>
+                      <th>激活率</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="batchTable"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="module-block">
+              <h3>瓶码列表</h3>
+              <div class="toolbar multi-line">
+                <select id="batchFilter"><option value="">批次（全部）</option></select>
+                <select id="issueStatus">
+                  <option value="">发行状态（全部）</option>
+                  <option value="issued">待记录</option>
+                  <option value="unissued">未生成</option>
+                </select>
+                <select id="activationStatus">
+                  <option value="">记录状态（全部）</option>
+                  <option value="unactivated">待记录</option>
+                  <option value="co_creating">共创中</option>
+                  <option value="activated">已记录</option>
+                </select>
+                <select id="hiddenStatus">
+                  <option value="">显示状态（全部）</option>
+                  <option value="false">显示</option>
+                  <option value="true">隐藏</option>
+                </select>
+                <input id="idSearch" placeholder="按ID前缀搜索，如 STAR00" />
+                <button id="filterBtn">筛选</button>
+              </div>
+              <div class="toolbar">
+                <select id="assignBatchSelect"><option value="">选择批次后可绑定</option></select>
+                <button id="assignBatchBtn">批量绑定批次</button>
+                <button id="batchHideBtn">批量隐藏</button>
+                <button id="batchShowBtn">批量显示</button>
+                <button id="batchExportBtn">批量导出 CSV</button>
+                <span id="selectedCount">已选 0 条</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th><input id="selectAll" type="checkbox" /></th>
+                      <th>ID</th>
+                      <th>二维码</th>
+                      <th>批次ID</th>
+                      <th>备注</th>
+                      <th>生成状态</th>
+                      <th>记录状态</th>
+                      <th>隐藏状态</th>
+                      <th>手机号</th>
+                      <th>时间</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="recordTable"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <section id="recordsPanel" class="admin-panel hidden" data-admin-panel="records">
+            <div class="panel-title">
+              <div>
+                <h2>记录管理</h2>
+                <p>从用户内容视角查看照片、留言、共创、凭证和隐藏状态。</p>
+              </div>
+            </div>
+            <div class="toolbar multi-line">
+              <select id="recordBatchFilter"><option value="">批次（全部）</option></select>
+              <select id="recordActivationStatus">
+                <option value="content">有内容记录</option>
+                <option value="activated">已记录</option>
+                <option value="co_creating">共创中</option>
+              </select>
+              <select id="recordHiddenStatus">
+                <option value="">显示状态（全部）</option>
+                <option value="false">显示</option>
+                <option value="true">隐藏</option>
+              </select>
+              <input id="recordIdSearch" placeholder="按ID前缀搜索" />
+              <button id="recordFilterBtn">筛选记录</button>
+            </div>
+            <p id="recordMsg" class="msg"></p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>照片</th>
+                    <th>文字</th>
+                    <th>状态</th>
+                    <th>共创留言</th>
+                    <th>NFT/凭证</th>
+                    <th>隐藏状态</th>
+                    <th>手机号</th>
+                    <th>时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="contentRecordTable"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section id="miniappContentPanel" class="admin-panel hidden" data-admin-panel="miniappContent">
+            <div class="panel-title">
+              <div>
+                <h2>小程序内容</h2>
+                <p>首页、项目说明、品牌故事、咨询入口和分享文案。</p>
+              </div>
+              <button id="refreshMiniappContentBtn">刷新内容</button>
+            </div>
+            <div class="form-grid">
+              <label>首页标题<input id="contentHomeTitle" /></label>
+              <label>首页副标题<input id="contentHomeSubtitle" /></label>
+              <label>首页 Banner 图片 URL<input id="contentHomeBanner" /></label>
+              <label>项目说明标题<input id="contentProjectTitle" /></label>
+              <label class="wide">项目说明正文<textarea id="contentProjectBody"></textarea></label>
+              <label>品牌故事标题<input id="contentBrandTitle" /></label>
+              <label class="wide">品牌故事正文<textarea id="contentBrandBody"></textarea></label>
+              <label>咨询按钮文案<input id="contentConsultLabel" /></label>
+              <label>咨询入口链接<input id="contentConsultUrl" /></label>
+              <label>分享标题<input id="contentShareTitle" /></label>
+              <label>分享描述<input id="contentShareDescription" /></label>
+            </div>
+            <div class="toolbar">
+              <button id="saveMiniappContentBtn">保存小程序内容</button>
+              <span id="miniappContentUpdated" class="muted"></span>
+            </div>
+            <p id="miniappContentMsg" class="msg"></p>
+          </section>
+
+          <section id="productPanel" class="admin-panel hidden" data-admin-panel="products">
+            <div class="panel-title">
+              <div>
+                <h2>商品管理</h2>
+                <p>实物酒/礼盒展示、快团团链接、上架和排序。</p>
+              </div>
+            </div>
+            <div class="toolbar multi-line">
+              <input id="productTitle" placeholder="商品名称（必填）" />
+              <input id="productSubtitle" placeholder="副标题（选填）" />
+              <input id="productCover" placeholder="封面图 URL（选填）" />
+              <input id="productPrice" placeholder="价格文案（如 ¥399/礼盒装）" />
+              <input id="productBuyUrl" placeholder="快团团购买链接（复制链接）" />
+              <input id="productSort" type="number" value="0" placeholder="排序（数字越小越靠前）" />
+              <select id="productStatus">
+                <option value="draft">草稿</option>
+                <option value="published">上架</option>
+                <option value="hidden">隐藏</option>
+              </select>
+              <textarea id="productImages" placeholder="商品多图 URL，每行一个"></textarea>
+              <textarea id="productDescription" placeholder="商品说明"></textarea>
+              <button id="saveProductBtn">新增商品</button>
+              <button id="cancelProductEditBtn" class="hidden">取消编辑</button>
+              <button id="refreshProductBtn">刷新商品</button>
+            </div>
+            <p id="productMsg" class="msg"></p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>排序</th>
+                    <th>名称</th>
+                    <th>价格</th>
+                    <th>状态</th>
+                    <th>快团团链接</th>
+                    <th>更新时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="productTable"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section id="operatorPanel" class="admin-panel hidden" data-admin-panel="operators">
+            <div class="panel-title">
+              <div>
+                <h2>账号权限</h2>
+                <p>管理员和 QC 质检员账号管理。</p>
+              </div>
+            </div>
+            <div class="toolbar multi-line">
+              <input id="opName" placeholder="姓名（选填）" />
+              <input id="opUsername" placeholder="账号（必填）" />
+              <input id="opPassword" placeholder="密码（必填）" />
+              <select id="opRole">
+                <option value="qc">质检员</option>
+                <option value="admin">管理员</option>
+              </select>
+              <button id="createOpBtn">新增账号</button>
+              <button id="refreshOpBtn">刷新账号列表</button>
+            </div>
+            <p id="opMsg" class="msg"></p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>姓名</th>
+                    <th>账号</th>
+                    <th>角色</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="operatorTable"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section id="systemPanel" class="admin-panel hidden" data-admin-panel="settings">
+            <div class="panel-title">
+              <div>
+                <h2>系统设置</h2>
+                <p>低频配置状态，只展示是否已配置，不展示密钥。</p>
+              </div>
+              <button id="refreshSystemBtn">刷新状态</button>
+            </div>
+            <div class="status-grid">
+              <div><span>存储模式</span><strong id="systemStorageMode">-</strong></div>
+              <div><span>OSS 配置</span><strong id="systemOssConfigured">-</strong></div>
+              <div><span>小程序配置</span><strong id="systemMiniappConfigured">-</strong></div>
+              <div><span>内容安全</span><strong id="systemSafetyConfigured">-</strong></div>
+              <div><span>正式域名</span><strong id="systemDomain">https://xingxingzaishan.top</strong></div>
+              <div><span>隐私协议</span><strong id="systemPrivacy">-</strong></div>
+              <div><span>服务协议</span><strong id="systemService">-</strong></div>
+              <div><span>交易管理</span><strong>未来预留</strong></div>
+            </div>
+            <div class="module-block">
+              <h3>QC 质检</h3>
+              <p class="muted">QC 继续保留独立后台，总后台这里只显示状态摘要和入口。</p>
+              <a class="text-link" href="/qc/index.html" target="_blank">打开 QC 后台</a>
+            </div>
+            <p id="systemMsg" class="msg"></p>
+          </section>
         </div>
-        <p id="opMsg" class="msg"></p>
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>姓名</th>
-              <th>账号</th>
-              <th>角色</th>
-              <th>状态</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="operatorTable"></tbody>
-        </table>
-      </section>
-
-      <section id="productPanel" class="card hidden">
-        <h2>商品管理（小程序展示）</h2>
-        <div class="toolbar multi-line">
-          <input id="productTitle" placeholder="商品名称（必填）" />
-          <input id="productSubtitle" placeholder="副标题（选填）" />
-          <input id="productCover" placeholder="封面图 URL（选填）" />
-          <input id="productPrice" placeholder="价格文案（如 ¥399/礼盒装）" />
-          <input id="productBuyUrl" placeholder="快团团购买链接（复制链接）" />
-          <input id="productSort" type="number" value="0" placeholder="排序（数字越小越靠前）" />
-          <select id="productStatus">
-            <option value="draft">草稿</option>
-            <option value="published">上架</option>
-            <option value="hidden">隐藏</option>
-          </select>
-          <textarea id="productImages" placeholder="商品多图 URL，每行一个"></textarea>
-          <textarea id="productDescription" placeholder="商品说明"></textarea>
-          <button id="saveProductBtn">新增商品</button>
-          <button id="cancelProductEditBtn" class="hidden">取消编辑</button>
-          <button id="refreshProductBtn">刷新商品</button>
-        </div>
-        <p id="productMsg" class="msg"></p>
-        <table>
-          <thead>
-            <tr>
-              <th>排序</th>
-              <th>名称</th>
-              <th>价格</th>
-              <th>状态</th>
-              <th>快团团链接</th>
-              <th>更新时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="productTable"></tbody>
-        </table>
-      </section>
-
-      <section id="recordsPanel" class="card hidden">
-        <div class="toolbar multi-line">
-          <select id="batchFilter">
-            <option value="">批次（全部）</option>
-          </select>
-          <select id="issueStatus">
-            <option value="">发行状态（全部）</option>
-            <option value="issued">待记录</option>
-            <option value="unissued">未生成</option>
-          </select>
-          <select id="activationStatus">
-            <option value="">记录状态（全部）</option>
-            <option value="unactivated">待记录</option>
-            <option value="co_creating">共创中</option>
-            <option value="activated">已记录</option>
-          </select>
-          <select id="hiddenStatus">
-            <option value="">显示状态（全部）</option>
-            <option value="false">显示</option>
-            <option value="true">隐藏</option>
-          </select>
-          <input id="idSearch" placeholder="按ID前缀搜索，如 STAR00" />
-          <button id="filterBtn">筛选</button>
-        </div>
-
-        <div class="toolbar">
-          <select id="assignBatchSelect">
-            <option value="">选择批次后可绑定</option>
-          </select>
-          <button id="assignBatchBtn">批量绑定批次</button>
-          <button id="batchHideBtn">批量隐藏</button>
-          <button id="batchShowBtn">批量显示</button>
-          <button id="batchExportBtn">批量导出 CSV</button>
-          <span id="selectedCount">已选 0 条</span>
-        </div>
-
-        <table>
-          <thead>
-            <tr>
-              <th><input id="selectAll" type="checkbox" /></th>
-              <th>ID</th>
-              <th>二维码</th>
-              <th>批次ID</th>
-              <th>备注</th>
-              <th>生成状态</th>
-              <th>记录状态</th>
-              <th>隐藏状态</th>
-              <th>手机号</th>
-              <th>时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="recordTable"></tbody>
-        </table>
-      </section>
+      </div>
     </main>
 
     <script src="/admin/js/admin.js"></script>

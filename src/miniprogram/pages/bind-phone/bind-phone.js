@@ -3,7 +3,8 @@ const { login, bindPhone } = require('../../utils/auth');
 Page({
   data: {
     redirect: '/pages/home/home',
-    message: ''
+    message: '',
+    binding: false
   },
 
   onLoad(options) {
@@ -21,10 +22,17 @@ Page({
       this.setData({ message: '需要授权手机号后继续。' });
       return;
     }
+    this.setData({
+      binding: true,
+      message: '正在登录...'
+    });
     bindPhone(code).then(() => {
       wx.redirectTo({ url: this.data.redirect });
     }).catch((error) => {
-      this.setData({ message: error.message || '手机号绑定失败，请稍后重试' });
+      this.setData({
+        binding: false,
+        message: error.message || '手机号绑定失败，请稍后重试'
+      });
     });
   }
 });

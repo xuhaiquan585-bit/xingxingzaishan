@@ -1,10 +1,17 @@
-<view class="page">
-  <view class="hero-title">把这一刻，记在这瓶酒里</view>
-  <view class="subtitle">这瓶酒还未被记录——留下的内容，以后扫码都能看到</view>
+<view class="page bind-phone-page">
+  <view class="bind-brand">
+    <view class="bind-brand-mark">记</view>
+    <view class="hero-title">记在星上</view>
+    <view class="subtitle">用微信快速确认身份，继续记录这瓶酒的故事。</view>
+  </view>
 
-  <view class="card">
-    <view class="hint">为了以后找回你的记录，需要绑定手机号。</view>
-    <button class="btn" open-type="getPhoneNumber" bindgetphonenumber="onGetPhoneNumber">授权手机号并继续</button>
+  <view class="card bind-login-card">
+    <view class="list-title">微信登录</view>
+    <view class="hint">授权后用于找回你留下的照片、文字和共创记录。</view>
+    <button class="btn wechat-login-btn" open-type="getPhoneNumber" bindgetphonenumber="onGetPhoneNumber" disabled="{{binding}}">
+      <text class="wechat-mark">微信</text>
+      <text>手机号一键登录</text>
+    </button>
     <view class="meta">{{message}}</view>
   </view>
 </view>

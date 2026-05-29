@@ -53,7 +53,10 @@ body {
   font-weight: 700;
 }
 .auth-card {
-  padding-bottom: 12px;
+  padding: 20px;
+  border-radius: 24px;
+  background: rgba(255,255,255,0.10);
+  box-shadow: var(--shadow-soft);
 }
 
 h1 { margin-bottom: 8px; }
@@ -251,6 +254,116 @@ textarea { min-height: 100px; resize: vertical; }
 }
 .hidden { display: none !important; }
 .message { min-height: 22px; margin-top: 10px; color: #ffe9b2; }
+.login-card {
+  border-color: rgba(255,255,255,0.18);
+}
+.wechat-login-hint {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 209, 102, 0.28);
+  border-radius: 14px;
+  background: rgba(255, 209, 102, 0.12);
+  color: #ffe9b2;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.auth-method-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+.auth-method-subtitle {
+  margin: 6px 0 18px;
+  color: rgba(255,255,255,0.66);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.auth-field-label {
+  margin: 16px 0 8px;
+  color: rgba(255,255,255,0.86);
+  font-size: 14px;
+  font-weight: 700;
+}
+.login-input {
+  display: flex;
+  align-items: center;
+  min-height: 56px;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 999px;
+  background: rgba(5, 10, 34, 0.28);
+  overflow: hidden;
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+.login-input:focus-within {
+  border-color: rgba(255, 209, 102, 0.82);
+  background: rgba(5, 10, 34, 0.34);
+  box-shadow: 0 0 0 3px rgba(255, 209, 102, 0.12);
+}
+.login-input input {
+  height: 56px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.login-input input:focus {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.country-code {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  padding: 0 0 0 18px;
+  color: rgba(255,255,255,0.92);
+  font-size: 18px;
+  font-weight: 700;
+}
+.phone-login-input input {
+  padding-left: 10px;
+}
+.auth-sms-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 128px;
+  gap: 0;
+  margin-top: 0;
+}
+.auth-sms-row input {
+  height: 56px;
+  min-width: 0;
+  padding-left: 18px;
+}
+.auth-sms-row .btn.sms-btn {
+  width: 128px;
+  min-width: 128px;
+  height: 56px;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-left: 1px solid rgba(255,255,255,0.16);
+  border-radius: 0;
+  background: transparent;
+  color: #ffe9b2;
+  font-size: 14px;
+}
+.auth-sms-row .btn.sms-btn:disabled {
+  border-left-color: rgba(255,255,255,0.12);
+  background: transparent;
+  color: rgba(255,255,255,0.48);
+}
+.auth-agreement {
+  margin-top: 18px;
+  color: rgba(255,255,255,0.72);
+  font-size: 14px;
+}
+.login-card #registerBtn {
+  min-height: 52px;
+  margin-top: 20px;
+  border-radius: 999px;
+  background: #ffd166;
+  box-shadow: 0 12px 26px rgba(255, 209, 102, 0.18);
+}
 .result-meta {
   margin-top: 14px;
   color: rgba(245, 241, 212, 0.72);

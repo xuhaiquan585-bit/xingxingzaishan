@@ -93,6 +93,14 @@ function getJsonWithCookie(urlPath, cookie = '') {
   });
 }
 
+function localDateKey(value = new Date()) {
+  const parsed = value instanceof Date ? value : new Date(value);
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function deleteJsonWithCookie(urlPath, cookie = '') {
   return requestRaw('DELETE', urlPath, {
     headers: cookie ? { Cookie: cookie } : {}
@@ -434,6 +442,54 @@ test('admin and qc pages should use timeout-protected fetch wrappers', () => {
   assert.equal(qcContent.includes('请求超时，请检查网络后重试'), true);
 });
 
+test('admin page should expose section navigation and miniapp content tools', () => {
+  const adminHtmlPath = path.join(__dirname, '..', 'src', 'admin', 'index.html');
+  const adminJsPath = path.join(__dirname, '..', 'src', 'admin', 'js', 'admin.js');
+  const appJsonPath = path.join(__dirname, '..', 'src', 'miniprogram', 'app.json');
+  const homeJsPath = path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'home', 'home.js');
+  const html = fs.readFileSync(adminHtmlPath, 'utf8');
+  const js = fs.readFileSync(adminJsPath, 'utf8');
+  const appJson = fs.readFileSync(appJsonPath, 'utf8');
+  const homeJs = fs.readFileSync(homeJsPath, 'utf8');
+
+  ['dashboard', 'bottles', 'records', 'miniappContent', 'products', 'operators', 'settings'].forEach((section) => {
+    assert.equal(html.includes(`data-admin-section="${section}"`), true);
+  });
+  assert.equal(html.includes('id="miniappContentPanel"'), true);
+  assert.equal(html.includes('id="systemPanel"'), true);
+  assert.equal(js.includes('adminActiveSection'), true);
+  assert.equal(js.includes('function activateAdminSection'), true);
+  assert.equal(js.includes('async function loadContentRecords'), true);
+  assert.equal(js.includes('async function loadMiniappContent'), true);
+  assert.equal(js.includes('async function loadSystemStatus'), true);
+  assert.equal(js.includes('Promise.all([loadDashboard(), loadBatches(), loadRecords(), loadOperators(), loadProducts()])'), false);
+  assert.equal(appJson.includes('pages/project/project'), true);
+  assert.equal(homeJs.includes('/api/miniapp/content'), true);
+});
+
+test('user login pages should keep copy and expose miniapp-first login cues', () => {
+  const registerHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'register.html'), 'utf8');
+  const registerJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'js', 'register.js'), 'utf8');
+  const frontendCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'css', 'style.css'), 'utf8');
+  const bindPhoneWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.wxml'), 'utf8');
+  const bindPhoneJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.js'), 'utf8');
+
+  assert.equal(registerHtml.includes('把此刻，记在这瓶酒里'), true);
+  assert.equal(registerHtml.includes('让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。'), true);
+  assert.equal(registerHtml.includes('微信扫码会优先进入小程序'), true);
+  assert.equal(registerHtml.includes('class="login-input sms-row auth-sms-row"'), true);
+  assert.equal(registerHtml.includes('inputmode="numeric"'), true);
+  assert.equal(registerJs.includes('MicroMessenger'), true);
+  assert.equal(frontendCss.includes('.auth-sms-row'), true);
+  assert.equal(frontendCss.includes('grid-template-columns: minmax(0, 1fr) 128px'), true);
+  assert.equal(bindPhoneWxml.includes('用微信快速确认身份，继续记录这瓶酒的故事。'), true);
+  assert.equal(bindPhoneWxml.includes('<text class="wechat-mark">微信</text>'), true);
+  assert.equal(bindPhoneWxml.includes('<text>手机号一键登录</text>'), true);
+  assert.equal(bindPhoneWxml.includes('open-type="getPhoneNumber"'), true);
+  assert.equal(bindPhoneJs.includes('event.detail && event.detail.code'), true);
+  assert.equal(bindPhoneJs.includes('encryptedData'), false);
+});
+
 test('POST /api/user/logout should clear cookie with same SameSite policy as session cookie', async () => {
   const oldSameSite = process.env.USER_SESSION_SAMESITE;
   process.env.USER_SESSION_SAMESITE = 'None';
@@ -509,6 +565,81 @@ test('GET /api/admin/dashboard should work with valid token', async () => {
   const res = await getJson('/api/admin/dashboard', token);
   assert.equal(res.status, 200);
   assert.equal(res.body.status, 'success');
+  assert.equal(typeof res.body.data.total_co_creating, 'number');
+  assert.equal(typeof res.body.data.today_new_records, 'number');
+  assert.equal(typeof res.body.data.published_products, 'number');
+  assert.equal(typeof res.body.data.hidden_records, 'number');
+  assert.equal(typeof res.body.data.today_quality_abnormal, 'number');
+
+  const generateRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'DAY',
+    count: 1
+  }, token);
+  assert.equal(generateRes.status, 200);
+
+  const today = localDateKey();
+  const datedRes = await getJson(`/api/admin/dashboard?date_from=${today}&date_to=${today}`, token);
+  assert.equal(datedRes.status, 200);
+  assert.ok(datedRes.body.data.period_issued >= 1);
+});
+
+test('admin miniapp content should update public miniapp content', async () => {
+  const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const token = login.body.data.token;
+
+  const defaultRes = await getJson('/api/admin/miniapp-content', token);
+  assert.equal(defaultRes.status, 200);
+  assert.equal(defaultRes.body.data.home_title, '把此刻，记在这瓶酒里');
+
+  const updateRes = await postJson('/api/admin/miniapp-content', {
+    home_title: '记在星上测试',
+    home_subtitle: '测试副标题',
+    home_banner_image: '/uploads/banner.jpg',
+    project_title: '项目说明测试',
+    project_body: '项目正文',
+    brand_story_title: '品牌故事测试',
+    brand_story_body: '品牌正文',
+    consult_label: '复制咨询链接',
+    consult_url: 'https://ktt.example.com/shop',
+    share_title: '分享标题',
+    share_description: '分享描述'
+  }, token);
+  assert.equal(updateRes.status, 200);
+  assert.equal(updateRes.body.data.updated_by, 'admin');
+
+  const publicRes = await getJson('/api/miniapp/content');
+  assert.equal(publicRes.status, 200);
+  assert.equal(publicRes.body.data.home_title, '记在星上测试');
+  assert.equal(publicRes.body.data.consult_url, 'https://ktt.example.com/shop');
+  assert.equal(Object.hasOwn(publicRes.body.data, 'updated_by'), false);
+
+  const invalidRes = await postJson('/api/admin/miniapp-content', {
+    consult_url: 'javascript:alert(1)'
+  }, token);
+  assert.equal(invalidRes.status, 400);
+  assert.equal(invalidRes.body.code, 'VALIDATION_ERROR');
+});
+
+test('admin system status should not leak secrets', async () => {
+  const oldAppId = process.env.WECHAT_MINIAPP_APPID;
+  const oldSecret = process.env.WECHAT_MINIAPP_SECRET;
+  process.env.WECHAT_MINIAPP_APPID = 'wx-test-appid';
+  process.env.WECHAT_MINIAPP_SECRET = 'super-secret-value';
+
+  try {
+    const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+    const token = login.body.data.token;
+    const res = await getJson('/api/admin/system-status', token);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.data.miniapp.configured, true);
+    assert.equal(res.raw.includes('super-secret-value'), false);
+    assert.equal(Object.hasOwn(res.body.data.miniapp, 'secret'), false);
+  } finally {
+    if (oldAppId === undefined) delete process.env.WECHAT_MINIAPP_APPID;
+    else process.env.WECHAT_MINIAPP_APPID = oldAppId;
+    if (oldSecret === undefined) delete process.env.WECHAT_MINIAPP_SECRET;
+    else process.env.WECHAT_MINIAPP_SECRET = oldSecret;
+  }
 });
 
 test('POST /api/admin/qr/generate should create issued and unactivated QR ids', async () => {

@@ -18,7 +18,8 @@ const {
   listActivatedRecordsByMiniappOpenid,
   getActivatedRecordByMiniappOpenidAndId,
   listProducts,
-  getProduct
+  getProduct,
+  getMiniappContent
 } = require('../services/dbService');
 const { saveImage, getStorageMode, getSignedUrl } = require('../services/storageService');
 const { generateMockBlockchainHash } = require('../services/hashService');
@@ -241,6 +242,14 @@ router.post('/auth/bind-phone', requireMiniappAuth, async (req, res) => {
       message: error.message || '手机号授权失败。'
     });
   }
+});
+
+router.get('/content', (_req, res) => {
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: getMiniappContent({ publicOnly: true })
+  });
 });
 
 router.get('/products', (_req, res) => {

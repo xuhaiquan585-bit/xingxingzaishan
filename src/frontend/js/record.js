@@ -239,8 +239,8 @@ function renderResult(data, { justSaved = false } = {}) {
   resultHash.classList.add('hidden');
   resultHashToggle.disabled = !blockchainHash;
   resultHashToggle.textContent = blockchainHash
-    ? '查看区块链永久凭证'
-    : '正在生成永久记录…';
+    ? '查看区块链凭证'
+    : '正在生成记录…';
   resultTime.textContent = formatMinuteTime(data.activated_at);
 
   const brandName = String(data.brand_name || '').trim();
@@ -328,11 +328,9 @@ function openConfirmOverlay(mode = 'record') {
     if (confirmOverlaySubtitle) {
       confirmOverlaySubtitle.textContent = '';
       confirmOverlaySubtitle.append(
-        document.createTextNode('封存后，这张照片、这句话和保留的共创留言，将生成这瓶酒的'),
-        Object.assign(document.createElement('strong'), { textContent: '区块链永久记录' }),
-        document.createTextNode('。'),
+        document.createTextNode('封存后，这张照片、这句话和保留的共创留言，将保存到这瓶酒的记录里。'),
         document.createElement('br'),
-        document.createTextNode('以后扫码只能查看，'),
+        document.createTextNode('以后扫码可查看，'),
         Object.assign(document.createElement('strong'), { textContent: '不能修改' }),
         document.createTextNode('。')
       );
@@ -374,11 +372,9 @@ function openConfirmOverlay(mode = 'record') {
     } else {
       confirmOverlaySubtitle.textContent = '';
       confirmOverlaySubtitle.append(
-        document.createTextNode('提交后，这张照片和这句话，将生成这瓶酒的'),
-        Object.assign(document.createElement('strong'), { textContent: '区块链永久记录' }),
-        document.createTextNode('。'),
+        document.createTextNode('提交后，这张照片和这句话将保存到这瓶酒的记录里。'),
         document.createElement('br'),
-        document.createTextNode('以后扫码只能查看，'),
+        document.createTextNode('以后扫码可查看，'),
         Object.assign(document.createElement('strong'), { textContent: '不能修改' }),
         document.createTextNode('。')
       );
@@ -591,7 +587,7 @@ if (resultHashToggle) {
       return;
     }
     resultHash.classList.add('hidden');
-    resultHashToggle.textContent = '查看区块链永久凭证';
+    resultHashToggle.textContent = '查看区块链凭证';
   });
 }
 

@@ -4,9 +4,14 @@ const sendCodeBtn = document.getElementById('sendCodeBtn');
 const agreeInput = document.getElementById('agree');
 const registerBtn = document.getElementById('registerBtn');
 const messageEl = document.getElementById('message');
+const wechatLoginHint = document.getElementById('wechatLoginHint');
 
 const urlParams = new URLSearchParams(window.location.search);
 const qrId = urlParams.get('t') || urlParams.get('qr');
+
+if (/MicroMessenger/i.test(window.navigator.userAgent) && wechatLoginHint) {
+  wechatLoginHint.classList.remove('hidden');
+}
 
 function updateButtonState() {
   const validPhone = /^1\d{10}$/.test(phoneInput.value.trim());

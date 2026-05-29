@@ -18,9 +18,13 @@ const {
   createProduct,
   updateProduct,
   listProducts,
-  getProduct
+  getProduct,
+  getMiniappContent,
+  updateMiniappContent
 } = require('../services/dbService');
 const { generateToken, verifyToken } = require('../services/authService');
+const { getStorageMode } = require('../services/storageService');
+const { hasMiniappConfig } = require('../services/miniappAuthService');
 
 const router = express.Router();
 
@@ -300,6 +304,74 @@ router.get('/batches/:batchId/export', requireAdmin, (req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
   return res.send(`\uFEFF${result.data}`);
+});
+
+function envConfigured(names) {
+  return names.every((name) => !!process.env[name]);
+}
+
+router.get('/system-status', requireAdmin, (_req, res) => {
+  const storageMode = getStorageMode();
+  const ossNames = ['OSS_ACCESS_KEY_ID', 'OSS_ACCESS_KEY_SECRET', 'OSS_BUCKET', 'OSS_REGION', 'OSS_ENDPOINT'];
+  const ossConfigured = envConfigured(ossNames);
+  const miniappConfigured = hasMiniappConfig();
+  const contentSafetyMode = miniappConfigured ? 'wechat' : 'mock';
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: {
+      storage: {
+        mode: storageMode,
+        configured: storageMode !== 'cloud' || ossConfigured,
+        oss_configured: ossConfigured
+      },
+      miniapp: {
+        appid_configured: !!process.env.WECHAT_MINIAPP_APPID,
+        secret_configured: !!process.env.WECHAT_MINIAPP_SECRET,
+        configured: miniappConfigured
+      },
+      content_safety: {
+        mode: contentSafetyMode,
+        configured: miniappConfigured || process.env.NODE_ENV !== 'production'
+      },
+      domain: {
+        base_url: process.env.BASE_URL || '',
+        expected_domain: 'https://xingxingzaishan.top',
+        cors_configured: !!process.env.CORS_ORIGINS
+      },
+      agreements: {
+        privacy_url_configured: !!process.env.PRIVACY_POLICY_URL,
+        service_url_configured: !!process.env.SERVICE_AGREEMENT_URL
+      },
+      future_modules: {
+        trade_management: 'reserved'
+      }
+    }
+  });
+});
+
+router.get('/miniapp-content', requireAdmin, (_req, res) => {
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: getMiniappContent()
+  });
+});
+
+router.post('/miniapp-content', requireAdmin, (req, res) => {
+  const result = updateMiniappContent(req.body, req.operator.username);
+  if (result.error === 'VALIDATION_ERROR') {
+    return res.status(400).json({
+      status: 'error',
+      code: 'VALIDATION_ERROR',
+      message: result.message || '小程序内容配置不完整。'
+    });
+  }
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: result.data
+  });
 });
 
 router.get('/products', requireAdmin, (_req, res) => {

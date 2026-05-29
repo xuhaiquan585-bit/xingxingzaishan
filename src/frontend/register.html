@@ -3,26 +3,34 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>把这一刻，记在这瓶酒里 - 星星在闪</title>
+    <title>把此刻，记在这瓶酒里 - 星星在闪</title>
     <link rel="stylesheet" href="/css/style.css" />
   </head>
   <body>
     <main class="container auth-container">
       <div class="page-intro auth-intro">
-        <h1>把这一刻，记在这瓶酒里</h1>
-        <p class="subtitle">永久保存照片和一句话，以后扫码查看。</p>
+        <h1>把此刻，记在这瓶酒里</h1>
+        <p class="subtitle">让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。</p>
       </div>
 
-      <div class="card auth-card">
-        <label for="phone">手机号</label>
-        <input id="phone" maxlength="11" placeholder="请输入11位手机号" />
-        <label for="smsCode">验证码</label>
-        <div class="sms-row">
-          <input id="smsCode" maxlength="6" placeholder="请输入6位验证码" />
+      <div class="card auth-card login-card">
+        <div id="wechatLoginHint" class="wechat-login-hint hidden">微信扫码会优先进入小程序；当前页面可继续手机号登录。</div>
+        <p class="auth-method-title">手机号验证码登录</p>
+        <p class="auth-method-subtitle">非微信扫码或无法打开小程序时，可用手机号继续。</p>
+
+        <label class="auth-field-label" for="phone">手机号</label>
+        <div class="login-input phone-login-input">
+          <span class="country-code">+86</span>
+          <input id="phone" inputmode="numeric" autocomplete="tel" maxlength="11" placeholder="手机号" />
+        </div>
+
+        <label class="auth-field-label" for="smsCode">验证码</label>
+        <div class="login-input sms-row auth-sms-row">
+          <input id="smsCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="验证码" />
           <button id="sendCodeBtn" class="btn btn-secondary sms-btn" type="button">获取验证码</button>
         </div>
 
-        <label class="checkbox-row">
+        <label class="checkbox-row auth-agreement">
           <input id="agree" type="checkbox" />
           <span>我已阅读并同意使用规则</span>
         </label>

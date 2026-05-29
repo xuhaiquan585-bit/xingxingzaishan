@@ -13,6 +13,22 @@ const dataFile = process.env.DB_FILE
   : path.join(dataDir, 'db.json');
 const CO_CREATION_COMMENT_LIMIT = 12;
 
+const DEFAULT_MINIAPP_CONTENT = {
+  home_title: '把此刻，记在这瓶酒里',
+  home_subtitle: '让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。',
+  home_banner_image: '',
+  project_title: '星星在闪',
+  project_body: '把值得记住的时刻，存在这瓶酒里。适合成年礼、婚礼、生日、纪念日和送礼。',
+  brand_story_title: '关于记在星上',
+  brand_story_body: '我们希望每一瓶被送出的酒，都能留下属于它和收礼人的一段记忆。',
+  consult_label: '咨询购买',
+  consult_url: '',
+  share_title: '记在星上，闪到永远',
+  share_description: '让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。',
+  updated_at: null,
+  updated_by: null
+};
+
 function nowISO() {
   return new Date().toISOString();
 }
@@ -188,6 +204,11 @@ function migrateSchema(db) {
     db.payment_logs = [];
   }
 
+  if (!db.miniapp_content || typeof db.miniapp_content !== 'object' || Array.isArray(db.miniapp_content)) {
+    db.miniapp_content = {};
+  }
+  db.miniapp_content = normalizeMiniappContent(db.miniapp_content);
+
   db.products = db.products.map((item, idx) => ({
     id: item.id || `PROD_${String(idx + 1).padStart(4, '0')}`,
     title: item.title || '',
@@ -255,7 +276,8 @@ function initializeDB() {
       content_pages: [],
       banners: [],
       orders: [],
-      payment_logs: []
+      payment_logs: [],
+      miniapp_content: DEFAULT_MINIAPP_CONTENT
     });
     fs.writeFileSync(dataFile, JSON.stringify(initialData, null, 2), 'utf-8');
     return;
@@ -680,17 +702,53 @@ function changeOperatorPassword(id, newPassword) {
   };
 }
 
+function localDateKey(value = new Date()) {
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function localDayBoundary(value, endOfDay = false) {
+  if (!value) return null;
+  const [year, month, day] = String(value).split('-').map(Number);
+  if (!year || !month || !day) return null;
+  const date = new Date(year, month - 1, day);
+  if (endOfDay) {
+    date.setHours(23, 59, 59, 999);
+  }
+  return date.getTime();
+}
+
+function sameLocalDate(value, datePrefix) {
+  if (!value) return false;
+  return localDateKey(value) === datePrefix;
+}
+
 function getDashboardStats({ dateFrom, dateTo }) {
   const db = readDB();
 
   const totalIssued = db.qr_codes.filter((item) => item.issue_status === 'issued').length;
   const totalActivated = db.qr_codes.filter((item) => item.activation_status === 'activated').length;
+  const coCreating = db.qr_codes.filter((item) => item.activation_status === 'co_creating').length;
   const circulatingPending = db.qr_codes.filter(
     (item) => item.issue_status === 'issued' && item.activation_status === 'unactivated'
   ).length;
+  const hiddenRecords = db.qr_codes.filter((item) => item.hidden === true).length;
+  const publishedProducts = db.products.filter((item) => item.status === 'published').length;
+  const today = localDateKey();
+  const todayNewRecords = db.qr_codes.filter((item) => (
+    item.activation_status === 'activated' && sameLocalDate(item.activated_at, today)
+  ) || (
+    item.activation_status === 'co_creating' && sameLocalDate(item.co_creation_started_at, today)
+  )).length;
+  const todayQualityLogs = db.quality_check_logs.filter((item) => sameLocalDate(item.checked_at, today));
+  const todayQualityAbnormal = todayQualityLogs.filter((item) => item.result !== 'pass').length;
 
-  const from = dateFrom ? new Date(dateFrom).getTime() : null;
-  const to = dateTo ? new Date(dateTo).getTime() : null;
+  const from = localDayBoundary(dateFrom);
+  const to = localDayBoundary(dateTo, true);
 
   const filteredIssued = db.qr_codes.filter((item) => {
     if (!item.created_at) return false;
@@ -715,7 +773,13 @@ function getDashboardStats({ dateFrom, dateTo }) {
   return {
     total_issued: totalIssued,
     total_activated: totalActivated,
+    total_co_creating: coCreating,
     circulating_pending: circulatingPending,
+    today_new_records: todayNewRecords,
+    published_products: publishedProducts,
+    hidden_records: hiddenRecords,
+    today_quality_checked: todayQualityLogs.length,
+    today_quality_abnormal: todayQualityAbnormal,
     period_issued: filteredIssued,
     period_activated: filteredActivated,
     period_activation_rate: activationRate
@@ -724,8 +788,8 @@ function getDashboardStats({ dateFrom, dateTo }) {
 
 function listQRRecords({ issueStatus, activationStatus, hidden, idPrefix, batchId, dateFrom, dateTo, page = 1, limit = 20 }) {
   const db = readDB();
-  const from = dateFrom ? new Date(dateFrom).getTime() : null;
-  const to = dateTo ? new Date(dateTo).getTime() : null;
+  const from = localDayBoundary(dateFrom);
+  const to = localDayBoundary(dateTo, true);
 
   let records = db.qr_codes.slice();
 
@@ -733,7 +797,9 @@ function listQRRecords({ issueStatus, activationStatus, hidden, idPrefix, batchI
     records = records.filter((item) => item.issue_status === issueStatus);
   }
 
-  if (activationStatus) {
+  if (activationStatus === 'content') {
+    records = records.filter((item) => ['activated', 'co_creating'].includes(item.activation_status));
+  } else if (activationStatus) {
     records = records.filter((item) => item.activation_status === activationStatus);
   }
 
@@ -753,7 +819,7 @@ function listQRRecords({ issueStatus, activationStatus, hidden, idPrefix, batchI
 
   if (from || to) {
     records = records.filter((item) => {
-      const baseTime = item.activated_at || item.created_at;
+      const baseTime = item.activated_at || item.co_creation_started_at || item.created_at;
       const ts = new Date(baseTime).getTime();
       if (Number.isNaN(ts)) return false;
       if (from && ts < from) return false;
@@ -762,7 +828,11 @@ function listQRRecords({ issueStatus, activationStatus, hidden, idPrefix, batchI
     });
   }
 
-  records.sort((a, b) => new Date(b.activated_at || b.created_at) - new Date(a.activated_at || a.created_at));
+  records.sort((a, b) => {
+    const aTime = a.activated_at || a.co_creation_started_at || a.created_at;
+    const bTime = b.activated_at || b.co_creation_started_at || b.created_at;
+    return new Date(bTime) - new Date(aTime);
+  });
 
   const total = records.length;
   const start = (Number(page) - 1) * Number(limit);
@@ -943,6 +1013,61 @@ function listProducts({ publicOnly = false } = {}) {
 function getProduct(id, { publicOnly = false } = {}) {
   const product = listProducts({ publicOnly }).find((item) => item.id === id);
   return product || null;
+}
+
+function normalizeMiniappContent(input = {}, existing = {}) {
+  return {
+    home_title: String(input.home_title ?? existing.home_title ?? DEFAULT_MINIAPP_CONTENT.home_title).trim() || DEFAULT_MINIAPP_CONTENT.home_title,
+    home_subtitle: String(input.home_subtitle ?? existing.home_subtitle ?? DEFAULT_MINIAPP_CONTENT.home_subtitle).trim() || DEFAULT_MINIAPP_CONTENT.home_subtitle,
+    home_banner_image: String(input.home_banner_image ?? existing.home_banner_image ?? '').trim(),
+    project_title: String(input.project_title ?? existing.project_title ?? DEFAULT_MINIAPP_CONTENT.project_title).trim() || DEFAULT_MINIAPP_CONTENT.project_title,
+    project_body: String(input.project_body ?? existing.project_body ?? DEFAULT_MINIAPP_CONTENT.project_body).trim() || DEFAULT_MINIAPP_CONTENT.project_body,
+    brand_story_title: String(input.brand_story_title ?? existing.brand_story_title ?? DEFAULT_MINIAPP_CONTENT.brand_story_title).trim() || DEFAULT_MINIAPP_CONTENT.brand_story_title,
+    brand_story_body: String(input.brand_story_body ?? existing.brand_story_body ?? DEFAULT_MINIAPP_CONTENT.brand_story_body).trim() || DEFAULT_MINIAPP_CONTENT.brand_story_body,
+    consult_label: String(input.consult_label ?? existing.consult_label ?? DEFAULT_MINIAPP_CONTENT.consult_label).trim() || DEFAULT_MINIAPP_CONTENT.consult_label,
+    consult_url: String(input.consult_url ?? existing.consult_url ?? '').trim(),
+    share_title: String(input.share_title ?? existing.share_title ?? DEFAULT_MINIAPP_CONTENT.share_title).trim() || DEFAULT_MINIAPP_CONTENT.share_title,
+    share_description: String(input.share_description ?? existing.share_description ?? DEFAULT_MINIAPP_CONTENT.share_description).trim() || DEFAULT_MINIAPP_CONTENT.share_description,
+    updated_at: input.updated_at ?? existing.updated_at ?? null,
+    updated_by: input.updated_by ?? existing.updated_by ?? null
+  };
+}
+
+function validateMiniappContent(data) {
+  if (data.home_banner_image && !/^https?:\/\//i.test(data.home_banner_image) && !data.home_banner_image.startsWith('/')) {
+    return '首页 Banner 图片需填写 http(s) 地址或站内路径。';
+  }
+  if (data.consult_url && !/^https?:\/\//i.test(data.consult_url)) {
+    return '咨询入口链接必须以 http:// 或 https:// 开头。';
+  }
+  return '';
+}
+
+function getMiniappContent({ publicOnly = false } = {}) {
+  const db = readDB();
+  const content = normalizeMiniappContent(db.miniapp_content);
+  if (!publicOnly) {
+    return content;
+  }
+  const { updated_at: _updatedAt, updated_by: _updatedBy, ...publicContent } = content;
+  return publicContent;
+}
+
+function updateMiniappContent(input, updatedBy = 'admin') {
+  const db = readDB();
+  const data = normalizeMiniappContent(input, db.miniapp_content);
+  const validationMessage = validateMiniappContent(data);
+  if (validationMessage) {
+    return { error: 'VALIDATION_ERROR', message: validationMessage };
+  }
+  const updated = {
+    ...data,
+    updated_at: nowISO(),
+    updated_by: updatedBy
+  };
+  db.miniapp_content = updated;
+  writeDB(db);
+  return { data: updated };
 }
 
 async function generateQRCodes({ prefix, count, batchId }) {
@@ -1309,6 +1434,8 @@ module.exports = {
   updateProduct,
   listProducts,
   getProduct,
+  getMiniappContent,
+  updateMiniappContent,
   generateQRCodes,
   setQRHiddenStatus,
   setQRHiddenStatusBatch,

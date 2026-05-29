@@ -1,0 +1,16 @@
+<view class="page">
+  <view class="hero-title">{{content.project_title}}</view>
+  <view class="subtitle">{{content.share_description}}</view>
+
+  <view class="card">
+    <view class="list-title">{{content.project_title}}</view>
+    <view class="project-text">{{content.project_body}}</view>
+  </view>
+
+  <view class="card">
+    <view class="list-title">{{content.brand_story_title}}</view>
+    <view class="project-text">{{content.brand_story_body}}</view>
+  </view>
+
+  <view class="meta">{{message}}</view>
+</view>

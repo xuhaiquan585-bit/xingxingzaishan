@@ -1,6 +1,7 @@
 {
   "pages": [
     "pages/home/home",
+    "pages/project/project",
     "pages/bind-phone/bind-phone",
     "pages/products/products",
     "pages/product-detail/product-detail",

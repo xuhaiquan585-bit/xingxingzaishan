@@ -1,3 +1,65 @@
+.bind-phone-page {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100vh;
+  padding-left: 44rpx;
+  padding-right: 44rpx;
+}
+
+.bind-brand {
+  margin-bottom: 72rpx;
+  text-align: center;
+}
+
+.bind-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 104rpx;
+  height: 104rpx;
+  margin-bottom: 28rpx;
+  border: 1rpx solid rgba(255, 227, 155, 0.42);
+  border-radius: 50%;
+  background: rgba(255, 227, 155, 0.12);
+  color: #ffe39b;
+  font-size: 42rpx;
+  font-weight: 700;
+}
+
+.bind-phone-page .hero-title {
+  text-align: center;
+}
+
+.bind-phone-page .subtitle {
+  margin-bottom: 0;
+  text-align: center;
+}
+
+.bind-login-card {
+  padding: 36rpx 32rpx 32rpx;
+  border-radius: 28rpx;
+}
+
+.wechat-login-btn {
+  min-height: 96rpx;
+  margin-top: 36rpx;
+  border-radius: 999rpx;
+  background: #ffffff;
+  color: #101010;
+}
+
+.wechat-login-btn[disabled] {
+  opacity: 0.62;
+}
+
+.wechat-mark {
+  margin-right: 16rpx;
+  color: #20c766;
+  font-weight: 800;
+}
+
 .meta {
   margin-top: 20rpx;
+  min-height: 40rpx;
 }
