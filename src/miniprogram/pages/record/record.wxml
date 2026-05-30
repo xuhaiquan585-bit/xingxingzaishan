@@ -3,14 +3,14 @@
   <view class="record-glow record-glow-bottom"></view>
 
   <view class="record-hero">
-    <view class="hero-title record-title">把此刻，记在这瓶酒里</view>
+    <view class="hero-title record-title">把这一刻，记在这瓶酒里</view>
     <view class="trust-line">区块链存证 · NFT凭证</view>
-    <view class="subtitle record-subtitle">留下一张照片和一句话，封存属于这瓶酒的记忆。</view>
+    <view class="subtitle record-subtitle">选一张照片，写一句话，以后随时能看到。</view>
   </view>
 
   <view class="card record-card">
     <view wx:if="{{displayKey}}" class="record-meta-row">
-      <text class="record-meta-label">ID</text>
+      <text class="record-meta-label">星星ID:</text>
       <text class="record-meta-value">{{displayKey}}</text>
     </view>
 
@@ -25,7 +25,7 @@
     </button>
 
     <view class="field-block">
-      <view class="field-title">写给这瓶酒的一句话</view>
+      <view class="field-title">写下想记住的话</view>
       <textarea class="textarea memory-textarea" maxlength="200" placeholder="例：这一刻，我想记下的是……" value="{{content}}" bindinput="onContentInput" />
       <view class="count-row">{{contentCount}} / 200</view>
     </view>
@@ -44,7 +44,7 @@
         <view class="mode-indicator">{{isCoCreateMode ? '✓' : ''}}</view>
         <view>
           <view class="mode-title">邀请共创</view>
-          <view class="mode-desc">先邀请他人留言，最后由你确认封存。</view>
+          <view class="mode-desc">邀请朋友留言，最后由你确认保存。</view>
         </view>
       </label>
     </radio-group>
@@ -60,6 +60,7 @@
     </view>
 
     <button class="btn record-submit" bindtap="submitRecord">预览并确认</button>
+    <view class="record-footnote">保存后，别人扫码即可查看这条记录。</view>
     <view class="meta record-message">{{message}}</view>
   </view>
 </view>

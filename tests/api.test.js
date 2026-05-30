@@ -479,6 +479,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const bindPhoneCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.wxss'), 'utf8');
   const bindPhoneJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.js'), 'utf8');
   const recordWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record', 'record.wxml'), 'utf8');
+  const recordWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record', 'record.wxss'), 'utf8');
   const recordJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record', 'record.js'), 'utf8');
   const resultWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'result', 'result.wxml'), 'utf8');
   const recordDetailWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record-detail', 'record-detail.wxml'), 'utf8');
@@ -501,9 +502,12 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(bindPhoneJs.includes('event.detail && event.detail.code'), true);
   assert.equal(bindPhoneJs.includes('encryptedData'), false);
   assert.equal(recordWxml.includes('星星在闪 · 记在星上'), false);
-  assert.equal(recordWxml.includes('把此刻，记在这瓶酒里'), true);
+  assert.equal(recordWxml.includes('把这一刻，记在这瓶酒里'), true);
   assert.equal(recordWxml.includes('区块链存证 · NFT凭证'), true);
-  assert.equal(recordWxml.includes('留下一张照片和一句话，封存属于这瓶酒的记忆。'), true);
+  assert.equal(recordWxml.includes('选一张照片，写一句话，以后随时能看到。'), true);
+  assert.equal(recordWxml.includes('星星ID:'), true);
+  assert.equal(recordWxml.includes('写下想记住的话'), true);
+  assert.equal(recordWxml.includes('保存后，别人扫码即可查看这条记录。'), true);
   assert.equal(recordWxml.includes('扫码可查看'), false);
   assert.equal(recordWxml.includes('class="trust-tag"'), false);
   assert.equal(recordWxml.includes('bindtap="chooseImage"'), true);
@@ -523,6 +527,9 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxml.includes('style="height: {{previewHeight}}rpx;"'), true);
   assert.equal(recordWxml.includes('mode="aspectFill"'), false);
   assert.equal(recordWxml.includes('class="mode-row"'), false);
+  assert.equal(recordWxss.includes('env(safe-area-inset-bottom)'), true);
+  assert.equal(recordWxss.includes('grid-template-columns: 1fr'), true);
+  assert.equal(recordWxss.includes('"Songti SC", STSong, serif'), true);
   assert.equal(recordJs.includes('wx.getImageInfo'), true);
   assert.equal(recordJs.includes('calculatePreviewHeight'), true);
   assert.equal(recordJs.includes('showBrandSection'), true);
