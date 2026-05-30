@@ -507,7 +507,8 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxml.includes('选一张照片，写一句话，以后随时能看到。'), true);
   assert.equal(recordWxml.includes('星星ID:'), true);
   assert.equal(recordWxml.includes('写下想记住的话'), true);
-  assert.equal(recordWxml.includes('保存后，别人扫码即可查看这条记录。'), true);
+  assert.equal(recordWxml.includes('这一刻，会成为这瓶酒的记忆'), false);
+  assert.equal(recordWxml.includes('保存后，扫码即可查看这条记录。'), true);
   assert.equal(recordWxml.includes('扫码可查看'), false);
   assert.equal(recordWxml.includes('class="trust-tag"'), false);
   assert.equal(recordWxml.includes('bindtap="chooseImage"'), true);

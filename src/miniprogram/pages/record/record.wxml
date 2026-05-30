@@ -19,7 +19,6 @@
       <view wx:else class="photo-empty">
         <view class="photo-icon">＋</view>
         <view class="photo-title">添加照片</view>
-        <view class="photo-hint">这一刻，会成为这瓶酒的记忆</view>
       </view>
       <view wx:if="{{previewUrl}}" class="photo-action">{{imageButtonText}}</view>
     </button>
@@ -60,7 +59,7 @@
     </view>
 
     <button class="btn record-submit" bindtap="submitRecord">预览并确认</button>
-    <view class="record-footnote">保存后，别人扫码即可查看这条记录。</view>
+    <view class="record-footnote">保存后，扫码即可查看这条记录。</view>
     <view class="meta record-message">{{message}}</view>
   </view>
 </view>
