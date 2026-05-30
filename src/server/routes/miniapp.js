@@ -17,6 +17,7 @@ const {
   finalizeCoCreationByKey,
   listActivatedRecordsByMiniappOpenid,
   getActivatedRecordByMiniappOpenidAndId,
+  listBatches,
   listProducts,
   getProduct,
   getMiniappContent
@@ -86,6 +87,29 @@ function coCreationMeta(qr, user) {
   };
 }
 
+function getBatchInfo(qr) {
+  if (!qr.batch_id) {
+    return {};
+  }
+  const batch = listBatches().find((item) => item.id === qr.batch_id);
+  if (!batch) {
+    return {};
+  }
+  return {
+    batch_brand_name: batch.brand_name || '',
+    batch_brand_disclosure_text: batch.brand_disclosure_text || '',
+    batch_brand_disclosure_default: batch.brand_disclosure_default === true
+  };
+}
+
+function getBrandName(qr) {
+  if (!qr.batch_id) {
+    return '';
+  }
+  const batch = listBatches().find((item) => item.id === qr.batch_id);
+  return batch ? batch.brand_name || '' : '';
+}
+
 function formatQRPayload(qr, user) {
   const base = {
     id: qr.id,
@@ -93,7 +117,9 @@ function formatQRPayload(qr, user) {
     activation_status: qr.activation_status,
     issue_status: qr.issue_status,
     active_storage_mode: getStorageMode(),
-    phone_bound: !!(user && user.phone)
+    phone_bound: !!(user && user.phone),
+    batch_id: qr.batch_id || null,
+    ...getBatchInfo(qr)
   };
 
   if (qr.activation_status === 'activated') {
@@ -109,7 +135,8 @@ function formatQRPayload(qr, user) {
       co_creation_comments: visibleComments(qr),
       ...coCreationMeta(qr, user),
       show_brand_disclosure: qr.show_brand_disclosure === true,
-      brand_disclosure_text_snapshot: qr.brand_disclosure_text_snapshot || ''
+      brand_disclosure_text_snapshot: qr.brand_disclosure_text_snapshot || '',
+      brand_name: getBrandName(qr)
     };
   }
 
@@ -128,7 +155,8 @@ function formatQRPayload(qr, user) {
       co_creation_comments: visibleComments(qr),
       ...coCreationMeta(qr, user),
       show_brand_disclosure: qr.show_brand_disclosure === true,
-      brand_disclosure_text_snapshot: qr.brand_disclosure_text_snapshot || ''
+      brand_disclosure_text_snapshot: qr.brand_disclosure_text_snapshot || '',
+      brand_name: getBrandName(qr)
     };
   }
 
@@ -545,7 +573,8 @@ router.get('/user/records/:id', requireMiniappAuth, requireMiniappPhone, (req, r
     data: {
       ...record,
       image_url: resolveImageUrl(record),
-      co_creation_comments: visibleComments(record)
+      co_creation_comments: visibleComments(record),
+      brand_name: getBrandName(record)
     }
   });
 });

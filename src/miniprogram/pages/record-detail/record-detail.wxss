@@ -9,6 +9,17 @@
   line-height: 1.7;
 }
 
+.brand-disclosure-line {
+  margin-top: 18rpx;
+  padding: 18rpx;
+  border: 1rpx solid rgba(255, 227, 155, .24);
+  border-radius: 14rpx;
+  background: rgba(255, 255, 255, .07);
+  color: #ffe39b;
+  font-size: 25rpx;
+  line-height: 1.55;
+}
+
 .hash,
 .comment-item {
   margin-top: 16rpx;

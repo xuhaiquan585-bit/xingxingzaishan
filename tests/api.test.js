@@ -480,6 +480,8 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const bindPhoneJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.js'), 'utf8');
   const recordWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record', 'record.wxml'), 'utf8');
   const recordJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record', 'record.js'), 'utf8');
+  const resultWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'result', 'result.wxml'), 'utf8');
+  const recordDetailWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record-detail', 'record-detail.wxml'), 'utf8');
 
   assert.equal(registerHtml.includes('把此刻，记在这瓶酒里'), true);
   assert.equal(registerHtml.includes('让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。'), true);
@@ -508,8 +510,14 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxml.includes('bindinput="onContentInput"'), true);
   assert.equal(recordWxml.includes('radio-group class="mode-cards" bindchange="onModeChange"'), true);
   assert.equal(recordWxml.includes('class="mode-indicator"'), true);
+  assert.equal(recordWxml.includes('直接保存'), true);
+  assert.equal(recordWxml.includes('直接封存'), false);
   assert.equal(recordWxml.includes('value="direct"'), true);
   assert.equal(recordWxml.includes('value="co_create"'), true);
+  assert.equal(recordWxml.includes('wx:if="{{showBrandSection}}"'), true);
+  assert.equal(recordWxml.includes('checkbox-group bindchange="onBrandDisclosureChange"'), true);
+  assert.equal(recordWxml.includes('显示酒的品牌信息'), true);
+  assert.equal(recordWxml.includes('{{brandPreviewText}}'), true);
   assert.equal(recordWxml.includes('bindtap="submitRecord"'), true);
   assert.equal(recordWxml.includes('mode="aspectFit"'), true);
   assert.equal(recordWxml.includes('style="height: {{previewHeight}}rpx;"'), true);
@@ -517,6 +525,11 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxml.includes('class="mode-row"'), false);
   assert.equal(recordJs.includes('wx.getImageInfo'), true);
   assert.equal(recordJs.includes('calculatePreviewHeight'), true);
+  assert.equal(recordJs.includes('showBrandSection'), true);
+  assert.equal(recordJs.includes('onBrandDisclosureChange'), true);
+  assert.equal(recordJs.includes('show_brand_disclosure'), true);
+  assert.equal(resultWxml.includes('brand-disclosure-line'), true);
+  assert.equal(recordDetailWxml.includes('brand-disclosure-line'), true);
 });
 
 test('POST /api/user/logout should clear cookie with same SameSite policy as session cookie', async () => {
@@ -910,9 +923,17 @@ test('admin product management should expose only published products to miniapp'
 test('miniapp upload and record flow should require bound phone and reject duplicate activation', async () => {
   const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
   const adminToken = adminLogin.body.data.token;
+  const batchRes = await postJson('/api/admin/batches', {
+    name: 'Miniapp Brand Batch',
+    brand_name: '星酒品牌',
+    brand_disclosure_text: '品牌露出文案-MINI',
+    brand_disclosure_default: true
+  }, adminToken);
+  assert.equal(batchRes.status, 200);
   const genRes = await postJson('/api/admin/qr/generate', {
     prefix: 'MQR',
-    count: 1
+    count: 1,
+    batch_id: batchRes.body.data.id
   }, adminToken);
   assert.equal(genRes.status, 200);
   const accessToken = genRes.body.data.records[0].qr_access_token;
@@ -947,13 +968,29 @@ test('miniapp upload and record flow should require bound phone and reject dupli
   assert.equal(uploadRes.status, 200);
   assert.ok(uploadRes.body.data.object_key);
 
+  const statusRes = await getJson(`/api/miniapp/qr/${accessToken}`, token);
+  assert.equal(statusRes.status, 200);
+  assert.equal(statusRes.body.data.batch_brand_name, '星酒品牌');
+  assert.equal(statusRes.body.data.batch_brand_disclosure_text, '品牌露出文案-MINI');
+  assert.equal(statusRes.body.data.batch_brand_disclosure_default, true);
+
   const recordRes = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
     content: '小程序记录',
     image_url: uploadRes.body.data.url,
-    image_object_key: uploadRes.body.data.object_key
+    image_object_key: uploadRes.body.data.object_key,
+    show_brand_disclosure: true
   }, token);
   assert.equal(recordRes.status, 200);
   assert.equal(recordRes.body.data.activation_status, 'activated');
+  assert.equal(recordRes.body.data.show_brand_disclosure, true);
+  assert.equal(recordRes.body.data.brand_disclosure_text_snapshot, '品牌露出文案-MINI');
+  assert.equal(recordRes.body.data.brand_name, '星酒品牌');
+
+  const detailRes = await getJson('/api/miniapp/user/records/MQR00001', token);
+  assert.equal(detailRes.status, 200);
+  assert.equal(detailRes.body.data.show_brand_disclosure, true);
+  assert.equal(detailRes.body.data.brand_disclosure_text_snapshot, '品牌露出文案-MINI');
+  assert.equal(detailRes.body.data.brand_name, '星酒品牌');
 
   const duplicateRes = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
     content: '重复记录',

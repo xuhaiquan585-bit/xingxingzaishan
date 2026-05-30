@@ -48,6 +48,9 @@ Page({
     saveMode: 'direct',
     isDirectMode: true,
     isCoCreateMode: false,
+    showBrandSection: false,
+    showBrandDisclosure: false,
+    brandPreviewText: '',
     message: '加载中...'
   },
 
@@ -76,7 +79,17 @@ Page({
         wx.redirectTo({ url: `/pages/co-create/co-create?key=${encodeURIComponent(this.data.key)}` });
         return;
       }
-      this.setData({ qr: data, displayKey: data.id || this.data.key, message: '' });
+      const batchBrandDisclosureText = String(data.batch_brand_disclosure_text || '').trim();
+      const batchBrandName = String(data.batch_brand_name || '').trim();
+      const brandPreviewText = [batchBrandName, batchBrandDisclosureText].filter(Boolean).join(' · ');
+      this.setData({
+        qr: data,
+        displayKey: data.id || this.data.key,
+        showBrandSection: !!batchBrandDisclosureText,
+        showBrandDisclosure: !!(batchBrandDisclosureText && data.batch_brand_disclosure_default),
+        brandPreviewText,
+        message: ''
+      });
     }).catch((error) => {
       this.setData({ message: error.message || '加载失败，请稍后重试' });
     });
@@ -132,6 +145,13 @@ Page({
     });
   },
 
+  onBrandDisclosureChange(event) {
+    const values = event.detail.value || [];
+    this.setData({
+      showBrandDisclosure: values.includes('show')
+    });
+  },
+
   submitRecord() {
     if (!isPhoneBound()) {
       redirectToBindPhone(`/pages/record/record?key=${encodeURIComponent(this.data.key)}`);
@@ -163,7 +183,8 @@ Page({
         content: this.data.content,
         mode: this.data.saveMode,
         image_url: this.data.imageUrl,
-        image_object_key: this.data.imageObjectKey
+        image_object_key: this.data.imageObjectKey,
+        show_brand_disclosure: this.data.showBrandSection && this.data.showBrandDisclosure
       }
     }).then((data) => {
       if (data.activation_status === 'co_creating') {

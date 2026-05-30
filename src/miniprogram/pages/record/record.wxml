@@ -40,7 +40,7 @@
         <radio class="mode-radio" value="direct" checked="{{isDirectMode}}" />
         <view class="mode-indicator">{{isDirectMode ? '✓' : ''}}</view>
         <view>
-          <view class="mode-title">直接封存</view>
+          <view class="mode-title">直接保存</view>
           <view class="mode-desc">现在确认保存，之后扫码即可查看。</view>
         </view>
       </label>
@@ -53,6 +53,16 @@
         </view>
       </label>
     </radio-group>
+
+    <view wx:if="{{showBrandSection}}" class="brand-disclosure-card">
+      <view class="brand-preview-text">{{brandPreviewText}}</view>
+      <checkbox-group bindchange="onBrandDisclosureChange">
+        <label class="brand-toggle-row">
+          <checkbox class="brand-checkbox" value="show" checked="{{showBrandDisclosure}}" />
+          <text class="brand-label">显示酒的品牌信息</text>
+        </label>
+      </checkbox-group>
+    </view>
 
     <button class="btn record-submit" bindtap="submitRecord">预览并确认</button>
     <view class="meta record-message">{{message}}</view>

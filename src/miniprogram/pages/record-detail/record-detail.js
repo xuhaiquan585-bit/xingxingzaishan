@@ -19,11 +19,16 @@ Page({
     request({
       url: `/api/miniapp/user/records/${encodeURIComponent(this.data.id)}`
     }).then((data) => {
+      const brandDisclosureText = String(data.brand_disclosure_text_snapshot || '').trim();
+      const brandName = String(data.brand_name || '').trim();
+      const brandDisclosureDisplay = [brandName, brandDisclosureText].filter(Boolean).join(' · ');
       this.setData({
         record: {
           ...data,
           image_url: resolveAssetUrl(data.image_url),
           display_content: data.content || '（未填写留言）',
+          has_brand_disclosure: data.show_brand_disclosure === true && !!brandDisclosureText,
+          brand_disclosure_display: brandDisclosureDisplay,
           has_comments: Array.isArray(data.co_creation_comments) && data.co_creation_comments.length > 0
         },
         message: ''
