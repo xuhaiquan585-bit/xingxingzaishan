@@ -12,7 +12,7 @@
     "pages/record-detail/record-detail"
   ],
   "window": {
-    "navigationBarTitleText": "星星在闪",
+    "navigationBarTitleText": "记在星上",
     "navigationBarBackgroundColor": "#101c4d",
     "navigationBarTextStyle": "white",
     "backgroundColor": "#101c4d"

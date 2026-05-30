@@ -1,5 +1,5 @@
 App({
   globalData: {
-    appName: '星星在闪'
+    appName: '记在星上'
   }
 });

@@ -465,9 +465,9 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(js.includes('async function loadMiniappContent'), true);
   assert.equal(js.includes('async function loadSystemStatus'), true);
   assert.equal(js.includes('Promise.all([loadDashboard(), loadBatches(), loadRecords(), loadOperators(), loadProducts()])'), false);
-  assert.equal(appJs.includes("appName: '星星在闪'"), true);
+  assert.equal(appJs.includes("appName: '记在星上'"), true);
   assert.equal(appJson.includes('pages/project/project'), true);
-  assert.equal(appJson.includes('"navigationBarTitleText": "星星在闪"'), true);
+  assert.equal(appJson.includes('"navigationBarTitleText": "记在星上"'), true);
   assert.equal(homeJs.includes('/api/miniapp/content'), true);
 });
 
@@ -500,12 +500,12 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(bindPhoneCss.includes('width: 460rpx'), true);
   assert.equal(bindPhoneJs.includes('event.detail && event.detail.code'), true);
   assert.equal(bindPhoneJs.includes('encryptedData'), false);
-  assert.equal(recordWxml.includes('星星在闪 · 记在星上'), true);
+  assert.equal(recordWxml.includes('星星在闪 · 记在星上'), false);
   assert.equal(recordWxml.includes('把此刻，记在这瓶酒里'), true);
-  assert.equal(recordWxml.includes('让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。'), true);
-  assert.equal(recordWxml.includes('区块链存证'), true);
-  assert.equal(recordWxml.includes('NFT凭证'), true);
-  assert.equal(recordWxml.includes('扫码可查看'), true);
+  assert.equal(recordWxml.includes('区块链存证 · NFT凭证'), true);
+  assert.equal(recordWxml.includes('留下一张照片和一句话，封存属于这瓶酒的记忆。'), true);
+  assert.equal(recordWxml.includes('扫码可查看'), false);
+  assert.equal(recordWxml.includes('class="trust-tag"'), false);
   assert.equal(recordWxml.includes('bindtap="chooseImage"'), true);
   assert.equal(recordWxml.includes('bindinput="onContentInput"'), true);
   assert.equal(recordWxml.includes('radio-group class="mode-cards" bindchange="onModeChange"'), true);

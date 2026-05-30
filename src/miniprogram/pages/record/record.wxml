@@ -3,19 +3,14 @@
   <view class="record-glow record-glow-bottom"></view>
 
   <view class="record-hero">
-    <view class="record-brand">星星在闪 · 记在星上</view>
     <view class="hero-title record-title">把此刻，记在这瓶酒里</view>
-    <view class="subtitle record-subtitle">让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。</view>
-    <view class="trust-tags">
-      <text class="trust-tag">区块链存证</text>
-      <text class="trust-tag">NFT凭证</text>
-      <text class="trust-tag">扫码可查看</text>
-    </view>
+    <view class="trust-line">区块链存证 · NFT凭证</view>
+    <view class="subtitle record-subtitle">留下一张照片和一句话，封存属于这瓶酒的记忆。</view>
   </view>
 
   <view class="card record-card">
-    <view class="record-meta-row">
-      <text class="record-meta-label">星星ID</text>
+    <view wx:if="{{displayKey}}" class="record-meta-row">
+      <text class="record-meta-label">ID</text>
       <text class="record-meta-value">{{displayKey}}</text>
     </view>
 
@@ -23,8 +18,8 @@
       <image wx:if="{{previewUrl}}" class="cover preview" style="height: {{previewHeight}}rpx;" mode="aspectFit" src="{{previewUrl}}" />
       <view wx:else class="photo-empty">
         <view class="photo-icon">＋</view>
-        <view class="photo-title">添加这一刻的照片</view>
-        <view class="photo-hint">照片会成为这瓶酒的专属记忆</view>
+        <view class="photo-title">添加照片</view>
+        <view class="photo-hint">这一刻，会成为这瓶酒的记忆</view>
       </view>
       <view wx:if="{{previewUrl}}" class="photo-action">{{imageButtonText}}</view>
     </button>

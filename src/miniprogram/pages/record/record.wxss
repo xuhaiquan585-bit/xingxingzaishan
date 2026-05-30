@@ -1,11 +1,11 @@
 .record-page {
   position: relative;
   overflow: hidden;
-  padding: 52rpx 28rpx 84rpx;
+  padding: 58rpx 28rpx 88rpx;
   background:
-    radial-gradient(circle at 20% 4%, rgba(255, 221, 150, .18), transparent 28%),
-    radial-gradient(circle at 90% 18%, rgba(118, 151, 255, .18), transparent 28%),
-    linear-gradient(168deg, #081341 0%, #152158 52%, #26346a 100%);
+    radial-gradient(circle at 12% 0%, rgba(255, 221, 150, .08), transparent 28%),
+    radial-gradient(circle at 92% 14%, rgba(118, 151, 255, .12), transparent 30%),
+    linear-gradient(170deg, #07123a 0%, #121f55 54%, #223167 100%);
 }
 
 .record-glow {
@@ -15,11 +15,11 @@
 }
 
 .record-glow-top {
-  top: -120rpx;
-  right: -140rpx;
-  width: 360rpx;
-  height: 360rpx;
-  background: rgba(255, 209, 102, .12);
+  top: -150rpx;
+  right: -180rpx;
+  width: 340rpx;
+  height: 340rpx;
+  background: rgba(255, 209, 102, .06);
 }
 
 .record-glow-bottom {
@@ -27,7 +27,7 @@
   bottom: 160rpx;
   width: 420rpx;
   height: 420rpx;
-  background: rgba(97, 132, 255, .12);
+  background: rgba(97, 132, 255, .08);
 }
 
 .record-hero,
@@ -37,68 +37,56 @@
 }
 
 .record-hero {
-  padding: 16rpx 4rpx 30rpx;
-}
-
-.record-brand {
-  margin-bottom: 18rpx;
-  color: rgba(255, 255, 255, .72);
-  font-size: 24rpx;
-  letter-spacing: 0;
+  padding: 18rpx 4rpx 38rpx;
 }
 
 .record-title {
-  margin-bottom: 14rpx;
-  font-size: 50rpx;
-  line-height: 1.18;
+  max-width: 620rpx;
+  margin-bottom: 18rpx;
+  font-size: 52rpx;
+  line-height: 1.24;
+  font-weight: 800;
+}
+
+.trust-line {
+  margin-bottom: 20rpx;
+  color: rgba(255, 227, 155, .78);
+  font-size: 23rpx;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .record-subtitle {
-  max-width: 650rpx;
-  margin-bottom: 24rpx;
-  color: rgba(255, 255, 255, .84);
+  max-width: 600rpx;
+  color: rgba(255, 255, 255, .72);
   font-size: 27rpx;
-  line-height: 1.72;
-}
-
-.trust-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14rpx;
-}
-
-.trust-tag {
-  padding: 10rpx 18rpx;
-  border: 1rpx solid rgba(255, 227, 155, .34);
-  border-radius: 999rpx;
-  background: rgba(255, 227, 155, .1);
-  color: #ffe39b;
-  font-size: 23rpx;
+  line-height: 1.7;
 }
 
 .record-card {
-  padding: 30rpx;
-  border-color: rgba(255, 255, 255, .2);
+  padding: 26rpx;
+  border-color: rgba(255, 255, 255, .13);
   border-radius: 28rpx;
-  background: rgba(255, 255, 255, .11);
-  box-shadow: 0 28rpx 72rpx rgba(4, 10, 38, .28);
+  background: rgba(255, 255, 255, .075);
+  box-shadow: 0 24rpx 58rpx rgba(4, 10, 38, .2);
 }
 
 .record-meta-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 22rpx;
-  color: rgba(255, 255, 255, .72);
-  font-size: 24rpx;
+  justify-content: flex-end;
+  gap: 10rpx;
+  margin-bottom: 16rpx;
+  color: rgba(255, 255, 255, .48);
+  font-size: 20rpx;
 }
 
 .record-meta-label {
-  color: rgba(255, 255, 255, .58);
+  color: rgba(255, 255, 255, .38);
 }
 
 .record-meta-value {
-  color: rgba(255, 255, 255, .9);
+  color: rgba(255, 255, 255, .66);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-weight: 600;
   letter-spacing: 0;
@@ -107,15 +95,15 @@
 .photo-frame {
   box-sizing: border-box;
   width: 100%;
-  min-height: 360rpx;
-  margin: 0 0 30rpx;
-  padding: 18rpx;
-  border: 1rpx solid rgba(255, 227, 155, .22);
-  border-radius: 26rpx;
-  background: rgba(255, 255, 255, .05);
+  min-height: 410rpx;
+  margin: 0 0 34rpx;
+  padding: 0;
+  border: 0;
+  border-radius: 28rpx;
+  background: transparent;
   color: #fff;
   line-height: 1.4;
-  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, .1);
+  box-shadow: none;
 }
 
 .photo-frame::after {
@@ -127,10 +115,10 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 300rpx;
-  border: 1rpx dashed rgba(255, 255, 255, .3);
-  border-radius: 22rpx;
-  background: rgba(255, 255, 255, .05);
+  min-height: 408rpx;
+  border: 1rpx dashed rgba(255, 227, 155, .3);
+  border-radius: 28rpx;
+  background: rgba(255, 255, 255, .035);
 }
 
 .photo-icon {
@@ -141,9 +129,9 @@
   height: 86rpx;
   margin-bottom: 22rpx;
   border-radius: 50%;
-  background: rgba(255, 255, 255, .08);
+  background: rgba(255, 255, 255, .06);
   color: #ffd166;
-  font-size: 52rpx;
+  font-size: 48rpx;
   line-height: 1;
 }
 
@@ -155,7 +143,7 @@
 
 .photo-hint {
   margin-top: 10rpx;
-  color: rgba(255, 255, 255, .58);
+  color: rgba(255, 255, 255, .5);
   font-size: 23rpx;
 }
 
@@ -169,15 +157,17 @@
 .preview {
   display: block;
   margin: 0;
+  border-radius: 26rpx;
+  background: rgba(255, 255, 255, .035);
 }
 
 .field-block {
-  margin-bottom: 28rpx;
+  margin-bottom: 26rpx;
 }
 
 .field-title {
   margin-bottom: 14rpx;
-  color: #ffe39b;
+  color: rgba(255, 255, 255, .86);
   font-size: 28rpx;
   font-weight: 700;
 }
@@ -186,9 +176,9 @@
   min-height: 230rpx;
   margin: 0;
   padding: 26rpx;
-  border-color: rgba(255, 255, 255, .16);
+  border-color: rgba(255, 255, 255, .12);
   border-radius: 22rpx;
-  background: rgba(6, 12, 42, .38);
+  background: rgba(255, 255, 255, .055);
   font-size: 29rpx;
   line-height: 1.65;
 }
@@ -202,25 +192,27 @@
 
 .mode-cards {
   display: grid;
-  gap: 18rpx;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14rpx;
   margin: 4rpx 0 30rpx;
 }
 
 .mode-card {
   position: relative;
   display: flex;
-  align-items: center;
-  gap: 18rpx;
-  padding: 22rpx;
-  border: 1rpx solid rgba(255, 255, 255, .16);
-  border-radius: 22rpx;
-  background: rgba(7, 14, 46, .24);
+  align-items: flex-start;
+  gap: 14rpx;
+  min-height: 118rpx;
+  padding: 20rpx;
+  border: 1rpx solid rgba(255, 255, 255, .12);
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, .045);
 }
 
 .mode-card-active {
-  border-color: rgba(255, 209, 102, .72);
-  background: rgba(255, 209, 102, .13);
-  box-shadow: 0 14rpx 34rpx rgba(255, 209, 102, .08);
+  border-color: rgba(255, 209, 102, .58);
+  background: rgba(255, 209, 102, .095);
+  box-shadow: none;
 }
 
 .mode-radio {
@@ -235,12 +227,12 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 42rpx;
-  height: 42rpx;
+  width: 34rpx;
+  height: 34rpx;
   border: 1rpx solid rgba(255, 255, 255, .28);
   border-radius: 50%;
   color: #141414;
-  font-size: 24rpx;
+  font-size: 21rpx;
   font-weight: 800;
 }
 
@@ -251,28 +243,28 @@
 
 .mode-title {
   color: #fff;
-  font-size: 29rpx;
+  font-size: 27rpx;
   font-weight: 700;
 }
 
 .mode-desc {
   margin-top: 6rpx;
-  color: rgba(255, 255, 255, .62);
-  font-size: 23rpx;
+  color: rgba(255, 255, 255, .56);
+  font-size: 21rpx;
   line-height: 1.5;
 }
 
 .brand-disclosure-card {
   margin: 0 0 30rpx;
-  padding: 22rpx;
-  border: 1rpx solid rgba(255, 227, 155, .22);
+  padding: 20rpx;
+  border: 1rpx solid rgba(255, 255, 255, .12);
   border-radius: 22rpx;
-  background: rgba(255, 255, 255, .06);
+  background: rgba(255, 255, 255, .045);
 }
 
 .brand-preview-text {
   margin-bottom: 16rpx;
-  color: rgba(255, 255, 255, .74);
+  color: rgba(255, 255, 255, .64);
   font-size: 24rpx;
   line-height: 1.55;
 }
@@ -295,8 +287,8 @@
 
 .record-submit {
   min-height: 96rpx;
-  margin-top: 0;
-  box-shadow: 0 18rpx 42rpx rgba(255, 209, 102, .2);
+  margin-top: 4rpx;
+  box-shadow: 0 16rpx 36rpx rgba(255, 209, 102, .18);
 }
 
 .record-message {
