@@ -42,11 +42,18 @@
 }
 
 .wechat-login-btn {
+  box-sizing: border-box;
+  width: 460rpx;
+  max-width: 100%;
   min-height: 96rpx;
-  margin-top: 36rpx;
+  margin: 36rpx auto 0;
+  padding: 0 42rpx;
   border-radius: 999rpx;
   background: #ffffff;
   color: #101010;
+  font-size: 30rpx;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .wechat-login-btn[disabled] {
@@ -54,9 +61,16 @@
 }
 
 .wechat-mark {
+  flex: 0 0 auto;
   margin-right: 16rpx;
   color: #20c766;
   font-weight: 800;
+  white-space: nowrap;
+}
+
+.wechat-login-text {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .meta {

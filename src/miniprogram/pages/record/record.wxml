@@ -1,21 +1,60 @@
-<view class="page">
-  <view class="hero-title">留下这瓶酒的专属记录</view>
-  <view class="subtitle">选一张照片，写一句话，下次扫码还能看到</view>
+<view class="page record-page">
+  <view class="record-glow record-glow-top"></view>
+  <view class="record-glow record-glow-bottom"></view>
 
-  <view class="card">
-    <view class="meta">星星ID：{{displayKey}}</view>
-    <button class="btn secondary" bindtap="chooseImage">{{imageButtonText}}</button>
-    <image wx:if="{{previewUrl}}" class="cover preview" mode="aspectFill" src="{{previewUrl}}" />
+  <view class="record-hero">
+    <view class="record-brand">星星在闪 · 记在星上</view>
+    <view class="hero-title record-title">把此刻，记在这瓶酒里</view>
+    <view class="subtitle record-subtitle">让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。</view>
+    <view class="trust-tags">
+      <text class="trust-tag">区块链存证</text>
+      <text class="trust-tag">NFT凭证</text>
+      <text class="trust-tag">扫码可查看</text>
+    </view>
+  </view>
 
-    <textarea class="textarea" maxlength="200" placeholder="例：这一刻，我想记下的是……" value="{{content}}" bindinput="onContentInput" />
-    <view class="meta">{{contentCount}} / 200</view>
+  <view class="card record-card">
+    <view class="record-meta-row">
+      <text class="record-meta-label">星星ID</text>
+      <text class="record-meta-value">{{displayKey}}</text>
+    </view>
 
-    <radio-group bindchange="onModeChange">
-      <label class="mode-row"><radio value="direct" checked="{{isDirectMode}}" />直接保存</label>
-      <label class="mode-row"><radio value="co_create" checked="{{isCoCreateMode}}" />邀请共创</label>
+    <button class="photo-frame" bindtap="chooseImage">
+      <image wx:if="{{previewUrl}}" class="cover preview" style="height: {{previewHeight}}rpx;" mode="aspectFit" src="{{previewUrl}}" />
+      <view wx:else class="photo-empty">
+        <view class="photo-icon">＋</view>
+        <view class="photo-title">添加这一刻的照片</view>
+        <view class="photo-hint">照片会成为这瓶酒的专属记忆</view>
+      </view>
+      <view wx:if="{{previewUrl}}" class="photo-action">{{imageButtonText}}</view>
+    </button>
+
+    <view class="field-block">
+      <view class="field-title">写给这瓶酒的一句话</view>
+      <textarea class="textarea memory-textarea" maxlength="200" placeholder="例：这一刻，我想记下的是……" value="{{content}}" bindinput="onContentInput" />
+      <view class="count-row">{{contentCount}} / 200</view>
+    </view>
+
+    <radio-group class="mode-cards" bindchange="onModeChange">
+      <label class="mode-card {{isDirectMode ? 'mode-card-active' : ''}}">
+        <radio class="mode-radio" value="direct" checked="{{isDirectMode}}" />
+        <view class="mode-indicator">{{isDirectMode ? '✓' : ''}}</view>
+        <view>
+          <view class="mode-title">直接封存</view>
+          <view class="mode-desc">现在确认保存，之后扫码即可查看。</view>
+        </view>
+      </label>
+      <label class="mode-card {{isCoCreateMode ? 'mode-card-active' : ''}}">
+        <radio class="mode-radio" value="co_create" checked="{{isCoCreateMode}}" />
+        <view class="mode-indicator">{{isCoCreateMode ? '✓' : ''}}</view>
+        <view>
+          <view class="mode-title">邀请共创</view>
+          <view class="mode-desc">先邀请他人留言，最后由你确认封存。</view>
+        </view>
+      </label>
     </radio-group>
 
-    <button class="btn" bindtap="submitRecord">预览并确认</button>
-    <view class="meta">{{message}}</view>
+    <button class="btn record-submit" bindtap="submitRecord">预览并确认</button>
+    <view class="meta record-message">{{message}}</view>
   </view>
 </view>

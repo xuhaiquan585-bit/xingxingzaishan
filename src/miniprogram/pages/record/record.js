@@ -2,6 +2,37 @@ const { login, redirectToBindPhone } = require('../../utils/auth');
 const { request, uploadImage, resolveAssetUrl, isPhoneBound } = require('../../utils/request');
 const { extractQrKey } = require('../../utils/qr');
 
+const PREVIEW_WIDTH_RPX = 638;
+const MIN_PREVIEW_HEIGHT_RPX = 320;
+const MAX_PREVIEW_HEIGHT_RPX = 680;
+const DEFAULT_PREVIEW_HEIGHT_RPX = 420;
+
+function clampPreviewHeight(height) {
+  return Math.max(MIN_PREVIEW_HEIGHT_RPX, Math.min(MAX_PREVIEW_HEIGHT_RPX, height));
+}
+
+function calculatePreviewHeight(width, height) {
+  const numericWidth = Number(width);
+  const numericHeight = Number(height);
+  if (!numericWidth || !numericHeight) {
+    return DEFAULT_PREVIEW_HEIGHT_RPX;
+  }
+  return clampPreviewHeight(Math.round((PREVIEW_WIDTH_RPX * numericHeight) / numericWidth));
+}
+
+function getImagePreviewHeight(file) {
+  if (file && file.width && file.height) {
+    return Promise.resolve(calculatePreviewHeight(file.width, file.height));
+  }
+  return new Promise((resolve) => {
+    wx.getImageInfo({
+      src: file.tempFilePath,
+      success: (info) => resolve(calculatePreviewHeight(info.width, info.height)),
+      fail: () => resolve(DEFAULT_PREVIEW_HEIGHT_RPX)
+    });
+  });
+}
+
 Page({
   data: {
     key: '',
@@ -10,6 +41,7 @@ Page({
     imageUrl: '',
     imageObjectKey: '',
     previewUrl: '',
+    previewHeight: DEFAULT_PREVIEW_HEIGHT_RPX,
     imageButtonText: '添加照片',
     content: '',
     contentCount: 0,
@@ -56,14 +88,19 @@ Page({
       mediaType: ['image'],
       sourceType: ['album', 'camera'],
       success: (res) => {
-        const filePath = res.tempFiles && res.tempFiles[0] && res.tempFiles[0].tempFilePath;
+        const file = res.tempFiles && res.tempFiles[0];
+        const filePath = file && file.tempFilePath;
         if (!filePath) return;
         this.setData({ message: '图片上传中...' });
-        uploadImage({ filePath, qrId: this.data.key }).then((data) => {
+        Promise.all([
+          uploadImage({ filePath, qrId: this.data.key }),
+          getImagePreviewHeight(file)
+        ]).then(([data, previewHeight]) => {
           this.setData({
             imageUrl: data.url || '',
             imageObjectKey: data.object_key || '',
             previewUrl: resolveAssetUrl(data.preview_url || data.url),
+            previewHeight,
             imageButtonText: '更换照片',
             message: ''
           });

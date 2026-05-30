@@ -445,10 +445,12 @@ test('admin and qc pages should use timeout-protected fetch wrappers', () => {
 test('admin page should expose section navigation and miniapp content tools', () => {
   const adminHtmlPath = path.join(__dirname, '..', 'src', 'admin', 'index.html');
   const adminJsPath = path.join(__dirname, '..', 'src', 'admin', 'js', 'admin.js');
+  const appJsPath = path.join(__dirname, '..', 'src', 'miniprogram', 'app.js');
   const appJsonPath = path.join(__dirname, '..', 'src', 'miniprogram', 'app.json');
   const homeJsPath = path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'home', 'home.js');
   const html = fs.readFileSync(adminHtmlPath, 'utf8');
   const js = fs.readFileSync(adminJsPath, 'utf8');
+  const appJs = fs.readFileSync(appJsPath, 'utf8');
   const appJson = fs.readFileSync(appJsonPath, 'utf8');
   const homeJs = fs.readFileSync(homeJsPath, 'utf8');
 
@@ -463,7 +465,9 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(js.includes('async function loadMiniappContent'), true);
   assert.equal(js.includes('async function loadSystemStatus'), true);
   assert.equal(js.includes('Promise.all([loadDashboard(), loadBatches(), loadRecords(), loadOperators(), loadProducts()])'), false);
+  assert.equal(appJs.includes("appName: '星星在闪'"), true);
   assert.equal(appJson.includes('pages/project/project'), true);
+  assert.equal(appJson.includes('"navigationBarTitleText": "星星在闪"'), true);
   assert.equal(homeJs.includes('/api/miniapp/content'), true);
 });
 
@@ -472,7 +476,10 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const registerJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'js', 'register.js'), 'utf8');
   const frontendCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'css', 'style.css'), 'utf8');
   const bindPhoneWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.wxml'), 'utf8');
+  const bindPhoneCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.wxss'), 'utf8');
   const bindPhoneJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.js'), 'utf8');
+  const recordWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record', 'record.wxml'), 'utf8');
+  const recordJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record', 'record.js'), 'utf8');
 
   assert.equal(registerHtml.includes('把此刻，记在这瓶酒里'), true);
   assert.equal(registerHtml.includes('让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。'), true);
@@ -482,12 +489,34 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(registerJs.includes('MicroMessenger'), true);
   assert.equal(frontendCss.includes('.auth-sms-row'), true);
   assert.equal(frontendCss.includes('grid-template-columns: minmax(0, 1fr) 128px'), true);
+  assert.equal(bindPhoneWxml.includes('<view class="hero-title">星星在闪</view>'), true);
   assert.equal(bindPhoneWxml.includes('用微信快速确认身份，继续记录这瓶酒的故事。'), true);
   assert.equal(bindPhoneWxml.includes('<text class="wechat-mark">微信</text>'), true);
-  assert.equal(bindPhoneWxml.includes('<text>手机号一键登录</text>'), true);
+  assert.equal(bindPhoneWxml.includes('<text class="wechat-login-text">手机号一键登录</text>'), true);
   assert.equal(bindPhoneWxml.includes('open-type="getPhoneNumber"'), true);
+  assert.equal(bindPhoneCss.includes('white-space: nowrap'), true);
+  assert.equal(bindPhoneCss.includes('width: 460rpx'), true);
   assert.equal(bindPhoneJs.includes('event.detail && event.detail.code'), true);
   assert.equal(bindPhoneJs.includes('encryptedData'), false);
+  assert.equal(recordWxml.includes('星星在闪 · 记在星上'), true);
+  assert.equal(recordWxml.includes('把此刻，记在这瓶酒里'), true);
+  assert.equal(recordWxml.includes('让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。'), true);
+  assert.equal(recordWxml.includes('区块链存证'), true);
+  assert.equal(recordWxml.includes('NFT凭证'), true);
+  assert.equal(recordWxml.includes('扫码可查看'), true);
+  assert.equal(recordWxml.includes('bindtap="chooseImage"'), true);
+  assert.equal(recordWxml.includes('bindinput="onContentInput"'), true);
+  assert.equal(recordWxml.includes('radio-group class="mode-cards" bindchange="onModeChange"'), true);
+  assert.equal(recordWxml.includes('class="mode-indicator"'), true);
+  assert.equal(recordWxml.includes('value="direct"'), true);
+  assert.equal(recordWxml.includes('value="co_create"'), true);
+  assert.equal(recordWxml.includes('bindtap="submitRecord"'), true);
+  assert.equal(recordWxml.includes('mode="aspectFit"'), true);
+  assert.equal(recordWxml.includes('style="height: {{previewHeight}}rpx;"'), true);
+  assert.equal(recordWxml.includes('mode="aspectFill"'), false);
+  assert.equal(recordWxml.includes('class="mode-row"'), false);
+  assert.equal(recordJs.includes('wx.getImageInfo'), true);
+  assert.equal(recordJs.includes('calculatePreviewHeight'), true);
 });
 
 test('POST /api/user/logout should clear cookie with same SameSite policy as session cookie', async () => {
