@@ -503,7 +503,8 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(bindPhoneJs.includes('encryptedData'), false);
   assert.equal(recordWxml.includes('星星在闪 · 记在星上'), false);
   assert.equal(recordWxml.includes('把这一刻，记在这瓶酒里'), true);
-  assert.equal(recordWxml.includes('区块链存证 · NFT凭证'), true);
+  assert.equal(recordWxml.includes('区块链存证'), true);
+  assert.equal(recordWxml.includes('NFT凭证'), false);
   assert.equal(recordWxml.includes('选一张照片，写一句话，以后随时能看到。'), true);
   assert.equal(recordWxml.includes('永久记在这瓶酒里'), false);
   assert.equal(recordWxml.includes('星星ID:'), true);
@@ -535,6 +536,10 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxss.includes('-webkit-backdrop-filter: blur(16px)'), true);
   assert.equal(recordWxss.includes('backdrop-filter: blur(16px)'), true);
   assert.equal(recordWxss.includes('background: rgba(255, 255, 255, .04)'), true);
+  assert.equal(recordWxss.includes('min-height: 280rpx'), true);
+  assert.equal(recordWxss.includes('2rpx dashed rgba(212, 175, 55, .5)'), true);
+  assert.equal(recordWxss.includes('min-height: 116rpx'), false);
+  assert.equal(recordWxss.includes('color: rgba(255, 255, 255, .74)'), true);
   assert.equal(recordWxss.includes('.count-row'), true);
   assert.equal(recordWxss.includes('font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace'), true);
   assert.equal(recordJs.includes('wx.getImageInfo'), true);
