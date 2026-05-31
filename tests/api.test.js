@@ -505,6 +505,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxml.includes('把这一刻，记在这瓶酒里'), true);
   assert.equal(recordWxml.includes('区块链存证 · NFT凭证'), true);
   assert.equal(recordWxml.includes('选一张照片，写一句话，以后随时能看到。'), true);
+  assert.equal(recordWxml.includes('永久记在这瓶酒里'), false);
   assert.equal(recordWxml.includes('星星ID:'), true);
   assert.equal(recordWxml.includes('写下想记住的话'), true);
   assert.equal(recordWxml.includes('这一刻，会成为这瓶酒的记忆'), false);
@@ -531,6 +532,11 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxss.includes('env(safe-area-inset-bottom)'), true);
   assert.equal(recordWxss.includes('grid-template-columns: 1fr'), true);
   assert.equal(recordWxss.includes('"Songti SC", STSong, serif'), true);
+  assert.equal(recordWxss.includes('-webkit-backdrop-filter: blur(16px)'), true);
+  assert.equal(recordWxss.includes('backdrop-filter: blur(16px)'), true);
+  assert.equal(recordWxss.includes('background: rgba(255, 255, 255, .04)'), true);
+  assert.equal(recordWxss.includes('.count-row'), true);
+  assert.equal(recordWxss.includes('font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace'), true);
   assert.equal(recordJs.includes('wx.getImageInfo'), true);
   assert.equal(recordJs.includes('calculatePreviewHeight'), true);
   assert.equal(recordJs.includes('showBrandSection'), true);
