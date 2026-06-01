@@ -4,8 +4,8 @@
 
   <view class="record-hero">
     <view class="hero-title record-title">把这一刻，记在这瓶酒里</view>
-    <view class="trust-line">区块链存证</view>
     <view class="subtitle record-subtitle">选一张照片，写一句话，以后随时能看到。</view>
+    <view class="trust-line">✦ 区块链存证</view>
   </view>
 
   <view class="card record-card">

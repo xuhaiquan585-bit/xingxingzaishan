@@ -503,9 +503,14 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(bindPhoneJs.includes('encryptedData'), false);
   assert.equal(recordWxml.includes('星星在闪 · 记在星上'), false);
   assert.equal(recordWxml.includes('把这一刻，记在这瓶酒里'), true);
-  assert.equal(recordWxml.includes('区块链存证'), true);
+  assert.equal(recordWxml.includes('✦ 区块链存证'), true);
   assert.equal(recordWxml.includes('NFT凭证'), false);
   assert.equal(recordWxml.includes('选一张照片，写一句话，以后随时能看到。'), true);
+  const recordTitleIndex = recordWxml.indexOf('把这一刻，记在这瓶酒里');
+  const recordSubtitleIndex = recordWxml.indexOf('选一张照片，写一句话，以后随时能看到。');
+  const recordTrustIndex = recordWxml.indexOf('✦ 区块链存证');
+  assert.equal(recordTitleIndex < recordSubtitleIndex, true);
+  assert.equal(recordSubtitleIndex < recordTrustIndex, true);
   assert.equal(recordWxml.includes('永久记在这瓶酒里'), false);
   assert.equal(recordWxml.includes('星星ID:'), true);
   assert.equal(recordWxml.includes('写下想记住的话'), true);

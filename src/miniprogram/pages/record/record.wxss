@@ -44,7 +44,7 @@
 
 .record-title {
   max-width: 600rpx;
-  margin-bottom: 20rpx;
+  margin-bottom: 14rpx;
   color: #e4c46e;
   font-size: 46rpx;
   line-height: 1.32;
@@ -53,11 +53,11 @@
 }
 
 .trust-line {
-  margin-bottom: 20rpx;
-  color: rgba(212, 175, 55, .72);
-  font-size: 24rpx;
+  margin-top: 16rpx;
+  color: rgba(212, 175, 55, .68);
+  font-size: 23rpx;
   font-weight: 600;
-  letter-spacing: 0;
+  letter-spacing: .5rpx;
 }
 
 .record-subtitle {
