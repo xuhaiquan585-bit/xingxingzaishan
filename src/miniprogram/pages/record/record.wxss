@@ -1,8 +1,8 @@
 .record-page {
   position: relative;
   overflow: hidden;
-  padding: 58rpx 28rpx 128rpx;
-  padding-bottom: calc(128rpx + env(safe-area-inset-bottom));
+  padding: 58rpx 28rpx 160rpx;
+  padding-bottom: calc(160rpx + env(safe-area-inset-bottom));
   background:
     radial-gradient(circle at 12% 0%, rgba(212, 175, 55, .07), transparent 28%),
     radial-gradient(circle at 92% 14%, rgba(118, 151, 255, .12), transparent 30%),
@@ -70,14 +70,14 @@
 .record-card {
   padding: 28rpx;
   border-color: rgba(255, 255, 255, .08);
-  border-radius: 24rpx;
+  border-radius: 20rpx;
   background: rgba(255, 255, 255, .04);
   box-shadow: 0 22rpx 56rpx rgba(4, 10, 38, .16), inset 0 1rpx 0 rgba(255, 255, 255, .06);
 }
 
 .record-card,
 .photo-empty,
-.memory-textarea,
+.textarea-shell,
 .mode-card,
 .brand-disclosure-card {
   -webkit-backdrop-filter: blur(16px);
@@ -113,7 +113,7 @@
   margin: 0 0 34rpx;
   padding: 0;
   border: 0;
-  border-radius: 28rpx;
+  border-radius: 20rpx;
   background: transparent;
   color: #fff;
   line-height: 1.4;
@@ -187,21 +187,31 @@
   font-weight: 700;
 }
 
+.textarea-shell {
+  position: relative;
+  border: 1rpx solid rgba(255, 255, 255, .1);
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, .04);
+  box-shadow: inset 0 6rpx 18rpx rgba(2, 7, 28, .18), inset 0 1rpx 0 rgba(255, 255, 255, .05);
+}
+
 .memory-textarea {
-  min-height: 230rpx;
+  min-height: 180rpx;
   margin: 0;
-  padding: 26rpx;
-  border-color: rgba(255, 255, 255, .1);
-  border-radius: 16rpx;
-  background: rgba(255, 255, 255, .045);
-  box-shadow: inset 0 6rpx 18rpx rgba(2, 7, 28, .18);
+  padding: 24rpx 24rpx 64rpx;
+  border: 0;
+  border-radius: 20rpx;
+  background: transparent;
+  box-shadow: none;
   font-family: "Songti SC", STSong, serif;
   font-size: 29rpx;
   line-height: 1.65;
 }
 
 .count-row {
-  margin-top: 10rpx;
+  position: absolute;
+  right: 24rpx;
+  bottom: 20rpx;
   color: rgba(255, 255, 255, .54);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 23rpx;
@@ -220,9 +230,9 @@
   display: flex;
   align-items: flex-start;
   gap: 18rpx;
-  padding: 22rpx;
+  padding: 28rpx 22rpx;
   border: 1rpx solid rgba(255, 255, 255, .1);
-  border-radius: 16rpx;
+  border-radius: 20rpx;
   background: rgba(255, 255, 255, .04);
   box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, .05);
 }
@@ -276,7 +286,7 @@
   margin: 0 0 30rpx;
   padding: 20rpx;
   border: 1rpx solid rgba(255, 255, 255, .1);
-  border-radius: 16rpx;
+  border-radius: 20rpx;
   background: rgba(255, 255, 255, .04);
 }
 
@@ -307,7 +317,7 @@
   min-height: 96rpx;
   margin-top: 4rpx;
   background: #d4af37;
-  box-shadow: 0 16rpx 40rpx rgba(212, 175, 55, .22);
+  box-shadow: 0 12rpx 24rpx rgba(212, 175, 55, .25);
 }
 
 .record-footnote {

@@ -25,8 +25,10 @@
 
     <view class="field-block">
       <view class="field-title">写下想记住的话</view>
-      <textarea class="textarea memory-textarea" maxlength="200" placeholder="例：这一刻，我想记下的是……" value="{{content}}" bindinput="onContentInput" />
-      <view class="count-row">{{contentCount}} / 200</view>
+      <view class="textarea-shell">
+        <textarea class="textarea memory-textarea" maxlength="200" cursor-spacing="80" placeholder="例：这一刻，我想记下的是……" value="{{content}}" bindinput="onContentInput" />
+        <view class="count-row">{{contentCount}} / 200</view>
+      </view>
     </view>
 
     <radio-group class="mode-cards" bindchange="onModeChange">

@@ -515,6 +515,9 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxml.includes('class="trust-tag"'), false);
   assert.equal(recordWxml.includes('bindtap="chooseImage"'), true);
   assert.equal(recordWxml.includes('bindinput="onContentInput"'), true);
+  assert.equal(recordWxml.includes('class="textarea-shell"'), true);
+  assert.equal(recordWxml.includes('cursor-spacing="80"'), true);
+  assert.equal(recordWxml.includes('auto-height'), false);
   assert.equal(recordWxml.includes('radio-group class="mode-cards" bindchange="onModeChange"'), true);
   assert.equal(recordWxml.includes('class="mode-indicator"'), true);
   assert.equal(recordWxml.includes('直接保存'), true);
@@ -531,6 +534,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxml.includes('mode="aspectFill"'), false);
   assert.equal(recordWxml.includes('class="mode-row"'), false);
   assert.equal(recordWxss.includes('env(safe-area-inset-bottom)'), true);
+  assert.equal(recordWxss.includes('padding-bottom: calc(160rpx + env(safe-area-inset-bottom))'), true);
   assert.equal(recordWxss.includes('grid-template-columns: 1fr'), true);
   assert.equal(recordWxss.includes('"Songti SC", STSong, serif'), true);
   assert.equal(recordWxss.includes('-webkit-backdrop-filter: blur(16px)'), true);
@@ -540,6 +544,13 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxss.includes('2rpx dashed rgba(212, 175, 55, .5)'), true);
   assert.equal(recordWxss.includes('min-height: 116rpx'), false);
   assert.equal(recordWxss.includes('color: rgba(255, 255, 255, .74)'), true);
+  assert.equal(recordWxss.includes('.textarea-shell'), true);
+  assert.equal(recordWxss.includes('position: absolute'), true);
+  assert.equal(recordWxss.includes('right: 24rpx'), true);
+  assert.equal(recordWxss.includes('bottom: 20rpx'), true);
+  assert.equal(recordWxss.includes('min-height: 180rpx'), true);
+  assert.equal(recordWxss.includes('padding: 28rpx 22rpx'), true);
+  assert.equal(recordWxss.includes('box-shadow: 0 12rpx 24rpx rgba(212, 175, 55, .25)'), true);
   assert.equal(recordWxss.includes('.count-row'), true);
   assert.equal(recordWxss.includes('font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace'), true);
   assert.equal(recordJs.includes('wx.getImageInfo'), true);
