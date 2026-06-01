@@ -1,5 +1,10 @@
 .project-text {
   white-space: pre-wrap;
-  line-height: 1.7;
-  color: rgba(255, 255, 255, 0.86);
+  color: rgba(255, 255, 255, .82);
+  font-size: 28rpx;
+  line-height: 1.82;
+}
+
+.card + .card {
+  margin-top: 30rpx;
 }

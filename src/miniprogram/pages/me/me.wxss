@@ -1,4 +1,16 @@
 .record-card .cover {
-  height: 300rpx;
-  margin-bottom: 18rpx;
+  height: 330rpx;
+  margin-bottom: 22rpx;
+  box-shadow: 0 16rpx 36rpx rgba(3, 8, 32, .2);
+}
+
+.record-card .list-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: #fff;
+  font-family: "Songti SC", STSong, serif;
+  font-size: 30rpx;
+  line-height: 1.58;
 }

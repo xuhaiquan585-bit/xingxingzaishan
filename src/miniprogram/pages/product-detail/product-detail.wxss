@@ -1,15 +1,17 @@
 .hero-cover {
-  height: 420rpx;
-  margin-bottom: 28rpx;
+  height: 480rpx;
+  margin-bottom: 30rpx;
+  box-shadow: 0 18rpx 42rpx rgba(3, 8, 32, .24);
 }
 
 .detail-image {
-  margin-top: 20rpx;
+  margin-top: 24rpx;
+  box-shadow: 0 14rpx 32rpx rgba(3, 8, 32, .18);
 }
 
 .price {
-  margin-bottom: 18rpx;
-  color: #ffd166;
+  margin-bottom: 20rpx;
+  color: #d4af37;
   font-size: 34rpx;
   font-weight: 700;
 }

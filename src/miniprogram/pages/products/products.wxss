@@ -1,11 +1,16 @@
 .product-card .cover {
-  height: 360rpx;
-  margin-bottom: 20rpx;
+  height: 380rpx;
+  margin-bottom: 24rpx;
+  box-shadow: 0 16rpx 36rpx rgba(3, 8, 32, .2);
 }
 
 .price {
-  margin-top: 12rpx;
-  color: #ffd166;
+  margin-top: 16rpx;
+  color: #d4af37;
   font-size: 30rpx;
   font-weight: 700;
+}
+
+.product-card {
+  transition: transform .18s ease;
 }
