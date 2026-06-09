@@ -1,10 +1,12 @@
-<view class="page">
+<view class="page product-detail-page">
   <block wx:if="{{product}}">
-    <image wx:if="{{product.cover_image}}" class="cover hero-cover" mode="aspectFill" src="{{product.cover_image}}" />
-    <view class="hero-title">{{product.title}}</view>
-    <view class="subtitle">{{product.subtitle}}</view>
+    <view class="product-detail-hero">
+      <image wx:if="{{product.cover_image}}" class="cover hero-cover" mode="aspectFill" src="{{product.cover_image}}" />
+      <view class="hero-title">{{product.title}}</view>
+      <view class="subtitle">{{product.subtitle}}</view>
+    </view>
 
-    <view class="card">
+    <view class="card product-detail-panel">
       <view class="price">{{product.price_text}}</view>
       <view class="hint">{{product.description}}</view>
       <block wx:for="{{product.images}}" wx:key="*this">
@@ -15,5 +17,5 @@
     </view>
   </block>
 
-  <view class="meta">{{message}}</view>
+  <view wx:if="{{message}}" class="meta state-card">{{message}}</view>
 </view>

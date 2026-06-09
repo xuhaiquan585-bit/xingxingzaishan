@@ -1,3 +1,13 @@
+.project-hero {
+  position: relative;
+  z-index: 1;
+  padding: 10rpx 0 6rpx;
+}
+
+.project-page .hero-title {
+  font-size: 48rpx;
+}
+
 .project-text {
   white-space: pre-wrap;
   color: rgba(255, 255, 255, .82);
@@ -5,6 +15,23 @@
   line-height: 1.82;
 }
 
-.card + .card {
+.project-card {
+  padding: 34rpx 32rpx;
+}
+
+.project-card-primary {
+  border-color: rgba(212, 175, 55, .16);
+  background: rgba(255, 255, 255, .045);
+}
+
+.project-card-secondary {
+  background: rgba(255, 255, 255, .032);
+}
+
+.project-card + .project-card {
   margin-top: 30rpx;
+}
+
+.project-card .list-title {
+  margin-bottom: 18rpx;
 }

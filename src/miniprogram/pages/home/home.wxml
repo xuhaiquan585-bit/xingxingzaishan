@@ -1,15 +1,26 @@
-<view class="page">
-  <view class="hero-title">{{content.home_title}}</view>
-  <view class="subtitle">{{content.home_subtitle}}</view>
+<view class="page home-page">
+  <view class="home-hero">
+    <view class="home-brand-mark">
+      <view class="home-brand-star">✦</view>
+      <view class="home-brand-vessel"></view>
+    </view>
+    <view class="hero-title">{{content.home_title}}</view>
+    <view class="subtitle">{{content.home_subtitle}}</view>
+  </view>
+
   <image wx:if="{{hasBanner}}" class="home-banner" mode="aspectFill" src="{{bannerImage}}" />
 
-  <view class="card">
-    <view class="list-title">{{content.project_title}}</view>
-    <view class="hint">{{content.project_body}}</view>
-    <button class="btn" bindtap="scanCode">扫码记录</button>
-    <button class="btn secondary" bindtap="goProject">项目说明</button>
-    <button class="btn secondary" bindtap="goProducts">查看商品</button>
-    <button wx:if="{{hasConsultUrl}}" class="btn secondary" bindtap="copyConsultLink">{{content.consult_label}}</button>
-    <button class="btn secondary" bindtap="goMe">我的记录</button>
+  <view class="card home-panel">
+    <view class="home-panel-copy">
+      <view class="list-title">{{content.project_title}}</view>
+      <view class="hint">{{content.project_body}}</view>
+    </view>
+    <button class="btn home-scan-btn" bindtap="scanCode">扫码记录</button>
+    <view class="home-entry-grid">
+      <button class="btn secondary home-entry-btn" bindtap="goProject">项目说明</button>
+      <button class="btn secondary home-entry-btn" bindtap="goProducts">查看商品</button>
+      <button wx:if="{{hasConsultUrl}}" class="btn secondary home-entry-btn" bindtap="copyConsultLink">{{content.consult_label}}</button>
+      <button class="btn secondary home-entry-btn" bindtap="goMe">我的记录</button>
+    </view>
   </view>
 </view>

@@ -1,15 +1,19 @@
-<view class="page">
-  <view class="hero-title">商品展示</view>
-  <view class="subtitle">实物酒与礼盒展示，购买入口暂使用快团团链接。</view>
+<view class="page products-page">
+  <view class="products-hero">
+    <view class="hero-title">商品展示</view>
+    <view class="subtitle">实物酒与礼盒展示，购买入口暂使用快团团链接。</view>
+  </view>
 
-  <block wx:for="{{products}}" wx:key="id">
-    <view class="card product-card" bindtap="openProduct" data-id="{{item.id}}">
-      <image wx:if="{{item.cover_image}}" class="cover" mode="aspectFill" src="{{item.cover_image}}" />
-      <view class="list-title">{{item.title}}</view>
-      <view class="hint">{{item.subtitle}}</view>
-      <view class="price">{{item.price_text}}</view>
-    </view>
-  </block>
+  <view class="product-list">
+    <block wx:for="{{products}}" wx:key="id">
+      <view class="card product-card" bindtap="openProduct" data-id="{{item.id}}">
+        <image wx:if="{{item.cover_image}}" class="cover" mode="aspectFill" src="{{item.cover_image}}" />
+        <view class="list-title">{{item.title}}</view>
+        <view class="hint">{{item.subtitle}}</view>
+        <view class="price">{{item.price_text}}</view>
+      </view>
+    </block>
+  </view>
 
-  <view class="meta">{{message}}</view>
+  <view wx:if="{{message}}" class="meta state-card">{{message}}</view>
 </view>

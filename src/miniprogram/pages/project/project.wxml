@@ -1,16 +1,18 @@
-<view class="page">
-  <view class="hero-title">{{content.project_title}}</view>
-  <view class="subtitle">{{content.share_description}}</view>
+<view class="page project-page">
+  <view class="project-hero">
+    <view class="hero-title">{{content.project_title}}</view>
+    <view class="subtitle">{{content.share_description}}</view>
+  </view>
 
-  <view class="card">
+  <view class="card project-card project-card-primary">
     <view class="list-title">{{content.project_title}}</view>
     <view class="project-text">{{content.project_body}}</view>
   </view>
 
-  <view class="card">
+  <view class="card project-card project-card-secondary">
     <view class="list-title">{{content.brand_story_title}}</view>
     <view class="project-text">{{content.brand_story_body}}</view>
   </view>
 
-  <view class="meta">{{message}}</view>
+  <view wx:if="{{message}}" class="meta state-card">{{message}}</view>
 </view>
