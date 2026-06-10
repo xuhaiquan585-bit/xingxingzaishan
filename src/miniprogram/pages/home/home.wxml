@@ -4,23 +4,54 @@
       <view class="home-brand-star">✦</view>
       <view class="home-brand-vessel"></view>
     </view>
+    <view class="home-kicker">一瓶酒 · 一张照片 · 一句话</view>
     <view class="hero-title">{{content.home_title}}</view>
     <view class="subtitle">{{content.home_subtitle}}</view>
   </view>
 
   <image wx:if="{{hasBanner}}" class="home-banner" mode="aspectFill" src="{{bannerImage}}" />
 
-  <view class="card home-panel">
+  <view class="home-concept-strip">
+    <view class="home-concept-item">一瓶酒</view>
+    <view class="home-concept-item">一张照片</view>
+    <view class="home-concept-item">一句话</view>
+  </view>
+
+  <view class="card home-panel home-primary-panel">
     <view class="home-panel-copy">
       <view class="list-title">{{content.project_title}}</view>
       <view class="hint">{{content.project_body}}</view>
     </view>
     <button class="btn home-scan-btn" bindtap="scanCode">扫码记录</button>
-    <view class="home-entry-grid">
-      <button class="btn secondary home-entry-btn" bindtap="goProject">项目说明</button>
+  </view>
+
+  <view class="home-section home-scene-section">
+    <view class="home-section-title">适合这些时刻</view>
+    <view class="home-scene-grid">
+      <view class="home-scene-item">成年礼</view>
+      <view class="home-scene-item">婚礼</view>
+      <view class="home-scene-item">生日</view>
+      <view class="home-scene-item">纪念日</view>
+      <view class="home-scene-item">送礼</view>
+    </view>
+  </view>
+
+  <view class="home-section home-commerce-section">
+    <view class="home-section-title">选择一份纪念</view>
+    <view class="home-commerce-actions">
       <button class="btn secondary home-entry-btn" bindtap="goProducts">查看商品</button>
       <button wx:if="{{hasConsultUrl}}" class="btn secondary home-entry-btn" bindtap="copyConsultLink">{{content.consult_label}}</button>
-      <button class="btn secondary home-entry-btn" bindtap="goMe">我的记录</button>
     </view>
+  </view>
+
+  <view class="home-section home-trust-section">
+    <view class="home-trust-item">区块链存证</view>
+    <view class="home-trust-item">NFT凭证</view>
+    <view class="home-trust-item">封存后可查看</view>
+  </view>
+
+  <view class="home-secondary-actions">
+    <button class="btn secondary home-entry-btn" bindtap="goProject">项目说明</button>
+    <button class="btn secondary home-entry-btn" bindtap="goMe">我的记录</button>
   </view>
 </view>
