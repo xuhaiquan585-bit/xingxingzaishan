@@ -251,6 +251,14 @@
                 <option value="published">上架</option>
                 <option value="hidden">隐藏</option>
               </select>
+              <div class="checkbox-group wide" id="productSceneTags">
+                <span>适用场景</span>
+                <label><input type="checkbox" value="lover" />恋人</label>
+                <label><input type="checkbox" value="elder" />长辈</label>
+                <label><input type="checkbox" value="coming_of_age" />成人礼</label>
+                <label><input type="checkbox" value="wedding" />婚礼</label>
+                <label><input type="checkbox" value="free" />随心</label>
+              </div>
               <textarea id="productImages" placeholder="商品多图 URL，每行一个"></textarea>
               <textarea id="productDescription" placeholder="商品说明"></textarea>
               <button id="saveProductBtn">新增商品</button>
@@ -264,6 +272,7 @@
                   <tr>
                     <th>排序</th>
                     <th>名称</th>
+                    <th>场景</th>
                     <th>价格</th>
                     <th>状态</th>
                     <th>快团团链接</th>

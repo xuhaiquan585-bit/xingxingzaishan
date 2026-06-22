@@ -150,6 +150,40 @@ button.secondary {
   resize: vertical;
 }
 
+.checkbox-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 320px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  color: #475569;
+}
+
+.checkbox-group.wide {
+  flex: 1 1 520px;
+}
+
+.checkbox-group > span {
+  font-weight: 700;
+}
+
+.checkbox-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.checkbox-group input[type="checkbox"] {
+  width: auto;
+  height: 16px;
+  margin: 0;
+  accent-color: #2563eb;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(240px, 1fr));

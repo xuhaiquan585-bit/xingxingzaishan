@@ -26,6 +26,13 @@ let editingProductId = '';
 const selectedIds = new Set();
 const REQUEST_TIMEOUT_MS = 15000;
 const EXPORT_TIMEOUT_MS = 60000;
+const PRODUCT_SCENE_LABELS = {
+  lover: '恋人',
+  elder: '长辈',
+  coming_of_age: '成人礼',
+  wedding: '婚礼',
+  free: '随心'
+};
 
 function authHeaders() {
   return {
@@ -330,10 +337,28 @@ function clearProductForm() {
   document.getElementById('productBuyUrl').value = '';
   document.getElementById('productSort').value = '0';
   document.getElementById('productStatus').value = 'draft';
+  setProductSceneTags([]);
   document.getElementById('productImages').value = '';
   document.getElementById('productDescription').value = '';
   document.getElementById('saveProductBtn').textContent = '新增商品';
   document.getElementById('cancelProductEditBtn').classList.add('hidden');
+}
+
+function getProductSceneTags() {
+  return Array.from(document.querySelectorAll('#productSceneTags input[type="checkbox"]:checked'))
+    .map((item) => item.value);
+}
+
+function setProductSceneTags(tags = []) {
+  const selected = new Set(Array.isArray(tags) ? tags : []);
+  document.querySelectorAll('#productSceneTags input[type="checkbox"]').forEach((item) => {
+    item.checked = selected.has(item.value);
+  });
+}
+
+function formatProductScenes(tags = []) {
+  if (!Array.isArray(tags) || tags.length === 0) return '随心';
+  return tags.map((tag) => PRODUCT_SCENE_LABELS[tag] || tag).join('、');
 }
 
 function readProductForm() {
@@ -345,6 +370,7 @@ function readProductForm() {
     buy_url: document.getElementById('productBuyUrl').value.trim(),
     sort_order: Number(document.getElementById('productSort').value || 0),
     status: document.getElementById('productStatus').value,
+    scene_tags: getProductSceneTags(),
     images: document.getElementById('productImages').value
       .split('\n')
       .map((item) => item.trim())
@@ -358,6 +384,7 @@ function renderProducts(products) {
     .map((product) => `<tr>
       <td>${Number(product.sort_order || 0)}</td>
       <td>${escapeHtml(product.title)}<br /><small>${escapeHtml(product.subtitle || '')}</small></td>
+      <td>${escapeHtml(formatProductScenes(product.scene_tags))}</td>
       <td>${escapeHtml(product.price_text || '-')}</td>
       <td>${escapeHtml(product.status)}</td>
       <td>${product.buy_url ? `<a href="${escapeHtml(product.buy_url)}" target="_blank" rel="noreferrer">查看链接</a>` : '-'}</td>
@@ -409,6 +436,7 @@ function editProduct(productId) {
   document.getElementById('productBuyUrl').value = product.buy_url || '';
   document.getElementById('productSort').value = Number(product.sort_order || 0);
   document.getElementById('productStatus').value = product.status || 'draft';
+  setProductSceneTags(product.scene_tags || []);
   document.getElementById('productImages').value = Array.isArray(product.images) ? product.images.join('\n') : '';
   document.getElementById('productDescription').value = product.description || '';
   document.getElementById('saveProductBtn').textContent = '保存修改';

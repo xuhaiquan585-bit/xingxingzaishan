@@ -186,7 +186,8 @@ function productPayload(product) {
     price_text: product.price_text,
     description: product.description,
     buy_type: product.buy_type,
-    buy_url: product.buy_url
+    buy_url: product.buy_url,
+    scene_tags: Array.isArray(product.scene_tags) ? product.scene_tags : []
   };
 }
 

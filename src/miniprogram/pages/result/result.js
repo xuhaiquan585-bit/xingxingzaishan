@@ -57,6 +57,6 @@ Page({
   },
 
   goMe() {
-    wx.navigateTo({ url: '/pages/me/me' });
+    wx.switchTab({ url: '/pages/me/me' });
   }
 });

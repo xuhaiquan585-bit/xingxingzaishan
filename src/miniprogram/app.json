@@ -17,6 +17,38 @@
     "navigationBarTextStyle": "white",
     "backgroundColor": "#101c4d"
   },
+  "tabBar": {
+    "color": "#9aa6c5",
+    "selectedColor": "#d4af37",
+    "backgroundColor": "#101c4d",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/home/home",
+        "text": "首页",
+        "iconPath": "assets/tab/home-normal.png",
+        "selectedIconPath": "assets/tab/home-active.png"
+      },
+      {
+        "pagePath": "pages/products/products",
+        "text": "封存时光",
+        "iconPath": "assets/tab/seal-normal.png",
+        "selectedIconPath": "assets/tab/seal-active.png"
+      },
+      {
+        "pagePath": "pages/me/me",
+        "text": "我的星星",
+        "iconPath": "assets/tab/mine-normal.png",
+        "selectedIconPath": "assets/tab/mine-active.png"
+      },
+      {
+        "pagePath": "pages/project/project",
+        "text": "关于",
+        "iconPath": "assets/tab/about-normal.png",
+        "selectedIconPath": "assets/tab/about-active.png"
+      }
+    ]
+  },
   "style": "v2",
   "sitemapLocation": "sitemap.json"
 }

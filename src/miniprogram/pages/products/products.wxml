@@ -1,7 +1,22 @@
 <view class="page products-page">
   <view class="products-hero">
-    <view class="hero-title">商品展示</view>
-    <view class="subtitle">实物酒与礼盒展示，购买入口暂使用快团团链接。</view>
+    <view class="hero-title">封存时光</view>
+    <view class="subtitle">选择一个场景，找到适合封存这一刻的酒。</view>
+  </view>
+
+  <view class="scene-tabs">
+    <view
+      wx:for="{{sceneOptions}}"
+      wx:key="key"
+      class="scene-tab {{activeScene === item.key ? 'active' : ''}}"
+      bindtap="changeScene"
+      data-scene="{{item.key}}"
+    >{{item.label}}</view>
+  </view>
+
+  <view class="products-context card">
+    <view class="list-title">为「{{activeSceneLabel}}」推荐</view>
+    <view class="hint">实物酒与礼盒展示，购买入口暂使用快团团链接。</view>
   </view>
 
   <view class="product-list">

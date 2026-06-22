@@ -459,15 +459,20 @@ test('admin page should expose section navigation and miniapp content tools', ()
   });
   assert.equal(html.includes('id="miniappContentPanel"'), true);
   assert.equal(html.includes('id="systemPanel"'), true);
+  assert.equal(html.includes('id="productSceneTags"'), true);
   assert.equal(js.includes('adminActiveSection'), true);
   assert.equal(js.includes('function activateAdminSection'), true);
   assert.equal(js.includes('async function loadContentRecords'), true);
   assert.equal(js.includes('async function loadMiniappContent'), true);
   assert.equal(js.includes('async function loadSystemStatus'), true);
+  assert.equal(js.includes('scene_tags: getProductSceneTags()'), true);
   assert.equal(js.includes('Promise.all([loadDashboard(), loadBatches(), loadRecords(), loadOperators(), loadProducts()])'), false);
   assert.equal(appJs.includes("appName: '记在星上'"), true);
   assert.equal(appJson.includes('pages/project/project'), true);
   assert.equal(appJson.includes('"navigationBarTitleText": "记在星上"'), true);
+  assert.equal(appJson.includes('"tabBar"'), true);
+  assert.equal(appJson.includes('"text": "封存时光"'), true);
+  assert.equal(appJson.includes('"text": "我的星星"'), true);
   assert.equal(homeJs.includes('/api/miniapp/content'), true);
 });
 
@@ -486,8 +491,10 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const resultWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'result', 'result.wxss'), 'utf8');
   const coCreateWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'co-create', 'co-create.wxml'), 'utf8');
   const coCreateWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'co-create', 'co-create.wxss'), 'utf8');
+  const homeJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'home', 'home.js'), 'utf8');
   const homeWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'home', 'home.wxml'), 'utf8');
   const homeWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'home', 'home.wxss'), 'utf8');
+  const productsJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'products', 'products.js'), 'utf8');
   const productsWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'products', 'products.wxml'), 'utf8');
   const productsWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'products', 'products.wxss'), 'utf8');
   const productDetailWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'product-detail', 'product-detail.wxml'), 'utf8');
@@ -609,32 +616,41 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(homeWxml.includes('bindtap="goProducts"'), true);
   assert.equal(homeWxml.includes('bindtap="copyConsultLink"'), true);
   assert.equal(homeWxml.includes('bindtap="goMe"'), true);
+  assert.equal(homeWxml.includes('bindtap="focusScenes"'), true);
+  assert.equal(homeWxml.includes('bindtap="goSceneProducts"'), true);
   assert.equal(homeWxml.includes('class="home-brand-mark"'), true);
   assert.equal(homeWxml.includes('一瓶酒'), true);
   assert.equal(homeWxml.includes('一张照片'), true);
   assert.equal(homeWxml.includes('一句话'), true);
-  assert.equal(homeWxml.includes('class="home-concept-strip"'), true);
+  assert.equal(homeWxml.includes('封存这一刻'), true);
+  assert.equal(homeWxml.includes('已有酒瓶，扫码记录'), true);
   assert.equal(homeWxml.includes('class="home-section home-scene-section"'), true);
-  assert.equal(homeWxml.includes('成年礼'), true);
-  assert.equal(homeWxml.includes('婚礼'), true);
-  assert.equal(homeWxml.includes('生日'), true);
-  assert.equal(homeWxml.includes('纪念日'), true);
-  assert.equal(homeWxml.includes('送礼'), true);
+  assert.equal(homeJs.includes("key: 'lover'"), true);
+  assert.equal(homeJs.includes("key: 'elder'"), true);
+  assert.equal(homeJs.includes("key: 'coming_of_age'"), true);
+  assert.equal(homeJs.includes("key: 'wedding'"), true);
+  assert.equal(homeJs.includes("key: 'free'"), true);
   assert.equal(homeWxml.includes('class="home-section home-commerce-section"'), true);
   assert.equal(homeWxml.includes('class="home-section home-trust-section"'), true);
   assert.equal(homeWxml.includes('区块链存证'), true);
-  assert.equal(homeWxml.includes('NFT凭证'), true);
+  assert.equal(homeWxml.includes('NFT凭证'), false);
+  assert.equal(homeWxml.includes('链上存证'), true);
   assert.equal(homeWxml.includes('封存后可查看'), true);
   assert.equal(homeWxml.includes('订单'), false);
   assert.equal(homeWxml.includes('支付'), false);
   assert.equal(homeWxml.includes('购物车'), false);
-  assert.equal(homeWxml.includes('class="btn home-scan-btn"'), true);
+  assert.equal(homeWxml.includes('class="btn home-primary-cta"'), true);
   assert.equal(homeWxss.includes('.home-brand-star'), true);
-  assert.equal(homeWxss.includes('.home-concept-strip'), true);
   assert.equal(homeWxss.includes('.home-scene-grid'), true);
   assert.equal(homeWxss.includes('.home-commerce-actions'), true);
   assert.equal(homeWxss.includes('box-shadow: 0 18rpx 42rpx'), true);
-  assert.equal(productsWxml.includes('商品展示'), true);
+  assert.equal(productsWxml.includes('封存时光'), true);
+  assert.equal(productsJs.includes("label: '恋人'"), true);
+  assert.equal(productsJs.includes("label: '长辈'"), true);
+  assert.equal(productsJs.includes("label: '成人礼'"), true);
+  assert.equal(productsJs.includes("label: '婚礼'"), true);
+  assert.equal(productsJs.includes("label: '随心'"), true);
+  assert.equal(productsWxml.includes('bindtap="changeScene"'), true);
   assert.equal(productsWxml.includes('bindtap="openProduct"'), true);
   assert.equal(productsWxml.includes('class="product-list"'), true);
   assert.equal(productsWxml.includes('class="meta state-card"'), true);
@@ -1018,9 +1034,11 @@ test('admin product management should expose only published products to miniapp'
     description: '适合成年礼和纪念日。',
     buy_url: 'https://ktt.example.com/buy/1',
     status: 'published',
+    scene_tags: ['coming_of_age', 'wedding'],
     sort_order: 1
   }, token);
   assert.equal(publishedRes.status, 200);
+  assert.deepEqual(publishedRes.body.data.scene_tags, ['coming_of_age', 'wedding']);
   const productId = publishedRes.body.data.id;
 
   const invalidUrlRes = await postJson('/api/admin/products', {
@@ -1040,16 +1058,19 @@ test('admin product management should expose only published products to miniapp'
   const adminList = await getJson('/api/admin/products', token);
   assert.equal(adminList.status, 200);
   assert.ok(adminList.body.data.products.some((item) => item.id === productId));
+  assert.deepEqual(adminList.body.data.products.find((item) => item.id === productId).scene_tags, ['coming_of_age', 'wedding']);
 
   const miniList = await getJson('/api/miniapp/products');
   assert.equal(miniList.status, 200);
   assert.equal(miniList.body.data.products.some((item) => item.id === productId), true);
   assert.equal(miniList.body.data.products.some((item) => item.title === '隐藏商品'), false);
+  assert.deepEqual(miniList.body.data.products.find((item) => item.id === productId).scene_tags, ['coming_of_age', 'wedding']);
 
   const detail = await getJson(`/api/miniapp/products/${productId}`);
   assert.equal(detail.status, 200);
   assert.equal(detail.body.data.buy_type, 'copy_link');
   assert.equal(detail.body.data.buy_url, 'https://ktt.example.com/buy/1');
+  assert.deepEqual(detail.body.data.scene_tags, ['coming_of_age', 'wedding']);
 });
 
 test('miniapp upload and record flow should require bound phone and reject duplicate activation', async () => {

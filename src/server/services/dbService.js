@@ -29,6 +29,21 @@ const DEFAULT_MINIAPP_CONTENT = {
   updated_by: null
 };
 
+const PRODUCT_SCENE_KEYS = ['lover', 'elder', 'coming_of_age', 'wedding', 'free'];
+
+function normalizeProductSceneTags(value, existing = []) {
+  const hasValue = value !== undefined && value !== null;
+  const raw = Array.isArray(value)
+    ? value
+    : String(value || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  const fallback = Array.isArray(existing) ? existing : [];
+  const tags = (hasValue ? raw : fallback).filter((item) => PRODUCT_SCENE_KEYS.includes(item));
+  return [...new Set(tags)];
+}
+
 function nowISO() {
   return new Date().toISOString();
 }
@@ -220,6 +235,7 @@ function migrateSchema(db) {
     status: ['draft', 'published', 'hidden'].includes(item.status) ? item.status : 'draft',
     buy_type: item.buy_type || 'copy_link',
     buy_url: item.buy_url || '',
+    scene_tags: normalizeProductSceneTags(item.scene_tags),
     sort_order: Number.isFinite(Number(item.sort_order)) ? Number(item.sort_order) : idx + 1,
     created_at: item.created_at || nowISO(),
     updated_at: item.updated_at || item.created_at || nowISO()
@@ -938,6 +954,7 @@ function normalizeProductInput(input = {}, existing = {}) {
     status: ['draft', 'published', 'hidden'].includes(input.status) ? input.status : (existing.status || 'draft'),
     buy_type: 'copy_link',
     buy_url: String(input.buy_url ?? existing.buy_url ?? '').trim(),
+    scene_tags: normalizeProductSceneTags(input.scene_tags, existing.scene_tags),
     sort_order: Number.isFinite(Number(input.sort_order ?? existing.sort_order))
       ? Number(input.sort_order ?? existing.sort_order)
       : 0

@@ -1,5 +1,21 @@
 const { login, bindPhone } = require('../../utils/auth');
 
+const TAB_PAGES = new Set([
+  '/pages/home/home',
+  '/pages/products/products',
+  '/pages/me/me',
+  '/pages/project/project'
+]);
+
+function goAfterBind(redirect) {
+  const path = String(redirect || '/pages/home/home').split('?')[0];
+  if (TAB_PAGES.has(path)) {
+    wx.switchTab({ url: path });
+    return;
+  }
+  wx.redirectTo({ url: redirect || '/pages/home/home' });
+}
+
 Page({
   data: {
     redirect: '/pages/home/home',
@@ -27,7 +43,7 @@ Page({
       message: '正在登录...'
     });
     bindPhone(code).then(() => {
-      wx.redirectTo({ url: this.data.redirect });
+      goAfterBind(this.data.redirect);
     }).catch((error) => {
       this.setData({
         binding: false,
