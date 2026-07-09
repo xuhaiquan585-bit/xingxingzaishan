@@ -1,15 +1,17 @@
-function generateMockBlockchainHash() {
-  const minLength = 16;
-  const maxLength = 32;
-  const length = Math.floor(Math.random() * (maxLength - minLength + 1)) + minLength;
-  const chars = 'abcdef0123456789';
-  let value = '';
+const crypto = require('crypto');
 
-  for (let i = 0; i < length; i += 1) {
-    value += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-
-  return `0x${value}`;
+function sha256Hex(value) {
+  return crypto
+    .createHash('sha256')
+    .update(Buffer.isBuffer(value) ? value : String(value || ''), Buffer.isBuffer(value) ? undefined : 'utf8')
+    .digest('hex');
 }
 
-module.exports = { generateMockBlockchainHash };
+function generateMockBlockchainHash() {
+  return `0x${sha256Hex(`${Date.now()}-${Math.random()}`).slice(0, 32)}`;
+}
+
+module.exports = {
+  sha256Hex,
+  generateMockBlockchainHash
+};

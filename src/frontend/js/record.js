@@ -37,6 +37,7 @@ const resultHashToggle = document.getElementById('resultHashToggle');
 const resultHash = document.getElementById('resultHash');
 const resultHashValue = document.getElementById('resultHashValue');
 const resultTime = document.getElementById('resultTime');
+const resultChainStatus = document.getElementById('resultChainStatus');
 const resultBrandDisclosure = document.getElementById('resultBrandDisclosure');
 const resultBrandName = document.getElementById('resultBrandName');
 const resultBrandSeparator = document.getElementById('resultBrandSeparator');
@@ -234,14 +235,17 @@ function renderResult(data, { justSaved = false } = {}) {
     }
   }
   hashExpanded = false;
-  const blockchainHash = String(data.blockchain_hash || '').trim();
+  const blockchainHash = String(data.manifest_hash || data.blockchain_hash || '').trim();
   resultHashValue.textContent = blockchainHash;
   resultHash.classList.add('hidden');
   resultHashToggle.disabled = !blockchainHash;
   resultHashToggle.textContent = blockchainHash
-    ? '查看区块链凭证'
-    : '正在生成记录…';
+    ? '查看存证哈希'
+    : (data.chain_status_text || '存证生成中');
   resultTime.textContent = formatMinuteTime(data.activated_at);
+  if (resultChainStatus) {
+    resultChainStatus.textContent = data.chain_status_text || '存证生成中';
+  }
 
   const brandName = String(data.brand_name || '').trim();
   const brandDisclosureText = String(data.brand_disclosure_text_snapshot || '').trim();
@@ -418,6 +422,9 @@ async function loadQRStatus() {
         image_url: res.data.image_url,
         content: res.data.content,
         blockchain_hash: res.data.blockchain_hash,
+        manifest_hash: res.data.manifest_hash,
+        chain_status_text: res.data.chain_status_text,
+        chain_certificate_url: res.data.chain_certificate_url,
         activated_at: res.data.activated_at,
         co_creation_comments: res.data.co_creation_comments || [],
         show_brand_disclosure: res.data.show_brand_disclosure,
@@ -583,11 +590,11 @@ if (resultHashToggle) {
     hashExpanded = !hashExpanded;
     if (hashExpanded) {
       resultHash.classList.remove('hidden');
-      resultHashToggle.textContent = '收起凭证';
+      resultHashToggle.textContent = '收起存证哈希';
       return;
     }
     resultHash.classList.add('hidden');
-    resultHashToggle.textContent = '查看区块链凭证';
+    resultHashToggle.textContent = '查看存证哈希';
   });
 }
 

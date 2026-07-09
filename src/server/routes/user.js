@@ -14,6 +14,7 @@ const {
   getCookieMaxAge
 } = require('../middlewares/userSession');
 const { getSignedUrl } = require('../services/storageService');
+const { chainPublicPayload } = require('../services/chainViewService');
 
 const router = express.Router();
 
@@ -251,6 +252,7 @@ function handleRecordDetail(req, res) {
       content: record.content,
       activated_at: record.activated_at,
       blockchain_hash: record.blockchain_hash,
+      ...chainPublicPayload(record),
       co_creation_enabled: record.co_creation_enabled === true,
       co_creation_comments: visibleComments(record),
       image_url: resolveImageUrl(record),

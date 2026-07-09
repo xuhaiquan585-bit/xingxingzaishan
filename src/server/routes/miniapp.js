@@ -23,8 +23,12 @@ const {
   getMiniappContent
 } = require('../services/dbService');
 const { saveImage, getStorageMode, getSignedUrl } = require('../services/storageService');
-const { generateMockBlockchainHash } = require('../services/hashService');
 const { checkText, checkImageBuffer } = require('../services/contentSafetyService');
+const { chainPublicPayload } = require('../services/chainViewService');
+const {
+  prepareRecordManifest,
+  submitPreparedRecord
+} = require('../services/chainProofService');
 const {
   optionalMiniappAuth,
   requireMiniappAuth,
@@ -129,6 +133,7 @@ function formatQRPayload(qr, user) {
       image_url: resolveImageUrl(qr),
       image_object_key: qr.image_object_key || null,
       blockchain_hash: qr.blockchain_hash || null,
+      ...chainPublicPayload(qr),
       activated_at: qr.activated_at,
       co_creation_enabled: qr.co_creation_enabled === true,
       is_co_creation_owner: !!(user && user.phone && qr.co_creation_owner_phone === user.phone),
@@ -170,6 +175,7 @@ function recordPayload(qr, user) {
     image_url: resolveImageUrl(qr),
     image_object_key: qr.image_object_key || null,
     blockchain_hash: qr.blockchain_hash || null,
+    ...chainPublicPayload(qr),
     activated_at: qr.activated_at || null,
     co_creation_comments: visibleComments(qr),
     ...coCreationMeta(qr, user)
@@ -423,10 +429,7 @@ router.post('/qr/:key/record', requireMiniappAuth, requireMiniappPhone, async (r
   };
   const result = mode === 'co_create'
     ? startCoCreationByKey(req.params.key, payload)
-    : activateQRByKey(req.params.key, {
-      ...payload,
-      blockchain_hash: generateMockBlockchainHash()
-    });
+    : activateQRByKey(req.params.key, payload);
 
   if (result.error === 'QR_NOT_FOUND') {
     return res.status(404).json({
@@ -443,10 +446,16 @@ router.post('/qr/:key/record', requireMiniappAuth, requireMiniappPhone, async (r
     });
   }
 
+  let responseData = result.data;
+  if (mode !== 'co_create' && result.data) {
+    responseData = await prepareRecordManifest(result.data);
+    submitPreparedRecord(responseData).catch(() => {});
+  }
+
   return res.json({
     status: 'success',
     code: 'OK',
-    data: recordPayload(result.data, req.miniappUser)
+    data: recordPayload(responseData, req.miniappUser)
   });
 });
 
@@ -516,10 +525,9 @@ router.delete('/qr/:key/comments/:commentId', requireMiniappAuth, requireMiniapp
   });
 });
 
-router.post('/qr/:key/finalize', requireMiniappAuth, requireMiniappPhone, (req, res) => {
+router.post('/qr/:key/finalize', requireMiniappAuth, requireMiniappPhone, async (req, res) => {
   const result = finalizeCoCreationByKey(req.params.key, {
-    phone: req.miniappUser.phone,
-    blockchain_hash: generateMockBlockchainHash()
+    phone: req.miniappUser.phone
   });
   if (result.error === 'QR_NOT_FOUND') {
     return res.status(404).json({ status: 'error', code: 'QR_NOT_FOUND', message: '未找到这颗星，请确认二维码是否正确。' });
@@ -530,10 +538,16 @@ router.post('/qr/:key/finalize', requireMiniappAuth, requireMiniappPhone, (req, 
   if (result.error === 'CO_CREATION_CLOSED') {
     return res.status(409).json({ status: 'error', code: 'CO_CREATION_CLOSED', message: '这瓶酒不在共创中，不能确认封存。' });
   }
+  let responseData = result.data;
+  if (result.data) {
+    responseData = await prepareRecordManifest(result.data);
+    submitPreparedRecord(responseData).catch(() => {});
+  }
+
   return res.json({
     status: 'success',
     code: 'OK',
-    data: recordPayload(result.data, req.miniappUser)
+    data: recordPayload(responseData, req.miniappUser)
   });
 });
 
@@ -572,10 +586,18 @@ router.get('/user/records/:id', requireMiniappAuth, requireMiniappPhone, (req, r
     status: 'success',
     code: 'OK',
     data: {
-      ...record,
+      id: record.id,
+      content: record.content || '',
+      activated_at: record.activated_at,
+      display_at: record.display_at,
+      activation_status: record.activation_status,
+      blockchain_hash: record.blockchain_hash || null,
       image_url: resolveImageUrl(record),
       co_creation_comments: visibleComments(record),
-      brand_name: getBrandName(record)
+      show_brand_disclosure: record.show_brand_disclosure === true,
+      brand_disclosure_text_snapshot: record.brand_disclosure_text_snapshot || '',
+      brand_name: getBrandName(record),
+      ...chainPublicPayload(record)
     }
   });
 });

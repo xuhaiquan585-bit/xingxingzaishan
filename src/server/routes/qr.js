@@ -13,8 +13,12 @@ const {
   getSampleUnactivated
 } = require('../services/dbService');
 const { listBatches } = require('../services/dbService');
-const { generateMockBlockchainHash } = require('../services/hashService');
 const { getSignedUrl, getStorageMode } = require('../services/storageService');
+const { chainPublicPayload } = require('../services/chainViewService');
+const {
+  prepareRecordManifest,
+  submitPreparedRecord
+} = require('../services/chainProofService');
 const { requireUserSession } = require('../middlewares/userSession');
 
 const router = express.Router();
@@ -92,6 +96,7 @@ function formatRecordPayload(qr, req) {
     image_url: resolveImageUrl(qr),
     image_object_key: qr.image_object_key || null,
     blockchain_hash: qr.blockchain_hash || null,
+    ...chainPublicPayload(qr),
     activated_at: qr.activated_at,
     activation_status: qr.activation_status,
     co_creation_enabled: qr.co_creation_enabled === true,
@@ -123,6 +128,7 @@ function formatQRStatusPayload(qr, req) {
       image_url: resolveImageUrl(qr),
       image_object_key: qr.image_object_key || null,
       blockchain_hash: qr.blockchain_hash || null,
+      ...chainPublicPayload(qr),
       activated_at: qr.activated_at,
       co_creation_enabled: qr.co_creation_enabled === true,
       is_co_creation_owner: !!(req.user && qr.co_creation_owner_phone === req.user.phone),
@@ -207,7 +213,7 @@ router.get('/:qrId', (req, res) => {
   });
 });
 
-router.post('/:qrId/record', requireUserSession, (req, res) => {
+router.post('/:qrId/record', requireUserSession, async (req, res) => {
   const {
     content = '',
     image_url: imageUrl,
@@ -251,10 +257,7 @@ router.post('/:qrId/record', requireUserSession, (req, res) => {
 
   const result = mode === 'co_create'
     ? startCoCreationByKey(req.params.qrId, payload)
-    : activateQRByKey(req.params.qrId, {
-      ...payload,
-      blockchain_hash: generateMockBlockchainHash()
-    });
+    : activateQRByKey(req.params.qrId, payload);
 
   if (result.error === 'QR_NOT_FOUND') {
     return res.status(404).json({
@@ -272,10 +275,16 @@ router.post('/:qrId/record', requireUserSession, (req, res) => {
     });
   }
 
+  let responseData = result.data;
+  if (mode !== 'co_create' && result.data) {
+    responseData = await prepareRecordManifest(result.data);
+    submitPreparedRecord(responseData).catch(() => {});
+  }
+
   return res.json({
     status: 'success',
     code: 'OK',
-    data: formatRecordPayload(result.data, req)
+    data: formatRecordPayload(responseData, req)
   });
 });
 
@@ -369,10 +378,9 @@ router.delete('/:qrId/comments/:commentId', requireUserSession, (req, res) => {
   });
 });
 
-router.post('/:qrId/finalize', requireUserSession, (req, res) => {
+router.post('/:qrId/finalize', requireUserSession, async (req, res) => {
   const result = finalizeCoCreationByKey(req.params.qrId, {
-    phone: req.user.phone,
-    blockchain_hash: generateMockBlockchainHash()
+    phone: req.user.phone
   });
 
   if (result.error === 'QR_NOT_FOUND') {
@@ -397,10 +405,16 @@ router.post('/:qrId/finalize', requireUserSession, (req, res) => {
     });
   }
 
+  let responseData = result.data;
+  if (result.data) {
+    responseData = await prepareRecordManifest(result.data);
+    submitPreparedRecord(responseData).catch(() => {});
+  }
+
   return res.json({
     status: 'success',
     code: 'OK',
-    data: formatRecordPayload(result.data, req)
+    data: formatRecordPayload(responseData, req)
   });
 });
 

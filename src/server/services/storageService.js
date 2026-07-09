@@ -113,6 +113,16 @@ async function putObjectToOss({ objectKey, localPath }) {
   });
 }
 
+async function putBufferToOss({ objectKey, buffer, contentType = 'application/octet-stream' }) {
+  const client = getOssClient();
+  await client.put(objectKey, buffer, {
+    headers: {
+      'Content-Type': contentType,
+      'Cache-Control': 'private, max-age=0, no-cache'
+    }
+  });
+}
+
 
 function getLocalObjectPath(value) {
   return path.join(localUploadDir, path.basename(String(value || '')));
@@ -175,9 +185,55 @@ async function saveImage({ file, qrId }) {
   };
 }
 
+async function saveJsonObject({ qrId, fileName = 'record_manifest.json', data }) {
+  const buffer = Buffer.from(JSON.stringify(data, null, 2), 'utf8');
+  return saveBinaryObject({
+    qrId,
+    fileName,
+    buffer,
+    contentType: 'application/json; charset=utf-8'
+  });
+}
+
+async function saveBinaryObject({ qrId, fileName, buffer, contentType = 'application/octet-stream' }) {
+  const objectKey = buildObjectKey({ qrId, fileName });
+  const mode = getStorageMode();
+
+  if (mode === 'cloud') {
+    try {
+      await putBufferToOss({
+        objectKey,
+        buffer,
+        contentType
+      });
+      return {
+        mode,
+        object_key: objectKey,
+        preview_url: getSignedUrl(objectKey)
+      };
+    } catch (_error) {
+      if (process.env.CLOUD_FALLBACK_TO_LOCAL !== 'true') {
+        throw new Error('OSS_UPLOAD_FAILED');
+      }
+    }
+  }
+
+  const localName = path.basename(objectKey);
+  const localPath = saveBinaryFile(localUploadDir, localName, buffer);
+  return {
+    mode: 'local',
+    object_key: localName,
+    preview_url: `/uploads/${localName}`,
+    local_path: localPath,
+    fallback: mode === 'cloud'
+  };
+}
+
 module.exports = {
   getStorageMode,
   saveImage,
+  saveJsonObject,
+  saveBinaryObject,
   getSignedUrl,
   getObjectPrefix,
   getLocalObjectPath

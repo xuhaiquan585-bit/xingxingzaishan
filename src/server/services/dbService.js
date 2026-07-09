@@ -30,6 +30,7 @@ const DEFAULT_MINIAPP_CONTENT = {
 };
 
 const PRODUCT_SCENE_KEYS = ['lover', 'elder', 'coming_of_age', 'wedding', 'free'];
+const CHAIN_STATUSES = ['not_started', 'manifest_ready', 'submitting', 'submitted', 'confirmed', 'failed', 'retrying'];
 
 function normalizeProductSceneTags(value, existing = []) {
   const hasValue = value !== undefined && value !== null;
@@ -46,6 +47,32 @@ function normalizeProductSceneTags(value, existing = []) {
 
 function nowISO() {
   return new Date().toISOString();
+}
+
+function normalizeChainStatus(value, hasHash = false) {
+  if (CHAIN_STATUSES.includes(value)) return value;
+  return hasHash ? 'confirmed' : 'not_started';
+}
+
+function defaultChainFields(item = {}) {
+  const manifestHash = item.manifest_hash || item.blockchain_hash || null;
+  return {
+    chain_provider: item.chain_provider || 'avata_wenchang',
+    chain_status: normalizeChainStatus(item.chain_status, !!manifestHash),
+    chain_operation_id: item.chain_operation_id || null,
+    manifest_object_key: item.manifest_object_key || null,
+    manifest_hash: manifestHash,
+    chain_tx_hash: item.chain_tx_hash || null,
+    chain_block_height: Object.prototype.hasOwnProperty.call(item, 'chain_block_height') ? item.chain_block_height : null,
+    chain_record_id: item.chain_record_id || null,
+    chain_certificate_url: item.chain_certificate_url || null,
+    chain_certificate_object_key: item.chain_certificate_object_key || null,
+    chain_certificate_object_url: item.chain_certificate_object_url || null,
+    chain_confirmed_at: item.chain_confirmed_at || (manifestHash && item.blockchain_hash ? item.activated_at || null : null),
+    chain_callback_received_at: item.chain_callback_received_at || null,
+    chain_last_error: item.chain_last_error || '',
+    chain_retry_count: Number.isFinite(Number(item.chain_retry_count)) ? Number(item.chain_retry_count) : 0
+  };
 }
 
 function seedQRCodes() {
@@ -71,6 +98,7 @@ function seedQRCodes() {
       phone: null,
       activated_at: null,
       blockchain_hash: null,
+      ...defaultChainFields(),
       co_creation_enabled: false,
       co_creation_owner_phone: null,
       co_creation_comments: [],
@@ -249,6 +277,7 @@ function migrateSchema(db) {
     batch_id: Object.prototype.hasOwnProperty.call(item, 'batch_id') ? item.batch_id : null,
     print_batch_id: Object.prototype.hasOwnProperty.call(item, 'print_batch_id') ? item.print_batch_id : null,
     image_object_key: Object.prototype.hasOwnProperty.call(item, 'image_object_key') ? item.image_object_key : null,
+    ...defaultChainFields(item),
     co_creation_enabled: item.co_creation_enabled === true,
     co_creation_owner_phone: item.co_creation_owner_phone || null,
     co_creation_comments: Array.isArray(item.co_creation_comments) ? item.co_creation_comments : [],
@@ -398,6 +427,33 @@ function bindMiniappUserPhone({ openid, phone, unionid = null }) {
 function getQRCode(qrId) {
   const db = readDB();
   return db.qr_codes.find((item) => item.id === qrId) || null;
+}
+
+function findRecordByChainOperationId(operationId) {
+  const db = readDB();
+  const target = String(operationId || '').trim();
+  if (!target) return null;
+  return db.qr_codes.find((item) => item.chain_operation_id === target) || null;
+}
+
+function updateRecordChainProof(qrId, patch = {}) {
+  const db = readDB();
+  const index = db.qr_codes.findIndex((item) => item.id === qrId);
+  if (index === -1) return null;
+
+  const current = db.qr_codes[index];
+  const manifestHash = patch.manifest_hash || current.manifest_hash || current.blockchain_hash || null;
+  const next = {
+    ...current,
+    ...patch,
+    chain_provider: patch.chain_provider || current.chain_provider || 'avata_wenchang',
+    chain_status: normalizeChainStatus(patch.chain_status || current.chain_status, !!manifestHash),
+    manifest_hash: manifestHash,
+    blockchain_hash: patch.blockchain_hash || current.blockchain_hash || manifestHash
+  };
+  db.qr_codes[index] = next;
+  writeDB(db);
+  return next;
 }
 
 function findQRByToken(token) {
@@ -743,6 +799,26 @@ function sameLocalDate(value, datePrefix) {
   return localDateKey(value) === datePrefix;
 }
 
+function chainPayload(item = {}) {
+  return {
+    chain_provider: item.chain_provider || 'avata_wenchang',
+    chain_status: item.chain_status || 'not_started',
+    chain_operation_id: item.chain_operation_id || null,
+    manifest_object_key: item.manifest_object_key || null,
+    manifest_hash: item.manifest_hash || item.blockchain_hash || null,
+    chain_tx_hash: item.chain_tx_hash || null,
+    chain_block_height: item.chain_block_height || null,
+    chain_record_id: item.chain_record_id || null,
+    chain_certificate_url: item.chain_certificate_url || null,
+    chain_certificate_object_key: item.chain_certificate_object_key || null,
+    chain_certificate_object_url: item.chain_certificate_object_url || null,
+    chain_confirmed_at: item.chain_confirmed_at || null,
+    chain_callback_received_at: item.chain_callback_received_at || null,
+    chain_last_error: item.chain_last_error || '',
+    chain_retry_count: Number(item.chain_retry_count || 0)
+  };
+}
+
 function getDashboardStats({ dateFrom, dateTo }) {
   const db = readDB();
 
@@ -762,6 +838,10 @@ function getDashboardStats({ dateFrom, dateTo }) {
   )).length;
   const todayQualityLogs = db.quality_check_logs.filter((item) => sameLocalDate(item.checked_at, today));
   const todayQualityAbnormal = todayQualityLogs.filter((item) => item.result !== 'pass').length;
+  const chainPending = db.qr_codes.filter((item) => item.activation_status === 'activated' && ['not_started', 'manifest_ready'].includes(item.chain_status)).length;
+  const chainProcessing = db.qr_codes.filter((item) => ['submitting', 'submitted', 'retrying'].includes(item.chain_status)).length;
+  const chainConfirmed = db.qr_codes.filter((item) => item.chain_status === 'confirmed').length;
+  const chainFailed = db.qr_codes.filter((item) => item.chain_status === 'failed').length;
 
   const from = localDayBoundary(dateFrom);
   const to = localDayBoundary(dateTo, true);
@@ -796,6 +876,10 @@ function getDashboardStats({ dateFrom, dateTo }) {
     hidden_records: hiddenRecords,
     today_quality_checked: todayQualityLogs.length,
     today_quality_abnormal: todayQualityAbnormal,
+    chain_pending: chainPending,
+    chain_processing: chainProcessing,
+    chain_confirmed: chainConfirmed,
+    chain_failed: chainFailed,
     period_issued: filteredIssued,
     period_activated: filteredActivated,
     period_activation_rate: activationRate
@@ -886,6 +970,7 @@ function listActivatedRecordsByPhone(phone) {
       display_at: item.activated_at || item.co_creation_started_at || item.created_at,
       activation_status: item.activation_status,
       blockchain_hash: item.blockchain_hash || null,
+      ...chainPayload(item),
       co_creation_enabled: item.co_creation_enabled === true,
       co_creation_comments: Array.isArray(item.co_creation_comments) ? item.co_creation_comments : []
     }));
@@ -920,6 +1005,7 @@ function getActivatedRecordByPhoneAndId({ phone, id }) {
     image_object_key: matched.image_object_key || null,
     activated_at: matched.activated_at,
     blockchain_hash: matched.blockchain_hash || null,
+    ...chainPayload(matched),
     co_creation_enabled: matched.co_creation_enabled === true,
     co_creation_comments: Array.isArray(matched.co_creation_comments) ? matched.co_creation_comments : [],
     show_brand_disclosure: matched.show_brand_disclosure === true,
@@ -1133,6 +1219,7 @@ async function generateQRCodes({ prefix, count, batchId }) {
       phone: null,
       activated_at: null,
       blockchain_hash: null,
+      ...defaultChainFields(),
       co_creation_enabled: false,
       co_creation_owner_phone: null,
       co_creation_comments: [],
@@ -1427,6 +1514,8 @@ module.exports = {
   createOrGetMiniappUser,
   bindMiniappUserPhone,
   getQRCode,
+  findRecordByChainOperationId,
+  updateRecordChainProof,
   findQRByToken,
   findQRByKey,
   getSampleUnactivated,

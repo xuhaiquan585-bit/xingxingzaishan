@@ -9,6 +9,7 @@ const adminRoutes = require('./routes/admin');
 const qcRoutes = require('./routes/qc');
 const nftRoutes = require('./routes/nft');
 const miniappRoutes = require('./routes/miniapp');
+const chainRoutes = require('./routes/chain');
 const { createRateLimiter } = require('./middlewares/rateLimit');
 const { auditLogger } = require('./middlewares/auditLogger');
 const { attachUserSession } = require('./middlewares/userSession');
@@ -122,6 +123,7 @@ function createApp() {
   app.use('/api/qc', qcRoutes);
   app.use('/api/nft', nftRoutes);
   app.use('/api/miniapp', miniappRoutes);
+  app.use('/api/chain', chainRoutes);
 
   app.use((err, _req, res, _next) => {
     if (err.message === '仅支持图片文件上传') {

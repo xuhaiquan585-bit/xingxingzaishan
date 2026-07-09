@@ -7,7 +7,7 @@ Page({
     key: '',
     record: null,
     hashVisible: false,
-    hashButtonText: '查看区块链凭证',
+    hashButtonText: '查看存证哈希',
     message: '加载中...'
   },
 
@@ -52,7 +52,7 @@ Page({
     const hashVisible = !this.data.hashVisible;
     this.setData({
       hashVisible,
-      hashButtonText: hashVisible ? '收起凭证' : '查看区块链凭证'
+      hashButtonText: hashVisible ? '收起存证哈希' : '查看存证哈希'
     });
   },
 

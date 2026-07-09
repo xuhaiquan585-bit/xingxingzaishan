@@ -11,6 +11,127 @@ let baseUrl;
 let basePort;
 let tmpDir;
 
+test('record manifest should hash stably without identity secrets', () => {
+  const { buildRecordManifest, hashManifest, stableStringify } = require('../src/server/services/manifestService');
+  const manifest = buildRecordManifest({
+    id: 'STAR_PRIVACY_001',
+    activation_status: 'activated',
+    activated_at: '2026-07-09T00:00:00.000Z',
+    content: '只把记忆内容纳入存证清单',
+    image_object_key: 'stars/STAR_PRIVACY_001/photo.jpg',
+    phone: '13800000000',
+    openid: 'openid-should-not-leak',
+    co_creation_enabled: true,
+    co_creation_comments: [
+      { id: 1, phone: '13900000000', author_name: '朋友', content: '祝福', status: 'kept', created_at: '2026-07-09T00:00:01.000Z' }
+    ],
+    show_brand_disclosure: true,
+    brand_disclosure_text_snapshot: '品牌快照'
+  });
+  const serialized = stableStringify(manifest);
+  assert.equal(hashManifest(manifest), hashManifest(manifest));
+  assert.equal(serialized.includes('13800000000'), false);
+  assert.equal(serialized.includes('13900000000'), false);
+  assert.equal(serialized.includes('openid-should-not-leak'), false);
+  assert.equal(serialized.includes('AVATA_API_SECRET'), false);
+});
+
+test('AVATA V3 signature should use sorted path/body parameters', () => {
+  const { buildSignParams, signRequest, stableJson } = require('../src/server/services/avataService');
+  const params = buildSignParams({
+    path: '/v3/native/record/records',
+    body: {
+      hash: 'abc',
+      operation_id: 'op-1',
+      identities: [{ identity_num: 'u1', identity_type: 1, identity_name: '企业' }]
+    }
+  });
+  assert.deepEqual(Object.keys(params), ['body_hash', 'body_identities', 'body_operation_id', 'path_url']);
+  assert.equal(stableJson(params), stableJson(buildSignParams({
+    path: '/v3/native/record/records',
+    body: {
+      operation_id: 'op-1',
+      identities: [{ identity_name: '企业', identity_type: 1, identity_num: 'u1' }],
+      hash: 'abc'
+    }
+  })));
+  assert.equal(
+    signRequest({
+      path: '/v3/native/record/records',
+      body: {
+        hash: 'abc',
+        operation_id: 'op-1',
+        identities: [{ identity_num: 'u1', identity_type: 1, identity_name: '企业' }]
+      },
+      timestamp: '1700000000000',
+      apiSecret: 'secret'
+    }),
+    signRequest({
+      path: '/v3/native/record/records',
+      body: {
+        operation_id: 'op-1',
+        identities: [{ identity_name: '企业', identity_type: 1, identity_num: 'u1' }],
+        hash: 'abc'
+      },
+      timestamp: '1700000000000',
+      apiSecret: 'secret'
+    })
+  );
+});
+
+test('AVATA record proof body should include official fields without secrets', () => {
+  const { buildRecordProofBody } = require('../src/server/services/avataService');
+  const body = buildRecordProofBody({
+    operationId: 'record_STAR001_hash',
+    manifestHash: 'a'.repeat(64),
+    starId: 'STAR001',
+    sealedAt: '2026-07-09T00:00:00.000Z',
+    config: {
+      identityType: 1,
+      identityName: '测试企业主体',
+      identityNum: 'TEST-CREDIT-CODE',
+      recordType: 1,
+      hashType: 1
+    }
+  });
+  assert.equal(body.identity_type, 1);
+  assert.equal(body.identity_name, '测试企业主体');
+  assert.equal(body.identity_num, 'TEST-CREDIT-CODE');
+  assert.equal(body.type, 1);
+  assert.equal(body.hash_type, 1);
+  assert.equal(body.operation_id, 'record_STAR001_hash');
+  assert.equal(body.hash, 'a'.repeat(64));
+  assert.equal(Array.isArray(body.identities), true);
+  const serialized = JSON.stringify(body);
+  assert.equal(serialized.includes('AVATA_API_SECRET'), false);
+  assert.equal(serialized.includes('openid'), false);
+  assert.equal(serialized.includes('13800000000'), false);
+});
+
+test('AVATA result normalization should parse V3 record payload', () => {
+  const { normalizeAvataResult } = require('../src/server/services/avataService');
+  const result = normalizeAvataResult({
+    data: {
+      operation_id: 'op-v3',
+      status: 1,
+      tx_hash: 'tx-v3',
+      block_height: 88,
+      record: {
+        create_record: {
+          record_id: 'record-v3',
+          certificate_url: 'https://cert.example.com/v3.pdf'
+        }
+      }
+    }
+  });
+  assert.equal(result.operation_id, 'op-v3');
+  assert.equal(result.status, 1);
+  assert.equal(result.tx_hash, 'tx-v3');
+  assert.equal(result.block_height, 88);
+  assert.equal(result.record_id, 'record-v3');
+  assert.equal(result.certificate_url, 'https://cert.example.com/v3.pdf');
+});
+
 function requestRaw(method, urlPath, { headers = {}, body } = {}) {
   return new Promise((resolve, reject) => {
     const req = http.request({
@@ -391,6 +512,9 @@ test('GET /api/user/records should return only current user activated records', 
   assert.equal(userADetail.status, 200);
   assert.equal(userADetail.body.data.id, 'STAR0003');
   assert.ok(userADetail.body.data.blockchain_hash);
+  assert.ok(userADetail.body.data.manifest_hash);
+  assert.equal(userADetail.body.data.blockchain_hash, userADetail.body.data.manifest_hash);
+  assert.equal(typeof userADetail.body.data.chain_status_text, 'string');
   assert.ok(userADetail.body.data.image_url);
   assert.equal(typeof userADetail.body.data.brand_name, 'string');
 
@@ -813,8 +937,12 @@ test('admin miniapp content should update public miniapp content', async () => {
 test('admin system status should not leak secrets', async () => {
   const oldAppId = process.env.WECHAT_MINIAPP_APPID;
   const oldSecret = process.env.WECHAT_MINIAPP_SECRET;
+  const oldAvataKey = process.env.AVATA_API_KEY;
+  const oldAvataSecret = process.env.AVATA_API_SECRET;
   process.env.WECHAT_MINIAPP_APPID = 'wx-test-appid';
   process.env.WECHAT_MINIAPP_SECRET = 'super-secret-value';
+  process.env.AVATA_API_KEY = 'avata-test-key';
+  process.env.AVATA_API_SECRET = 'avata-super-secret-value';
 
   try {
     const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
@@ -823,12 +951,19 @@ test('admin system status should not leak secrets', async () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.data.miniapp.configured, true);
     assert.equal(res.raw.includes('super-secret-value'), false);
+    assert.equal(res.raw.includes('avata-super-secret-value'), false);
     assert.equal(Object.hasOwn(res.body.data.miniapp, 'secret'), false);
+    assert.equal(res.body.data.chain.configured, true);
+    assert.equal(Object.hasOwn(res.body.data.chain, 'api_secret'), false);
   } finally {
     if (oldAppId === undefined) delete process.env.WECHAT_MINIAPP_APPID;
     else process.env.WECHAT_MINIAPP_APPID = oldAppId;
     if (oldSecret === undefined) delete process.env.WECHAT_MINIAPP_SECRET;
     else process.env.WECHAT_MINIAPP_SECRET = oldSecret;
+    if (oldAvataKey === undefined) delete process.env.AVATA_API_KEY;
+    else process.env.AVATA_API_KEY = oldAvataKey;
+    if (oldAvataSecret === undefined) delete process.env.AVATA_API_SECRET;
+    else process.env.AVATA_API_SECRET = oldAvataSecret;
   }
 });
 
@@ -1138,12 +1273,43 @@ test('miniapp upload and record flow should require bound phone and reject dupli
   assert.equal(recordRes.body.data.show_brand_disclosure, true);
   assert.equal(recordRes.body.data.brand_disclosure_text_snapshot, '品牌露出文案-MINI');
   assert.equal(recordRes.body.data.brand_name, '星酒品牌');
+  assert.ok(recordRes.body.data.blockchain_hash);
+  assert.ok(recordRes.body.data.manifest_hash);
+  assert.equal(recordRes.body.data.blockchain_hash, recordRes.body.data.manifest_hash);
+  assert.ok(['manifest_ready', 'submitting', 'submitted', 'confirmed', 'failed'].includes(recordRes.body.data.chain_status));
+  assert.equal(typeof recordRes.body.data.chain_status_text, 'string');
 
   const detailRes = await getJson('/api/miniapp/user/records/MQR00001', token);
   assert.equal(detailRes.status, 200);
   assert.equal(detailRes.body.data.show_brand_disclosure, true);
   assert.equal(detailRes.body.data.brand_disclosure_text_snapshot, '品牌露出文案-MINI');
   assert.equal(detailRes.body.data.brand_name, '星酒品牌');
+  assert.ok(detailRes.body.data.manifest_hash);
+  assert.equal(Object.prototype.hasOwnProperty.call(detailRes.body.data, 'chain_operation_id'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(detailRes.body.data, 'manifest_object_key'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(detailRes.body.data, 'chain_last_error'), false);
+
+  const adminRecordList = await getJson('/api/admin/records?id_prefix=MQR&limit=5', adminToken);
+  assert.equal(adminRecordList.status, 200);
+  const adminRecord = adminRecordList.body.data.records.find((item) => item.id === 'MQR00001');
+  assert.ok(adminRecord.chain_operation_id);
+  const queryRes = await postJson('/api/admin/records/MQR00001/chain/query', {}, adminToken);
+  assert.equal(queryRes.status, 200);
+  assert.ok(['submitted', 'confirmed', 'failed'].includes(queryRes.body.data.chain_status));
+  const callbackRes = await postJson('/api/chain/avata/callback', {
+    operation_id: adminRecord.chain_operation_id,
+    status: 1,
+    tx_hash: 'tx_test_mqr',
+    block_height: 123,
+    record: {
+      record_id: 'record_test_mqr',
+      certificate_url: 'https://cert.example.com/mqr'
+    }
+  });
+  assert.equal(callbackRes.status, 200);
+  assert.equal(callbackRes.raw, 'SUCCESS');
+  const retryRes = await postJson('/api/admin/records/MQR00001/chain/retry', {}, adminToken);
+  assert.equal(retryRes.status, 200);
 
   const duplicateRes = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
     content: '重复记录',
@@ -1215,6 +1381,9 @@ test('miniapp co-creation flow should collect comments and finalize', async () =
   assert.equal(startRes.status, 200);
   assert.equal(startRes.body.data.activation_status, 'co_creating');
   assert.equal(startRes.body.data.is_co_creation_owner, true);
+  assert.equal(startRes.body.data.blockchain_hash, null);
+  assert.equal(startRes.body.data.manifest_hash, null);
+  assert.equal(startRes.body.data.chain_status, 'not_started');
 
   const participantToken = await loginMiniappBindPhoneAndGetToken({
     code: 'mini-participant',
@@ -1239,6 +1408,9 @@ test('miniapp co-creation flow should collect comments and finalize', async () =
   assert.equal(finalizeRes.status, 200);
   assert.equal(finalizeRes.body.data.activation_status, 'activated');
   assert.ok(finalizeRes.body.data.blockchain_hash);
+  assert.ok(finalizeRes.body.data.manifest_hash);
+  assert.equal(finalizeRes.body.data.blockchain_hash, finalizeRes.body.data.manifest_hash);
+  assert.ok(['manifest_ready', 'submitting', 'submitted', 'confirmed', 'failed'].includes(finalizeRes.body.data.chain_status));
 });
 
 
@@ -1464,6 +1636,8 @@ test('co-creation flow should collect comments and owner finalize record', async
   assert.equal(startRes.body.data.activation_status, 'co_creating');
   assert.equal(startRes.body.data.is_co_creation_owner, true);
   assert.equal(startRes.body.data.blockchain_hash, null);
+  assert.equal(startRes.body.data.manifest_hash, null);
+  assert.equal(startRes.body.data.chain_status, 'not_started');
   assert.equal(startRes.body.data.co_creation_comment_count, 0);
   assert.equal(startRes.body.data.co_creation_comment_limit, 12);
 
@@ -1529,6 +1703,9 @@ test('co-creation flow should collect comments and owner finalize record', async
   assert.equal(finalizeRes.status, 200);
   assert.equal(finalizeRes.body.data.activation_status, 'activated');
   assert.ok(finalizeRes.body.data.blockchain_hash);
+  assert.ok(finalizeRes.body.data.manifest_hash);
+  assert.equal(finalizeRes.body.data.blockchain_hash, finalizeRes.body.data.manifest_hash);
+  assert.ok(['manifest_ready', 'submitting', 'submitted', 'confirmed', 'failed'].includes(finalizeRes.body.data.chain_status));
   const ownerRecordsAfterFinalize = await getJsonWithCookie('/api/user/records', ownerCookie);
   assert.equal(ownerRecordsAfterFinalize.status, 200);
   const finalizedRecord = ownerRecordsAfterFinalize.body.data.records.find((item) => item.id === qrId);

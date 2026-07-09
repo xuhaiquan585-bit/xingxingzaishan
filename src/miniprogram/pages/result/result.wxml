@@ -8,8 +8,10 @@
     <view wx:if="{{record.has_brand_disclosure}}" class="brand-disclosure-line">{{record.brand_disclosure_display}}</view>
 
     <view class="meta">保存时间：{{record.activated_at}}</view>
+    <view class="meta">区块链存证：{{record.chain_status_text}}</view>
     <button class="btn secondary" bindtap="toggleHash">{{hashButtonText}}</button>
-    <view wx:if="{{hashVisible}}" class="hash">{{record.blockchain_hash}}</view>
+    <view wx:if="{{hashVisible}}" class="hash">{{record.manifest_hash || record.blockchain_hash}}</view>
+    <navigator wx:if="{{record.chain_certificate_url}}" class="text-link" url="{{record.chain_certificate_url}}">查看存证证书</navigator>
 
     <view wx:if="{{record.has_comments}}" class="list-title">共创留言</view>
     <block wx:for="{{record.co_creation_comments}}" wx:key="id">

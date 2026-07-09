@@ -8,6 +8,7 @@ const detailContent = document.getElementById('detailContent');
 const detailComments = document.getElementById('detailComments');
 const detailTime = document.getElementById('detailTime');
 const detailId = document.getElementById('detailId');
+const detailChainStatus = document.getElementById('detailChainStatus');
 const detailHash = document.getElementById('detailHash');
 const detailBrand = document.getElementById('detailBrand');
 
@@ -78,7 +79,8 @@ function renderDetail(record) {
   detailContent.textContent = record.content || '（未填写留言）';
   detailTime.textContent = formatTime(record.activated_at);
   detailId.textContent = record.id || '';
-  detailHash.textContent = record.blockchain_hash || '-';
+  detailChainStatus.textContent = record.chain_status_text || '存证生成中';
+  detailHash.textContent = record.manifest_hash || record.blockchain_hash || '-';
   renderComments(record.co_creation_comments || []);
 
   const brandDisclosureText = String(record.brand_disclosure_text_snapshot || '').trim();

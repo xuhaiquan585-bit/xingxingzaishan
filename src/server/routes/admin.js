@@ -23,8 +23,13 @@ const {
   updateMiniappContent
 } = require('../services/dbService');
 const { generateToken, verifyToken } = require('../services/authService');
-const { getStorageMode } = require('../services/storageService');
+const { getStorageMode, getSignedUrl } = require('../services/storageService');
 const { hasMiniappConfig } = require('../services/miniappAuthService');
+const {
+  getChainSystemStatus,
+  queryRecordChainProof,
+  retryRecordChainProof
+} = require('../services/chainProofService');
 
 const router = express.Router();
 
@@ -334,6 +339,7 @@ router.get('/system-status', requireAdmin, (_req, res) => {
         mode: contentSafetyMode,
         configured: miniappConfigured || process.env.NODE_ENV !== 'production'
       },
+      chain: getChainSystemStatus(),
       domain: {
         base_url: process.env.BASE_URL || '',
         expected_domain: 'https://xingxingzaishan.top',
@@ -511,11 +517,59 @@ router.get('/records', requireAdmin, (req, res) => {
     page,
     limit
   });
+  const records = data.records.map((record) => ({
+    ...record,
+    chain_certificate_object_url: record.chain_certificate_object_key
+      ? getSignedUrl(record.chain_certificate_object_key)
+      : record.chain_certificate_object_url || null
+  }));
 
   return res.json({
     status: 'success',
     code: 'OK',
-    data
+    data: {
+      ...data,
+      records
+    }
+  });
+});
+
+router.post('/records/:qrId/chain/query', requireAdmin, async (req, res) => {
+  const result = await queryRecordChainProof(req.params.qrId);
+  if (result.error === 'CHAIN_OPERATION_NOT_FOUND') {
+    return res.status(404).json({
+      status: 'error',
+      code: 'CHAIN_OPERATION_NOT_FOUND',
+      message: '该记录还没有可查询的存证操作。'
+    });
+  }
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: result.data
+  });
+});
+
+router.post('/records/:qrId/chain/retry', requireAdmin, async (req, res) => {
+  const result = await retryRecordChainProof(req.params.qrId);
+  if (result.error === 'QR_NOT_FOUND') {
+    return res.status(404).json({
+      status: 'error',
+      code: 'QR_NOT_FOUND',
+      message: '未找到该记录。'
+    });
+  }
+  if (result.error === 'RECORD_NOT_SEALED') {
+    return res.status(409).json({
+      status: 'error',
+      code: 'RECORD_NOT_SEALED',
+      message: '该记录尚未封存，不能提交存证。'
+    });
+  }
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: result.data
   });
 });
 

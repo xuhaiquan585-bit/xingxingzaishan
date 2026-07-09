@@ -197,6 +197,25 @@ function formatActivationStatus(status) {
   return map[status] || status || '-';
 }
 
+function formatChainStatus(status) {
+  const map = {
+    not_started: '未开始',
+    manifest_ready: '待提交',
+    submitting: '提交中',
+    submitted: '已提交',
+    retrying: '重试中',
+    confirmed: '已确认',
+    failed: '失败'
+  };
+  return map[status] || status || '-';
+}
+
+function shortHash(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text.length > 18 ? `${text.slice(0, 18)}...` : text;
+}
+
 function formatConfigured(value) {
   return value ? '已配置' : '未配置';
 }
@@ -491,6 +510,10 @@ async function loadDashboard() {
   setText('hiddenRecords', data.hidden_records);
   setText('qualityAbnormal', data.today_quality_abnormal);
   setText('activationRate', `${data.period_activation_rate}%`);
+  setText('chainPending', data.chain_pending);
+  setText('chainProcessing', data.chain_processing);
+  setText('chainConfirmed', data.chain_confirmed);
+  setText('chainFailed', data.chain_failed);
 }
 
 function renderRows(records) {
@@ -552,9 +575,14 @@ function renderContentRows(records) {
       const image = item.image_url
         ? `<img class="record-thumb" src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.id)}" />`
         : '-';
-      const credential = item.blockchain_hash
-        ? `已生成<br /><small>${escapeHtml(String(item.blockchain_hash).slice(0, 16))}...</small>`
-        : '-';
+      const chainStatus = formatChainStatus(item.chain_status);
+      const chainHash = item.manifest_hash || item.blockchain_hash || '';
+      const certificateUrl = item.chain_certificate_object_url || item.chain_certificate_url || '';
+      const credential = `<div>${escapeHtml(chainStatus)}</div>
+        ${chainHash ? `<small>${escapeHtml(shortHash(chainHash))}</small>` : ''}
+        ${item.chain_tx_hash ? `<br /><small>tx: ${escapeHtml(shortHash(item.chain_tx_hash))}</small>` : ''}
+        ${certificateUrl ? `<br /><a href="${escapeHtml(certificateUrl)}" target="_blank" rel="noreferrer">证书</a>` : ''}
+        ${item.chain_last_error ? `<br /><small class="danger">${escapeHtml(shortHash(item.chain_last_error))}</small>` : ''}`;
       return `<tr>
         <td>${escapeHtml(item.id)}</td>
         <td>${image}</td>
@@ -565,7 +593,11 @@ function renderContentRows(records) {
         <td>${item.hidden ? '隐藏' : '显示'}</td>
         <td>${escapeHtml(item.phone || '-')}</td>
         <td>${escapeHtml(item.activated_at || item.co_creation_started_at || item.created_at || '-')}</td>
-        <td><button data-record-id="${escapeHtml(item.id)}" data-record-action="${actionFn}">${actionLabel}</button></td>
+        <td>
+          <button data-record-id="${escapeHtml(item.id)}" data-record-action="${actionFn}">${actionLabel}</button>
+          <button data-chain-id="${escapeHtml(item.id)}" data-chain-action="query">查存证</button>
+          <button data-chain-id="${escapeHtml(item.id)}" data-chain-action="retry">重试</button>
+        </td>
       </tr>`;
     })
     .join('');
@@ -751,6 +783,9 @@ async function loadSystemStatus() {
   setText('systemOssConfigured', formatConfigured(data.storage.configured));
   setText('systemMiniappConfigured', formatConfigured(data.miniapp.configured));
   setText('systemSafetyConfigured', `${formatConfigured(data.content_safety.configured)}（${data.content_safety.mode}）`);
+  setText('systemChainEnv', data.chain.env || '-');
+  setText('systemChainConfigured', `${formatConfigured(data.chain.ready_for_real_submit)}（${data.chain.enabled ? '已启用' : '未启用'} / 密钥${formatConfigured(data.chain.configured)} / 项目${formatConfigured(data.chain.project_id_configured)} / 主体${formatConfigured(data.chain.identity_configured)}）`);
+  setText('systemChainCallback', formatConfigured(data.chain.callback_url_configured));
   setText('systemDomain', data.domain.base_url || data.domain.expected_domain);
   setText('systemPrivacy', formatConfigured(data.agreements.privacy_url_configured));
   setText('systemService', formatConfigured(data.agreements.service_url_configured));
@@ -853,6 +888,23 @@ tableBody.addEventListener('click', async (event) => {
 });
 
 contentRecordTableBody.addEventListener('click', async (event) => {
+  const chainBtn = event.target.closest('button[data-chain-id]');
+  if (chainBtn) {
+    const qrId = chainBtn.getAttribute('data-chain-id');
+    const action = chainBtn.getAttribute('data-chain-action');
+    try {
+      await request(`/api/admin/records/${encodeURIComponent(qrId)}/chain/${action}`, {
+        method: 'POST',
+        headers: authHeaders()
+      });
+      recordMsg.textContent = action === 'retry' ? '已重新提交存证。' : '已刷新存证状态。';
+      await loadContentRecords();
+    } catch (error) {
+      recordMsg.textContent = error.message || '存证操作失败。';
+    }
+    return;
+  }
+
   const btn = event.target.closest('button[data-record-id]');
   if (!btn) return;
   await toggleHiddenStatus(btn.getAttribute('data-record-id'), btn.getAttribute('data-record-action'));
