@@ -30,6 +30,10 @@ const {
   queryRecordChainProof,
   retryRecordChainProof
 } = require('../services/chainProofService');
+const {
+  getArchiveSystemStatus,
+  rebuildRecordArchive
+} = require('../services/archiveService');
 
 const router = express.Router();
 
@@ -340,6 +344,7 @@ router.get('/system-status', requireAdmin, (_req, res) => {
         configured: miniappConfigured || process.env.NODE_ENV !== 'production'
       },
       chain: getChainSystemStatus(),
+      archive: getArchiveSystemStatus(),
       domain: {
         base_url: process.env.BASE_URL || '',
         expected_domain: 'https://xingxingzaishan.top',
@@ -564,6 +569,29 @@ router.post('/records/:qrId/chain/retry', requireAdmin, async (req, res) => {
       status: 'error',
       code: 'RECORD_NOT_SEALED',
       message: '该记录尚未封存，不能提交存证。'
+    });
+  }
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: result.data
+  });
+});
+
+router.post('/records/:qrId/archive/rebuild', requireAdmin, async (req, res) => {
+  const result = await rebuildRecordArchive(req.params.qrId);
+  if (result.error === 'QR_NOT_FOUND') {
+    return res.status(404).json({
+      status: 'error',
+      code: 'QR_NOT_FOUND',
+      message: '未找到该记录。'
+    });
+  }
+  if (result.error === 'RECORD_NOT_ARCHIVABLE') {
+    return res.status(409).json({
+      status: 'error',
+      code: 'RECORD_NOT_ARCHIVABLE',
+      message: '该记录尚未产生用户内容，不能重建档案索引。'
     });
   }
   return res.json({

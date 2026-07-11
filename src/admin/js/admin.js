@@ -581,7 +581,10 @@ function renderContentRows(records) {
       const credential = `<div>${escapeHtml(chainStatus)}</div>
         ${chainHash ? `<small>${escapeHtml(shortHash(chainHash))}</small>` : ''}
         ${item.chain_tx_hash ? `<br /><small>tx: ${escapeHtml(shortHash(item.chain_tx_hash))}</small>` : ''}
+        ${item.manifest_object_key ? `<br /><small>manifest: ${escapeHtml(shortHash(item.manifest_object_key))}</small>` : ''}
+        ${item.archive_index_object_key ? `<br /><small>索引: 已写入</small>` : ''}
         ${certificateUrl ? `<br /><a href="${escapeHtml(certificateUrl)}" target="_blank" rel="noreferrer">证书</a>` : ''}
+        ${item.chain_certificate_object_key ? `<br /><small>证书归档: 已保存</small>` : ''}
         ${item.chain_last_error ? `<br /><small class="danger">${escapeHtml(shortHash(item.chain_last_error))}</small>` : ''}`;
       return `<tr>
         <td>${escapeHtml(item.id)}</td>
@@ -597,6 +600,7 @@ function renderContentRows(records) {
           <button data-record-id="${escapeHtml(item.id)}" data-record-action="${actionFn}">${actionLabel}</button>
           <button data-chain-id="${escapeHtml(item.id)}" data-chain-action="query">查存证</button>
           <button data-chain-id="${escapeHtml(item.id)}" data-chain-action="retry">重试</button>
+          <button data-archive-id="${escapeHtml(item.id)}">重建档案</button>
         </td>
       </tr>`;
     })
@@ -786,6 +790,9 @@ async function loadSystemStatus() {
   setText('systemChainEnv', data.chain.env || '-');
   setText('systemChainConfigured', `${formatConfigured(data.chain.ready_for_real_submit)}（${data.chain.enabled ? '已启用' : '未启用'} / 密钥${formatConfigured(data.chain.configured)} / 项目${formatConfigured(data.chain.project_id_configured)} / 主体${formatConfigured(data.chain.identity_configured)}）`);
   setText('systemChainCallback', formatConfigured(data.chain.callback_url_configured));
+  setText('systemArchiveConfigured', `${formatConfigured(data.archive.configured)}（${data.archive.mode} / ${data.archive.object_prefix}）`);
+  setText('systemArchiveIndex', data.archive.records_index_path || '-');
+  setText('systemArchiveBackup', data.archive.db_backup_latest_path || '-');
   setText('systemDomain', data.domain.base_url || data.domain.expected_domain);
   setText('systemPrivacy', formatConfigured(data.agreements.privacy_url_configured));
   setText('systemService', formatConfigured(data.agreements.service_url_configured));
@@ -888,6 +895,22 @@ tableBody.addEventListener('click', async (event) => {
 });
 
 contentRecordTableBody.addEventListener('click', async (event) => {
+  const archiveBtn = event.target.closest('button[data-archive-id]');
+  if (archiveBtn) {
+    const qrId = archiveBtn.getAttribute('data-archive-id');
+    try {
+      await request(`/api/admin/records/${encodeURIComponent(qrId)}/archive/rebuild`, {
+        method: 'POST',
+        headers: authHeaders()
+      });
+      recordMsg.textContent = '已重建 OSS 档案索引。';
+      await loadContentRecords();
+    } catch (error) {
+      recordMsg.textContent = error.message || '档案重建失败。';
+    }
+    return;
+  }
+
   const chainBtn = event.target.closest('button[data-chain-id]');
   if (chainBtn) {
     const qrId = chainBtn.getAttribute('data-chain-id');

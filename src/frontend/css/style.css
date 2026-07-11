@@ -554,7 +554,10 @@ textarea { min-height: 100px; resize: vertical; }
   border-bottom: 1px solid rgba(255,255,255,0.1);
 }
 .result-image {
-  max-height: 380px;
+  width: 100%;
+  max-height: min(68vh, 620px);
+  object-fit: contain;
+  background: rgba(5, 12, 38, 0.34);
   box-shadow: 0 10px 30px rgba(0,0,0,0.16);
 }
 .memory-content {
@@ -565,6 +568,9 @@ textarea { min-height: 100px; resize: vertical; }
   font-family: var(--font-serif);
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
+  letter-spacing: 0;
+  text-align: left;
 }
 .credential-card {
   margin-top: 14px;
@@ -686,17 +692,41 @@ textarea { min-height: 100px; resize: vertical; }
 .confirm-preview {
   margin-top: 12px;
 }
+.confirm-preview-photo {
+  min-height: 220px;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(255,255,255,0.1), transparent 46%),
+    rgba(5, 12, 38, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
 .confirm-preview-image {
   width: 100%;
-  max-height: 220px;
+  max-height: min(52vh, 520px);
   object-fit: contain;
-  border-radius: 10px;
+  border-radius: 14px;
   display: block;
-  background: rgba(0,0,0,0.12);
+  background: transparent;
+}
+.confirm-preview-text {
+  margin-top: 12px;
+  padding: 13px 14px 14px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 14px;
+  background: rgba(6, 14, 42, 0.24);
+}
+.confirm-preview-label {
+  margin: 0 0 7px;
+  color: rgba(255,255,255,0.48);
+  font-size: 12px;
+  letter-spacing: 0;
 }
 .confirm-preview-content {
-  margin: 12px 0 0;
-  padding: 4px 0 0;
+  margin: 0;
+  padding: 0;
   border-radius: 0;
   background: transparent;
   color: rgba(255,255,255,0.92);
@@ -705,9 +735,20 @@ textarea { min-height: 100px; resize: vertical; }
   line-height: 1.75;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
+  letter-spacing: 0;
+  text-align: left;
 }
 .confirm-preview-content.empty {
   color: rgba(255,255,255,0.58);
+}
+.confirm-notice-card {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(212,175,55,0.2);
+  background: rgba(212,175,55,0.08);
+  color: rgba(255,255,255,0.82);
 }
 
 
@@ -799,9 +840,10 @@ textarea { min-height: 100px; resize: vertical; }
 }
 .detail-cover {
   width: 100%;
-  max-height: 460px;
+  max-height: min(68vh, 620px);
   object-fit: contain;
   display: block;
+  background: rgba(5, 12, 38, 0.34);
 }
 .record-body,
 .detail-body {
@@ -813,7 +855,17 @@ textarea { min-height: 100px; resize: vertical; }
   color: #fff;
   font-family: var(--font-serif);
   font-size: 17px;
+  white-space: pre-wrap;
+  word-break: break-word;
   overflow-wrap: anywhere;
+  letter-spacing: 0;
+  text-align: left;
+}
+.record-summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .detail-card {
   padding: 0;

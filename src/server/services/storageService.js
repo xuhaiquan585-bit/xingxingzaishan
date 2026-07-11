@@ -104,6 +104,20 @@ function buildObjectKey({ qrId, fileName }) {
   return `${prefix}/${group}/${fileName}`;
 }
 
+function sanitizeObjectKey(value) {
+  const text = String(value || '').trim().replace(/\\/g, '/');
+  if (!text) return null;
+  return text
+    .split('/')
+    .map((segment) => {
+      const safe = String(segment || '').replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 160);
+      if (!safe || safe === '.' || safe === '..') return 'item';
+      return safe;
+    })
+    .filter(Boolean)
+    .join('/');
+}
+
 async function putObjectToOss({ objectKey, localPath }) {
   const client = getOssClient();
   await client.put(objectKey, localPath, {
@@ -125,13 +139,20 @@ async function putBufferToOss({ objectKey, buffer, contentType = 'application/oc
 
 
 function getLocalObjectPath(value) {
+  const text = String(value || '').replace(/\\/g, '/');
+  if (!text) return path.join(localUploadDir, '');
+  return path.join(localUploadDir, text);
+}
+
+function getLocalObjectFallbackPath(value) {
   return path.join(localUploadDir, path.basename(String(value || '')));
 }
 
 function getSignedUrl(objectKey, expiresSeconds = Number(process.env.OSS_SIGNED_URL_EXPIRES || 3600)) {
   if (!objectKey) return null;
   if (getStorageMode() !== 'cloud') {
-    return `/uploads/${path.basename(objectKey)}`;
+    const safeKey = String(objectKey).replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/');
+    return `/uploads/${safeKey}`;
   }
 
   const client = getOssClient();
@@ -229,11 +250,92 @@ async function saveBinaryObject({ qrId, fileName, buffer, contentType = 'applica
   };
 }
 
+async function saveBinaryObjectAtKey({ objectKey, buffer, contentType = 'application/octet-stream' }) {
+  const safeObjectKey = sanitizeObjectKey(objectKey);
+  if (!safeObjectKey) throw new Error('OBJECT_KEY_REQUIRED');
+  const mode = getStorageMode();
+
+  if (mode === 'cloud') {
+    try {
+      await putBufferToOss({
+        objectKey: safeObjectKey,
+        buffer,
+        contentType
+      });
+      return {
+        mode,
+        object_key: safeObjectKey,
+        preview_url: getSignedUrl(safeObjectKey)
+      };
+    } catch (_error) {
+      if (process.env.CLOUD_FALLBACK_TO_LOCAL !== 'true') {
+        throw new Error('OSS_UPLOAD_FAILED');
+      }
+    }
+  }
+
+  const localPath = path.join(localUploadDir, safeObjectKey);
+  ensureDir(path.dirname(localPath));
+  fs.writeFileSync(localPath, buffer);
+  return {
+    mode: 'local',
+    object_key: safeObjectKey,
+    preview_url: getSignedUrl(safeObjectKey),
+    local_path: localPath,
+    fallback: mode === 'cloud'
+  };
+}
+
+async function saveJsonObjectAtKey({ objectKey, data }) {
+  const buffer = Buffer.from(JSON.stringify(data, null, 2), 'utf8');
+  return saveBinaryObjectAtKey({
+    objectKey,
+    buffer,
+    contentType: 'application/json; charset=utf-8'
+  });
+}
+
+async function readObjectBuffer(objectKey) {
+  const safeObjectKey = sanitizeObjectKey(objectKey);
+  if (!safeObjectKey) return null;
+  if (getStorageMode() === 'cloud') {
+    const client = getOssClient();
+    try {
+      const result = await client.get(safeObjectKey);
+      return Buffer.isBuffer(result.content) ? result.content : Buffer.from(result.content);
+    } catch (error) {
+      if (['NoSuchKey', 'NoSuchBucket', 'NotFound'].includes(error.code) || error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  const localPath = getLocalObjectPath(safeObjectKey);
+  if (fs.existsSync(localPath)) {
+    return fs.readFileSync(localPath);
+  }
+  const fallbackPath = getLocalObjectFallbackPath(safeObjectKey);
+  if (fs.existsSync(fallbackPath)) {
+    return fs.readFileSync(fallbackPath);
+  }
+  return null;
+}
+
+async function readTextObjectAtKey(objectKey) {
+  const buffer = await readObjectBuffer(objectKey);
+  return buffer ? buffer.toString('utf8') : '';
+}
+
 module.exports = {
   getStorageMode,
   saveImage,
   saveJsonObject,
   saveBinaryObject,
+  saveJsonObjectAtKey,
+  saveBinaryObjectAtKey,
+  readObjectBuffer,
+  readTextObjectAtKey,
   getSignedUrl,
   getObjectPrefix,
   getLocalObjectPath

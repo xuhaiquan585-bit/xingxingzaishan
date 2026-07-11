@@ -40,7 +40,8 @@ function buildRecordManifest(record) {
       content: record.content || '',
       image: {
         object_key: record.image_object_key || null,
-        url: record.image_url || null
+        url: record.image_url || null,
+        sha256: record.image_sha256 || null
       },
       co_creation: {
         enabled: record.co_creation_enabled === true,

@@ -71,7 +71,13 @@ function defaultChainFields(item = {}) {
     chain_confirmed_at: item.chain_confirmed_at || (manifestHash && item.blockchain_hash ? item.activated_at || null : null),
     chain_callback_received_at: item.chain_callback_received_at || null,
     chain_last_error: item.chain_last_error || '',
-    chain_retry_count: Number.isFinite(Number(item.chain_retry_count)) ? Number(item.chain_retry_count) : 0
+    chain_retry_count: Number.isFinite(Number(item.chain_retry_count)) ? Number(item.chain_retry_count) : 0,
+    image_sha256: item.image_sha256 || null,
+    legacy_manifest_object_key: item.legacy_manifest_object_key || null,
+    archive_index_object_key: item.archive_index_object_key || null,
+    archive_status: item.archive_status || 'not_started',
+    archive_last_error: item.archive_last_error || '',
+    archive_updated_at: item.archive_updated_at || null
   };
 }
 
@@ -456,6 +462,15 @@ function updateRecordChainProof(qrId, patch = {}) {
   return next;
 }
 
+function getDatabaseSnapshot() {
+  return JSON.parse(JSON.stringify(readDB()));
+}
+
+function writeDatabaseSnapshot(snapshot) {
+  writeDB(snapshot);
+  return readDB();
+}
+
 function findQRByToken(token) {
   const db = readDB();
   return db.qr_codes.find((item) => item.qr_access_token === token) || null;
@@ -815,7 +830,13 @@ function chainPayload(item = {}) {
     chain_confirmed_at: item.chain_confirmed_at || null,
     chain_callback_received_at: item.chain_callback_received_at || null,
     chain_last_error: item.chain_last_error || '',
-    chain_retry_count: Number(item.chain_retry_count || 0)
+    chain_retry_count: Number(item.chain_retry_count || 0),
+    image_sha256: item.image_sha256 || null,
+    legacy_manifest_object_key: item.legacy_manifest_object_key || null,
+    archive_index_object_key: item.archive_index_object_key || null,
+    archive_status: item.archive_status || 'not_started',
+    archive_last_error: item.archive_last_error || '',
+    archive_updated_at: item.archive_updated_at || null
   };
 }
 
@@ -1509,6 +1530,8 @@ function getQualityCheckStats() {
 
 module.exports = {
   initializeDB,
+  getDatabaseSnapshot,
+  writeDatabaseSnapshot,
   createOrGetUser,
   findUserByOpenid,
   createOrGetMiniappUser,

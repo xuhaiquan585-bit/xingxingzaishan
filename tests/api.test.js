@@ -533,7 +533,7 @@ test('frontend me.js should avoid innerHTML rendering for user content (basic XS
   const content = fs.readFileSync(meJsPath, 'utf8');
 
   assert.equal(content.includes('recordsSection.innerHTML = records.map'), false);
-  assert.equal(content.includes('content.textContent = item.content ||'), true);
+  assert.equal(content.includes('content.textContent = summarizeContent(item.content)'), true);
 });
 
 test('frontend me-detail.js should read brand_name from record detail payload', () => {
@@ -542,6 +542,20 @@ test('frontend me-detail.js should read brand_name from record detail payload', 
 
   assert.equal(content.includes('record.brand_name ||'), true);
   assert.equal(content.includes('record.batch_brand_name ||'), false);
+});
+
+test('storage archive object keys should not escape local upload root', async () => {
+  const {
+    saveJsonObjectAtKey,
+    readTextObjectAtKey
+  } = require('../src/server/services/storageService');
+  const saved = await saveJsonObjectAtKey({
+    objectKey: 'indexes/../escape.json',
+    data: { ok: true }
+  });
+  assert.equal(saved.object_key, 'indexes/item/escape.json');
+  assert.equal(fs.existsSync(path.join(tmpDir, 'storage', 'public', 'uploads', 'indexes', 'item', 'escape.json')), true);
+  assert.equal(await readTextObjectAtKey('indexes/missing.json'), '');
 });
 
 test('frontend api.js should abort stalled requests with a timeout message', () => {
@@ -602,6 +616,8 @@ test('admin page should expose section navigation and miniapp content tools', ()
 
 test('user login pages should keep copy and expose miniapp-first login cues', () => {
   const registerHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'register.html'), 'utf8');
+  const recordHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'record.html'), 'utf8');
+  const h5MeJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'js', 'me.js'), 'utf8');
   const registerJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'js', 'register.js'), 'utf8');
   const frontendCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'css', 'style.css'), 'utf8');
   const appWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'app.wxss'), 'utf8');
@@ -638,6 +654,14 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(registerJs.includes('MicroMessenger'), true);
   assert.equal(frontendCss.includes('.auth-sms-row'), true);
   assert.equal(frontendCss.includes('grid-template-columns: minmax(0, 1fr) 128px'), true);
+  assert.equal(recordHtml.includes('confirm-preview-text'), true);
+  assert.equal(recordHtml.includes('confirm-notice-card'), true);
+  assert.equal(recordHtml.includes('将要保存的话'), true);
+  assert.equal(frontendCss.includes('overflow-wrap: anywhere'), true);
+  assert.equal(frontendCss.includes('.record-summary'), true);
+  assert.equal(frontendCss.includes('max-height: min(68vh, 620px)'), true);
+  assert.equal(h5MeJs.includes('function summarizeContent'), true);
+  assert.equal(h5MeJs.includes('record-content record-summary'), true);
   assert.equal(bindPhoneWxml.includes('<view class="hero-title">星星在闪</view>'), true);
   assert.equal(bindPhoneWxml.includes('用微信快速确认身份，继续记录这瓶酒的故事。'), true);
   assert.equal(bindPhoneWxml.includes('<text class="wechat-mark">微信</text>'), true);
@@ -953,8 +977,11 @@ test('admin system status should not leak secrets', async () => {
     assert.equal(res.raw.includes('super-secret-value'), false);
     assert.equal(res.raw.includes('avata-super-secret-value'), false);
     assert.equal(Object.hasOwn(res.body.data.miniapp, 'secret'), false);
-    assert.equal(res.body.data.chain.configured, true);
-    assert.equal(Object.hasOwn(res.body.data.chain, 'api_secret'), false);
+  assert.equal(res.body.data.chain.configured, true);
+  assert.equal(res.body.data.archive.configured, true);
+  assert.equal(res.body.data.archive.records_index_path, 'indexes/records.jsonl');
+  assert.equal(res.raw.includes('AVATA_API_SECRET'), false);
+  assert.equal(Object.hasOwn(res.body.data.chain, 'api_secret'), false);
   } finally {
     if (oldAppId === undefined) delete process.env.WECHAT_MINIAPP_APPID;
     else process.env.WECHAT_MINIAPP_APPID = oldAppId;
@@ -1293,9 +1320,28 @@ test('miniapp upload and record flow should require bound phone and reject dupli
   assert.equal(adminRecordList.status, 200);
   const adminRecord = adminRecordList.body.data.records.find((item) => item.id === 'MQR00001');
   assert.ok(adminRecord.chain_operation_id);
+  assert.equal(adminRecord.manifest_object_key, 'stars/MQR00001/record_manifest.json');
+  assert.equal(adminRecord.archive_index_object_key, 'indexes/by-star/MQR00001.json');
+  assert.equal(adminRecord.archive_status, 'ready');
+  assert.ok(adminRecord.image_sha256);
+  const archiveManifestPath = path.join(tmpDir, 'storage', 'public', 'uploads', 'stars', 'MQR00001', 'record_manifest.json');
+  const archiveIndexPath = path.join(tmpDir, 'storage', 'public', 'uploads', 'indexes', 'by-star', 'MQR00001.json');
+  const recordsIndexPath = path.join(tmpDir, 'storage', 'public', 'uploads', 'indexes', 'records.jsonl');
+  assert.equal(fs.existsSync(archiveManifestPath), true);
+  assert.equal(fs.existsSync(archiveIndexPath), true);
+  assert.equal(fs.existsSync(recordsIndexPath), true);
+  const archiveManifest = JSON.parse(fs.readFileSync(archiveManifestPath, 'utf8'));
+  const archiveSerialized = JSON.stringify(archiveManifest);
+  assert.equal(archiveManifest.manifest_hash, adminRecord.manifest_hash);
+  assert.equal(archiveManifest.sealed_manifest.record.image.sha256, adminRecord.image_sha256);
+  assert.equal(archiveSerialized.includes('13877770001'), false);
+  assert.equal(archiveSerialized.includes('mini-record-bound'), false);
   const queryRes = await postJson('/api/admin/records/MQR00001/chain/query', {}, adminToken);
   assert.equal(queryRes.status, 200);
   assert.ok(['submitted', 'confirmed', 'failed'].includes(queryRes.body.data.chain_status));
+  const rebuildArchiveRes = await postJson('/api/admin/records/MQR00001/archive/rebuild', {}, adminToken);
+  assert.equal(rebuildArchiveRes.status, 200);
+  assert.equal(rebuildArchiveRes.body.data.archive_status, 'ready');
   const callbackRes = await postJson('/api/chain/avata/callback', {
     operation_id: adminRecord.chain_operation_id,
     status: 1,
@@ -1308,6 +1354,10 @@ test('miniapp upload and record flow should require bound phone and reject dupli
   });
   assert.equal(callbackRes.status, 200);
   assert.equal(callbackRes.raw, 'SUCCESS');
+  const archiveAfterCallback = JSON.parse(fs.readFileSync(archiveManifestPath, 'utf8'));
+  const { hashManifest } = require('../src/server/services/manifestService');
+  assert.equal(hashManifest(archiveAfterCallback.sealed_manifest), archiveAfterCallback.manifest_hash);
+  assert.equal(archiveAfterCallback.archive.chain.tx_hash, 'tx_test_mqr');
   const retryRes = await postJson('/api/admin/records/MQR00001/chain/retry', {}, adminToken);
   assert.equal(retryRes.status, 200);
 

@@ -24,6 +24,12 @@ function formatTime(value) {
   return `${y}/${m}/${d} ${hh}:${mm}`;
 }
 
+function summarizeContent(value, maxLength = 86) {
+  const text = String(value || '').trim();
+  if (!text) return '（未填写留言）';
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
 function renderRecords(records) {
   if (!Array.isArray(records) || records.length === 0) {
     emptySection.classList.remove('hidden');
@@ -52,8 +58,8 @@ function renderRecords(records) {
     body.className = 'record-body';
 
     const content = document.createElement('p');
-    content.className = 'record-content';
-    content.textContent = item.content || '（未填写留言）';
+    content.className = 'record-content record-summary';
+    content.textContent = summarizeContent(item.content);
 
     const timeHint = document.createElement('p');
     timeHint.className = 'qr-id-hint';

@@ -2,7 +2,16 @@ const {
   buildRecordManifest,
   hashManifest
 } = require('./manifestService');
-const { saveJsonObject } = require('./storageService');
+const {
+  saveJsonObject,
+  saveBinaryObject
+} = require('./storageService');
+const {
+  hashImageForRecord,
+  writeRecordArchive,
+  refreshRecordArchive,
+  backupDatabaseToArchive
+} = require('./archiveService');
 const {
   submitRecordProof,
   queryOperation,
@@ -12,9 +21,6 @@ const {
   isAvataRecordConfigured,
   shouldUseRealAvata
 } = require('./avataService');
-const {
-  saveBinaryObject
-} = require('./storageService');
 function getDbService() {
   // Lazy require keeps tests that swap DB_FILE and clear module cache isolated.
   // eslint-disable-next-line global-require
@@ -36,9 +42,7 @@ function normalizeStatus(resultStatus) {
 }
 
 function certificateFileName(recordId, certificateUrl) {
-  const path = new URL(certificateUrl).pathname;
-  const ext = path.toLowerCase().endsWith('.pdf') ? '.pdf' : '.pdf';
-  return `chain_certificate_${String(recordId || 'record').replace(/[^a-zA-Z0-9_-]/g, '_')}${ext}`;
+  return 'chain_certificate.pdf';
 }
 
 async function saveCertificateSnapshot({ record, certificateUrl }) {
@@ -84,11 +88,16 @@ async function buildChainUpdatePatch({ record, result, status, successErrorMessa
 }
 
 async function prepareRecordManifest(record) {
-  const manifest = buildRecordManifest(record);
+  const imageSha256 = await hashImageForRecord(record);
+  const manifest = buildRecordManifest({
+    ...record,
+    image_sha256: imageSha256
+  });
   const manifestHash = hashManifest(manifest);
   const operationId = record.chain_operation_id || makeOperationId(record, manifestHash);
 
   let stored;
+  let archivePatch;
   try {
     stored = await saveJsonObject({
       qrId: record.id,
@@ -98,10 +107,22 @@ async function prepareRecordManifest(record) {
         manifest_hash: manifestHash
       }
     });
+    archivePatch = await writeRecordArchive({
+      record: {
+        ...record,
+        image_sha256: imageSha256,
+        manifest_hash: manifestHash,
+        manifest_object_key: stored.object_key
+      },
+      manifest,
+      manifestHash,
+      imageSha256
+    });
   } catch (error) {
     return getDbService().updateRecordChainProof(record.id, {
       chain_provider: 'avata_wenchang',
       chain_status: 'failed',
+      archive_status: 'failed',
       chain_operation_id: operationId,
       manifest_hash: manifestHash,
       blockchain_hash: manifestHash,
@@ -109,14 +130,19 @@ async function prepareRecordManifest(record) {
     }) || record;
   }
 
-  return getDbService().updateRecordChainProof(record.id, {
+  const updated = getDbService().updateRecordChainProof(record.id, {
     chain_provider: 'avata_wenchang',
     chain_status: 'manifest_ready',
     chain_operation_id: operationId,
-    manifest_object_key: stored.object_key,
+    manifest_object_key: archivePatch.manifest_object_key || stored.object_key,
+    legacy_manifest_object_key: stored.object_key,
     manifest_hash: manifestHash,
-    blockchain_hash: manifestHash
+    blockchain_hash: manifestHash,
+    image_sha256: imageSha256,
+    ...archivePatch
   }) || record;
+  await backupDatabaseToArchive();
+  return updated;
 }
 
 async function submitPreparedRecord(record) {
@@ -136,13 +162,15 @@ async function submitPreparedRecord(record) {
     const result = normalizeAvataResult(raw);
     const status = normalizeStatus(result.status);
     const patch = await buildChainUpdatePatch({ record: prepared, result, status });
-    return getDbService().updateRecordChainProof(prepared.id, patch);
+    const updated = getDbService().updateRecordChainProof(prepared.id, patch);
+    return refreshRecordArchive(updated);
   } catch (error) {
-    return getDbService().updateRecordChainProof(prepared.id, {
+    const updated = getDbService().updateRecordChainProof(prepared.id, {
       chain_status: 'failed',
       chain_last_error: error.message || 'AVATA submit failed',
       chain_retry_count: Number(prepared.chain_retry_count || 0) + 1
     });
+    return refreshRecordArchive(updated);
   }
 }
 
@@ -164,14 +192,14 @@ async function queryRecordChainProof(qrId) {
     const status = normalizeStatus(result.status);
     const patch = await buildChainUpdatePatch({ record, result, status });
     const updated = updateRecordChainProof(record.id, patch);
-    return { data: updated };
+    return { data: await refreshRecordArchive(updated) };
   } catch (error) {
     const updated = updateRecordChainProof(record.id, {
       chain_status: 'failed',
       chain_last_error: error.message || 'AVATA query failed',
       chain_retry_count: Number(record.chain_retry_count || 0) + 1
     });
-    return { data: updated };
+    return { data: await refreshRecordArchive(updated) };
   }
 }
 
@@ -203,7 +231,7 @@ async function applyAvataCallback(payload = {}) {
     ...patch,
     chain_callback_received_at: new Date().toISOString(),
   });
-  return { data: updated };
+  return { data: await refreshRecordArchive(updated) };
 }
 
 function getChainSystemStatus() {

@@ -132,10 +132,15 @@
         <div class="overlay-panel">
           <p class="overlay-title">确认保存这一刻</p>
           <div class="confirm-preview">
-            <img id="confirmPreviewImage" class="confirm-preview-image hidden" alt="即将保存的照片" />
-            <p id="confirmPreviewContent" class="confirm-preview-content"></p>
+            <div class="confirm-preview-photo">
+              <img id="confirmPreviewImage" class="confirm-preview-image hidden" alt="即将保存的照片" />
+            </div>
+            <div class="confirm-preview-text">
+              <p class="confirm-preview-label">将要保存的话</p>
+              <p id="confirmPreviewContent" class="confirm-preview-content"></p>
+            </div>
           </div>
-          <p id="confirmOverlaySubtitle" class="overlay-subtitle">
+          <p id="confirmOverlaySubtitle" class="overlay-subtitle confirm-notice-card">
             提交后，这张照片和这句话将保存到这瓶酒的记录里。<br />
             以后扫码可查看，<strong>不能修改</strong>。
           </p>
