@@ -2,18 +2,18 @@ const { extractQrKey, parseTokenFromUrl } = require('../../utils/qr');
 const { request, resolveAssetUrl } = require('../../utils/request');
 
 const SCENE_OPTIONS = [
-  { key: 'lover', label: '恋人', desc: '把说不出口的话，交给这一瓶酒。' },
+  { key: 'lover', label: '恋人', desc: '把说不出口的话，贴在这一瓶酒上。' },
   { key: 'elder', label: '长辈', desc: '把感谢和祝福，认真留给重要的人。' },
-  { key: 'coming_of_age', label: '成人礼', desc: '把迈入新阶段的这一刻封存下来。' },
+  { key: 'birthday', label: '生日', desc: '把今天的祝福，留到以后还能看见。' },
   { key: 'wedding', label: '婚礼', desc: '把承诺和祝福，留在共同举杯时。' },
-  { key: 'free', label: '随心', desc: '还没想好，就先看看所有选择。' }
+  { key: 'party', label: '聚会', desc: '让一桌人的话，一起留在这瓶酒里。' }
 ];
 
 Page({
   data: {
     content: {
-      home_title: '把此刻，记在这瓶酒里',
-      home_subtitle: '让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。',
+      home_title: '给这瓶酒，贴上一颗星',
+      home_subtitle: '贴上酒瓶星贴，上传一张照片，写下一句话。',
       project_title: '星星在闪',
       project_body: '把值得记住的时刻，存在这瓶酒里。',
       consult_label: '咨询购买',
@@ -60,7 +60,7 @@ Page({
 
   focusScenes() {
     wx.pageScrollTo({
-      selector: '.home-scene-section',
+      selector: '.home-commerce-section',
       duration: 320
     });
   },

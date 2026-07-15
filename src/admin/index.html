@@ -240,15 +240,26 @@
             <div class="panel-title">
               <div>
                 <h2>商品管理</h2>
-                <p>实物酒/礼盒展示、快团团链接、上架和排序。</p>
+                <p>酒瓶星贴商品、库存、订单履约和发货管理。</p>
               </div>
             </div>
             <div class="toolbar multi-line">
               <input id="productTitle" placeholder="商品名称（必填）" />
               <input id="productSubtitle" placeholder="副标题（选填）" />
               <input id="productCover" placeholder="封面图 URL（选填）" />
-              <input id="productPrice" placeholder="价格文案（如 ¥399/礼盒装）" />
-              <input id="productBuyUrl" placeholder="快团团购买链接（复制链接）" />
+              <input id="productPrice" placeholder="价格文案（如 ¥39/10枚装）" />
+              <input id="productPriceCents" type="number" min="0" placeholder="价格（分，如 3900）" />
+              <input id="productStickerCount" type="number" min="1" value="1" placeholder="贴纸数量" />
+              <input id="productStock" type="number" min="0" value="0" placeholder="库存（0 表示不限）" />
+              <select id="productType">
+                <option value="wine_sticker">酒瓶星贴</option>
+                <option value="sticker_set">星贴套装</option>
+                <option value="custom_sticker">定制星贴</option>
+                <option value="wine_gift">酒礼盒预留</option>
+                <option value="custom_wine">定制酒预留</option>
+              </select>
+              <label><input id="productCustomizable" type="checkbox" /> 支持定制</label>
+              <input id="productBuyUrl" placeholder="历史外链（选填，非主购买入口）" />
               <input id="productSort" type="number" value="0" placeholder="排序（数字越小越靠前）" />
               <select id="productStatus">
                 <option value="draft">草稿</option>
@@ -259,12 +270,15 @@
                 <span>适用场景</span>
                 <label><input type="checkbox" value="lover" />恋人</label>
                 <label><input type="checkbox" value="elder" />长辈</label>
-                <label><input type="checkbox" value="coming_of_age" />成人礼</label>
+                <label><input type="checkbox" value="birthday" />生日</label>
                 <label><input type="checkbox" value="wedding" />婚礼</label>
+                <label><input type="checkbox" value="party" />聚会</label>
                 <label><input type="checkbox" value="free" />随心</label>
               </div>
               <textarea id="productImages" placeholder="商品多图 URL，每行一个"></textarea>
               <textarea id="productDescription" placeholder="商品说明"></textarea>
+              <textarea id="productShippingNote" placeholder="发货说明"></textarea>
+              <textarea id="productAfterSaleNote" placeholder="售后说明"></textarea>
               <button id="saveProductBtn">新增商品</button>
               <button id="cancelProductEditBtn" class="hidden">取消编辑</button>
               <button id="refreshProductBtn">刷新商品</button>
@@ -279,12 +293,36 @@
                     <th>场景</th>
                     <th>价格</th>
                     <th>状态</th>
-                    <th>快团团链接</th>
+                    <th>库存</th>
                     <th>更新时间</th>
                     <th>操作</th>
                   </tr>
                 </thead>
                 <tbody id="productTable"></tbody>
+              </table>
+            </div>
+            <div class="panel-title sub-panel-title">
+              <div>
+                <h3>订单管理</h3>
+                <p>查看贴纸订单，填写快递公司和单号。</p>
+              </div>
+              <button id="refreshOrderBtn">刷新订单</button>
+            </div>
+            <p id="orderMsg" class="msg"></p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>订单号</th>
+                    <th>商品</th>
+                    <th>金额</th>
+                    <th>状态</th>
+                    <th>收货信息</th>
+                    <th>物流</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="orderTable"></tbody>
               </table>
             </div>
           </section>

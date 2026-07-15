@@ -43,5 +43,9 @@ Page({
       return;
     }
     wx.navigateTo({ url: `/pages/record-detail/record-detail?id=${encodeURIComponent(event.currentTarget.dataset.id)}` });
+  },
+
+  goOrders() {
+    wx.navigateTo({ url: '/pages/orders/orders' });
   }
 });

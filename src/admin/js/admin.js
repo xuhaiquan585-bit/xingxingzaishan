@@ -6,6 +6,7 @@ const loginMsg = document.getElementById('loginMsg');
 const batchMsg = document.getElementById('batchMsg');
 const opMsg = document.getElementById('opMsg');
 const productMsg = document.getElementById('productMsg');
+const orderMsg = document.getElementById('orderMsg');
 const recordMsg = document.getElementById('recordMsg');
 const miniappContentMsg = document.getElementById('miniappContentMsg');
 const systemMsg = document.getElementById('systemMsg');
@@ -14,6 +15,7 @@ const contentRecordTableBody = document.getElementById('contentRecordTable');
 const batchTableBody = document.getElementById('batchTable');
 const operatorTableBody = document.getElementById('operatorTable');
 const productTableBody = document.getElementById('productTable');
+const orderTableBody = document.getElementById('orderTable');
 const selectedCount = document.getElementById('selectedCount');
 const selectAll = document.getElementById('selectAll');
 
@@ -22,6 +24,7 @@ let activeSection = localStorage.getItem('adminActiveSection') || 'dashboard';
 let currentRecords = [];
 let batchList = [];
 let productList = [];
+let orderList = [];
 let editingProductId = '';
 const selectedIds = new Set();
 const REQUEST_TIMEOUT_MS = 15000;
@@ -29,8 +32,10 @@ const EXPORT_TIMEOUT_MS = 60000;
 const PRODUCT_SCENE_LABELS = {
   lover: '恋人',
   elder: '长辈',
+  birthday: '生日',
   coming_of_age: '成人礼',
   wedding: '婚礼',
+  party: '聚会',
   free: '随心'
 };
 
@@ -155,6 +160,7 @@ async function loadActiveSection() {
   }
   if (activeSection === 'products') {
     await loadProducts();
+    await loadOrders();
     return;
   }
   if (activeSection === 'operators') {
@@ -353,12 +359,19 @@ function clearProductForm() {
   document.getElementById('productSubtitle').value = '';
   document.getElementById('productCover').value = '';
   document.getElementById('productPrice').value = '';
+  document.getElementById('productPriceCents').value = '';
+  document.getElementById('productStickerCount').value = '1';
+  document.getElementById('productStock').value = '0';
+  document.getElementById('productType').value = 'wine_sticker';
+  document.getElementById('productCustomizable').checked = false;
   document.getElementById('productBuyUrl').value = '';
   document.getElementById('productSort').value = '0';
   document.getElementById('productStatus').value = 'draft';
   setProductSceneTags([]);
   document.getElementById('productImages').value = '';
   document.getElementById('productDescription').value = '';
+  document.getElementById('productShippingNote').value = '';
+  document.getElementById('productAfterSaleNote').value = '';
   document.getElementById('saveProductBtn').textContent = '新增商品';
   document.getElementById('cancelProductEditBtn').classList.add('hidden');
 }
@@ -386,6 +399,11 @@ function readProductForm() {
     subtitle: document.getElementById('productSubtitle').value.trim(),
     cover_image: document.getElementById('productCover').value.trim(),
     price_text: document.getElementById('productPrice').value.trim(),
+    price_cents: Number(document.getElementById('productPriceCents').value || 0),
+    sticker_count: Number(document.getElementById('productStickerCount').value || 1),
+    stock: Number(document.getElementById('productStock').value || 0),
+    product_type: document.getElementById('productType').value,
+    is_customizable: document.getElementById('productCustomizable').checked,
     buy_url: document.getElementById('productBuyUrl').value.trim(),
     sort_order: Number(document.getElementById('productSort').value || 0),
     status: document.getElementById('productStatus').value,
@@ -394,7 +412,9 @@ function readProductForm() {
       .split('\n')
       .map((item) => item.trim())
       .filter(Boolean),
-    description: document.getElementById('productDescription').value.trim()
+    description: document.getElementById('productDescription').value.trim(),
+    shipping_note: document.getElementById('productShippingNote').value.trim(),
+    after_sale_note: document.getElementById('productAfterSaleNote').value.trim()
   };
 }
 
@@ -406,7 +426,7 @@ function renderProducts(products) {
       <td>${escapeHtml(formatProductScenes(product.scene_tags))}</td>
       <td>${escapeHtml(product.price_text || '-')}</td>
       <td>${escapeHtml(product.status)}</td>
-      <td>${product.buy_url ? `<a href="${escapeHtml(product.buy_url)}" target="_blank" rel="noreferrer">查看链接</a>` : '-'}</td>
+      <td>${Number(product.stock || 0) || '不限'} / ${Number(product.sticker_count || 1)}枚</td>
       <td>${escapeHtml(product.updated_at || product.created_at || '-')}</td>
       <td><button data-product-edit="${escapeHtml(product.id)}">编辑</button></td>
     </tr>`)
@@ -452,15 +472,73 @@ function editProduct(productId) {
   document.getElementById('productSubtitle').value = product.subtitle || '';
   document.getElementById('productCover').value = product.cover_image || '';
   document.getElementById('productPrice').value = product.price_text || '';
+  document.getElementById('productPriceCents').value = Number(product.price_cents || 0);
+  document.getElementById('productStickerCount').value = Number(product.sticker_count || 1);
+  document.getElementById('productStock').value = Number(product.stock || 0);
+  document.getElementById('productType').value = product.product_type || 'wine_sticker';
+  document.getElementById('productCustomizable').checked = product.is_customizable === true;
   document.getElementById('productBuyUrl').value = product.buy_url || '';
   document.getElementById('productSort').value = Number(product.sort_order || 0);
   document.getElementById('productStatus').value = product.status || 'draft';
   setProductSceneTags(product.scene_tags || []);
   document.getElementById('productImages').value = Array.isArray(product.images) ? product.images.join('\n') : '';
   document.getElementById('productDescription').value = product.description || '';
+  document.getElementById('productShippingNote').value = product.shipping_note || '';
+  document.getElementById('productAfterSaleNote').value = product.after_sale_note || '';
   document.getElementById('saveProductBtn').textContent = '保存修改';
   document.getElementById('cancelProductEditBtn').classList.remove('hidden');
   productMsg.textContent = `正在编辑：${product.title}`;
+}
+
+function renderOrders(orders) {
+  orderTableBody.innerHTML = orders
+    .map((order) => {
+      const product = order.product_snapshot || {};
+      const shippingText = order.express_no
+        ? `${escapeHtml(order.express_company || '')}<br /><small>${escapeHtml(order.express_no)}</small>`
+        : '<span class="muted">未发货</span>';
+      const action = order.status === 'paid'
+        ? `<button data-order-ship="${escapeHtml(order.id)}">填写发货</button>`
+        : '-';
+      return `<tr>
+        <td>${escapeHtml(order.order_no || order.id)}<br /><small>${escapeHtml(order.created_at || '')}</small></td>
+        <td>${escapeHtml(product.title || '-') } × ${Number(order.quantity || 1)}</td>
+        <td>${escapeHtml(order.amount_text || '-')}</td>
+        <td>${escapeHtml(order.status_text || order.status || '-')}</td>
+        <td>${escapeHtml(order.receiver_name || '-')} ${escapeHtml(order.receiver_phone || '')}<br /><small>${escapeHtml(`${order.region || ''}${order.address || ''}`)}</small></td>
+        <td>${shippingText}</td>
+        <td>${action}</td>
+      </tr>`;
+    })
+    .join('');
+}
+
+async function loadOrders() {
+  const data = await request('/api/admin/orders', { headers: authHeaders() });
+  orderList = data.orders || [];
+  renderOrders(orderList);
+}
+
+async function shipOrder(orderId) {
+  const order = orderList.find((item) => item.id === orderId);
+  if (!order) return;
+  const expressCompany = window.prompt('快递公司', order.express_company || '');
+  if (!expressCompany) return;
+  const expressNo = window.prompt('快递单号', order.express_no || '');
+  if (!expressNo) return;
+  await request(`/api/admin/orders/${encodeURIComponent(orderId)}/ship`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      express_company: expressCompany.trim(),
+      express_no: expressNo.trim()
+    })
+  });
+  orderMsg.textContent = '发货信息已保存。';
+  await loadOrders();
 }
 
 async function createOperator() {
@@ -832,6 +910,7 @@ document.getElementById('createOpBtn').addEventListener('click', () => createOpe
 document.getElementById('refreshOpBtn').addEventListener('click', () => loadOperators().catch(() => {}));
 document.getElementById('saveProductBtn').addEventListener('click', () => saveProduct().catch((e) => { productMsg.textContent = e.message || '保存失败'; }));
 document.getElementById('refreshProductBtn').addEventListener('click', () => loadProducts().catch(() => {}));
+document.getElementById('refreshOrderBtn').addEventListener('click', () => loadOrders().catch((e) => { orderMsg.textContent = e.message || '刷新失败'; }));
 document.getElementById('cancelProductEditBtn').addEventListener('click', () => {
   clearProductForm();
   productMsg.textContent = '';
@@ -985,6 +1064,14 @@ productTableBody.addEventListener('click', (event) => {
   const btn = event.target.closest('button[data-product-edit]');
   if (!btn) return;
   editProduct(btn.getAttribute('data-product-edit'));
+});
+
+orderTableBody.addEventListener('click', (event) => {
+  const btn = event.target.closest('button[data-order-ship]');
+  if (!btn) return;
+  shipOrder(btn.getAttribute('data-order-ship')).catch((error) => {
+    orderMsg.textContent = error.message || '发货失败';
+  });
 });
 
 if (adminToken) {

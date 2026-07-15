@@ -1,0 +1,14 @@
+.orders-hero,
+.order-list {
+  position: relative;
+  z-index: 1;
+}
+
+.order-card {
+  padding: 26rpx;
+}
+
+.order-cover {
+  height: 240rpx;
+  margin-bottom: 18rpx;
+}

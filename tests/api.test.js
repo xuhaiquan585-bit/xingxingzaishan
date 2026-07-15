@@ -598,18 +598,29 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(html.includes('id="miniappContentPanel"'), true);
   assert.equal(html.includes('id="systemPanel"'), true);
   assert.equal(html.includes('id="productSceneTags"'), true);
+  assert.equal(html.includes('id="productPriceCents"'), true);
+  assert.equal(html.includes('id="productStickerCount"'), true);
+  assert.equal(html.includes('id="productStock"'), true);
+  assert.equal(html.includes('id="orderTable"'), true);
+  assert.equal(html.includes('id="refreshOrderBtn"'), true);
   assert.equal(js.includes('adminActiveSection'), true);
   assert.equal(js.includes('function activateAdminSection'), true);
   assert.equal(js.includes('async function loadContentRecords'), true);
   assert.equal(js.includes('async function loadMiniappContent'), true);
   assert.equal(js.includes('async function loadSystemStatus'), true);
   assert.equal(js.includes('scene_tags: getProductSceneTags()'), true);
+  assert.equal(js.includes('async function loadOrders'), true);
+  assert.equal(js.includes('/api/admin/orders'), true);
+  assert.equal(js.includes('/ship'), true);
   assert.equal(js.includes('Promise.all([loadDashboard(), loadBatches(), loadRecords(), loadOperators(), loadProducts()])'), false);
   assert.equal(appJs.includes("appName: '记在星上'"), true);
   assert.equal(appJson.includes('pages/project/project'), true);
   assert.equal(appJson.includes('"navigationBarTitleText": "记在星上"'), true);
   assert.equal(appJson.includes('"tabBar"'), true);
-  assert.equal(appJson.includes('"text": "封存时光"'), true);
+  assert.equal(appJson.includes('"text": "封存"'), true);
+  assert.equal(appJson.includes('pages/order-confirm/order-confirm'), true);
+  assert.equal(appJson.includes('pages/orders/orders'), true);
+  assert.equal(appJson.includes('pages/order-detail/order-detail'), true);
   assert.equal(appJson.includes('"text": "我的星星"'), true);
   assert.equal(homeJs.includes('/api/miniapp/content'), true);
 });
@@ -638,7 +649,12 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const productsWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'products', 'products.wxml'), 'utf8');
   const productsWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'products', 'products.wxss'), 'utf8');
   const productDetailWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'product-detail', 'product-detail.wxml'), 'utf8');
+  const productDetailJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'product-detail', 'product-detail.js'), 'utf8');
   const productDetailWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'product-detail', 'product-detail.wxss'), 'utf8');
+  const orderConfirmWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'order-confirm', 'order-confirm.wxml'), 'utf8');
+  const orderConfirmJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'order-confirm', 'order-confirm.js'), 'utf8');
+  const ordersWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'orders', 'orders.wxml'), 'utf8');
+  const orderDetailWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'order-detail', 'order-detail.wxml'), 'utf8');
   const projectWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'project', 'project.wxml'), 'utf8');
   const projectWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'project', 'project.wxss'), 'utf8');
   const meWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'me', 'me.wxml'), 'utf8');
@@ -680,6 +696,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(bindPhoneCss.includes('width: 460rpx'), true);
   assert.equal(bindPhoneJs.includes('event.detail && event.detail.code'), true);
   assert.equal(bindPhoneJs.includes('encryptedData'), false);
+  assert.equal(bindPhoneJs.includes("'/pages/order-confirm/order-confirm'"), false);
   assert.equal(recordWxml.includes('星星在闪 · 记在星上'), false);
   assert.equal(recordWxml.includes('把这一刻，记在这瓶酒里'), true);
   assert.equal(recordWxml.includes('✦ 区块链存证'), true);
@@ -773,56 +790,63 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(homeWxml.includes('bindtap="goProducts"'), true);
   assert.equal(homeWxml.includes('bindtap="copyConsultLink"'), true);
   assert.equal(homeWxml.includes('bindtap="goMe"'), true);
-  assert.equal(homeWxml.includes('bindtap="focusScenes"'), true);
+  assert.equal(homeWxml.includes('<button class="btn home-primary-cta" bindtap="scanCode">封存这一刻</button>'), true);
   assert.equal(homeWxml.includes('bindtap="goSceneProducts"'), true);
   assert.equal(homeWxml.includes('class="home-brand-mark"'), true);
-  assert.equal(homeWxml.includes('一瓶酒'), true);
+  assert.equal(homeWxml.includes('给这瓶酒，贴上一颗星'), true);
+  assert.equal(homeWxml.includes('酒瓶星贴'), true);
   assert.equal(homeWxml.includes('一张照片'), true);
   assert.equal(homeWxml.includes('一句话'), true);
   assert.equal(homeWxml.includes('封存这一刻'), true);
-  assert.equal(homeWxml.includes('已有酒瓶，扫码记录'), true);
+  assert.equal(homeWxml.includes('购买酒瓶星贴'), true);
+  assert.equal(homeWxml.includes('已有星贴，扫码记录'), true);
   assert.equal(homeWxml.includes('class="home-section home-scene-section"'), true);
   assert.equal(homeJs.includes("key: 'lover'"), true);
   assert.equal(homeJs.includes("key: 'elder'"), true);
-  assert.equal(homeJs.includes("key: 'coming_of_age'"), true);
+  assert.equal(homeJs.includes("key: 'birthday'"), true);
   assert.equal(homeJs.includes("key: 'wedding'"), true);
-  assert.equal(homeJs.includes("key: 'free'"), true);
+  assert.equal(homeJs.includes("key: 'party'"), true);
   assert.equal(homeWxml.includes('class="home-section home-commerce-section"'), true);
   assert.equal(homeWxml.includes('class="home-section home-trust-section"'), true);
   assert.equal(homeWxml.includes('区块链存证'), true);
   assert.equal(homeWxml.includes('NFT凭证'), false);
   assert.equal(homeWxml.includes('链上存证'), true);
   assert.equal(homeWxml.includes('封存后可查看'), true);
-  assert.equal(homeWxml.includes('订单'), false);
-  assert.equal(homeWxml.includes('支付'), false);
+  assert.equal(homeWxml.includes('不含酒水'), true);
   assert.equal(homeWxml.includes('购物车'), false);
   assert.equal(homeWxml.includes('class="btn home-primary-cta"'), true);
   assert.equal(homeWxss.includes('.home-brand-star'), true);
   assert.equal(homeWxss.includes('.home-scene-grid'), true);
   assert.equal(homeWxss.includes('.home-commerce-actions'), true);
   assert.equal(homeWxss.includes('box-shadow: 0 18rpx 42rpx'), true);
-  assert.equal(productsWxml.includes('封存时光'), true);
+  assert.equal(productsWxml.includes('封存'), true);
+  assert.equal(productsWxml.includes('酒瓶星贴'), true);
+  assert.equal(productsWxml.includes('不含酒水'), true);
   assert.equal(productsJs.includes("label: '恋人'"), true);
   assert.equal(productsJs.includes("label: '长辈'"), true);
-  assert.equal(productsJs.includes("label: '成人礼'"), true);
+  assert.equal(productsJs.includes("label: '生日'"), true);
   assert.equal(productsJs.includes("label: '婚礼'"), true);
+  assert.equal(productsJs.includes("label: '聚会'"), true);
   assert.equal(productsJs.includes("label: '随心'"), true);
   assert.equal(productsWxml.includes('bindtap="changeScene"'), true);
   assert.equal(productsWxml.includes('bindtap="openProduct"'), true);
   assert.equal(productsWxml.includes('class="product-list"'), true);
   assert.equal(productsWxml.includes('class="meta state-card"'), true);
-  assert.equal(productsWxml.includes('订单'), false);
-  assert.equal(productsWxml.includes('支付'), false);
   assert.equal(productsWxml.includes('购物车'), false);
   assert.equal(productsWxss.includes('.products-hero'), true);
   assert.equal(productsWxss.includes('box-shadow: 0 16rpx 36rpx'), true);
-  assert.equal(productDetailWxml.includes('去快团团购买'), true);
-  assert.equal(productDetailWxml.includes('点击后复制购买链接，请在微信中打开。'), true);
-  assert.equal(productDetailWxml.includes('bindtap="copyBuyLink"'), true);
+  assert.equal(productDetailWxml.includes('立即购买'), true);
+  assert.equal(productDetailWxml.includes('不含酒水'), true);
+  assert.equal(productDetailWxml.includes('bindtap="buyNow"'), true);
+  assert.equal(productDetailJs.includes('/pages/order-confirm/order-confirm'), true);
   assert.equal(productDetailWxml.includes('class="card product-detail-panel"'), true);
-  assert.equal(productDetailWxml.includes('订单'), false);
-  assert.equal(productDetailWxml.includes('微信支付'), false);
   assert.equal(productDetailWxml.includes('购物车'), false);
+  assert.equal(orderConfirmWxml.includes('确认订单'), true);
+  assert.equal(orderConfirmWxml.includes('提交订单并支付'), true);
+  assert.equal(orderConfirmJs.includes('/api/miniapp/orders'), true);
+  assert.equal(orderConfirmJs.includes('redirectToBindPhone'), true);
+  assert.equal(ordersWxml.includes('我的订单'), true);
+  assert.equal(orderDetailWxml.includes('订单详情'), true);
   assert.equal(productDetailWxss.includes('height: 480rpx'), true);
   assert.equal(projectWxml.includes('{{content.project_title}}'), true);
   assert.equal(projectWxml.includes('class="card project-card project-card-primary"'), true);
@@ -830,6 +854,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(projectWxml.includes('class="meta state-card"'), true);
   assert.equal(projectWxss.includes('line-height: 1.82'), true);
   assert.equal(meWxml.includes('我的记录'), true);
+  assert.equal(meWxml.includes('我的订单'), true);
   assert.equal(meWxml.includes('bindtap="openRecord"'), true);
   assert.equal(meWxml.includes('class="record-meta-group"'), true);
   assert.equal(meWxml.includes('class="meta state-card"'), true);
@@ -1197,19 +1222,30 @@ test('admin product management should expose only published products to miniapp'
   const token = login.body.data.token;
 
   const publishedRes = await postJson('/api/admin/products', {
-    title: '成年礼星酒',
-    subtitle: '把祝福记在酒里',
+    title: '生日祝福酒瓶星贴',
+    subtitle: '贴在酒瓶上的专属记录入口',
     cover_image: '/uploads/product.jpg',
     images: ['/uploads/detail-1.jpg'],
-    price_text: '¥399 / 礼盒装',
-    description: '适合成年礼和纪念日。',
-    buy_url: 'https://ktt.example.com/buy/1',
+    price_text: '¥39 / 10枚装',
+    price_cents: 3900,
+    description: '适合生日和婚礼现场贴在酒瓶上使用，不含酒水。',
+    product_type: 'wine_sticker',
+    sticker_count: 10,
+    stock: 50,
+    is_customizable: true,
+    shipping_note: '现货贴纸 48 小时内发出。',
+    after_sale_note: '贴纸为印刷品，不含酒水。',
     status: 'published',
-    scene_tags: ['coming_of_age', 'wedding'],
+    scene_tags: ['birthday', 'wedding'],
     sort_order: 1
   }, token);
   assert.equal(publishedRes.status, 200);
-  assert.deepEqual(publishedRes.body.data.scene_tags, ['coming_of_age', 'wedding']);
+  assert.equal(publishedRes.body.data.buy_type, 'miniapp_order');
+  assert.equal(publishedRes.body.data.price_cents, 3900);
+  assert.equal(publishedRes.body.data.sticker_count, 10);
+  assert.equal(publishedRes.body.data.stock, 50);
+  assert.equal(publishedRes.body.data.is_customizable, true);
+  assert.deepEqual(publishedRes.body.data.scene_tags, ['birthday', 'wedding']);
   const productId = publishedRes.body.data.id;
 
   const invalidUrlRes = await postJson('/api/admin/products', {
@@ -1229,19 +1265,107 @@ test('admin product management should expose only published products to miniapp'
   const adminList = await getJson('/api/admin/products', token);
   assert.equal(adminList.status, 200);
   assert.ok(adminList.body.data.products.some((item) => item.id === productId));
-  assert.deepEqual(adminList.body.data.products.find((item) => item.id === productId).scene_tags, ['coming_of_age', 'wedding']);
+  assert.deepEqual(adminList.body.data.products.find((item) => item.id === productId).scene_tags, ['birthday', 'wedding']);
 
   const miniList = await getJson('/api/miniapp/products');
   assert.equal(miniList.status, 200);
   assert.equal(miniList.body.data.products.some((item) => item.id === productId), true);
   assert.equal(miniList.body.data.products.some((item) => item.title === '隐藏商品'), false);
-  assert.deepEqual(miniList.body.data.products.find((item) => item.id === productId).scene_tags, ['coming_of_age', 'wedding']);
+  const miniProduct = miniList.body.data.products.find((item) => item.id === productId);
+  assert.equal(miniProduct.buy_type, 'miniapp_order');
+  assert.equal(miniProduct.price_cents, 3900);
+  assert.equal(miniProduct.sticker_count, 10);
+  assert.equal(miniProduct.stock, 50);
+  assert.deepEqual(miniProduct.scene_tags, ['birthday', 'wedding']);
 
   const detail = await getJson(`/api/miniapp/products/${productId}`);
   assert.equal(detail.status, 200);
-  assert.equal(detail.body.data.buy_type, 'copy_link');
-  assert.equal(detail.body.data.buy_url, 'https://ktt.example.com/buy/1');
-  assert.deepEqual(detail.body.data.scene_tags, ['coming_of_age', 'wedding']);
+  assert.equal(detail.body.data.buy_type, 'miniapp_order');
+  assert.equal(detail.body.data.product_type, 'wine_sticker');
+  assert.equal(detail.body.data.price_cents, 3900);
+  assert.equal(detail.body.data.sticker_count, 10);
+  assert.deepEqual(detail.body.data.scene_tags, ['birthday', 'wedding']);
+});
+
+test('miniapp sticker orders should create, mock pay, list, and allow admin shipping', async () => {
+  const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const adminToken = adminLogin.body.data.token;
+  const productRes = await postJson('/api/admin/products', {
+    title: '恋人酒瓶星贴',
+    subtitle: '两个人的一瓶酒',
+    price_text: '¥29 / 6枚装',
+    price_cents: 2900,
+    product_type: 'wine_sticker',
+    sticker_count: 6,
+    stock: 20,
+    status: 'published',
+    scene_tags: ['lover'],
+    sort_order: 3
+  }, adminToken);
+  assert.equal(productRes.status, 200);
+  const productId = productRes.body.data.id;
+
+  const unboundToken = await loginMiniappAndGetToken('mini-order-unbound');
+  const unboundOrder = await postJson('/api/miniapp/orders', {
+    product_id: productId,
+    quantity: 1,
+    receiver_name: '张三',
+    receiver_phone: '13888880001',
+    region: '四川省 成都市 锦江区',
+    address: '测试路 1 号'
+  }, unboundToken);
+  assert.equal(unboundOrder.status, 403);
+  assert.equal(unboundOrder.body.code, 'PHONE_NOT_BOUND');
+
+  const token = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-order-bound',
+    phone: '13888880001'
+  });
+  const orderRes = await postJson('/api/miniapp/orders', {
+    product_id: productId,
+    quantity: 2,
+    receiver_name: '张三',
+    receiver_phone: '13888880001',
+    region: '四川省 成都市 锦江区',
+    address: '测试路 1 号',
+    remark: '请尽快发货'
+  }, token);
+  assert.equal(orderRes.status, 200);
+  assert.equal(orderRes.body.data.status, 'pending_payment');
+  assert.equal(orderRes.body.data.payment_status, 'unpaid');
+  assert.equal(orderRes.body.data.total_amount_cents, 5800);
+  assert.equal(orderRes.body.data.product_snapshot.title, '恋人酒瓶星贴');
+  const orderId = orderRes.body.data.id;
+
+  const payRes = await postJson(`/api/miniapp/orders/${orderId}/pay`, {}, token);
+  assert.equal(payRes.status, 200);
+  assert.equal(payRes.body.data.payment_mock, true);
+  assert.equal(payRes.body.data.order.status, 'paid');
+
+  const listRes = await getJson('/api/miniapp/orders', token);
+  assert.equal(listRes.status, 200);
+  assert.equal(listRes.body.data.orders.some((item) => item.id === orderId), true);
+
+  const detailRes = await getJson(`/api/miniapp/orders/${orderId}`, token);
+  assert.equal(detailRes.status, 200);
+  assert.equal(detailRes.body.data.status, 'paid');
+
+  const cancelPaidRes = await postJson(`/api/miniapp/orders/${orderId}/cancel`, {}, token);
+  assert.equal(cancelPaidRes.status, 409);
+  assert.equal(cancelPaidRes.body.code, 'ORDER_NOT_CANCELABLE');
+
+  const adminOrders = await getJson('/api/admin/orders', adminToken);
+  assert.equal(adminOrders.status, 200);
+  assert.equal(adminOrders.body.data.orders.some((item) => item.id === orderId), true);
+
+  const shipRes = await postJson(`/api/admin/orders/${orderId}/ship`, {
+    express_company: '顺丰速运',
+    express_no: 'SF1234567890'
+  }, adminToken);
+  assert.equal(shipRes.status, 200);
+  assert.equal(shipRes.body.data.status, 'shipped');
+  assert.equal(shipRes.body.data.express_company, '顺丰速运');
+  assert.equal(shipRes.body.data.express_no, 'SF1234567890');
 });
 
 test('miniapp upload and record flow should require bound phone and reject duplicate activation', async () => {

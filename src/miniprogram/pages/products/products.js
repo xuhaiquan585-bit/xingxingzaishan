@@ -3,8 +3,9 @@ const { request, resolveAssetUrl } = require('../../utils/request');
 const SCENE_OPTIONS = [
   { key: 'lover', label: '恋人' },
   { key: 'elder', label: '长辈' },
-  { key: 'coming_of_age', label: '成人礼' },
+  { key: 'birthday', label: '生日' },
   { key: 'wedding', label: '婚礼' },
+  { key: 'party', label: '聚会' },
   { key: 'free', label: '随心' }
 ];
 
@@ -49,7 +50,7 @@ Page({
   },
 
   setActiveScene(scene) {
-    const matched = SCENE_OPTIONS.find((item) => item.key === scene) || SCENE_OPTIONS[4];
+    const matched = SCENE_OPTIONS.find((item) => item.key === scene) || SCENE_OPTIONS[5];
     const app = getApp();
     app.globalData.selectedProductScene = matched.key;
     wx.setStorageSync('selectedProductScene', matched.key);

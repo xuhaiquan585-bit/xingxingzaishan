@@ -1,7 +1,7 @@
 <view class="page products-page">
   <view class="products-hero">
-    <view class="hero-title">封存时光</view>
-    <view class="subtitle">选择一个场景，找到适合封存这一刻的酒。</view>
+    <view class="hero-title">封存</view>
+    <view class="subtitle">选择酒瓶星贴，贴在酒瓶上，扫码留下照片和一句话。</view>
   </view>
 
   <view class="scene-tabs">
@@ -16,7 +16,7 @@
 
   <view class="products-context card">
     <view class="list-title">为「{{activeSceneLabel}}」推荐</view>
-    <view class="hint">实物酒与礼盒展示，购买入口暂使用快团团链接。</view>
+    <view class="hint">当前商品为酒瓶星贴/印刷贴纸，不含酒水。</view>
   </view>
 
   <view class="product-list">
@@ -26,6 +26,7 @@
         <view class="list-title">{{item.title}}</view>
         <view class="hint">{{item.subtitle}}</view>
         <view class="price">{{item.price_text}}</view>
+        <view class="meta">贴纸 {{item.sticker_count}} 枚 · 不含酒水</view>
       </view>
     </block>
   </view>

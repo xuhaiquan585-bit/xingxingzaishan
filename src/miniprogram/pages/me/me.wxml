@@ -2,6 +2,7 @@
   <view class="me-hero">
     <view class="hero-title">我的记录</view>
     <view class="subtitle">你保存过的酒瓶记录，会出现在这里。</view>
+    <button class="btn secondary me-order-entry" bindtap="goOrders">我的订单</button>
   </view>
 
   <view class="record-list">

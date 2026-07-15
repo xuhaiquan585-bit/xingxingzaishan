@@ -1,0 +1,18 @@
+.order-hero,
+.order-card {
+  position: relative;
+  z-index: 1;
+}
+
+.order-cover {
+  height: 300rpx;
+  margin-bottom: 20rpx;
+}
+
+.order-card .meta {
+  margin-top: 12rpx;
+}
+
+.order-card .btn {
+  margin-top: 24rpx;
+}

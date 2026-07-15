@@ -1,0 +1,29 @@
+.order-hero,
+.order-product,
+.order-form {
+  position: relative;
+  z-index: 1;
+}
+
+.order-cover {
+  height: 300rpx;
+  margin-bottom: 20rpx;
+}
+
+.order-form .input,
+.order-form .textarea {
+  margin-bottom: 18rpx;
+}
+
+.picker-input {
+  display: flex;
+  align-items: center;
+  min-height: 88rpx;
+}
+
+.order-total {
+  margin: 18rpx 0;
+  color: #ffe7a3;
+  font-size: 34rpx;
+  font-weight: 800;
+}

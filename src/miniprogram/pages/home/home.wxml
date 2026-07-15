@@ -4,17 +4,18 @@
       <view class="home-brand-star">✦</view>
       <view class="home-brand-vessel"></view>
     </view>
-    <view class="home-kicker">一瓶酒 · 一张照片 · 一句话</view>
-    <view class="hero-title">{{content.home_title}}</view>
-    <view class="subtitle">{{content.home_subtitle}}</view>
-    <button class="btn home-primary-cta" bindtap="focusScenes">封存这一刻</button>
-    <button class="btn secondary home-scan-link" bindtap="scanCode">已有酒瓶，扫码记录</button>
+    <view class="home-kicker">酒瓶星贴 · 一张照片 · 一句话</view>
+    <view class="hero-title">给这瓶酒，贴上一颗星</view>
+    <view class="subtitle">贴上酒瓶星贴，上传一张照片，写下一句话。以后扫码，还能看到这一刻。</view>
+    <button class="btn home-primary-cta" bindtap="scanCode">封存这一刻</button>
+    <button class="btn home-buy-cta" bindtap="goProducts">购买酒瓶星贴</button>
+    <button class="btn secondary home-scan-link" bindtap="scanCode">已有星贴，扫码记录</button>
   </view>
 
   <image wx:if="{{hasBanner}}" class="home-banner" mode="aspectFill" src="{{bannerImage}}" />
 
   <view class="home-section home-scene-section">
-    <view class="home-section-title">你想把这份心意留给谁？</view>
+    <view class="home-section-title">这些时刻，适合贴上一颗星</view>
     <view class="home-scene-grid">
       <view
         wx:for="{{sceneOptions}}"
@@ -30,10 +31,10 @@
   </view>
 
   <view class="home-section home-commerce-section">
-    <view class="home-section-title">选择一份能被记住的酒</view>
-    <view class="hint">{{content.project_body}}</view>
+    <view class="home-section-title">酒瓶星贴，不含酒水</view>
+    <view class="hint">先把星贴贴在酒瓶上，扫码后就能留下这瓶酒的专属记忆。</view>
     <view class="home-commerce-actions">
-      <button class="btn secondary home-entry-btn" bindtap="goProducts">查看全部</button>
+      <button class="btn secondary home-entry-btn" bindtap="goProducts">购买酒瓶星贴</button>
       <button wx:if="{{hasConsultUrl}}" class="btn secondary home-entry-btn" bindtap="copyConsultLink">{{content.consult_label}}</button>
     </view>
   </view>

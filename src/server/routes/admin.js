@@ -19,6 +19,8 @@ const {
   updateProduct,
   listProducts,
   getProduct,
+  listOrders,
+  updateOrderShipment,
   getMiniappContent,
   updateMiniappContent
 } = require('../services/dbService');
@@ -443,6 +445,41 @@ router.post('/products/:productId', requireAdmin, (req, res) => {
       status: 'error',
       code: 'VALIDATION_ERROR',
       message: result.message || '商品信息不完整。'
+    });
+  }
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: result.data
+  });
+});
+
+router.get('/orders', requireAdmin, (req, res) => {
+  const orders = listOrders({ status: req.query.status });
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: {
+      total: orders.length,
+      orders
+    }
+  });
+});
+
+router.post('/orders/:orderId/ship', requireAdmin, (req, res) => {
+  const result = updateOrderShipment(req.params.orderId, req.body);
+  if (result.error === 'ORDER_NOT_FOUND') {
+    return res.status(404).json({
+      status: 'error',
+      code: 'ORDER_NOT_FOUND',
+      message: '未找到该订单。'
+    });
+  }
+  if (result.error === 'VALIDATION_ERROR') {
+    return res.status(400).json({
+      status: 'error',
+      code: 'VALIDATION_ERROR',
+      message: result.message || '发货信息不完整。'
     });
   }
   return res.json({

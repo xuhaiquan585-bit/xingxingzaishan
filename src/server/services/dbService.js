@@ -29,7 +29,10 @@ const DEFAULT_MINIAPP_CONTENT = {
   updated_by: null
 };
 
-const PRODUCT_SCENE_KEYS = ['lover', 'elder', 'coming_of_age', 'wedding', 'free'];
+const PRODUCT_SCENE_KEYS = ['lover', 'elder', 'birthday', 'wedding', 'party', 'free', 'coming_of_age'];
+const PRODUCT_TYPES = ['wine_sticker', 'sticker_set', 'custom_sticker', 'wine_gift', 'custom_wine'];
+const ORDER_STATUSES = ['pending_payment', 'paid', 'shipped', 'completed', 'cancelled', 'refunding', 'refunded'];
+const PAYMENT_STATUSES = ['unpaid', 'paid', 'failed', 'refunded'];
 const CHAIN_STATUSES = ['not_started', 'manifest_ready', 'submitting', 'submitted', 'confirmed', 'failed', 'retrying'];
 
 function normalizeProductSceneTags(value, existing = []) {
@@ -265,12 +268,49 @@ function migrateSchema(db) {
     cover_image: item.cover_image || '',
     images: Array.isArray(item.images) ? item.images : [],
     price_text: item.price_text || '',
+    price_cents: Number.isFinite(Number(item.price_cents)) ? Number(item.price_cents) : 0,
     description: item.description || '',
     status: ['draft', 'published', 'hidden'].includes(item.status) ? item.status : 'draft',
-    buy_type: item.buy_type || 'copy_link',
+    product_type: PRODUCT_TYPES.includes(item.product_type) ? item.product_type : 'wine_sticker',
+    sticker_count: Number.isFinite(Number(item.sticker_count)) ? Number(item.sticker_count) : 1,
+    stock: Number.isFinite(Number(item.stock)) ? Number(item.stock) : 0,
+    is_customizable: item.is_customizable === true,
+    shipping_note: item.shipping_note || '现货贴纸通常 48 小时内发出。',
+    after_sale_note: item.after_sale_note || '贴纸为印刷品，不含酒水。如有印刷或物流问题请联系客服处理。',
+    buy_type: item.buy_type || 'miniapp_order',
     buy_url: item.buy_url || '',
     scene_tags: normalizeProductSceneTags(item.scene_tags),
     sort_order: Number.isFinite(Number(item.sort_order)) ? Number(item.sort_order) : idx + 1,
+    created_at: item.created_at || nowISO(),
+    updated_at: item.updated_at || item.created_at || nowISO()
+  }));
+
+  db.orders = db.orders.map((item, idx) => ({
+    id: item.id || `ORDER_${String(idx + 1).padStart(6, '0')}`,
+    order_no: item.order_no || `JS${Date.now()}${String(idx + 1).padStart(4, '0')}`,
+    openid: item.openid || '',
+    phone: item.phone || '',
+    product_id: item.product_id || '',
+    product_snapshot: item.product_snapshot || {},
+    quantity: Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 1,
+    unit_price_cents: Number.isFinite(Number(item.unit_price_cents)) ? Number(item.unit_price_cents) : 0,
+    total_amount_cents: Number.isFinite(Number(item.total_amount_cents)) ? Number(item.total_amount_cents) : 0,
+    status: ORDER_STATUSES.includes(item.status) ? item.status : 'pending_payment',
+    payment_status: PAYMENT_STATUSES.includes(item.payment_status) ? item.payment_status : 'unpaid',
+    payment_method: item.payment_method || '',
+    payment_mock: item.payment_mock === true,
+    wechat_transaction_id: item.wechat_transaction_id || '',
+    paid_at: item.paid_at || null,
+    receiver_name: item.receiver_name || '',
+    receiver_phone: item.receiver_phone || '',
+    region: item.region || '',
+    address: item.address || '',
+    remark: item.remark || '',
+    express_company: item.express_company || '',
+    express_no: item.express_no || '',
+    shipped_at: item.shipped_at || null,
+    refund_status: item.refund_status || '',
+    admin_note: item.admin_note || '',
     created_at: item.created_at || nowISO(),
     updated_at: item.updated_at || item.created_at || nowISO()
   }));
@@ -1050,6 +1090,7 @@ function normalizeProductInput(input = {}, existing = {}) {
       .split('\n')
       .map((item) => item.trim())
       .filter(Boolean);
+  const hasCustomizableInput = input.is_customizable !== undefined && input.is_customizable !== null;
 
   return {
     title: String(input.title ?? existing.title ?? '').trim(),
@@ -1057,9 +1098,18 @@ function normalizeProductInput(input = {}, existing = {}) {
     cover_image: String(input.cover_image ?? existing.cover_image ?? '').trim(),
     images,
     price_text: String(input.price_text ?? existing.price_text ?? '').trim(),
+    price_cents: Math.max(0, Math.round(Number(input.price_cents ?? existing.price_cents ?? 0) || 0)),
     description: String(input.description ?? existing.description ?? '').trim(),
     status: ['draft', 'published', 'hidden'].includes(input.status) ? input.status : (existing.status || 'draft'),
-    buy_type: 'copy_link',
+    product_type: PRODUCT_TYPES.includes(input.product_type) ? input.product_type : (existing.product_type || 'wine_sticker'),
+    sticker_count: Math.max(1, Math.round(Number(input.sticker_count ?? existing.sticker_count ?? 1) || 1)),
+    stock: Math.max(0, Math.round(Number(input.stock ?? existing.stock ?? 0) || 0)),
+    is_customizable: hasCustomizableInput
+      ? input.is_customizable === true || input.is_customizable === 'true'
+      : existing.is_customizable === true,
+    shipping_note: String(input.shipping_note ?? existing.shipping_note ?? '现货贴纸通常 48 小时内发出。').trim(),
+    after_sale_note: String(input.after_sale_note ?? existing.after_sale_note ?? '贴纸为印刷品，不含酒水。如有印刷或物流问题请联系客服处理。').trim(),
+    buy_type: 'miniapp_order',
     buy_url: String(input.buy_url ?? existing.buy_url ?? '').trim(),
     scene_tags: normalizeProductSceneTags(input.scene_tags, existing.scene_tags),
     sort_order: Number.isFinite(Number(input.sort_order ?? existing.sort_order))
@@ -1071,6 +1121,12 @@ function normalizeProductInput(input = {}, existing = {}) {
 function validateProductData(data) {
   if (!data.title) {
     return '商品名称不能为空。';
+  }
+  if (data.price_cents < 0) {
+    return '商品价格不能为负数。';
+  }
+  if (data.stock < 0) {
+    return '商品库存不能为负数。';
   }
   if (data.buy_url && !/^https?:\/\//i.test(data.buy_url)) {
     return '购买链接必须以 http:// 或 https:// 开头。';
@@ -1137,6 +1193,181 @@ function listProducts({ publicOnly = false } = {}) {
 function getProduct(id, { publicOnly = false } = {}) {
   const product = listProducts({ publicOnly }).find((item) => item.id === id);
   return product || null;
+}
+
+function orderStatusText(status) {
+  return {
+    pending_payment: '待支付',
+    paid: '已支付',
+    shipped: '已发货',
+    completed: '已完成',
+    cancelled: '已取消',
+    refunding: '退款中',
+    refunded: '已退款'
+  }[status] || status || '';
+}
+
+function orderPayload(order) {
+  if (!order) return null;
+  return {
+    ...order,
+    status_text: orderStatusText(order.status),
+    amount_text: `¥${(Number(order.total_amount_cents || 0) / 100).toFixed(2)}`
+  };
+}
+
+function createMiniappOrder({ openid, phone, productId, quantity, receiverName, receiverPhone, region, address, remark }) {
+  const db = readDB();
+  const product = db.products.find((item) => item.id === productId && item.status === 'published');
+  if (!product) {
+    return { error: 'PRODUCT_NOT_FOUND' };
+  }
+  const count = Math.max(1, Math.min(99, Math.round(Number(quantity || 1))));
+  if (Number(product.stock || 0) > 0 && count > Number(product.stock || 0)) {
+    return { error: 'OUT_OF_STOCK' };
+  }
+  const normalizedReceiverName = String(receiverName || '').trim();
+  const normalizedReceiverPhone = String(receiverPhone || '').trim();
+  const normalizedRegion = String(region || '').trim();
+  const normalizedAddress = String(address || '').trim();
+  if (!normalizedReceiverName || !/^1\d{10}$/.test(normalizedReceiverPhone) || !normalizedRegion || !normalizedAddress) {
+    return { error: 'VALIDATION_ERROR', message: '请填写完整收货信息。' };
+  }
+
+  const unitPrice = Math.max(0, Number(product.price_cents || 0));
+  const createdAt = nowISO();
+  const order = {
+    id: `ORDER_${Date.now()}_${String(db.orders.length + 1).padStart(4, '0')}`,
+    order_no: `JS${Date.now()}${String(db.orders.length + 1).padStart(4, '0')}`,
+    openid: String(openid || ''),
+    phone: String(phone || ''),
+    product_id: product.id,
+    product_snapshot: {
+      id: product.id,
+      title: product.title,
+      subtitle: product.subtitle,
+      cover_image: product.cover_image,
+      price_text: product.price_text,
+      price_cents: unitPrice,
+      product_type: product.product_type,
+      sticker_count: product.sticker_count,
+      scene_tags: product.scene_tags
+    },
+    quantity: count,
+    unit_price_cents: unitPrice,
+    total_amount_cents: unitPrice * count,
+    status: 'pending_payment',
+    payment_status: 'unpaid',
+    payment_method: '',
+    payment_mock: false,
+    wechat_transaction_id: '',
+    paid_at: null,
+    receiver_name: normalizedReceiverName,
+    receiver_phone: normalizedReceiverPhone,
+    region: normalizedRegion,
+    address: normalizedAddress,
+    remark: String(remark || '').trim(),
+    express_company: '',
+    express_no: '',
+    shipped_at: null,
+    refund_status: '',
+    admin_note: '',
+    created_at: createdAt,
+    updated_at: createdAt
+  };
+  db.orders.push(order);
+  writeDB(db);
+  return { data: orderPayload(order) };
+}
+
+function listMiniappOrders(openid) {
+  const db = readDB();
+  return db.orders
+    .filter((item) => item.openid === openid)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .map(orderPayload);
+}
+
+function getMiniappOrder({ openid, orderId }) {
+  const db = readDB();
+  return orderPayload(db.orders.find((item) => item.openid === openid && item.id === orderId));
+}
+
+function cancelMiniappOrder({ openid, orderId }) {
+  const db = readDB();
+  const index = db.orders.findIndex((item) => item.openid === openid && item.id === orderId);
+  if (index === -1) return { error: 'ORDER_NOT_FOUND' };
+  if (db.orders[index].status !== 'pending_payment') return { error: 'ORDER_NOT_CANCELABLE' };
+  db.orders[index] = {
+    ...db.orders[index],
+    status: 'cancelled',
+    updated_at: nowISO()
+  };
+  writeDB(db);
+  return { data: orderPayload(db.orders[index]) };
+}
+
+function payMiniappOrderMock({ openid, orderId }) {
+  const db = readDB();
+  const index = db.orders.findIndex((item) => item.openid === openid && item.id === orderId);
+  if (index === -1) return { error: 'ORDER_NOT_FOUND' };
+  if (db.orders[index].status !== 'pending_payment') return { error: 'ORDER_NOT_PAYABLE' };
+  const paidAt = nowISO();
+  db.orders[index] = {
+    ...db.orders[index],
+    status: 'paid',
+    payment_status: 'paid',
+    payment_method: 'wechat_mock',
+    payment_mock: true,
+    wechat_transaction_id: `MOCK_${Date.now()}`,
+    paid_at: paidAt,
+    updated_at: paidAt
+  };
+  db.payment_logs.push({
+    id: `PAY_${Date.now()}_${String(db.payment_logs.length + 1).padStart(4, '0')}`,
+    order_id: db.orders[index].id,
+    order_no: db.orders[index].order_no,
+    method: 'wechat_mock',
+    status: 'paid',
+    amount_cents: db.orders[index].total_amount_cents,
+    transaction_id: db.orders[index].wechat_transaction_id,
+    raw: { mock: true },
+    created_at: paidAt
+  });
+  writeDB(db);
+  return { data: orderPayload(db.orders[index]) };
+}
+
+function listOrders({ status } = {}) {
+  const db = readDB();
+  let orders = db.orders.slice();
+  if (status && ORDER_STATUSES.includes(status)) {
+    orders = orders.filter((item) => item.status === status);
+  }
+  return orders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map(orderPayload);
+}
+
+function updateOrderShipment(orderId, input = {}) {
+  const db = readDB();
+  const index = db.orders.findIndex((item) => item.id === orderId);
+  if (index === -1) return { error: 'ORDER_NOT_FOUND' };
+  const expressCompany = String(input.express_company || '').trim();
+  const expressNo = String(input.express_no || '').trim();
+  if (!expressCompany || !expressNo) {
+    return { error: 'VALIDATION_ERROR', message: '请填写快递公司和单号。' };
+  }
+  const now = nowISO();
+  db.orders[index] = {
+    ...db.orders[index],
+    status: 'shipped',
+    express_company: expressCompany,
+    express_no: expressNo,
+    admin_note: String(input.admin_note || db.orders[index].admin_note || '').trim(),
+    shipped_at: db.orders[index].shipped_at || now,
+    updated_at: now
+  };
+  writeDB(db);
+  return { data: orderPayload(db.orders[index]) };
 }
 
 function normalizeMiniappContent(input = {}, existing = {}) {
@@ -1563,6 +1794,13 @@ module.exports = {
   updateProduct,
   listProducts,
   getProduct,
+  createMiniappOrder,
+  listMiniappOrders,
+  getMiniappOrder,
+  cancelMiniappOrder,
+  payMiniappOrderMock,
+  listOrders,
+  updateOrderShipment,
   getMiniappContent,
   updateMiniappContent,
   generateQRCodes,

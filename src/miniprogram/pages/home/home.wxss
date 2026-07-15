@@ -70,6 +70,14 @@
   font-size: 32rpx;
 }
 
+.home-buy-cta {
+  min-height: 88rpx;
+  margin-top: 18rpx;
+  background: rgba(212, 175, 55, .12);
+  color: #ffe7a3;
+  border: 1rpx solid rgba(212, 175, 55, .42);
+}
+
 .home-scan-link {
   width: 360rpx;
   min-height: 72rpx;

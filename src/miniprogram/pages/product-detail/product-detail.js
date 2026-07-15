@@ -34,15 +34,10 @@ Page({
     });
   },
 
-  copyBuyLink() {
-    const url = this.data.product && this.data.product.buy_url;
-    if (!url) {
-      wx.showToast({ title: '暂无购买链接', icon: 'none' });
-      return;
-    }
-    wx.setClipboardData({
-      data: url,
-      success: () => wx.showToast({ title: '购买链接已复制', icon: 'success' })
+  buyNow() {
+    if (!this.data.product || !this.data.product.id) return;
+    wx.navigateTo({
+      url: `/pages/order-confirm/order-confirm?product_id=${encodeURIComponent(this.data.product.id)}`
     });
   }
 });

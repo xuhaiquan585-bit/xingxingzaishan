@@ -91,6 +91,12 @@ body {
   margin-bottom: 14px;
 }
 
+.sub-panel-title {
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 1px solid #e7eaf1;
+}
+
 .panel-title h2,
 .module-block h3 {
   margin: 0;

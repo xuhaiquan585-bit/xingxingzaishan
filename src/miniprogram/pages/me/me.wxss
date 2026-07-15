@@ -8,6 +8,10 @@
   padding: 10rpx 0 8rpx;
 }
 
+.me-order-entry {
+  margin-top: 20rpx;
+}
+
 .record-card {
   padding: 26rpx;
 }

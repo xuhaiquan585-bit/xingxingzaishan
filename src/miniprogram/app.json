@@ -5,6 +5,9 @@
     "pages/bind-phone/bind-phone",
     "pages/products/products",
     "pages/product-detail/product-detail",
+    "pages/order-confirm/order-confirm",
+    "pages/orders/orders",
+    "pages/order-detail/order-detail",
     "pages/record/record",
     "pages/co-create/co-create",
     "pages/result/result",
@@ -31,7 +34,7 @@
       },
       {
         "pagePath": "pages/products/products",
-        "text": "封存时光",
+        "text": "封存",
         "iconPath": "assets/tab/seal-normal.png",
         "selectedIconPath": "assets/tab/seal-active.png"
       },

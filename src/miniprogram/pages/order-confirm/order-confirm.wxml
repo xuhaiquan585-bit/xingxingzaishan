@@ -1,0 +1,33 @@
+<view class="page order-confirm-page">
+  <view class="order-hero">
+    <view class="hero-title">确认订单</view>
+    <view class="subtitle">购买酒瓶星贴，贴在酒瓶上留下这一刻。</view>
+  </view>
+
+  <block wx:if="{{product}}">
+    <view class="card order-product">
+      <image wx:if="{{product.cover_image}}" class="cover order-cover" mode="aspectFill" src="{{product.cover_image}}" />
+      <view class="list-title">{{product.title}}</view>
+      <view class="hint">{{product.subtitle}}</view>
+      <view class="price">{{product.price_text}}</view>
+      <view class="meta">酒瓶星贴 · {{product.sticker_count}} 枚 · 不含酒水</view>
+    </view>
+
+    <view class="card order-form">
+      <view class="list-title">收货信息</view>
+      <input class="input" placeholder="收货人" data-field="receiverName" bindinput="onInput" />
+      <input class="input" placeholder="手机号" type="number" maxlength="11" data-field="receiverPhone" bindinput="onInput" />
+      <picker mode="region" bindchange="onRegionChange">
+        <view class="input picker-input">{{region || '选择省市区'}}</view>
+      </picker>
+      <textarea class="textarea" placeholder="详细地址" data-field="address" bindinput="onInput"></textarea>
+      <textarea class="textarea" placeholder="备注（选填）" data-field="remark" bindinput="onInput"></textarea>
+      <input class="input" type="number" value="{{quantity}}" bindinput="onQuantityInput" />
+      <view class="order-total">应付：{{totalText}}</view>
+      <button class="btn" bindtap="submitOrder">提交订单并支付</button>
+      <view class="meta">测试环境会使用模拟支付；正式上线前接入微信支付。</view>
+    </view>
+  </block>
+
+  <view wx:if="{{message}}" class="meta state-card">{{message}}</view>
+</view>

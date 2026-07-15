@@ -20,7 +20,12 @@ const {
   listBatches,
   listProducts,
   getProduct,
-  getMiniappContent
+  getMiniappContent,
+  createMiniappOrder,
+  listMiniappOrders,
+  getMiniappOrder,
+  cancelMiniappOrder,
+  payMiniappOrderMock
 } = require('../services/dbService');
 const { saveImage, getStorageMode, getSignedUrl } = require('../services/storageService');
 const { checkText, checkImageBuffer } = require('../services/contentSafetyService');
@@ -190,11 +195,23 @@ function productPayload(product) {
     cover_image: product.cover_image,
     images: product.images,
     price_text: product.price_text,
+    price_cents: Number(product.price_cents || 0),
     description: product.description,
     buy_type: product.buy_type,
     buy_url: product.buy_url,
+    product_type: product.product_type || 'wine_sticker',
+    sticker_count: Number(product.sticker_count || 1),
+    stock: Number(product.stock || 0),
+    is_customizable: product.is_customizable === true,
+    shipping_note: product.shipping_note || '',
+    after_sale_note: product.after_sale_note || '',
     scene_tags: Array.isArray(product.scene_tags) ? product.scene_tags : []
   };
+}
+
+function shouldUseMockPay() {
+  if (process.env.WECHAT_PAY_MOCK === 'true') return true;
+  return process.env.NODE_ENV !== 'production';
 }
 
 function handleContentSafetyError(error, res) {
@@ -312,6 +329,86 @@ router.get('/products/:id', (req, res) => {
     status: 'success',
     code: 'OK',
     data: productPayload(product)
+  });
+});
+
+router.post('/orders', requireMiniappAuth, requireMiniappPhone, (req, res) => {
+  const result = createMiniappOrder({
+    openid: req.miniappUser.openid,
+    phone: req.miniappUser.phone,
+    productId: String(req.body.product_id || '').trim(),
+    quantity: req.body.quantity,
+    receiverName: req.body.receiver_name,
+    receiverPhone: req.body.receiver_phone,
+    region: req.body.region,
+    address: req.body.address,
+    remark: req.body.remark
+  });
+  if (result.error === 'PRODUCT_NOT_FOUND') {
+    return res.status(404).json({ status: 'error', code: 'PRODUCT_NOT_FOUND', message: '未找到该商品或商品未上架。' });
+  }
+  if (result.error === 'OUT_OF_STOCK') {
+    return res.status(409).json({ status: 'error', code: 'OUT_OF_STOCK', message: '库存不足，请减少数量或联系客服。' });
+  }
+  if (result.error === 'VALIDATION_ERROR') {
+    return res.status(400).json({ status: 'error', code: 'VALIDATION_ERROR', message: result.message || '订单信息不完整。' });
+  }
+  return res.json({ status: 'success', code: 'OK', data: result.data });
+});
+
+router.get('/orders', requireMiniappAuth, requireMiniappPhone, (req, res) => {
+  const orders = listMiniappOrders(req.miniappUser.openid);
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: {
+      total: orders.length,
+      orders
+    }
+  });
+});
+
+router.get('/orders/:orderId', requireMiniappAuth, requireMiniappPhone, (req, res) => {
+  const order = getMiniappOrder({ openid: req.miniappUser.openid, orderId: req.params.orderId });
+  if (!order) {
+    return res.status(404).json({ status: 'error', code: 'ORDER_NOT_FOUND', message: '未找到该订单。' });
+  }
+  return res.json({ status: 'success', code: 'OK', data: order });
+});
+
+router.post('/orders/:orderId/cancel', requireMiniappAuth, requireMiniappPhone, (req, res) => {
+  const result = cancelMiniappOrder({ openid: req.miniappUser.openid, orderId: req.params.orderId });
+  if (result.error === 'ORDER_NOT_FOUND') {
+    return res.status(404).json({ status: 'error', code: 'ORDER_NOT_FOUND', message: '未找到该订单。' });
+  }
+  if (result.error === 'ORDER_NOT_CANCELABLE') {
+    return res.status(409).json({ status: 'error', code: 'ORDER_NOT_CANCELABLE', message: '当前订单不能取消。' });
+  }
+  return res.json({ status: 'success', code: 'OK', data: result.data });
+});
+
+router.post('/orders/:orderId/pay', requireMiniappAuth, requireMiniappPhone, (req, res) => {
+  if (!shouldUseMockPay()) {
+    return res.status(503).json({
+      status: 'error',
+      code: 'WECHAT_PAY_NOT_CONFIGURED',
+      message: '微信支付尚未配置完成，请稍后再试。'
+    });
+  }
+  const result = payMiniappOrderMock({ openid: req.miniappUser.openid, orderId: req.params.orderId });
+  if (result.error === 'ORDER_NOT_FOUND') {
+    return res.status(404).json({ status: 'error', code: 'ORDER_NOT_FOUND', message: '未找到该订单。' });
+  }
+  if (result.error === 'ORDER_NOT_PAYABLE') {
+    return res.status(409).json({ status: 'error', code: 'ORDER_NOT_PAYABLE', message: '当前订单不能支付。' });
+  }
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: {
+      order: result.data,
+      payment_mock: true
+    }
   });
 });
 
