@@ -137,7 +137,8 @@ textarea { min-height: 100px; resize: vertical; }
   text-align: left;
   white-space: pre-wrap;
   word-break: normal;
-  overflow-wrap: normal;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
   line-break: auto;
 }
 

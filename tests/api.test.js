@@ -658,10 +658,14 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordHtml.includes('confirm-notice-card'), true);
   assert.equal(recordHtml.includes('将要保存的话'), true);
   assert.equal(recordHtml.includes('id="content" class="memory-input"'), true);
+  assert.equal(recordHtml.includes('wrap="soft"'), true);
   assert.equal(frontendCss.includes('.memory-input'), true);
   assert.equal(frontendCss.includes('word-break: normal'), true);
-  assert.equal(frontendCss.includes('overflow-wrap: normal'), true);
+  assert.equal(frontendCss.includes('overflow-wrap: break-word'), true);
+  assert.equal(frontendCss.includes('word-wrap: break-word'), true);
   assert.equal(frontendCss.includes('font-family: var(--font-sans)'), true);
+  const memoryInputCss = frontendCss.match(/\.memory-input\s*\{[\s\S]*?\}/)?.[0] || '';
+  assert.equal(memoryInputCss.includes('overflow-wrap: anywhere'), false);
   assert.equal(frontendCss.includes('overflow-wrap: anywhere'), true);
   assert.equal(frontendCss.includes('.record-summary'), true);
   assert.equal(frontendCss.includes('max-height: min(68vh, 620px)'), true);
