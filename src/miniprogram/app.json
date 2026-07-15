@@ -1,4 +1,5 @@
 {
+  "__usePrivacyCheck__": true,
   "pages": [
     "pages/home/home",
     "pages/project/project",

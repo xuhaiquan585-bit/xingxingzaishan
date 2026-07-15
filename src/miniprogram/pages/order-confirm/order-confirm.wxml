@@ -6,7 +6,7 @@
 
   <block wx:if="{{product}}">
     <view class="card order-product">
-      <image wx:if="{{product.cover_image}}" class="cover order-cover" mode="aspectFill" src="{{product.cover_image}}" />
+      <image wx:if="{{product.cover_image}}" class="cover order-cover" mode="aspectFill" lazy-load src="{{product.cover_image}}" />
       <view class="list-title">{{product.title}}</view>
       <view class="hint">{{product.subtitle}}</view>
       <view class="price">{{product.price_text}}</view>
@@ -24,8 +24,7 @@
       <textarea class="textarea" placeholder="备注（选填）" data-field="remark" bindinput="onInput"></textarea>
       <input class="input" type="number" value="{{quantity}}" bindinput="onQuantityInput" />
       <view class="order-total">应付：{{totalText}}</view>
-      <button class="btn" bindtap="submitOrder">提交订单并支付</button>
-      <view class="meta">测试环境会使用模拟支付；正式上线前接入微信支付。</view>
+      <button class="btn" bindtap="submitOrder">立即支付</button>
     </view>
   </block>
 

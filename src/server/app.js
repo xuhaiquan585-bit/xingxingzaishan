@@ -10,6 +10,7 @@ const qcRoutes = require('./routes/qc');
 const nftRoutes = require('./routes/nft');
 const miniappRoutes = require('./routes/miniapp');
 const chainRoutes = require('./routes/chain');
+const paymentRoutes = require('./routes/payment');
 const { createRateLimiter } = require('./middlewares/rateLimit');
 const { auditLogger } = require('./middlewares/auditLogger');
 const { attachUserSession } = require('./middlewares/userSession');
@@ -57,7 +58,13 @@ function createApp() {
 
   initializeDB();
 
-  app.use(express.json());
+  app.use(express.json({
+    verify: (req, _res, buf) => {
+      if (req.originalUrl && req.originalUrl.startsWith('/api/payment/wechat/notify')) {
+        req.rawBody = buf.toString('utf8');
+      }
+    }
+  }));
   app.use(express.urlencoded({ extended: true }));
   app.use(corsMiddleware());
   app.use(attachUserSession());
@@ -124,6 +131,7 @@ function createApp() {
   app.use('/api/nft', nftRoutes);
   app.use('/api/miniapp', miniappRoutes);
   app.use('/api/chain', chainRoutes);
+  app.use('/api/payment', paymentRoutes);
 
   app.use((err, _req, res, _next) => {
     if (err.message === '仅支持图片文件上传') {

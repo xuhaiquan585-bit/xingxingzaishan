@@ -62,7 +62,28 @@ Page({
 
   submitOrder() {
     if (!this.data.product) return;
+    if (!String(this.data.receiverName || '').trim()) {
+      wx.showToast({ title: '请填写收货人', icon: 'none' });
+      return;
+    }
+    if (!/^1\d{10}$/.test(String(this.data.receiverPhone || '').trim())) {
+      wx.showToast({ title: '请填写正确的手机号', icon: 'none' });
+      return;
+    }
+    if (!this.data.region) {
+      wx.showToast({ title: '请选择省市区', icon: 'none' });
+      return;
+    }
+    if (!String(this.data.address || '').trim()) {
+      wx.showToast({ title: '请填写详细地址', icon: 'none' });
+      return;
+    }
+    if (!Number(this.data.quantity || 0)) {
+      wx.showToast({ title: '请选择购买数量', icon: 'none' });
+      return;
+    }
     this.setData({ message: '' });
+    let createdOrder = null;
     request({
       url: '/api/miniapp/orders',
       method: 'POST',
@@ -75,16 +96,38 @@ Page({
         address: this.data.address,
         remark: this.data.remark
       }
-    }).then((order) => request({
-      url: `/api/miniapp/orders/${encodeURIComponent(order.id)}/pay`,
-      method: 'POST'
-    })).then((payResult) => {
-      const order = payResult.order || {};
-      wx.showToast({ title: '下单成功', icon: 'success' });
-      wx.redirectTo({ url: `/pages/order-detail/order-detail?id=${encodeURIComponent(order.id)}` });
+    }).then((order) => {
+      createdOrder = order;
+      return request({
+        url: `/api/miniapp/orders/${encodeURIComponent(order.id)}/pay`,
+        method: 'POST'
+      });
+    }).then((payResult) => {
+      if (payResult.payment) {
+        return new Promise((resolve, reject) => {
+          wx.requestPayment({
+            ...payResult.payment,
+            success: () => resolve(payResult.order || createdOrder),
+            fail: reject
+          });
+        });
+      }
+      if (payResult.payment_mock) {
+        return payResult.order || createdOrder;
+      }
+      return payResult.order || createdOrder;
+    }).then((order) => {
+      wx.showToast({ title: '支付成功', icon: 'success' });
+      setTimeout(() => {
+        wx.redirectTo({ url: `/pages/order-detail/order-detail?id=${encodeURIComponent((order || createdOrder).id)}` });
+      }, 1200);
     }).catch((error) => {
       if (error.code === 'PHONE_NOT_BOUND') {
         redirectToBindPhone(`/pages/order-confirm/order-confirm?product_id=${encodeURIComponent(this.data.productId)}`);
+        return;
+      }
+      if (error.errMsg && error.errMsg.indexOf('cancel') !== -1) {
+        wx.showToast({ title: '已取消支付', icon: 'none' });
         return;
       }
       this.setData({ message: error.message || '下单失败，请稍后重试' });

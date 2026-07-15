@@ -22,7 +22,7 @@
   <view class="product-list">
     <block wx:for="{{products}}" wx:key="id">
       <view class="card product-card" bindtap="openProduct" data-id="{{item.id}}">
-        <image wx:if="{{item.cover_image}}" class="cover" mode="aspectFill" src="{{item.cover_image}}" />
+        <image wx:if="{{item.cover_image}}" class="cover" mode="aspectFill" lazy-load src="{{item.cover_image}}" />
         <view class="list-title">{{item.title}}</view>
         <view class="hint">{{item.subtitle}}</view>
         <view class="price">{{item.price_text}}</view>

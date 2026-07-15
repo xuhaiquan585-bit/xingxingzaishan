@@ -12,7 +12,7 @@
     <button class="btn secondary home-scan-link" bindtap="scanCode">已有星贴，扫码记录</button>
   </view>
 
-  <image wx:if="{{hasBanner}}" class="home-banner" mode="aspectFill" src="{{bannerImage}}" />
+  <image wx:if="{{hasBanner}}" class="home-banner" mode="aspectFill" lazy-load src="{{bannerImage}}" />
 
   <view class="home-section home-scene-section">
     <view class="home-section-title">这些时刻，适合贴上一颗星</view>
@@ -41,7 +41,7 @@
 
   <view class="home-section home-trust-section">
     <view class="home-trust-item">区块链存证</view>
-    <view class="home-trust-item">链上存证</view>
+    <view class="home-trust-item">不可篡改</view>
     <view class="home-trust-item">封存后可查看</view>
   </view>
 

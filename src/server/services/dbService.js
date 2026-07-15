@@ -1293,6 +1293,11 @@ function getMiniappOrder({ openid, orderId }) {
   return orderPayload(db.orders.find((item) => item.openid === openid && item.id === orderId));
 }
 
+function getOrderByOrderNo(orderNo) {
+  const db = readDB();
+  return orderPayload(db.orders.find((item) => item.order_no === orderNo));
+}
+
 function cancelMiniappOrder({ openid, orderId }) {
   const db = readDB();
   const index = db.orders.findIndex((item) => item.openid === openid && item.id === orderId);
@@ -1333,6 +1338,60 @@ function payMiniappOrderMock({ openid, orderId }) {
     transaction_id: db.orders[index].wechat_transaction_id,
     raw: { mock: true },
     created_at: paidAt
+  });
+  writeDB(db);
+  return { data: orderPayload(db.orders[index]) };
+}
+
+function appendPaymentLog(input = {}) {
+  const db = readDB();
+  const createdAt = nowISO();
+  db.payment_logs.push({
+    id: `PAY_${Date.now()}_${String(db.payment_logs.length + 1).padStart(4, '0')}`,
+    order_id: input.order_id || '',
+    order_no: input.order_no || '',
+    method: input.method || 'wechat',
+    status: input.status || '',
+    amount_cents: Number(input.amount_cents || 0),
+    transaction_id: input.transaction_id || '',
+    raw: input.raw || {},
+    error: input.error || '',
+    created_at: createdAt
+  });
+  writeDB(db);
+}
+
+function markOrderPaidByOrderNo({ orderNo, transactionId, paidAt, raw }) {
+  const db = readDB();
+  const index = db.orders.findIndex((item) => item.order_no === orderNo);
+  if (index === -1) return { error: 'ORDER_NOT_FOUND' };
+  const order = db.orders[index];
+  const expectedAmount = Number(order.total_amount_cents || 0);
+  const actualAmount = Number(raw && raw.amount && raw.amount.total);
+  if (!Number.isFinite(actualAmount) || actualAmount !== expectedAmount) {
+    return { error: 'AMOUNT_MISMATCH' };
+  }
+  const confirmedAt = paidAt || nowISO();
+  db.orders[index] = {
+    ...order,
+    status: ['shipped', 'completed'].includes(order.status) ? order.status : 'paid',
+    payment_status: 'paid',
+    payment_method: 'wechat',
+    payment_mock: false,
+    wechat_transaction_id: transactionId || order.wechat_transaction_id || '',
+    paid_at: order.paid_at || confirmedAt,
+    updated_at: confirmedAt
+  };
+  db.payment_logs.push({
+    id: `PAY_${Date.now()}_${String(db.payment_logs.length + 1).padStart(4, '0')}`,
+    order_id: order.id,
+    order_no: order.order_no,
+    method: 'wechat',
+    status: 'paid',
+    amount_cents: expectedAmount,
+    transaction_id: transactionId || '',
+    raw: raw || {},
+    created_at: confirmedAt
   });
   writeDB(db);
   return { data: orderPayload(db.orders[index]) };
@@ -1797,8 +1856,11 @@ module.exports = {
   createMiniappOrder,
   listMiniappOrders,
   getMiniappOrder,
+  getOrderByOrderNo,
   cancelMiniappOrder,
   payMiniappOrderMock,
+  appendPaymentLog,
+  markOrderPaidByOrderNo,
   listOrders,
   updateOrderShipment,
   getMiniappContent,

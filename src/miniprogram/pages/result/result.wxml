@@ -3,7 +3,7 @@
   <view class="subtitle">记在星上，闪到永远</view>
 
   <view wx:if="{{record}}" class="card">
-    <image class="cover result-image" mode="aspectFill" src="{{record.image_url}}" />
+    <image class="cover result-image" mode="aspectFill" lazy-load src="{{record.image_url}}" />
     <view class="memory-content">{{record.display_content}}</view>
     <view wx:if="{{record.has_brand_disclosure}}" class="brand-disclosure-line">{{record.brand_disclosure_display}}</view>
 

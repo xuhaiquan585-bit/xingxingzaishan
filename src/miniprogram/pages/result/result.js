@@ -25,6 +25,13 @@ Page({
     };
   },
 
+  onShareTimeline() {
+    return {
+      title: '记在星上，闪到永远',
+      query: `key=${encodeURIComponent(this.data.key)}`
+    };
+  },
+
   loadRecord() {
     request({
       url: `/api/miniapp/qr/${encodeURIComponent(this.data.key)}`

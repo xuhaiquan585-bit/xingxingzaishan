@@ -7,7 +7,7 @@
   <view class="order-list">
     <block wx:for="{{orders}}" wx:key="id">
       <view class="card order-card" bindtap="openOrder" data-id="{{item.id}}">
-        <image wx:if="{{item.cover_image}}" class="cover order-cover" mode="aspectFill" src="{{item.cover_image}}" />
+        <image wx:if="{{item.cover_image}}" class="cover order-cover" mode="aspectFill" lazy-load src="{{item.cover_image}}" />
         <view class="list-title">{{item.product_snapshot.title}}</view>
         <view class="hint">{{item.amount_text}} · {{item.status_text}}</view>
         <view class="meta">订单号：{{item.order_no}}</view>

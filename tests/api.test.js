@@ -4,6 +4,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
+const https = require('https');
+const { EventEmitter } = require('events');
 const crypto = require('crypto');
 
 let server;
@@ -323,8 +325,117 @@ async function loginMiniappBindPhoneAndGetToken({ code = 'mini-code', phone = '1
   return bindRes.body.data.token;
 }
 
+const WECHAT_PAY_ENV_KEYS = [
+  'WECHAT_PAY_MCH_ID',
+  'WECHAT_PAY_APPID',
+  'WECHAT_PAY_API_V3_KEY',
+  'WECHAT_PAY_CERT_SERIAL_NO',
+  'WECHAT_PAY_PRIVATE_KEY_PATH',
+  'WECHAT_PAY_PLATFORM_CERT_PATH',
+  'WECHAT_PAY_NOTIFY_URL',
+  'WECHAT_PAY_MOCK'
+];
+
+function snapshotEnv(keys) {
+  return Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+}
+
+function restoreEnv(snapshot) {
+  Object.entries(snapshot).forEach(([key, value]) => {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  });
+}
+
+function clearWechatPayEnv() {
+  WECHAT_PAY_ENV_KEYS.forEach((key) => delete process.env[key]);
+}
+
+function createWechatPayKeyFiles(prefix) {
+  const merchant = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const platform = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const merchantPrivateKey = merchant.privateKey.export({ type: 'pkcs8', format: 'pem' });
+  const platformPrivateKey = platform.privateKey.export({ type: 'pkcs8', format: 'pem' });
+  const platformPublicKey = platform.publicKey.export({ type: 'spki', format: 'pem' });
+  const privateKeyPath = path.join(tmpDir, `${prefix}-apiclient_key.pem`);
+  const platformCertPath = path.join(tmpDir, `${prefix}-wechatpay_public.pem`);
+  fs.writeFileSync(privateKeyPath, merchantPrivateKey);
+  fs.writeFileSync(platformCertPath, platformPublicKey);
+  return {
+    privateKeyPath,
+    platformCertPath,
+    platformPrivateKey
+  };
+}
+
+function applyWechatPayEnv(keys) {
+  process.env.WECHAT_PAY_MCH_ID = '1748255259';
+  process.env.WECHAT_PAY_APPID = 'wx8b85b181e784722f';
+  process.env.WECHAT_PAY_API_V3_KEY = '0123456789abcdef0123456789abcdef';
+  process.env.WECHAT_PAY_CERT_SERIAL_NO = 'TEST_SERIAL_NO';
+  process.env.WECHAT_PAY_PRIVATE_KEY_PATH = keys.privateKeyPath;
+  process.env.WECHAT_PAY_PLATFORM_CERT_PATH = keys.platformCertPath;
+  process.env.WECHAT_PAY_NOTIFY_URL = 'https://xingxingzaishan.top/api/payment/wechat/notify';
+}
+
+function mockWechatPayHttps(responseBody, statusCode = 200) {
+  const originalRequest = https.request;
+  const calls = [];
+  https.request = (url, options, callback) => {
+    const req = new EventEmitter();
+    let requestBody = '';
+    req.write = (chunk) => {
+      requestBody += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+    };
+    req.end = () => {
+      calls.push({ url: String(url), options, body: requestBody });
+      const res = new EventEmitter();
+      res.statusCode = statusCode;
+      process.nextTick(() => {
+        callback(res);
+        res.emit('data', Buffer.from(JSON.stringify(responseBody)));
+        res.emit('end');
+      });
+    };
+    return req;
+  };
+  return {
+    calls,
+    restore: () => {
+      https.request = originalRequest;
+    }
+  };
+}
+
+function encryptWechatPayResource(payload, apiKey) {
+  const nonce = 'notify-nonce';
+  const associatedData = 'transaction';
+  const cipher = crypto.createCipheriv('aes-256-gcm', Buffer.from(apiKey, 'utf8'), Buffer.from(nonce, 'utf8'));
+  cipher.setAAD(Buffer.from(associatedData, 'utf8'));
+  const encrypted = Buffer.concat([
+    cipher.update(JSON.stringify(payload), 'utf8'),
+    cipher.final()
+  ]);
+  const authTag = cipher.getAuthTag();
+  return {
+    algorithm: 'AEAD_AES_256_GCM',
+    associated_data: associatedData,
+    nonce,
+    ciphertext: Buffer.concat([encrypted, authTag]).toString('base64')
+  };
+}
+
+function signWechatPayNotify({ rawBody, timestamp, nonce, privateKey }) {
+  return crypto
+    .createSign('RSA-SHA256')
+    .update(`${timestamp}\n${nonce}\n${rawBody}\n`)
+    .end()
+    .sign(privateKey, 'base64');
+}
+
 test.before(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xingxingzaishan-'));
+  clearWechatPayEnv();
   process.env.DB_FILE = path.join(tmpDir, 'db.json');
   process.env.STORAGE_ROOT = path.join(tmpDir, 'storage');
   process.env.AUTH_SECRET = 'test-secret-123';
@@ -369,6 +480,7 @@ test.after(async () => {
   delete process.env.RATE_LIMIT_LOGIN_MAX;
   delete process.env.SMS_PROVIDER;
   delete process.env.ADMIN_INIT_ACCOUNTS_JSON;
+  clearWechatPayEnv();
 });
 
 test('POST /api/user/login should reject invalid phone', async () => {
@@ -622,6 +734,7 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(appJson.includes('pages/orders/orders'), true);
   assert.equal(appJson.includes('pages/order-detail/order-detail'), true);
   assert.equal(appJson.includes('"text": "我的星星"'), true);
+  assert.equal(appJson.includes('"__usePrivacyCheck__": true'), true);
   assert.equal(homeJs.includes('/api/miniapp/content'), true);
 });
 
@@ -639,6 +752,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const recordWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record', 'record.wxss'), 'utf8');
   const recordJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record', 'record.js'), 'utf8');
   const resultWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'result', 'result.wxml'), 'utf8');
+  const resultJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'result', 'result.js'), 'utf8');
   const resultWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'result', 'result.wxss'), 'utf8');
   const coCreateWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'co-create', 'co-create.wxml'), 'utf8');
   const coCreateWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'co-create', 'co-create.wxss'), 'utf8');
@@ -810,10 +924,13 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(homeWxml.includes('class="home-section home-trust-section"'), true);
   assert.equal(homeWxml.includes('区块链存证'), true);
   assert.equal(homeWxml.includes('NFT凭证'), false);
-  assert.equal(homeWxml.includes('链上存证'), true);
+  assert.equal(homeWxml.includes('链上存证'), false);
+  assert.equal(homeWxml.includes('不可篡改'), true);
   assert.equal(homeWxml.includes('封存后可查看'), true);
   assert.equal(homeWxml.includes('不含酒水'), true);
   assert.equal(homeWxml.includes('购物车'), false);
+  assert.equal(homeWxml.includes('lazy-load'), true);
+  assert.equal(homeJs.includes('onShareTimeline'), true);
   assert.equal(homeWxml.includes('class="btn home-primary-cta"'), true);
   assert.equal(homeWxss.includes('.home-brand-star'), true);
   assert.equal(homeWxss.includes('.home-scene-grid'), true);
@@ -832,6 +949,8 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(productsWxml.includes('bindtap="openProduct"'), true);
   assert.equal(productsWxml.includes('class="product-list"'), true);
   assert.equal(productsWxml.includes('class="meta state-card"'), true);
+  assert.equal(productsWxml.includes('lazy-load'), true);
+  assert.equal(productsJs.includes('onShareAppMessage'), true);
   assert.equal(productsWxml.includes('购物车'), false);
   assert.equal(productsWxss.includes('.products-hero'), true);
   assert.equal(productsWxss.includes('box-shadow: 0 16rpx 36rpx'), true);
@@ -839,14 +958,34 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(productDetailWxml.includes('不含酒水'), true);
   assert.equal(productDetailWxml.includes('bindtap="buyNow"'), true);
   assert.equal(productDetailJs.includes('/pages/order-confirm/order-confirm'), true);
+  assert.equal(productDetailJs.includes('onShareAppMessage'), true);
+  assert.equal(productDetailJs.includes('onShareTimeline'), true);
+  assert.equal(productDetailWxml.includes('lazy-load'), true);
   assert.equal(productDetailWxml.includes('class="card product-detail-panel"'), true);
   assert.equal(productDetailWxml.includes('购物车'), false);
   assert.equal(orderConfirmWxml.includes('确认订单'), true);
-  assert.equal(orderConfirmWxml.includes('提交订单并支付'), true);
+  assert.equal(orderConfirmWxml.includes('立即支付'), true);
+  assert.equal(orderConfirmWxml.includes('提交订单并支付'), false);
+  assert.equal(orderConfirmWxml.includes('测试环境'), false);
+  assert.equal(orderConfirmWxml.includes('模拟支付'), false);
+  assert.equal(orderConfirmWxml.includes('正式上线前'), false);
   assert.equal(orderConfirmJs.includes('/api/miniapp/orders'), true);
+  assert.equal(orderConfirmJs.includes('wx.requestPayment'), true);
+  assert.equal(orderConfirmJs.includes('请填写收货人'), true);
+  assert.equal(orderConfirmJs.includes('请填写正确的手机号'), true);
+  assert.equal(orderConfirmJs.includes('请选择省市区'), true);
+  assert.equal(orderConfirmJs.includes('请填写详细地址'), true);
+  assert.equal(orderConfirmJs.includes('已取消支付'), true);
   assert.equal(orderConfirmJs.includes('redirectToBindPhone'), true);
   assert.equal(ordersWxml.includes('我的订单'), true);
+  assert.equal(ordersWxml.includes('lazy-load'), true);
   assert.equal(orderDetailWxml.includes('订单详情'), true);
+  assert.equal(orderDetailWxml.includes('lazy-load'), true);
+  assert.equal(resultJs.includes('onShareTimeline'), true);
+  assert.equal(resultWxml.includes('lazy-load'), true);
+  assert.equal(recordDetailWxml.includes('lazy-load'), true);
+  assert.equal(coCreateWxml.includes('lazy-load'), true);
+  assert.equal(meWxml.includes('lazy-load'), true);
   assert.equal(productDetailWxss.includes('height: 480rpx'), true);
   assert.equal(projectWxml.includes('{{content.project_title}}'), true);
   assert.equal(projectWxml.includes('class="card project-card project-card-primary"'), true);
@@ -1337,10 +1476,21 @@ test('miniapp sticker orders should create, mock pay, list, and allow admin ship
   assert.equal(orderRes.body.data.product_snapshot.title, '恋人酒瓶星贴');
   const orderId = orderRes.body.data.id;
 
-  const payRes = await postJson(`/api/miniapp/orders/${orderId}/pay`, {}, token);
-  assert.equal(payRes.status, 200);
-  assert.equal(payRes.body.data.payment_mock, true);
-  assert.equal(payRes.body.data.order.status, 'paid');
+  const unconfiguredPayRes = await postJson(`/api/miniapp/orders/${orderId}/pay`, {}, token);
+  assert.equal(unconfiguredPayRes.status, 503);
+  assert.equal(unconfiguredPayRes.body.code, 'WECHAT_PAY_NOT_CONFIGURED');
+
+  const oldPayMock = process.env.WECHAT_PAY_MOCK;
+  process.env.WECHAT_PAY_MOCK = 'true';
+  try {
+    const payRes = await postJson(`/api/miniapp/orders/${orderId}/pay`, {}, token);
+    assert.equal(payRes.status, 200);
+    assert.equal(payRes.body.data.payment_mock, true);
+    assert.equal(payRes.body.data.order.status, 'paid');
+  } finally {
+    if (oldPayMock === undefined) delete process.env.WECHAT_PAY_MOCK;
+    else process.env.WECHAT_PAY_MOCK = oldPayMock;
+  }
 
   const listRes = await getJson('/api/miniapp/orders', token);
   assert.equal(listRes.status, 200);
@@ -1366,6 +1516,247 @@ test('miniapp sticker orders should create, mock pay, list, and allow admin ship
   assert.equal(shipRes.body.data.status, 'shipped');
   assert.equal(shipRes.body.data.express_company, '顺丰速运');
   assert.equal(shipRes.body.data.express_no, 'SF1234567890');
+});
+
+test('miniapp order pay should return WeChat JSAPI payment params when configured', async () => {
+  const oldEnv = snapshotEnv(WECHAT_PAY_ENV_KEYS);
+  const keys = createWechatPayKeyFiles('wechat-jsapi');
+  const httpsMock = mockWechatPayHttps({ prepay_id: 'wx-prepay-test' });
+  try {
+    clearWechatPayEnv();
+    applyWechatPayEnv(keys);
+
+    const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+    const adminToken = adminLogin.body.data.token;
+    const productRes = await postJson('/api/admin/products', {
+      title: '微信支付测试星贴',
+      price_text: '¥9.90 / 1枚装',
+      price_cents: 990,
+      product_type: 'wine_sticker',
+      sticker_count: 1,
+      stock: 10,
+      status: 'published',
+      scene_tags: ['free'],
+      sort_order: 8
+    }, adminToken);
+    assert.equal(productRes.status, 200);
+
+    const token = await loginMiniappBindPhoneAndGetToken({
+      code: 'mini-order-wechat-pay',
+      phone: '13888880011'
+    });
+    const orderRes = await postJson('/api/miniapp/orders', {
+      product_id: productRes.body.data.id,
+      quantity: 1,
+      receiver_name: '李四',
+      receiver_phone: '13888880011',
+      region: '四川省 成都市 锦江区',
+      address: '支付测试路 1 号'
+    }, token);
+    assert.equal(orderRes.status, 200);
+
+    const payRes = await postJson(`/api/miniapp/orders/${orderRes.body.data.id}/pay`, {}, token);
+    assert.equal(payRes.status, 200);
+    assert.equal(payRes.body.data.payment.package, 'prepay_id=wx-prepay-test');
+    assert.equal(payRes.body.data.payment.signType, 'RSA');
+    assert.ok(payRes.body.data.payment.timeStamp);
+    assert.ok(payRes.body.data.payment.nonceStr);
+    assert.ok(payRes.body.data.payment.paySign);
+    assert.equal(payRes.body.data.order.status, 'pending_payment');
+    assert.equal(httpsMock.calls.length, 1);
+    assert.ok(httpsMock.calls[0].url.includes('/v3/pay/transactions/jsapi'));
+    const requestBody = JSON.parse(httpsMock.calls[0].body);
+    assert.equal(requestBody.appid, process.env.WECHAT_PAY_APPID);
+    assert.equal(requestBody.mchid, process.env.WECHAT_PAY_MCH_ID);
+    assert.equal(requestBody.out_trade_no, orderRes.body.data.order_no);
+    assert.equal(requestBody.amount.total, 990);
+    assert.equal(typeof requestBody.payer.openid, 'string');
+    assert.ok(requestBody.payer.openid.length > 8);
+  } finally {
+    httpsMock.restore();
+    restoreEnv(oldEnv);
+  }
+});
+
+test('WeChat payment notify should verify, decrypt, and mark order paid', async () => {
+  const oldEnv = snapshotEnv(WECHAT_PAY_ENV_KEYS);
+  const keys = createWechatPayKeyFiles('wechat-notify');
+  try {
+    clearWechatPayEnv();
+    applyWechatPayEnv(keys);
+
+    const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+    const adminToken = adminLogin.body.data.token;
+    const productRes = await postJson('/api/admin/products', {
+      title: '回调测试星贴',
+      price_text: '¥19.90 / 2枚装',
+      price_cents: 1990,
+      product_type: 'wine_sticker',
+      sticker_count: 2,
+      stock: 10,
+      status: 'published',
+      scene_tags: ['free'],
+      sort_order: 9
+    }, adminToken);
+    assert.equal(productRes.status, 200);
+
+    const token = await loginMiniappBindPhoneAndGetToken({
+      code: 'mini-order-wechat-notify',
+      phone: '13888880012'
+    });
+    const orderRes = await postJson('/api/miniapp/orders', {
+      product_id: productRes.body.data.id,
+      quantity: 2,
+      receiver_name: '王五',
+      receiver_phone: '13888880012',
+      region: '四川省 成都市 锦江区',
+      address: '回调测试路 2 号'
+    }, token);
+    assert.equal(orderRes.status, 200);
+
+    const transaction = {
+      appid: process.env.WECHAT_PAY_APPID,
+      mchid: process.env.WECHAT_PAY_MCH_ID,
+      out_trade_no: orderRes.body.data.order_no,
+      transaction_id: '4200000000202607160000000001',
+      trade_state: 'SUCCESS',
+      success_time: '2026-07-16T10:00:00+08:00',
+      amount: {
+        total: orderRes.body.data.total_amount_cents,
+        payer_total: orderRes.body.data.total_amount_cents,
+        currency: 'CNY',
+        payer_currency: 'CNY'
+      }
+    };
+    const notifyBody = {
+      id: 'notify-test-1',
+      create_time: '2026-07-16T10:00:01+08:00',
+      resource_type: 'encrypt-resource',
+      event_type: 'TRANSACTION.SUCCESS',
+      summary: '支付成功',
+      resource: encryptWechatPayResource(transaction, process.env.WECHAT_PAY_API_V3_KEY)
+    };
+    const rawBody = JSON.stringify(notifyBody);
+    const timestamp = '1784215201000';
+    const nonce = 'notify-sign-nonce';
+    const signature = signWechatPayNotify({
+      rawBody,
+      timestamp,
+      nonce,
+      privateKey: keys.platformPrivateKey
+    });
+    const notifyRes = await requestRaw('POST', '/api/payment/wechat/notify', {
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(rawBody),
+        'Wechatpay-Timestamp': timestamp,
+        'Wechatpay-Nonce': nonce,
+        'Wechatpay-Signature': signature,
+        'Wechatpay-Serial': 'WECHATPAY_TEST_SERIAL'
+      },
+      body: Buffer.from(rawBody, 'utf8')
+    });
+    assert.equal(notifyRes.status, 200);
+    assert.equal(notifyRes.body.code, 'SUCCESS');
+
+    const detailRes = await getJson(`/api/miniapp/orders/${orderRes.body.data.id}`, token);
+    assert.equal(detailRes.status, 200);
+    assert.equal(detailRes.body.data.status, 'paid');
+    assert.equal(detailRes.body.data.payment_status, 'paid');
+    assert.equal(detailRes.body.data.payment_method, 'wechat');
+    assert.equal(detailRes.body.data.wechat_transaction_id, transaction.transaction_id);
+  } finally {
+    restoreEnv(oldEnv);
+  }
+});
+
+test('WeChat payment notify should reject amount mismatch', async () => {
+  const oldEnv = snapshotEnv(WECHAT_PAY_ENV_KEYS);
+  const keys = createWechatPayKeyFiles('wechat-notify-mismatch');
+  try {
+    clearWechatPayEnv();
+    applyWechatPayEnv(keys);
+
+    const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+    const adminToken = adminLogin.body.data.token;
+    const productRes = await postJson('/api/admin/products', {
+      title: '金额校验星贴',
+      price_text: '¥10.00 / 1枚装',
+      price_cents: 1000,
+      product_type: 'wine_sticker',
+      sticker_count: 1,
+      stock: 10,
+      status: 'published',
+      scene_tags: ['free'],
+      sort_order: 10
+    }, adminToken);
+    assert.equal(productRes.status, 200);
+
+    const token = await loginMiniappBindPhoneAndGetToken({
+      code: 'mini-order-wechat-mismatch',
+      phone: '13888880013'
+    });
+    const orderRes = await postJson('/api/miniapp/orders', {
+      product_id: productRes.body.data.id,
+      quantity: 1,
+      receiver_name: '赵六',
+      receiver_phone: '13888880013',
+      region: '四川省 成都市 锦江区',
+      address: '金额测试路 3 号'
+    }, token);
+    assert.equal(orderRes.status, 200);
+
+    const transaction = {
+      appid: process.env.WECHAT_PAY_APPID,
+      mchid: process.env.WECHAT_PAY_MCH_ID,
+      out_trade_no: orderRes.body.data.order_no,
+      transaction_id: '4200000000202607160000000002',
+      trade_state: 'SUCCESS',
+      success_time: '2026-07-16T10:03:00+08:00',
+      amount: {
+        total: orderRes.body.data.total_amount_cents + 1,
+        payer_total: orderRes.body.data.total_amount_cents + 1,
+        currency: 'CNY',
+        payer_currency: 'CNY'
+      }
+    };
+    const rawBody = JSON.stringify({
+      id: 'notify-test-amount',
+      create_time: '2026-07-16T10:03:01+08:00',
+      resource_type: 'encrypt-resource',
+      event_type: 'TRANSACTION.SUCCESS',
+      summary: '支付成功',
+      resource: encryptWechatPayResource(transaction, process.env.WECHAT_PAY_API_V3_KEY)
+    });
+    const timestamp = '1784215381000';
+    const nonce = 'notify-mismatch-nonce';
+    const signature = signWechatPayNotify({
+      rawBody,
+      timestamp,
+      nonce,
+      privateKey: keys.platformPrivateKey
+    });
+    const notifyRes = await requestRaw('POST', '/api/payment/wechat/notify', {
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(rawBody),
+        'Wechatpay-Timestamp': timestamp,
+        'Wechatpay-Nonce': nonce,
+        'Wechatpay-Signature': signature,
+        'Wechatpay-Serial': 'WECHATPAY_TEST_SERIAL'
+      },
+      body: Buffer.from(rawBody, 'utf8')
+    });
+    assert.equal(notifyRes.status, 400);
+    assert.equal(notifyRes.body.code, 'FAIL');
+
+    const detailRes = await getJson(`/api/miniapp/orders/${orderRes.body.data.id}`, token);
+    assert.equal(detailRes.status, 200);
+    assert.equal(detailRes.body.data.status, 'pending_payment');
+    assert.equal(detailRes.body.data.payment_status, 'unpaid');
+  } finally {
+    restoreEnv(oldEnv);
+  }
 });
 
 test('miniapp upload and record flow should require bound phone and reject duplicate activation', async () => {

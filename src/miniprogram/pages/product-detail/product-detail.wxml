@@ -1,7 +1,7 @@
 <view class="page product-detail-page">
   <block wx:if="{{product}}">
     <view class="product-detail-hero">
-      <image wx:if="{{product.cover_image}}" class="cover hero-cover" mode="aspectFill" src="{{product.cover_image}}" />
+      <image wx:if="{{product.cover_image}}" class="cover hero-cover" mode="aspectFill" lazy-load src="{{product.cover_image}}" />
       <view class="hero-title">{{product.title}}</view>
       <view class="subtitle">{{product.subtitle}}</view>
     </view>
@@ -13,7 +13,7 @@
       <view class="hint">{{product.shipping_note}}</view>
       <view class="hint">{{product.after_sale_note}}</view>
       <block wx:for="{{product.images}}" wx:key="*this">
-        <image class="cover detail-image" mode="widthFix" src="{{item}}" />
+        <image class="cover detail-image" mode="widthFix" lazy-load src="{{item}}" />
       </block>
       <button class="btn" bindtap="buyNow">立即购买</button>
       <view class="meta">购买的是酒瓶星贴/印刷贴纸，不含酒水。</view>

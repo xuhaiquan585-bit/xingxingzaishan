@@ -31,6 +31,13 @@ Page({
     this.setActiveScene(selected);
   },
 
+  onShareAppMessage() {
+    return {
+      title: '封存这一刻，先贴上一颗星',
+      path: '/pages/products/products'
+    };
+  },
+
   loadProducts() {
     request({
       url: '/api/miniapp/products',

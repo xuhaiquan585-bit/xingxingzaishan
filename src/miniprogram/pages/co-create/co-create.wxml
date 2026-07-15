@@ -3,7 +3,7 @@
   <view class="subtitle">邀请朋友扫码，为这瓶酒留下一句话。</view>
 
   <view wx:if="{{qr}}" class="card">
-    <image class="cover memory-image" mode="aspectFill" src="{{qr.image_url}}" />
+    <image class="cover memory-image" mode="aspectFill" lazy-load src="{{qr.image_url}}" />
     <view class="memory-content">{{qr.display_content}}</view>
     <button wx:if="{{qr.is_co_creation_owner}}" class="btn" open-type="share">分享给朋友</button>
     <button wx:if="{{qr.is_co_creation_owner}}" class="btn secondary" bindtap="finalize">确认封存</button>

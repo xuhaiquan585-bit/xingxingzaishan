@@ -39,6 +39,10 @@ const {
   requireMiniappAuth,
   requireMiniappPhone
 } = require('../middlewares/miniappAuth');
+const {
+  createMiniappPayment,
+  isWechatPayConfigured
+} = require('../services/wechatPayService');
 
 const router = express.Router();
 const CO_CREATION_COMMENT_LIMIT = 12;
@@ -210,8 +214,7 @@ function productPayload(product) {
 }
 
 function shouldUseMockPay() {
-  if (process.env.WECHAT_PAY_MOCK === 'true') return true;
-  return process.env.NODE_ENV !== 'production';
+  return process.env.WECHAT_PAY_MOCK === 'true' && process.env.NODE_ENV !== 'production';
 }
 
 function handleContentSafetyError(error, res) {
@@ -387,7 +390,36 @@ router.post('/orders/:orderId/cancel', requireMiniappAuth, requireMiniappPhone, 
   return res.json({ status: 'success', code: 'OK', data: result.data });
 });
 
-router.post('/orders/:orderId/pay', requireMiniappAuth, requireMiniappPhone, (req, res) => {
+router.post('/orders/:orderId/pay', requireMiniappAuth, requireMiniappPhone, async (req, res) => {
+  const order = getMiniappOrder({ openid: req.miniappUser.openid, orderId: req.params.orderId });
+  if (!order) {
+    return res.status(404).json({ status: 'error', code: 'ORDER_NOT_FOUND', message: '未找到该订单。' });
+  }
+  if (order.status !== 'pending_payment') {
+    return res.status(409).json({ status: 'error', code: 'ORDER_NOT_PAYABLE', message: '当前订单不能支付。' });
+  }
+  if (isWechatPayConfigured()) {
+    try {
+      const payment = await createMiniappPayment({
+        openid: req.miniappUser.openid,
+        order
+      });
+      return res.json({
+        status: 'success',
+        code: 'OK',
+        data: {
+          order,
+          payment
+        }
+      });
+    } catch (error) {
+      return res.status(502).json({
+        status: 'error',
+        code: error.code || 'WECHAT_PAY_FAILED',
+        message: error.message || '微信支付下单失败，请稍后重试。'
+      });
+    }
+  }
   if (!shouldUseMockPay()) {
     return res.status(503).json({
       status: 'error',

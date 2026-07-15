@@ -43,6 +43,12 @@ Page({
     };
   },
 
+  onShareTimeline() {
+    return {
+      title: this.data.content.share_title
+    };
+  },
+
   loadContent() {
     request({
       url: '/api/miniapp/content',
