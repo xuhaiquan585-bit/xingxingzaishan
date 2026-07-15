@@ -332,6 +332,8 @@ const WECHAT_PAY_ENV_KEYS = [
   'WECHAT_PAY_CERT_SERIAL_NO',
   'WECHAT_PAY_PRIVATE_KEY_PATH',
   'WECHAT_PAY_PLATFORM_CERT_PATH',
+  'WECHAT_PAY_PUBLIC_KEY_PATH',
+  'WECHAT_PAY_PUBLIC_KEY_ID',
   'WECHAT_PAY_NOTIFY_URL',
   'WECHAT_PAY_MOCK'
 ];
@@ -376,6 +378,13 @@ function applyWechatPayEnv(keys) {
   process.env.WECHAT_PAY_PRIVATE_KEY_PATH = keys.privateKeyPath;
   process.env.WECHAT_PAY_PLATFORM_CERT_PATH = keys.platformCertPath;
   process.env.WECHAT_PAY_NOTIFY_URL = 'https://xingxingzaishan.top/api/payment/wechat/notify';
+}
+
+function applyWechatPayPublicKeyEnv(keys) {
+  applyWechatPayEnv(keys);
+  delete process.env.WECHAT_PAY_PLATFORM_CERT_PATH;
+  process.env.WECHAT_PAY_PUBLIC_KEY_PATH = keys.platformCertPath;
+  process.env.WECHAT_PAY_PUBLIC_KEY_ID = 'PUB_KEY_ID_TEST';
 }
 
 function mockWechatPayHttps(responseBody, statusCode = 200) {
@@ -1572,6 +1581,103 @@ test('miniapp order pay should return WeChat JSAPI payment params when configure
     assert.equal(requestBody.amount.total, 990);
     assert.equal(typeof requestBody.payer.openid, 'string');
     assert.ok(requestBody.payer.openid.length > 8);
+  } finally {
+    httpsMock.restore();
+    restoreEnv(oldEnv);
+  }
+});
+
+test('WeChat Pay public key mode should add serial header and verify notify', async () => {
+  const oldEnv = snapshotEnv(WECHAT_PAY_ENV_KEYS);
+  const keys = createWechatPayKeyFiles('wechat-public-key');
+  const httpsMock = mockWechatPayHttps({ prepay_id: 'wx-prepay-public-key' });
+  try {
+    clearWechatPayEnv();
+    applyWechatPayPublicKeyEnv(keys);
+
+    const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+    const adminToken = adminLogin.body.data.token;
+    const productRes = await postJson('/api/admin/products', {
+      title: '公钥模式星贴',
+      price_text: '¥12.00 / 1枚装',
+      price_cents: 1200,
+      product_type: 'wine_sticker',
+      sticker_count: 1,
+      stock: 10,
+      status: 'published',
+      scene_tags: ['free'],
+      sort_order: 88
+    }, adminToken);
+    assert.equal(productRes.status, 200);
+
+    const token = await loginMiniappBindPhoneAndGetToken({
+      code: 'mini-order-wechat-public-key',
+      phone: '13888880021'
+    });
+    const orderRes = await postJson('/api/miniapp/orders', {
+      product_id: productRes.body.data.id,
+      quantity: 1,
+      receiver_name: '公钥用户',
+      receiver_phone: '13888880021',
+      region: '四川省 成都市 锦江区',
+      address: '公钥测试路 1 号'
+    }, token);
+    assert.equal(orderRes.status, 200);
+
+    const payRes = await postJson(`/api/miniapp/orders/${orderRes.body.data.id}/pay`, {}, token);
+    assert.equal(payRes.status, 200);
+    assert.equal(payRes.body.data.payment.package, 'prepay_id=wx-prepay-public-key');
+    assert.equal(httpsMock.calls.length, 1);
+    assert.equal(httpsMock.calls[0].options.headers['Wechatpay-Serial'], 'PUB_KEY_ID_TEST');
+
+    const transaction = {
+      appid: process.env.WECHAT_PAY_APPID,
+      mchid: process.env.WECHAT_PAY_MCH_ID,
+      out_trade_no: orderRes.body.data.order_no,
+      transaction_id: '4200000000202607160000000099',
+      trade_state: 'SUCCESS',
+      success_time: '2026-07-16T11:00:00+08:00',
+      amount: {
+        total: orderRes.body.data.total_amount_cents,
+        payer_total: orderRes.body.data.total_amount_cents,
+        currency: 'CNY',
+        payer_currency: 'CNY'
+      }
+    };
+    const rawBody = JSON.stringify({
+      id: 'notify-public-key',
+      create_time: '2026-07-16T11:00:01+08:00',
+      resource_type: 'encrypt-resource',
+      event_type: 'TRANSACTION.SUCCESS',
+      summary: '支付成功',
+      resource: encryptWechatPayResource(transaction, process.env.WECHAT_PAY_API_V3_KEY)
+    });
+    const timestamp = '1784218801000';
+    const nonce = 'notify-public-key-nonce';
+    const signature = signWechatPayNotify({
+      rawBody,
+      timestamp,
+      nonce,
+      privateKey: keys.platformPrivateKey
+    });
+    const notifyRes = await requestRaw('POST', '/api/payment/wechat/notify', {
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(rawBody),
+        'Wechatpay-Timestamp': timestamp,
+        'Wechatpay-Nonce': nonce,
+        'Wechatpay-Signature': signature,
+        'Wechatpay-Serial': 'PUB_KEY_ID_TEST'
+      },
+      body: Buffer.from(rawBody, 'utf8')
+    });
+    assert.equal(notifyRes.status, 200);
+    assert.equal(notifyRes.body.code, 'SUCCESS');
+
+    const detailRes = await getJson(`/api/miniapp/orders/${orderRes.body.data.id}`, token);
+    assert.equal(detailRes.status, 200);
+    assert.equal(detailRes.body.data.status, 'paid');
+    assert.equal(detailRes.body.data.wechat_transaction_id, transaction.transaction_id);
   } finally {
     httpsMock.restore();
     restoreEnv(oldEnv);

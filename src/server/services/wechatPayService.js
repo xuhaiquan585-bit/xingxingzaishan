@@ -12,20 +12,26 @@ function getConfig() {
     certSerialNo: process.env.WECHAT_PAY_CERT_SERIAL_NO || '',
     privateKeyPath: process.env.WECHAT_PAY_PRIVATE_KEY_PATH || '',
     platformCertPath: process.env.WECHAT_PAY_PLATFORM_CERT_PATH || '',
+    publicKeyPath: process.env.WECHAT_PAY_PUBLIC_KEY_PATH || '',
+    publicKeyId: process.env.WECHAT_PAY_PUBLIC_KEY_ID || '',
     notifyUrl: process.env.WECHAT_PAY_NOTIFY_URL || ''
   };
 }
 
 function isWechatPayConfigured() {
   const config = getConfig();
+  const hasVerifyKey = Boolean(
+    config.platformCertPath
+    || (config.publicKeyPath && config.publicKeyId)
+  );
   return Boolean(
     config.appid
     && config.mchid
     && config.apiV3Key
     && config.certSerialNo
     && config.privateKeyPath
-    && config.platformCertPath
     && config.notifyUrl
+    && hasVerifyKey
   );
 }
 
@@ -61,18 +67,23 @@ function buildAuthorization({ method, urlPath, body = '' }) {
 }
 
 function requestWechatPayApi({ method, path, body }) {
+  const config = getConfig();
   const payload = body ? JSON.stringify(body) : '';
   const authorization = buildAuthorization({ method, urlPath: path, body: payload });
+  const headers = {
+    Authorization: authorization,
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(payload)
+  };
+  if (config.publicKeyId) {
+    headers['Wechatpay-Serial'] = config.publicKeyId;
+  }
 
   return new Promise((resolve, reject) => {
     const req = https.request(`${WECHAT_PAY_API_BASE}${path}`, {
       method,
-      headers: {
-        Authorization: authorization,
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(payload)
-      }
+      headers
     }, (res) => {
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
@@ -160,13 +171,15 @@ function verifyWechatPaySignature({ rawBody, headers }) {
   if (!timestamp || !nonce || !signature) {
     return false;
   }
-  const platformCert = readRequiredFile(config.platformCertPath, '微信支付平台证书');
+  const verifyKey = config.publicKeyPath
+    ? readRequiredFile(config.publicKeyPath, '微信支付公钥')
+    : readRequiredFile(config.platformCertPath, '微信支付平台证书');
   const message = `${timestamp}\n${nonce}\n${rawBody}\n`;
   return crypto
     .createVerify('RSA-SHA256')
     .update(message)
     .end()
-    .verify(platformCert, signature, 'base64');
+    .verify(verifyKey, signature, 'base64');
 }
 
 function decryptResource(resource) {
