@@ -1,4 +1,6 @@
 const express = require('express');
+const multer = require('multer');
+const sharp = require('sharp');
 const {
   findAdmin,
   getDashboardStats,
@@ -25,7 +27,7 @@ const {
   updateMiniappContent
 } = require('../services/dbService');
 const { generateToken, verifyToken } = require('../services/authService');
-const { getStorageMode, getSignedUrl } = require('../services/storageService');
+const { getStorageMode, getSignedUrl, saveImage } = require('../services/storageService');
 const { hasMiniappConfig } = require('../services/miniappAuthService');
 const {
   getChainSystemStatus,
@@ -38,6 +40,17 @@ const {
 } = require('../services/archiveService');
 
 const router = express.Router();
+
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!file.mimetype.startsWith('image/')) {
+      return cb(new Error('仅支持图片文件上传'));
+    }
+    cb(null, true);
+  }
+});
 
 function getBearerToken(req) {
   const value = req.headers.authorization || '';
@@ -385,6 +398,64 @@ router.post('/miniapp-content', requireAdmin, (req, res) => {
     code: 'OK',
     data: result.data
   });
+});
+
+router.post('/upload-image', requireAdmin, imageUpload.single('image'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        status: 'error',
+        code: 'UPLOAD_FAILED',
+        message: '请先选择图片。'
+      });
+    }
+
+    if (getStorageMode() === 'cloud' && !process.env.CLOUD_PUBLIC_BASE_URL) {
+      return res.status(400).json({
+        status: 'error',
+        code: 'STORAGE_PUBLIC_URL_REQUIRED',
+        message: '云存储内容图片需要先配置 CLOUD_PUBLIC_BASE_URL。'
+      });
+    }
+
+    try {
+      const compressedBuffer = await sharp(req.file.buffer)
+        .rotate()
+        .resize({ width: 1440, withoutEnlargement: true })
+        .jpeg({ quality: 82 })
+        .toBuffer();
+      req.file.buffer = compressedBuffer;
+      req.file.mimetype = 'image/jpeg';
+    } catch (_error) {
+      return res.status(400).json({
+        status: 'error',
+        code: 'UPLOAD_FAILED',
+        message: '图片文件无法识别，请重新选择。'
+      });
+    }
+
+    const stored = await saveImage({
+      file: req.file,
+      qrId: `admin-${String(req.body.scope || 'miniapp').trim() || 'miniapp'}`
+    });
+    const publicUrl = stored.url || (stored.object_key && process.env.CLOUD_PUBLIC_BASE_URL
+      ? `${process.env.CLOUD_PUBLIC_BASE_URL.replace(/\/$/, '')}/${stored.object_key}`
+      : '');
+    return res.json({
+      status: 'success',
+      code: 'OK',
+      data: {
+        url: publicUrl,
+        preview_url: stored.preview_url || null,
+        object_key: stored.object_key,
+        storage_mode: stored.mode,
+        active_storage_mode: getStorageMode(),
+        fallback: stored.fallback === true
+      }
+    });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 router.get('/products', requireAdmin, (_req, res) => {

@@ -813,7 +813,10 @@ async function exportBatch(batchId) {
 function fillMiniappContentForm(data) {
   document.getElementById('contentHomeTitle').value = data.home_title || '';
   document.getElementById('contentHomeSubtitle').value = data.home_subtitle || '';
+  document.getElementById('contentLogoImage').value = data.logo_image || '';
   document.getElementById('contentHomeBanner').value = data.home_banner_image || '';
+  document.getElementById('contentHomeSlides').value = JSON.stringify(data.home_slides || [], null, 2);
+  document.getElementById('contentSceneCards').value = JSON.stringify(data.scene_cards || [], null, 2);
   document.getElementById('contentProjectTitle').value = data.project_title || '';
   document.getElementById('contentProjectBody').value = data.project_body || '';
   document.getElementById('contentBrandTitle').value = data.brand_story_title || '';
@@ -825,11 +828,31 @@ function fillMiniappContentForm(data) {
   document.getElementById('miniappContentUpdated').textContent = data.updated_at ? `上次更新：${data.updated_at}` : '';
 }
 
+function readJsonArrayField(id, label) {
+  const value = document.getElementById(id).value.trim();
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) {
+      throw new Error(`${label} 必须是数组。`);
+    }
+    return parsed;
+  } catch (error) {
+    if (error.message && error.message.includes('必须是数组')) {
+      throw error;
+    }
+    throw new Error(`${label} JSON 格式不正确。`);
+  }
+}
+
 function readMiniappContentForm() {
   return {
     home_title: document.getElementById('contentHomeTitle').value.trim(),
     home_subtitle: document.getElementById('contentHomeSubtitle').value.trim(),
+    logo_image: document.getElementById('contentLogoImage').value.trim(),
     home_banner_image: document.getElementById('contentHomeBanner').value.trim(),
+    home_slides: readJsonArrayField('contentHomeSlides', '首页轮播'),
+    scene_cards: readJsonArrayField('contentSceneCards', '场景卡片'),
     project_title: document.getElementById('contentProjectTitle').value.trim(),
     project_body: document.getElementById('contentProjectBody').value.trim(),
     brand_story_title: document.getElementById('contentBrandTitle').value.trim(),
@@ -857,6 +880,39 @@ async function saveMiniappContent() {
   });
   fillMiniappContentForm(data);
   miniappContentMsg.textContent = '小程序内容已保存。';
+}
+
+async function uploadMiniappContentImage() {
+  const fileInput = document.getElementById('contentImageUpload');
+  if (!fileInput.files || !fileInput.files[0]) {
+    throw new Error('请先选择图片。');
+  }
+  const formData = new FormData();
+  formData.append('image', fileInput.files[0]);
+  formData.append('scope', 'miniapp-content');
+
+  miniappContentMsg.textContent = '图片上传中...';
+  const response = await fetchWithTimeout('/api/admin/upload-image', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: formData,
+    timeoutMs: EXPORT_TIMEOUT_MS
+  });
+  const json = await parseJsonResponse(response);
+  if (!response.ok || json.status !== 'success') {
+    throw new Error(json.message || '图片上传失败');
+  }
+
+  const url = json.data && json.data.url ? json.data.url : '';
+  const target = document.getElementById('contentImageUploadTarget').value;
+  document.getElementById('contentImageUploadedUrl').value = url;
+  if (target === 'logo') {
+    document.getElementById('contentLogoImage').value = url;
+  } else if (target === 'banner') {
+    document.getElementById('contentHomeBanner').value = url;
+  }
+  fileInput.value = '';
+  miniappContentMsg.textContent = '图片已上传，请保存小程序内容。';
 }
 
 async function loadSystemStatus() {
@@ -920,6 +976,9 @@ document.getElementById('refreshMiniappContentBtn').addEventListener('click', ()
 }));
 document.getElementById('saveMiniappContentBtn').addEventListener('click', () => saveMiniappContent().catch((e) => {
   miniappContentMsg.textContent = e.message || '保存失败';
+}));
+document.getElementById('uploadMiniappImageBtn').addEventListener('click', () => uploadMiniappContentImage().catch((e) => {
+  miniappContentMsg.textContent = e.message || '上传失败';
 }));
 document.getElementById('refreshSystemBtn').addEventListener('click', () => loadSystemStatus().catch((e) => {
   systemMsg.textContent = e.message || '刷新失败';

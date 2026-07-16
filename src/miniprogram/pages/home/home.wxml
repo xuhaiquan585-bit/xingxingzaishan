@@ -1,41 +1,73 @@
 <view class="page home-page">
   <view class="home-hero">
-    <view class="home-brand-mark">
-      <view class="home-brand-star">✦</view>
-      <view class="home-brand-vessel"></view>
+    <view class="home-brand-wrap">
+      <image wx:if="{{hasLogo}}" class="home-logo" mode="aspectFit" lazy-load src="{{logoImage}}" />
+      <view wx:else class="home-brand-mark">
+        <view class="home-brand-star">✦</view>
+        <view class="home-brand-vessel"></view>
+      </view>
     </view>
     <view class="home-kicker">酒瓶星贴 · 一张照片 · 一句话</view>
-    <view class="hero-title">给这瓶酒，贴上一颗星</view>
-    <view class="subtitle">贴上酒瓶星贴，上传一张照片，写下一句话。以后扫码，还能看到这一刻。</view>
-    <button class="btn home-primary-cta" bindtap="scanCode">封存这一刻</button>
-    <button class="btn home-buy-cta" bindtap="goProducts">购买酒瓶星贴</button>
+    <view class="hero-title">{{content.home_title}}</view>
+    <view class="subtitle">{{content.home_subtitle}}</view>
+  </view>
+
+  <swiper class="home-carousel" indicator-dots autoplay circular interval="4200">
+    <swiper-item wx:for="{{slides}}" wx:key="title">
+      <view
+        class="home-slide"
+        bindtap="handleSlideAction"
+        data-action="{{item.action_type}}"
+        data-scene="{{item.scene_key}}"
+      >
+        <image wx:if="{{item.image}}" class="home-slide-image" mode="aspectFill" lazy-load src="{{item.image}}" />
+        <view wx:else class="home-slide-fallback">
+          <view class="home-slide-symbol">✦</view>
+        </view>
+        <view class="home-slide-overlay"></view>
+        <view class="home-slide-copy">
+          <view class="home-slide-title">{{item.title}}</view>
+          <view class="home-slide-subtitle">{{item.subtitle}}</view>
+          <button
+            class="btn home-slide-btn"
+            catchtap="handleSlideAction"
+            data-action="{{item.action_type}}"
+            data-scene="{{item.scene_key}}"
+          >{{item.button_text}}</button>
+        </view>
+      </view>
+    </swiper-item>
+  </swiper>
+
+  <view class="home-section home-commerce-section">
+    <view class="home-section-eyebrow">酒瓶星贴，不含酒水</view>
+    <view class="home-section-title">先买星贴，再把故事留在酒瓶上</view>
+    <view class="hint">星贴贴在酒瓶或礼盒上，扫码后可上传照片、写一句话，并生成这瓶酒的专属记录。</view>
+    <button class="btn home-primary-cta" bindtap="goProducts">封存这一刻</button>
     <button class="btn secondary home-scan-link" bindtap="scanCode">已有星贴，扫码记录</button>
   </view>
 
-  <image wx:if="{{hasBanner}}" class="home-banner" mode="aspectFill" lazy-load src="{{bannerImage}}" />
-
   <view class="home-section home-scene-section">
     <view class="home-section-title">这些时刻，适合贴上一颗星</view>
-    <view class="home-scene-grid">
+    <view class="home-scene-list">
       <view
-        wx:for="{{sceneOptions}}"
+        wx:for="{{sceneCards}}"
         wx:key="key"
-        class="home-scene-item"
+        class="home-scene-card"
         bindtap="goSceneProducts"
         data-scene="{{item.key}}"
       >
-        <view class="home-scene-label">{{item.label}}</view>
-        <view class="home-scene-desc">{{item.desc}}</view>
+        <image wx:if="{{item.image}}" class="home-scene-image" mode="aspectFill" lazy-load src="{{item.image}}" />
+        <view wx:else class="home-scene-fallback">
+          <view class="home-scene-symbol">✦</view>
+        </view>
+        <view class="home-scene-copy">
+          <view class="home-scene-label">{{item.label}}</view>
+          <view class="home-scene-title">{{item.title}}</view>
+          <view class="home-scene-desc">{{item.description}}</view>
+          <view class="home-scene-action">{{item.button_text}}</view>
+        </view>
       </view>
-    </view>
-  </view>
-
-  <view class="home-section home-commerce-section">
-    <view class="home-section-title">酒瓶星贴，不含酒水</view>
-    <view class="hint">先把星贴贴在酒瓶上，扫码后就能留下这瓶酒的专属记忆。</view>
-    <view class="home-commerce-actions">
-      <button class="btn secondary home-entry-btn" bindtap="goProducts">购买酒瓶星贴</button>
-      <button wx:if="{{hasConsultUrl}}" class="btn secondary home-entry-btn" bindtap="copyConsultLink">{{content.consult_label}}</button>
     </view>
   </view>
 
@@ -43,10 +75,5 @@
     <view class="home-trust-item">区块链存证</view>
     <view class="home-trust-item">不可篡改</view>
     <view class="home-trust-item">封存后可查看</view>
-  </view>
-
-  <view class="home-secondary-actions">
-    <button class="btn secondary home-entry-btn" bindtap="goProject">关于</button>
-    <button class="btn secondary home-entry-btn" bindtap="goMe">我的星星</button>
   </view>
 </view>

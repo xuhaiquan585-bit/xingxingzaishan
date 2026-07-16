@@ -14,9 +14,43 @@ const dataFile = process.env.DB_FILE
 const CO_CREATION_COMMENT_LIMIT = 12;
 
 const DEFAULT_MINIAPP_CONTENT = {
-  home_title: '把此刻，记在这瓶酒里',
-  home_subtitle: '让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。',
+  home_title: '给这瓶酒，贴上一颗星',
+  home_subtitle: '酒瓶星贴，不含酒水；贴上后扫码，留下照片和一句话。',
+  logo_image: '',
   home_banner_image: '',
+  home_slides: [
+    {
+      image: '',
+      title: '给这瓶酒，贴上一颗星',
+      subtitle: '一张照片，一句话，让这瓶酒有自己的故事。',
+      button_text: '去封存',
+      action_type: 'products',
+      scene_key: 'free'
+    },
+    {
+      image: '',
+      title: '把说不出口的话，留在酒里',
+      subtitle: '贴上星贴，扫码后就能留下这一次举杯。',
+      button_text: '选择星贴',
+      action_type: 'products',
+      scene_key: 'lover'
+    },
+    {
+      image: '',
+      title: '已有星贴，直接扫码记录',
+      subtitle: '拿到酒瓶星贴后，扫码上传照片和一句话。',
+      button_text: '扫码记录',
+      action_type: 'scan',
+      scene_key: 'free'
+    }
+  ],
+  scene_cards: [
+    { key: 'lover', label: '恋人', title: '恋人', description: '把说不出口的话，贴在这一瓶酒上。', image: '', button_text: '查看恋人星贴' },
+    { key: 'elder', label: '长辈', title: '长辈', description: '把感谢和祝福，认真留给重要的人。', image: '', button_text: '查看长辈星贴' },
+    { key: 'birthday', label: '生日', title: '生日', description: '把今天的祝福，留到以后还能看见。', image: '', button_text: '查看生日星贴' },
+    { key: 'wedding', label: '婚礼', title: '婚礼', description: '把承诺和祝福，留在共同举杯时。', image: '', button_text: '查看婚礼星贴' },
+    { key: 'party', label: '聚会', title: '聚会', description: '让一桌人的话，一起留在这瓶酒里。', image: '', button_text: '查看聚会星贴' }
+  ],
   project_title: '星星在闪',
   project_body: '把值得记住的时刻，存在这瓶酒里。适合成年礼、婚礼、生日、纪念日和送礼。',
   brand_story_title: '关于记在星上',
@@ -1429,11 +1463,67 @@ function updateOrderShipment(orderId, input = {}) {
   return { data: orderPayload(db.orders[index]) };
 }
 
+function normalizeImageUrl(value) {
+  return String(value || '').trim();
+}
+
+function isValidImageUrl(value) {
+  return !value || /^https?:\/\//i.test(value) || value.startsWith('/');
+}
+
+function normalizeHomeSlides(input, existing) {
+  const source = Array.isArray(input)
+    ? input
+    : Array.isArray(existing)
+      ? existing
+      : DEFAULT_MINIAPP_CONTENT.home_slides;
+  const normalized = source.slice(0, 5).map((item, index) => {
+    const fallback = DEFAULT_MINIAPP_CONTENT.home_slides[index] || DEFAULT_MINIAPP_CONTENT.home_slides[0];
+    const actionType = ['products', 'scene', 'scan'].includes(item && item.action_type)
+      ? item.action_type
+      : fallback.action_type;
+    const sceneKey = PRODUCT_SCENE_KEYS.includes(item && item.scene_key) ? item.scene_key : fallback.scene_key;
+    return {
+      image: normalizeImageUrl(item && item.image),
+      title: String((item && item.title) || fallback.title || '').trim() || fallback.title,
+      subtitle: String((item && item.subtitle) || fallback.subtitle || '').trim() || fallback.subtitle,
+      button_text: String((item && item.button_text) || fallback.button_text || '').trim() || fallback.button_text,
+      action_type: actionType,
+      scene_key: sceneKey
+    };
+  });
+  return normalized.length ? normalized : DEFAULT_MINIAPP_CONTENT.home_slides;
+}
+
+function normalizeSceneCards(input, existing) {
+  const source = Array.isArray(input)
+    ? input
+    : Array.isArray(existing)
+      ? existing
+      : DEFAULT_MINIAPP_CONTENT.scene_cards;
+  const normalized = source.slice(0, 8).map((item, index) => {
+    const fallback = DEFAULT_MINIAPP_CONTENT.scene_cards[index] || DEFAULT_MINIAPP_CONTENT.scene_cards[0];
+    const key = PRODUCT_SCENE_KEYS.includes(item && item.key) ? item.key : fallback.key;
+    return {
+      key,
+      label: String((item && item.label) || fallback.label || '').trim() || fallback.label,
+      title: String((item && item.title) || fallback.title || '').trim() || fallback.title,
+      description: String((item && item.description) || fallback.description || '').trim() || fallback.description,
+      image: normalizeImageUrl(item && item.image),
+      button_text: String((item && item.button_text) || fallback.button_text || '').trim() || fallback.button_text
+    };
+  });
+  return normalized.length ? normalized : DEFAULT_MINIAPP_CONTENT.scene_cards;
+}
+
 function normalizeMiniappContent(input = {}, existing = {}) {
   return {
     home_title: String(input.home_title ?? existing.home_title ?? DEFAULT_MINIAPP_CONTENT.home_title).trim() || DEFAULT_MINIAPP_CONTENT.home_title,
     home_subtitle: String(input.home_subtitle ?? existing.home_subtitle ?? DEFAULT_MINIAPP_CONTENT.home_subtitle).trim() || DEFAULT_MINIAPP_CONTENT.home_subtitle,
-    home_banner_image: String(input.home_banner_image ?? existing.home_banner_image ?? '').trim(),
+    logo_image: normalizeImageUrl(input.logo_image ?? existing.logo_image ?? ''),
+    home_banner_image: normalizeImageUrl(input.home_banner_image ?? existing.home_banner_image ?? ''),
+    home_slides: normalizeHomeSlides(input.home_slides, existing.home_slides),
+    scene_cards: normalizeSceneCards(input.scene_cards, existing.scene_cards),
     project_title: String(input.project_title ?? existing.project_title ?? DEFAULT_MINIAPP_CONTENT.project_title).trim() || DEFAULT_MINIAPP_CONTENT.project_title,
     project_body: String(input.project_body ?? existing.project_body ?? DEFAULT_MINIAPP_CONTENT.project_body).trim() || DEFAULT_MINIAPP_CONTENT.project_body,
     brand_story_title: String(input.brand_story_title ?? existing.brand_story_title ?? DEFAULT_MINIAPP_CONTENT.brand_story_title).trim() || DEFAULT_MINIAPP_CONTENT.brand_story_title,
@@ -1448,8 +1538,19 @@ function normalizeMiniappContent(input = {}, existing = {}) {
 }
 
 function validateMiniappContent(data) {
-  if (data.home_banner_image && !/^https?:\/\//i.test(data.home_banner_image) && !data.home_banner_image.startsWith('/')) {
+  if (!isValidImageUrl(data.logo_image)) {
+    return 'LOGO 图片需填写 http(s) 地址或站内路径。';
+  }
+  if (!isValidImageUrl(data.home_banner_image)) {
     return '首页 Banner 图片需填写 http(s) 地址或站内路径。';
+  }
+  const invalidSlide = (data.home_slides || []).find((item) => !isValidImageUrl(item.image));
+  if (invalidSlide) {
+    return '轮播图片需填写 http(s) 地址或站内路径。';
+  }
+  const invalidScene = (data.scene_cards || []).find((item) => !isValidImageUrl(item.image));
+  if (invalidScene) {
+    return '场景图片需填写 http(s) 地址或站内路径。';
   }
   if (data.consult_url && !/^https?:\/\//i.test(data.consult_url)) {
     return '咨询入口链接必须以 http:// 或 https:// 开头。';

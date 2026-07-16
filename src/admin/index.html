@@ -219,7 +219,20 @@
             <div class="form-grid">
               <label>首页标题<input id="contentHomeTitle" /></label>
               <label>首页副标题<input id="contentHomeSubtitle" /></label>
+              <label>LOGO 图片 URL<input id="contentLogoImage" /></label>
               <label>首页 Banner 图片 URL<input id="contentHomeBanner" /></label>
+              <label class="wide">内容图片上传
+                <input id="contentImageUpload" type="file" accept="image/*" />
+                <select id="contentImageUploadTarget">
+                  <option value="logo">上传后填入 LOGO</option>
+                  <option value="banner">上传后填入 Banner</option>
+                  <option value="none">仅上传，手动复制 URL</option>
+                </select>
+                <button id="uploadMiniappImageBtn" type="button">上传图片</button>
+                <input id="contentImageUploadedUrl" readonly placeholder="最近上传图片 URL，可复制到轮播/场景 JSON" />
+              </label>
+              <label class="wide">首页轮播 JSON<textarea id="contentHomeSlides" placeholder='[{"image":"","title":"给这瓶酒，贴上一颗星","subtitle":"一张照片，一句话。","button_text":"去封存","action_type":"products","scene_key":"free"}]'></textarea></label>
+              <label class="wide">场景卡片 JSON<textarea id="contentSceneCards" placeholder='[{"key":"lover","label":"恋人","title":"恋人","description":"把说不出口的话，贴在这一瓶酒上。","image":"","button_text":"查看恋人星贴"}]'></textarea></label>
               <label>项目说明标题<input id="contentProjectTitle" /></label>
               <label class="wide">项目说明正文<textarea id="contentProjectBody"></textarea></label>
               <label>品牌故事标题<input id="contentBrandTitle" /></label>

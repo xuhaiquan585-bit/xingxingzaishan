@@ -717,6 +717,11 @@ test('admin page should expose section navigation and miniapp content tools', ()
     assert.equal(html.includes(`data-admin-section="${section}"`), true);
   });
   assert.equal(html.includes('id="miniappContentPanel"'), true);
+  assert.equal(html.includes('id="contentLogoImage"'), true);
+  assert.equal(html.includes('id="contentHomeSlides"'), true);
+  assert.equal(html.includes('id="contentSceneCards"'), true);
+  assert.equal(html.includes('id="uploadMiniappImageBtn"'), true);
+  assert.equal(html.includes('id="contentImageUploadedUrl"'), true);
   assert.equal(html.includes('id="systemPanel"'), true);
   assert.equal(html.includes('id="productSceneTags"'), true);
   assert.equal(html.includes('id="productPriceCents"'), true);
@@ -728,6 +733,10 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(js.includes('function activateAdminSection'), true);
   assert.equal(js.includes('async function loadContentRecords'), true);
   assert.equal(js.includes('async function loadMiniappContent'), true);
+  assert.equal(js.includes('async function uploadMiniappContentImage'), true);
+  assert.equal(js.includes('/api/admin/upload-image'), true);
+  assert.equal(js.includes('contentImageUploadedUrl'), true);
+  assert.equal(js.includes("readJsonArrayField('contentHomeSlides'"), true);
   assert.equal(js.includes('async function loadSystemStatus'), true);
   assert.equal(js.includes('scene_tags: getProductSceneTags()'), true);
   assert.equal(js.includes('async function loadOrders'), true);
@@ -909,19 +918,25 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(coCreateWxss.includes('"Songti SC", STSong, serif'), true);
   assert.equal(coCreateWxss.includes('-webkit-backdrop-filter: blur(16px)'), true);
   assert.equal(homeWxml.includes('bindtap="scanCode"'), true);
-  assert.equal(homeWxml.includes('bindtap="goProject"'), true);
+  assert.equal(homeWxml.includes('bindtap="goProject"'), false);
   assert.equal(homeWxml.includes('bindtap="goProducts"'), true);
-  assert.equal(homeWxml.includes('bindtap="copyConsultLink"'), true);
-  assert.equal(homeWxml.includes('bindtap="goMe"'), true);
-  assert.equal(homeWxml.includes('<button class="btn home-primary-cta" bindtap="scanCode">封存这一刻</button>'), true);
+  assert.equal(homeWxml.includes('bindtap="copyConsultLink"'), false);
+  assert.equal(homeWxml.includes('bindtap="goMe"'), false);
+  assert.equal(homeWxml.includes('<button class="btn home-primary-cta" bindtap="goProducts">封存这一刻</button>'), true);
+  assert.equal(homeWxml.includes('<button class="btn home-primary-cta" bindtap="scanCode">封存这一刻</button>'), false);
   assert.equal(homeWxml.includes('bindtap="goSceneProducts"'), true);
+  assert.equal(homeWxml.includes('bindtap="handleSlideAction"'), true);
+  assert.equal(homeWxml.includes('<swiper class="home-carousel"'), true);
+  assert.equal(homeWxml.includes('class="home-logo"'), true);
+  assert.equal(homeWxml.includes('class="home-slide-image"'), true);
+  assert.equal(homeWxml.includes('class="home-scene-image"'), true);
   assert.equal(homeWxml.includes('class="home-brand-mark"'), true);
-  assert.equal(homeWxml.includes('给这瓶酒，贴上一颗星'), true);
+  assert.equal(homeWxml.includes('{{content.home_title}}'), true);
   assert.equal(homeWxml.includes('酒瓶星贴'), true);
   assert.equal(homeWxml.includes('一张照片'), true);
   assert.equal(homeWxml.includes('一句话'), true);
   assert.equal(homeWxml.includes('封存这一刻'), true);
-  assert.equal(homeWxml.includes('购买酒瓶星贴'), true);
+  assert.equal(homeWxml.includes('购买酒瓶星贴'), false);
   assert.equal(homeWxml.includes('已有星贴，扫码记录'), true);
   assert.equal(homeWxml.includes('class="home-section home-scene-section"'), true);
   assert.equal(homeJs.includes("key: 'lover'"), true);
@@ -938,13 +953,21 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(homeWxml.includes('封存后可查看'), true);
   assert.equal(homeWxml.includes('不含酒水'), true);
   assert.equal(homeWxml.includes('购物车'), false);
+  assert.equal(homeWxml.includes('home-secondary-actions'), false);
   assert.equal(homeWxml.includes('lazy-load'), true);
   assert.equal(homeJs.includes('onShareTimeline'), true);
+  assert.equal(homeJs.includes('handleSlideAction'), true);
+  assert.equal(homeJs.includes('this.goProducts();'), true);
+  assert.equal(homeJs.includes('normalizeSceneCards'), true);
+  assert.equal(homeJs.includes('goProject()'), false);
+  assert.equal(homeJs.includes('copyConsultLink()'), false);
+  assert.equal(homeJs.includes('goMe()'), false);
+  assert.equal(homeJs.includes('hasConsultUrl'), false);
   assert.equal(homeWxml.includes('class="btn home-primary-cta"'), true);
   assert.equal(homeWxss.includes('.home-brand-star'), true);
-  assert.equal(homeWxss.includes('.home-scene-grid'), true);
-  assert.equal(homeWxss.includes('.home-commerce-actions'), true);
-  assert.equal(homeWxss.includes('box-shadow: 0 18rpx 42rpx'), true);
+  assert.equal(homeWxss.includes('.home-carousel'), true);
+  assert.equal(homeWxss.includes('.home-scene-list'), true);
+  assert.equal(homeWxss.includes('.home-slide-image'), true);
   assert.equal(productsWxml.includes('封存'), true);
   assert.equal(productsWxml.includes('酒瓶星贴'), true);
   assert.equal(productsWxml.includes('不含酒水'), true);
@@ -1109,12 +1132,53 @@ test('admin miniapp content should update public miniapp content', async () => {
 
   const defaultRes = await getJson('/api/admin/miniapp-content', token);
   assert.equal(defaultRes.status, 200);
-  assert.equal(defaultRes.body.data.home_title, '把此刻，记在这瓶酒里');
+  assert.equal(defaultRes.body.data.home_title, '给这瓶酒，贴上一颗星');
+  assert.equal(Array.isArray(defaultRes.body.data.home_slides), true);
+  assert.equal(Array.isArray(defaultRes.body.data.scene_cards), true);
+
+  const imageData = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+    'base64'
+  );
+  const uploadRes = await postMultipart('/api/admin/upload-image', {
+    fields: { scope: 'miniapp-content' },
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'miniapp-logo.png',
+        contentType: 'image/png',
+        content: imageData
+      }
+    ]
+  }, token);
+  assert.equal(uploadRes.status, 200);
+  assert.ok(uploadRes.body.data.url);
 
   const updateRes = await postJson('/api/admin/miniapp-content', {
     home_title: '记在星上测试',
     home_subtitle: '测试副标题',
+    logo_image: uploadRes.body.data.url,
     home_banner_image: '/uploads/banner.jpg',
+    home_slides: [
+      {
+        image: '/uploads/slide.jpg',
+        title: '轮播标题',
+        subtitle: '轮播副标题',
+        button_text: '去封存',
+        action_type: 'scene',
+        scene_key: 'lover'
+      }
+    ],
+    scene_cards: [
+      {
+        key: 'elder',
+        label: '长辈',
+        title: '长辈场景',
+        description: '给长辈的一句话',
+        image: '/uploads/elder.jpg',
+        button_text: '查看长辈星贴'
+      }
+    ],
     project_title: '项目说明测试',
     project_body: '项目正文',
     brand_story_title: '品牌故事测试',
@@ -1130,14 +1194,76 @@ test('admin miniapp content should update public miniapp content', async () => {
   const publicRes = await getJson('/api/miniapp/content');
   assert.equal(publicRes.status, 200);
   assert.equal(publicRes.body.data.home_title, '记在星上测试');
+  assert.equal(publicRes.body.data.logo_image, uploadRes.body.data.url);
+  assert.equal(publicRes.body.data.home_slides[0].scene_key, 'lover');
+  assert.equal(publicRes.body.data.scene_cards[0].key, 'elder');
   assert.equal(publicRes.body.data.consult_url, 'https://ktt.example.com/shop');
   assert.equal(Object.hasOwn(publicRes.body.data, 'updated_by'), false);
 
   const invalidRes = await postJson('/api/admin/miniapp-content', {
-    consult_url: 'javascript:alert(1)'
+    logo_image: 'javascript:alert(1)'
   }, token);
   assert.equal(invalidRes.status, 400);
   assert.equal(invalidRes.body.code, 'VALIDATION_ERROR');
+});
+
+test('admin miniapp image upload should reject invalid files and missing cloud public url', async () => {
+  const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const token = login.body.data.token;
+
+  const fakeImageRes = await postMultipart('/api/admin/upload-image', {
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'fake.png',
+        contentType: 'image/png',
+        content: Buffer.from('not a real image')
+      }
+    ]
+  }, token);
+  assert.equal(fakeImageRes.status, 400);
+  assert.equal(fakeImageRes.body.code, 'UPLOAD_FAILED');
+
+  const largeImageRes = await postMultipart('/api/admin/upload-image', {
+    files: [
+      {
+        fieldName: 'image',
+        filename: 'large.png',
+        contentType: 'image/png',
+        content: Buffer.alloc(5 * 1024 * 1024 + 1)
+      }
+    ]
+  }, token);
+  assert.equal(largeImageRes.status, 413);
+  assert.equal(largeImageRes.body.code, 'UPLOAD_TOO_LARGE');
+
+  const oldStorageMode = process.env.STORAGE_MODE;
+  const oldCloudPublicBaseUrl = process.env.CLOUD_PUBLIC_BASE_URL;
+  try {
+    process.env.STORAGE_MODE = 'cloud';
+    delete process.env.CLOUD_PUBLIC_BASE_URL;
+    const imageData = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+      'base64'
+    );
+    const cloudConfigRes = await postMultipart('/api/admin/upload-image', {
+      files: [
+        {
+          fieldName: 'image',
+          filename: 'cloud.png',
+          contentType: 'image/png',
+          content: imageData
+        }
+      ]
+    }, token);
+    assert.equal(cloudConfigRes.status, 400);
+    assert.equal(cloudConfigRes.body.code, 'STORAGE_PUBLIC_URL_REQUIRED');
+  } finally {
+    if (oldStorageMode === undefined) delete process.env.STORAGE_MODE;
+    else process.env.STORAGE_MODE = oldStorageMode;
+    if (oldCloudPublicBaseUrl === undefined) delete process.env.CLOUD_PUBLIC_BASE_URL;
+    else process.env.CLOUD_PUBLIC_BASE_URL = oldCloudPublicBaseUrl;
+  }
 });
 
 test('admin system status should not leak secrets', async () => {

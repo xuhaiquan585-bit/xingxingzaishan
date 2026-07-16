@@ -134,6 +134,14 @@ function createApp() {
   app.use('/api/payment', paymentRoutes);
 
   app.use((err, _req, res, _next) => {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        status: 'error',
+        code: 'UPLOAD_TOO_LARGE',
+        message: '图片不能超过 5MB，请压缩后重新上传。'
+      });
+    }
+
     if (err.message === '仅支持图片文件上传') {
       return res.status(400).json({
         status: 'error',
