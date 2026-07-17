@@ -1,7 +1,7 @@
 <view class="page home-page">
   <view class="home-hero">
     <view class="home-brand-wrap">
-      <image wx:if="{{hasLogo}}" class="home-logo" mode="aspectFit" lazy-load src="{{logoImage}}" />
+      <image wx:if="{{hasLogo}}" class="home-logo" mode="aspectFit" lazy-load src="{{logoImage}}" binderror="onLogoError" />
       <view wx:else class="home-brand-mark">
         <view class="home-brand-star">✦</view>
         <view class="home-brand-vessel"></view>

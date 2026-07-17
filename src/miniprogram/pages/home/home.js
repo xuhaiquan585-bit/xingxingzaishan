@@ -87,6 +87,13 @@ Page({
     }).catch(() => {});
   },
 
+  onLogoError() {
+    this.setData({
+      logoImage: '',
+      hasLogo: false
+    });
+  },
+
   normalizeSlides(slides, bannerImage) {
     const source = Array.isArray(slides) && slides.length ? slides : DEFAULT_SLIDES;
     return source.slice(0, 5).map((item, index) => ({
