@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>记在星上 - 保存成功视觉原型</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    :root {
+      color-scheme: dark;
+      --bg: #050b14;
+      --panel: rgba(255, 255, 255, .03);
+      --line: rgba(255, 255, 255, .08);
+      --text: #e2e8f0;
+      --muted: #73839a;
+      --gold: #d4af37;
+      --gold-muted: #9f8341;
+      --green: #8fad88;
+    }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    .phone-canvas {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      max-width: 375px;
+      min-height: 100vh;
+      padding: 40px 24px calc(40px + env(safe-area-inset-bottom));
+      overflow: hidden;
+      background: var(--bg);
+    }
+
+    .status-header {
+      margin-bottom: 32px;
+      text-align: center;
+      animation: fadeIn .6s ease-out forwards;
+    }
+
+    .status-title {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-bottom: 6px;
+      color: var(--gold);
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 2px;
+    }
+
+    .status-title::before {
+      content: "✦";
+      font-size: 14px;
+    }
+
+    .brand-slogan {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 1px;
+    }
+
+    .photo-container {
+      width: 100%;
+      margin-bottom: 22px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, .05);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .02);
+    }
+
+    .memory-image {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: 380px;
+      object-fit: contain;
+    }
+
+    .user-message-box {
+      width: 100%;
+      margin-bottom: 30px;
+      padding: 0 8px;
+      text-align: center;
+    }
+
+    .user-message-text {
+      color: var(--text);
+      font-family: "Songti SC", STSong, "Noto Serif CJK SC", Georgia, serif;
+      font-size: 17px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .archive-panel {
+      margin-bottom: 34px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .archive-title {
+      margin-bottom: 14px;
+      color: var(--gold-muted);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 1px;
+    }
+
+    .archive-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+
+    .archive-row:last-of-type {
+      margin-bottom: 16px;
+    }
+
+    .archive-label {
+      flex: 0 0 auto;
+      color: var(--muted);
+    }
+
+    .archive-value {
+      min-width: 0;
+      color: var(--text);
+      font-family: "Courier New", Courier, monospace;
+      text-align: right;
+      overflow-wrap: anywhere;
+    }
+
+    .status-tag {
+      color: var(--green);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-weight: 500;
+    }
+
+    .archive-divider {
+      height: 1px;
+      margin-bottom: 14px;
+      background: rgba(255, 255, 255, .06);
+    }
+
+    .credential-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--gold-muted);
+      font-size: 12px;
+      text-decoration: none;
+      cursor: pointer;
+      transition: color .2s;
+    }
+
+    .credential-link:active {
+      color: var(--gold);
+    }
+
+    .action-bar {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+      margin-top: auto;
+    }
+
+    .btn {
+      width: 100%;
+      height: 48px;
+      border: 0;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color .2s;
+    }
+
+    .btn-primary {
+      background: var(--gold);
+      color: var(--bg);
+    }
+
+    .btn-primary:active {
+      background: #bca032;
+    }
+
+    .btn-secondary {
+      border: 1px solid rgba(255, 255, 255, .2);
+      background: transparent;
+      color: var(--text);
+    }
+
+    .btn-secondary:active {
+      background: rgba(255, 255, 255, .05);
+    }
+
+    .info-footer {
+      margin-top: 20px;
+      text-align: center;
+    }
+
+    .info-link {
+      color: var(--muted);
+      font-size: 11px;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .info-link:active {
+      color: var(--text);
+    }
+
+    .ratio-switcher {
+      position: fixed;
+      right: 12px;
+      bottom: 12px;
+      display: flex;
+      gap: 6px;
+      padding: 6px;
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 8px;
+      background: rgba(5, 11, 20, .86);
+    }
+
+    .ratio-switcher a {
+      min-width: 38px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+      text-decoration: none;
+    }
+
+    .ratio-switcher a.is-active {
+      background: rgba(212, 175, 55, .16);
+      color: var(--gold);
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="phone-canvas">
+    <header class="status-header">
+      <h1 class="status-title">保存成功</h1>
+      <p class="brand-slogan">记在星上，闪到永远</p>
+    </header>
+
+    <div class="photo-container">
+      <img class="memory-image" id="js-memory-image" alt="用户上传照片完整预览">
+    </div>
+
+    <section class="user-message-box">
+      <p class="user-message-text">愿我们如发财树般坚韧，在时光的缝隙里，闪闪发光。</p>
+    </section>
+
+    <section class="archive-panel">
+      <h2 class="archive-title">关于这段记忆</h2>
+
+      <div class="archive-row">
+        <span class="archive-label">星星 ID</span>
+        <span class="archive-value">DEMO00008</span>
+      </div>
+
+      <div class="archive-row">
+        <span class="archive-label">封存时间</span>
+        <span class="archive-value">2026/07/19 01:37</span>
+      </div>
+
+      <div class="archive-row">
+        <span class="archive-label">区块链状态</span>
+        <span class="archive-value status-tag">存证生成中</span>
+      </div>
+
+      <div class="archive-divider"></div>
+
+      <div class="credential-action">
+        <a class="credential-link" id="js-view-credential" href="#">
+          查看存证凭证 <span>&gt;</span>
+        </a>
+      </div>
+    </section>
+
+    <footer class="action-bar">
+      <button class="btn btn-primary" id="js-btn-share" type="button">分享给朋友</button>
+      <button class="btn btn-secondary" id="js-btn-records" type="button">查看我的记录</button>
+
+      <div class="info-footer">
+        <a class="info-link" id="js-info-explain" href="#">这是什么？别人扫码就能看到您的记录了</a>
+      </div>
+    </footer>
+  </main>
+
+  <nav class="ratio-switcher" aria-label="照片比例切换">
+    <a data-mode="portrait" href="?mode=portrait">竖图</a>
+    <a data-mode="landscape" href="?mode=landscape">横图</a>
+    <a data-mode="square" href="?mode=square">方图</a>
+  </nav>
+
+  <script>
+    const DEMO_IMAGES = {
+      portrait: {
+        src: 'assets/portrait.jpg',
+        alt: '竖图照片测试'
+      },
+      landscape: {
+        src: 'assets/landscape.jpg',
+        alt: '横图照片测试'
+      },
+      square: {
+        src: 'assets/square.png',
+        alt: '接近正方形图片测试'
+      }
+    };
+
+    function on(id, eventName, handler) {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener(eventName, handler);
+      }
+    }
+
+    function getMode() {
+      const params = new URLSearchParams(window.location.search);
+      const mode = params.get('mode');
+      return Object.prototype.hasOwnProperty.call(DEMO_IMAGES, mode) ? mode : 'portrait';
+    }
+
+    function setDemoImage() {
+      const mode = getMode();
+      const image = DEMO_IMAGES[mode];
+      const imageEl = document.getElementById('js-memory-image');
+      if (imageEl) {
+        imageEl.src = image.src;
+        imageEl.alt = image.alt;
+      }
+      document.querySelectorAll('.ratio-switcher a').forEach((link) => {
+        link.classList.toggle('is-active', link.dataset.mode === mode);
+      });
+    }
+
+    setDemoImage();
+
+    on('js-view-credential', 'click', function(event) {
+      event.preventDefault();
+      console.log('prototype: view credential');
+    });
+
+    on('js-btn-share', 'click', function() {
+      console.log('prototype: share');
+    });
+
+    on('js-btn-records', 'click', function() {
+      console.log('prototype: records');
+    });
+
+    on('js-info-explain', 'click', function(event) {
+      event.preventDefault();
+      console.log('prototype: explain');
+    });
+  </script>
+</body>
+</html>
