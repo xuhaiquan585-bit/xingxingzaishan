@@ -4,9 +4,16 @@
   padding: 58rpx 28rpx 160rpx;
   padding-bottom: calc(160rpx + env(safe-area-inset-bottom));
   background:
-    radial-gradient(circle at 12% 0%, rgba(212, 175, 55, .07), transparent 28%),
-    radial-gradient(circle at 92% 14%, rgba(118, 151, 255, .12), transparent 30%),
-    linear-gradient(170deg, #07123a 0%, #121f55 54%, #223167 100%);
+    radial-gradient(
+      circle at 92% 5%,
+      rgba(36, 52, 83, .18),
+      transparent 28%
+    ),
+    linear-gradient(
+      180deg,
+      #08111E 0%,
+      #050B14 100%
+    );
 }
 
 .record-glow {
@@ -20,7 +27,7 @@
   right: -180rpx;
   width: 340rpx;
   height: 340rpx;
-  background: rgba(212, 175, 55, .055);
+  background: rgba(36, 52, 83, .08);
 }
 
 .record-glow-bottom {
@@ -28,7 +35,7 @@
   bottom: 70rpx;
   width: 520rpx;
   height: 300rpx;
-  background: rgba(212, 175, 55, .06);
+  background: transparent;
   transform: translateX(-50%);
 }
 
@@ -45,7 +52,7 @@
 .record-title {
   max-width: 600rpx;
   margin-bottom: 14rpx;
-  color: #e4c46e;
+  color: #EDF1F5;
   font-size: 46rpx;
   line-height: 1.32;
   font-weight: 700;
@@ -54,7 +61,7 @@
 
 .trust-line {
   margin-top: 16rpx;
-  color: rgba(212, 175, 55, .68);
+  color: rgba(197, 164, 94, .78);
   font-size: 23rpx;
   font-weight: 600;
   letter-spacing: .5rpx;
@@ -62,17 +69,17 @@
 
 .record-subtitle {
   max-width: 600rpx;
-  color: rgba(255, 255, 255, .74);
+  color: #A4AFBD;
   font-size: 28rpx;
   line-height: 1.62;
 }
 
 .record-card {
-  padding: 28rpx;
-  border-color: rgba(255, 255, 255, .08);
-  border-radius: 20rpx;
-  background: rgba(255, 255, 255, .04);
-  box-shadow: 0 22rpx 56rpx rgba(4, 10, 38, .16), inset 0 1rpx 0 rgba(255, 255, 255, .06);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .record-card,
@@ -80,8 +87,8 @@
 .textarea-shell,
 .mode-card,
 .brand-disclosure-card {
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .record-meta-row {
@@ -90,17 +97,17 @@
   justify-content: flex-start;
   gap: 10rpx;
   margin-bottom: 18rpx;
-  color: rgba(255, 255, 255, .5);
+  color: rgba(164, 175, 189, .76);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 22rpx;
 }
 
 .record-meta-label {
-  color: rgba(255, 255, 255, .42);
+  color: rgba(164, 175, 189, .62);
 }
 
 .record-meta-value {
-  color: rgba(255, 255, 255, .68);
+  color: rgba(237, 241, 245, .78);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-weight: 600;
   letter-spacing: 0;
@@ -130,10 +137,10 @@
   align-items: center;
   justify-content: center;
   min-height: 280rpx;
-  border: 2rpx dashed rgba(212, 175, 55, .5);
-  border-radius: 20rpx;
-  background: rgba(255, 255, 255, .035);
-  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, .06);
+  border: 1px dashed rgba(197, 164, 94, .28);
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, .02);
+  box-shadow: none;
 }
 
 .photo-icon {
@@ -143,15 +150,15 @@
   width: 86rpx;
   height: 86rpx;
   margin-bottom: 22rpx;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, .06);
-  color: #d4af37;
+  border-radius: 14rpx;
+  background: transparent;
+  color: #C5A45E;
   font-size: 48rpx;
   line-height: 1;
 }
 
 .photo-title {
-  color: #fff;
+  color: #EDF1F5;
   font-size: 31rpx;
   font-weight: 700;
 }
@@ -164,7 +171,7 @@
 
 .photo-action {
   margin-top: 18rpx;
-  color: #d4af37;
+  color: #C5A45E;
   font-size: 25rpx;
   font-weight: 700;
 }
@@ -172,8 +179,8 @@
 .preview {
   display: block;
   margin: 0;
-  border-radius: 20rpx;
-  background: rgba(255, 255, 255, .035);
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, .02);
 }
 
 .field-block {
@@ -182,17 +189,17 @@
 
 .field-title {
   margin-bottom: 14rpx;
-  color: rgba(255, 255, 255, .86);
+  color: #EDF1F5;
   font-size: 32rpx;
   font-weight: 700;
 }
 
 .textarea-shell {
   position: relative;
-  border: 1rpx solid rgba(255, 255, 255, .1);
-  border-radius: 20rpx;
-  background: rgba(255, 255, 255, .04);
-  box-shadow: inset 0 6rpx 18rpx rgba(2, 7, 28, .18), inset 0 1rpx 0 rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, .025);
+  box-shadow: none;
 }
 
 .memory-textarea {
@@ -200,7 +207,7 @@
   margin: 0;
   padding: 24rpx 24rpx 64rpx;
   border: 0;
-  border-radius: 20rpx;
+  border-radius: 16rpx;
   background: transparent;
   box-shadow: none;
   font-family: "Songti SC", STSong, serif;
@@ -212,7 +219,7 @@
   position: absolute;
   right: 24rpx;
   bottom: 20rpx;
-  color: rgba(255, 255, 255, .54);
+  color: rgba(164, 175, 189, .68);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 23rpx;
   text-align: right;
@@ -231,16 +238,16 @@
   align-items: flex-start;
   gap: 18rpx;
   padding: 28rpx 22rpx;
-  border: 1rpx solid rgba(255, 255, 255, .1);
-  border-radius: 20rpx;
-  background: rgba(255, 255, 255, .04);
-  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, .015);
+  box-shadow: none;
 }
 
 .mode-card-active {
-  border-color: rgba(212, 175, 55, .62);
-  background: rgba(212, 175, 55, .09);
-  box-shadow: 0 10rpx 28rpx rgba(212, 175, 55, .08), inset 0 1rpx 0 rgba(255, 255, 255, .06);
+  border-color: rgba(197, 164, 94, .5);
+  background: rgba(197, 164, 94, .05);
+  box-shadow: none;
 }
 
 .mode-radio {
@@ -257,27 +264,35 @@
   justify-content: center;
   width: 34rpx;
   height: 34rpx;
-  border: 1rpx solid rgba(255, 255, 255, .28);
+  border: 1px solid rgba(255, 255, 255, .26);
   border-radius: 50%;
-  color: #141414;
-  font-size: 21rpx;
+  color: transparent;
+  font-size: 0;
   font-weight: 800;
 }
 
 .mode-card-active .mode-indicator {
-  border-color: #d4af37;
-  background: #d4af37;
+  border-color: rgba(197, 164, 94, .76);
+  background: transparent;
+}
+
+.mode-card-active .mode-indicator::after {
+  content: "";
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: #C5A45E;
 }
 
 .mode-title {
-  color: #fff;
+  color: #EDF1F5;
   font-size: 32rpx;
   font-weight: 700;
 }
 
 .mode-desc {
   margin-top: 6rpx;
-  color: rgba(255, 255, 255, .74);
+  color: #A4AFBD;
   font-size: 26rpx;
   line-height: 1.5;
 }
@@ -285,14 +300,14 @@
 .brand-disclosure-card {
   margin: 0 0 30rpx;
   padding: 20rpx;
-  border: 1rpx solid rgba(255, 255, 255, .1);
-  border-radius: 20rpx;
-  background: rgba(255, 255, 255, .04);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, .02);
 }
 
 .brand-preview-text {
   margin-bottom: 16rpx;
-  color: rgba(255, 255, 255, .64);
+  color: #A4AFBD;
   font-size: 24rpx;
   line-height: 1.55;
 }
@@ -300,7 +315,7 @@
 .brand-toggle-row {
   display: flex;
   align-items: center;
-  color: #fff;
+  color: #EDF1F5;
   font-size: 26rpx;
 }
 
@@ -310,14 +325,26 @@
 
 .brand-label {
   margin-left: 12rpx;
-  color: rgba(255, 255, 255, .88);
+  color: rgba(237, 241, 245, .86);
 }
 
 .record-submit {
+  height: 96rpx;
   min-height: 96rpx;
   margin-top: 4rpx;
-  background: #d4af37;
-  box-shadow: 0 12rpx 24rpx rgba(212, 175, 55, .25);
+  border-radius: 14rpx;
+  background: #C5A45E;
+  color: #050B14;
+  box-shadow: none;
+}
+
+.record-submit::after,
+.btn-submit::after {
+  border: none;
+}
+
+.record-submit-active {
+  background: #AD8C4D;
 }
 
 .record-footnote {

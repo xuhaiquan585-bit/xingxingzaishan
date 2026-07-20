@@ -60,7 +60,7 @@
       </checkbox-group>
     </view>
 
-    <button class="btn record-submit" bindtap="submitRecord">预览并确认</button>
+    <button class="btn record-submit btn-submit" hover-class="record-submit-active" bindtap="submitRecord">预览并确认</button>
     <view class="record-footnote">保存后，扫码即可查看这条记录。</view>
     <view class="meta record-message">{{message}}</view>
   </view>
