@@ -5,9 +5,9 @@ html.theme-dawn {
   --text-primary: #223147;
   --text-secondary: #657789;
   --text-muted: #8493A1;
-  --gold-primary: #C9A45E;
+  --gold-primary: #C79E55;
   --gold-soft: #A88955;
-  --gold-pressed: #B58B47;
+  --gold-pressed: #B58B45;
   --surface-photo: rgba(255, 255, 255, .80);
   --surface-input: rgba(248, 250, 251, .66);
   --surface-option: rgba(255, 255, 255, .52);
@@ -70,13 +70,13 @@ html.theme-dawn #formSection.card {
 
 html.theme-dawn .qr-id-hint {
   margin: 0 0 8px;
-  color: var(--text-muted);
+  color: #7A8997;
   font-size: 12px;
   line-height: 1.45;
 }
 
 html.theme-dawn .qr-id-hint strong {
-  color: var(--text-primary);
+  color: #526576;
   font-weight: 700;
 }
 
@@ -105,6 +105,7 @@ html.theme-dawn .upload-area {
   border-radius: 8px;
   background: var(--surface-photo);
   box-shadow: 0 5px 15px rgba(66, 79, 91, .08);
+  overflow: hidden;
 }
 
 html.theme-dawn .upload-area-placeholder {
@@ -122,9 +123,17 @@ html.theme-dawn .upload-area-placeholder::before {
   font-weight: 600;
 }
 
-html.theme-dawn .upload-feedback {
-  color: var(--gold-soft);
-  font-size: 13px;
+html.theme-dawn .upload-area.has-preview {
+  display: block;
+  min-height: 0;
+  border-style: solid;
+  border-color: rgba(55, 75, 94, .10);
+  background: var(--surface-photo);
+  box-shadow: 0 5px 15px rgba(66, 79, 91, .08);
+}
+
+html.theme-dawn .upload-area.has-preview .upload-area-placeholder {
+  display: none;
 }
 
 html.theme-dawn .preview {
@@ -136,11 +145,63 @@ html.theme-dawn .preview {
   box-shadow: 0 5px 15px rgba(66, 79, 91, .08);
 }
 
-html.theme-dawn .memory-input {
-  min-height: 150px;
+html.theme-dawn .upload-area .preview {
+  display: block;
+  margin: 0;
+  max-height: min(62vh, 520px);
+  box-shadow: none;
+}
+
+html.theme-dawn .photo-change-link {
+  display: inline-flex;
+  width: auto;
+  min-height: 0;
+  margin: -2px 0 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--gold-soft);
+  box-shadow: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+html.theme-dawn .photo-change-link:hover,
+html.theme-dawn .photo-change-link:active {
+  background: transparent;
+  color: var(--gold-pressed);
+  box-shadow: none;
+  transform: none;
+}
+
+html.theme-dawn .photo-change-link.hidden {
+  display: none;
+}
+
+html.theme-dawn .memory-input-shell {
+  position: relative;
+  margin: 0 0 22px;
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   background: var(--surface-input);
+  box-shadow: none;
+}
+
+html.theme-dawn .memory-input-shell:focus-within {
+  border-color: rgba(181, 139, 74, .50);
+  background: rgba(248, 250, 251, .74);
+}
+
+html.theme-dawn .memory-input {
+  min-height: 150px;
+  margin: 0;
+  padding: 12px 14px 42px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
   color: var(--text-primary);
   box-shadow: none;
   font-family: "Songti SC", STSong, serif;
@@ -154,16 +215,21 @@ html.theme-dawn .memory-input::placeholder {
 }
 
 html.theme-dawn .memory-input:focus {
-  border-color: rgba(181, 139, 74, .50);
-  background: rgba(248, 250, 251, .74);
+  border-color: transparent;
+  background: transparent;
   box-shadow: none;
 }
 
 html.theme-dawn #count {
-  margin: -8px 0 22px;
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  margin: 0;
   color: #7B8998;
   font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   font-size: 13px;
+  line-height: 1.2;
+  pointer-events: none;
   text-align: right;
 }
 
@@ -185,7 +251,7 @@ html.theme-dawn .section-title {
 html.theme-dawn .mode-option {
   min-height: auto;
   margin: 0 0 10px;
-  padding: 14px 16px;
+  padding: 11px 14px;
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   background: var(--surface-option);
@@ -199,10 +265,35 @@ html.theme-dawn .mode-option.selected {
   box-shadow: none;
 }
 
+html.theme-dawn .mode-option::before {
+  width: 14px;
+  height: 14px;
+  margin-top: 4px;
+  border: 1px solid rgba(52, 72, 91, .24);
+  background: transparent;
+  box-shadow: none;
+}
+
+html.theme-dawn .mode-option.selected::before {
+  border-color: var(--gold-primary);
+  background: radial-gradient(circle, var(--gold-primary) 0 3px, transparent 3.5px);
+  box-shadow: none;
+}
+
 html.theme-dawn .mode-option input[type="radio"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--gold-primary);
+  width: 1px;
+  height: 1px;
+  -webkit-appearance: none;
+  appearance: none;
+  accent-color: transparent;
+  outline: none;
+  box-shadow: none;
+}
+
+html.theme-dawn .mode-option input[type="radio"]:focus,
+html.theme-dawn .mode-option input[type="radio"]:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 html.theme-dawn .mode-option strong {
@@ -213,13 +304,13 @@ html.theme-dawn .mode-option strong {
 html.theme-dawn .mode-option small {
   margin-top: 4px;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
 html.theme-dawn .brand-card {
-  margin: 0 0 22px;
-  padding: 14px 16px;
+  margin: 0 0 18px;
+  padding: 10px 12px;
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   background: var(--surface-option);
@@ -231,7 +322,7 @@ html.theme-dawn .checkbox-row {
   color: var(--text-secondary);
 }
 
-html.theme-dawn .checkbox-row input {
+html.theme-dawn .checkbox-row input[type="checkbox"] {
   accent-color: var(--gold-primary);
 }
 

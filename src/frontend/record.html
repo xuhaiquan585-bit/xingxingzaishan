@@ -30,16 +30,16 @@
           <div class="upload-area-placeholder">
             <span id="uploadActionText">添加照片</span>
           </div>
+          <img id="preview" class="preview hidden" alt="预览图" />
         </div>
-        <div id="uploadFeedback" class="upload-feedback hidden">
-          <span id="uploadFeedbackText">已选择照片</span>
-        </div>
-        <img id="preview" class="preview hidden" alt="预览图" />
+        <button id="changePhotoBtn" class="photo-change-link hidden" type="button">更换照片</button>
 
         <label for="content">写下想记住的话</label>
         <p class="field-hint">最多 200 字</p>
-        <textarea id="content" class="memory-input" maxlength="200" wrap="soft" placeholder="例：这一刻，我想记下的是……"></textarea>
-        <p id="count">0 / 200</p>
+        <div class="memory-input-shell">
+          <textarea id="content" class="memory-input" maxlength="200" wrap="soft" placeholder="例：这一刻，我想记下的是……"></textarea>
+          <p id="count">0 / 200</p>
+        </div>
 
         <div class="save-mode-card">
           <p class="section-title">保存方式</p>

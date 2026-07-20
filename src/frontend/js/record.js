@@ -6,9 +6,8 @@ const qrIdText = document.getElementById('qrIdText');
 const uploadArea = document.getElementById('uploadArea');
 const imageInput = document.getElementById('imageInput');
 const preview = document.getElementById('preview');
-const uploadFeedback = document.getElementById('uploadFeedback');
-const uploadFeedbackText = document.getElementById('uploadFeedbackText');
 const uploadActionText = document.getElementById('uploadActionText');
+const changePhotoBtn = document.getElementById('changePhotoBtn');
 const contentInput = document.getElementById('content');
 const countEl = document.getElementById('count');
 const showBrandDisclosureInput = document.getElementById('showBrandDisclosure');
@@ -91,6 +90,21 @@ async function copyText(text) {
 
 function showError(message) {
   formMessage.textContent = message;
+}
+
+function setUploadPreviewState(hasPhoto) {
+  if (uploadArea) {
+    uploadArea.classList.toggle('has-preview', hasPhoto);
+  }
+  if (preview) {
+    preview.classList.toggle('hidden', !hasPhoto);
+  }
+  if (changePhotoBtn) {
+    changePhotoBtn.classList.toggle('hidden', !hasPhoto);
+  }
+  if (uploadActionText) {
+    uploadActionText.textContent = hasPhoto ? '' : '添加照片';
+  }
 }
 
 function registerUrl() {
@@ -538,6 +552,13 @@ if (uploadArea) {
   });
 }
 
+if (changePhotoBtn) {
+  changePhotoBtn.addEventListener('click', () => {
+    if (submitting) return;
+    imageInput.click();
+  });
+}
+
 imageInput.addEventListener('change', async () => {
   if (!imageInput.files || imageInput.files.length === 0) {
     return;
@@ -560,32 +581,20 @@ imageInput.addEventListener('change', async () => {
     uploadedImageObjectKey = res.data.object_key || '';
     uploadedStorageMode = res.data.storage_mode || 'local';
 
-    const previewSrc = res.data.preview_url || '';
+    const previewSrc = res.data.preview_url || res.data.url || '';
     if (previewSrc) {
       preview.src = previewSrc;
-      preview.classList.remove('hidden');
     }
-    uploadFeedbackText.textContent = '已选择照片';
-    if (uploadActionText) {
-      uploadActionText.textContent = '更换照片';
-    }
+    setUploadPreviewState(!!previewSrc);
     imageInput.value = '';
-    uploadFeedback.classList.remove('hidden');
     showError('');
   } catch (error) {
     uploadedImageUrl = '';
     uploadedImageObjectKey = '';
     uploadedStorageMode = '';
     preview.src = '';
-    preview.classList.add('hidden');
-    if (uploadArea) {
-      uploadArea.classList.remove('hidden');
-    }
+    setUploadPreviewState(false);
     imageInput.value = '';
-    uploadFeedback.classList.add('hidden');
-    if (uploadActionText) {
-      uploadActionText.textContent = '添加照片';
-    }
     showError(error.message || '上传失败，请换张图片试试');
   }
 });
