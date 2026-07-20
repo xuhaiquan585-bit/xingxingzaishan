@@ -8,7 +8,6 @@ const wechatLoginHint = document.getElementById('wechatLoginHint');
 
 const urlParams = new URLSearchParams(window.location.search);
 const qrId = urlParams.get('t') || urlParams.get('qr');
-const isDawnTheme = urlParams.get('ui') === 'dawn';
 
 if (/MicroMessenger/i.test(window.navigator.userAgent) && wechatLoginHint) {
   wechatLoginHint.classList.remove('hidden');
@@ -88,9 +87,6 @@ registerBtn.addEventListener('click', async () => {
     showMessage('验证成功，正在返回填写页面...');
     const next = new URLSearchParams();
     next.set('t', qrId || '');
-    if (isDawnTheme) {
-      next.set('ui', 'dawn');
-    }
     window.location.href = `/record.html?${next.toString()}`;
   } catch (error) {
     showMessage(error.message || '验证失败，请稍后重试');

@@ -61,7 +61,6 @@ const commentsList = document.getElementById('commentsList');
 
 const params = new URLSearchParams(window.location.search);
 const qrId = params.get('t') || params.get('qr');
-const isDawnTheme = params.get('ui') === 'dawn';
 let userPhone = '';
 
 let uploadedImageUrl = '';
@@ -97,9 +96,6 @@ function showError(message) {
 function registerUrl() {
   const next = new URLSearchParams();
   next.set('t', qrId || '');
-  if (isDawnTheme) {
-    next.set('ui', 'dawn');
-  }
   return `/register.html?${next.toString()}`;
 }
 

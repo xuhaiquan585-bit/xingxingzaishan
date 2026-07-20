@@ -1,10 +1,17 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="theme-dawn">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>把此刻，记在这瓶酒里 - 星星在闪</title>
+    <script>
+      // 默认黎明主题，?ui=dark 可切回深色主题用于对比测试
+      if (new URLSearchParams(window.location.search).get('ui') === 'dark') {
+        document.documentElement.classList.remove('theme-dawn');
+      }
+    </script>
     <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/theme-dawn.css" />
   </head>
   <body>
     <main class="container auth-container">
