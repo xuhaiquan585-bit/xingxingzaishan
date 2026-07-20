@@ -106,12 +106,23 @@ page {
 .record-meta-row {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 10rpx;
-  margin-bottom: 18rpx;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10rpx 18rpx;
+  margin-bottom: 20rpx;
   color: #8491A0;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   font-size: 22rpx;
+}
+
+.record-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.record-phone-item {
+  margin-left: auto;
 }
 
 .record-meta-label {
@@ -125,10 +136,15 @@ page {
   letter-spacing: 0;
 }
 
+.record-phone-change {
+  color: #A88955;
+  font-weight: 600;
+}
+
 .photo-frame {
   box-sizing: border-box;
   width: 100%;
-  min-height: 280rpx;
+  min-height: 258rpx;
   margin: 0 0 34rpx;
   padding: 0;
   border: 0;
@@ -137,6 +153,10 @@ page {
   color: #263445;
   line-height: 1.4;
   box-shadow: none;
+}
+
+.photo-frame-disabled {
+  opacity: .58;
 }
 
 .photo-frame::after {
@@ -148,7 +168,7 @@ page {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 280rpx;
+  min-height: 258rpx;
   border: 1px dashed rgba(181, 139, 74, .40);
   border-radius: 16rpx;
   background: rgba(255, 255, 255, .78);
@@ -165,7 +185,7 @@ page {
   border-radius: 14rpx;
   background: transparent;
   color: #B68B49;
-  font-size: 48rpx;
+  font-size: 42rpx;
   line-height: 1;
 }
 
@@ -209,9 +229,9 @@ page {
 
 .textarea-shell {
   position: relative;
-  border: 1px solid rgba(52, 72, 91, .12);
+  border: 1px solid rgba(55, 75, 94, .10);
   border-radius: 16rpx;
-  background: rgba(255, 255, 255, .64);
+  background: rgba(248, 250, 251, .66);
   box-shadow: none;
 }
 
@@ -260,7 +280,7 @@ page {
   display: flex;
   align-items: flex-start;
   gap: 18rpx;
-  padding: 28rpx 22rpx;
+  padding: 22rpx;
   border: 1px solid rgba(52, 72, 91, .12);
   border-radius: 16rpx;
   background: rgba(255, 255, 255, .52);
@@ -285,8 +305,8 @@ page {
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 34rpx;
-  height: 34rpx;
+  width: 30rpx;
+  height: 30rpx;
   border: 1px solid rgba(52, 72, 91, .22);
   border-radius: 50%;
   color: transparent;
@@ -301,8 +321,8 @@ page {
 
 .mode-card-active .mode-indicator::after {
   content: "";
-  width: 10rpx;
-  height: 10rpx;
+  width: 8rpx;
+  height: 8rpx;
   border-radius: 50%;
   background: #B68B49;
 }
@@ -316,7 +336,7 @@ page {
 .mode-desc {
   margin-top: 6rpx;
   color: #647487;
-  font-size: 26rpx;
+  font-size: 24rpx;
   line-height: 1.5;
 }
 
@@ -370,6 +390,11 @@ page {
 
 .record-submit-active {
   background: #B58B45;
+}
+
+.record-submit-disabled {
+  background: rgba(199, 158, 85, .42);
+  color: rgba(22, 34, 48, .62);
 }
 
 .record-footnote {

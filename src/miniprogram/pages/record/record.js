@@ -1,11 +1,12 @@
 const { login, redirectToBindPhone } = require('../../utils/auth');
-const { request, uploadImage, resolveAssetUrl, isPhoneBound } = require('../../utils/request');
+const { request, uploadImage, resolveAssetUrl, isPhoneBound, getToken } = require('../../utils/request');
 const { extractQrKey } = require('../../utils/qr');
 
 const PREVIEW_WIDTH_RPX = 638;
 const MIN_PREVIEW_HEIGHT_RPX = 320;
 const MAX_PREVIEW_HEIGHT_RPX = 680;
 const DEFAULT_PREVIEW_HEIGHT_RPX = 420;
+const INVALID_QR_MESSAGE = '未找到这颗星星，请确认二维码是否正确。';
 
 function clampPreviewHeight(height) {
   return Math.max(MIN_PREVIEW_HEIGHT_RPX, Math.min(MAX_PREVIEW_HEIGHT_RPX, height));
@@ -33,6 +34,37 @@ function getImagePreviewHeight(file) {
   });
 }
 
+function maskPhone(phone) {
+  const value = String(phone || '').trim();
+  if (!/^1\d{10}$/.test(value)) return value;
+  return `${value.slice(0, 3)}****${value.slice(7)}`;
+}
+
+function getPhoneFromToken() {
+  const token = getToken();
+  const payload = token && token.split('.')[1];
+  if (!payload || !wx.base64ToArrayBuffer) return '';
+  try {
+    let base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) base64 += '=';
+    const bytes = new Uint8Array(wx.base64ToArrayBuffer(base64));
+    let json = '';
+    for (let index = 0; index < bytes.length; index += 1) {
+      json += String.fromCharCode(bytes[index]);
+    }
+    const data = JSON.parse(json);
+    return data && data.phone ? String(data.phone) : '';
+  } catch (error) {
+    return '';
+  }
+}
+
+function formatCurrentPhone(data) {
+  const phone = maskPhone(data.phone || getPhoneFromToken());
+  if (phone) return phone;
+  return data.phone_bound || isPhoneBound() ? '已绑定手机号' : '未绑定';
+}
+
 Page({
   data: {
     key: '',
@@ -51,20 +83,30 @@ Page({
     showBrandSection: false,
     showBrandDisclosure: false,
     brandPreviewText: '',
+    recordAvailable: false,
+    currentPhoneText: '',
     message: '加载中...'
   },
 
   onLoad(options) {
     const key = extractQrKey(options);
     this.setData({ key });
-    login().then(() => this.loadStatus()).catch((error) => {
+    login().then((data) => {
+      this.setData({
+        currentPhoneText: formatCurrentPhone(data)
+      });
+      return this.loadStatus();
+    }).catch((error) => {
       this.setData({ message: error.message || '登录失败，请稍后重试' });
     });
   },
 
   loadStatus() {
     if (!this.data.key) {
-      this.setData({ message: '未找到星星编号，请重新扫码。' });
+      this.setData({
+        recordAvailable: false,
+        message: INVALID_QR_MESSAGE
+      });
       return;
     }
     request({
@@ -88,14 +130,24 @@ Page({
         showBrandSection: !!batchBrandDisclosureText,
         showBrandDisclosure: !!(batchBrandDisclosureText && data.batch_brand_disclosure_default),
         brandPreviewText,
+        recordAvailable: true,
         message: ''
       });
     }).catch((error) => {
-      this.setData({ message: error.message || '加载失败，请稍后重试' });
+      this.setData({
+        recordAvailable: false,
+        message: error.code === 'QR_NOT_FOUND'
+          ? INVALID_QR_MESSAGE
+          : error.message || '加载失败，请稍后重试'
+      });
     });
   },
 
   chooseImage() {
+    if (!this.data.recordAvailable) {
+      this.setData({ message: INVALID_QR_MESSAGE });
+      return;
+    }
     wx.chooseMedia({
       count: 1,
       mediaType: ['image'],
@@ -152,7 +204,15 @@ Page({
     });
   },
 
+  changePhone() {
+    redirectToBindPhone(`/pages/record/record?key=${encodeURIComponent(this.data.key)}`);
+  },
+
   submitRecord() {
+    if (!this.data.recordAvailable) {
+      this.setData({ message: INVALID_QR_MESSAGE });
+      return;
+    }
     if (!isPhoneBound()) {
       redirectToBindPhone(`/pages/record/record?key=${encodeURIComponent(this.data.key)}`);
       return;

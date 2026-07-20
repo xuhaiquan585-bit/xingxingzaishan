@@ -9,12 +9,19 @@
   </view>
 
   <view class="card record-card">
-    <view wx:if="{{displayKey}}" class="record-meta-row">
-      <text class="record-meta-label">星星ID:</text>
-      <text class="record-meta-value">{{displayKey}}</text>
+    <view wx:if="{{displayKey || currentPhoneText}}" class="record-meta-row">
+      <view wx:if="{{displayKey}}" class="record-meta-item">
+        <text class="record-meta-label">星星ID:</text>
+        <text class="record-meta-value">{{displayKey}}</text>
+      </view>
+      <view wx:if="{{currentPhoneText}}" class="record-meta-item record-phone-item">
+        <text class="record-meta-label">当前手机号:</text>
+        <text class="record-meta-value">{{currentPhoneText}}</text>
+        <text class="record-phone-change" bindtap="changePhone">更换手机号</text>
+      </view>
     </view>
 
-    <button class="photo-frame" bindtap="chooseImage">
+    <button class="photo-frame {{!recordAvailable ? 'photo-frame-disabled' : ''}}" disabled="{{!recordAvailable}}" bindtap="chooseImage">
       <image wx:if="{{previewUrl}}" class="cover preview" style="height: {{previewHeight}}rpx;" mode="aspectFit" src="{{previewUrl}}" />
       <view wx:else class="photo-empty">
         <view class="photo-icon">＋</view>
@@ -60,8 +67,8 @@
       </checkbox-group>
     </view>
 
-    <button class="btn record-submit btn-submit" hover-class="record-submit-active" bindtap="submitRecord">预览并确认</button>
+    <button class="btn record-submit btn-submit {{!recordAvailable ? 'record-submit-disabled' : ''}}" disabled="{{!recordAvailable}}" hover-class="record-submit-active" bindtap="submitRecord">预览并确认</button>
     <view class="record-footnote">保存后，扫码即可查看这条记录。</view>
-    <view class="meta record-message">{{message}}</view>
+    <view wx:if="{{message}}" class="meta record-message">{{message}}</view>
   </view>
 </view>
