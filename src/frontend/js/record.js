@@ -61,6 +61,7 @@ const commentsList = document.getElementById('commentsList');
 
 const params = new URLSearchParams(window.location.search);
 const qrId = params.get('t') || params.get('qr');
+const isDawnTheme = params.get('ui') === 'dawn';
 let userPhone = '';
 
 let uploadedImageUrl = '';
@@ -91,6 +92,15 @@ async function copyText(text) {
 
 function showError(message) {
   formMessage.textContent = message;
+}
+
+function registerUrl() {
+  const next = new URLSearchParams();
+  next.set('t', qrId || '');
+  if (isDawnTheme) {
+    next.set('ui', 'dawn');
+  }
+  return `/register.html?${next.toString()}`;
 }
 
 function maskPhone(phone) {
@@ -436,7 +446,7 @@ async function loadQRStatus() {
 
     if (res.data.activation_status === 'co_creating') {
       if (!userPhone) {
-        window.location.href = `/register.html?t=${encodeURIComponent(qrId)}`;
+        window.location.href = registerUrl();
         return;
       }
 
@@ -454,7 +464,7 @@ async function loadQRStatus() {
     }
 
     if (!userPhone) {
-      window.location.href = `/register.html?t=${encodeURIComponent(qrId)}`;
+      window.location.href = registerUrl();
       return;
     }
 
@@ -516,7 +526,7 @@ if (switchPhoneBtn) {
     }
 
     userPhone = '';
-    window.location.href = `/register.html?t=${encodeURIComponent(qrId || '')}`;
+    window.location.href = registerUrl();
   });
 }
 

@@ -1,0 +1,291 @@
+html.theme-dawn {
+  --bg-top: #D3E1EA;
+  --bg-middle: #E7EDF0;
+  --bg-bottom: #F3F0E9;
+  --text-primary: #223147;
+  --text-secondary: #657789;
+  --text-muted: #8493A1;
+  --gold-primary: #C9A45E;
+  --gold-soft: #A88955;
+  --gold-pressed: #B58B47;
+  --surface-photo: rgba(255, 255, 255, .80);
+  --surface-input: rgba(248, 250, 251, .66);
+  --surface-option: rgba(255, 255, 255, .52);
+  --border-subtle: rgba(55, 75, 94, .10);
+  --border-gold: rgba(181, 139, 74, .42);
+}
+
+html.theme-dawn body {
+  background:
+    radial-gradient(circle at 92% 4%, rgba(244, 194, 142, .16), transparent 48%),
+    linear-gradient(180deg, var(--bg-top) 0%, var(--bg-middle) 42%, var(--bg-bottom) 100%);
+  color: var(--text-primary);
+}
+
+html.theme-dawn .container {
+  max-width: 430px;
+  min-height: 100vh;
+  padding: 28px 20px 72px;
+}
+
+html.theme-dawn .page-intro {
+  margin-bottom: 28px;
+  text-align: left;
+}
+
+html.theme-dawn .page-intro h1 {
+  max-width: 360px;
+  margin: 0 0 10px;
+  color: var(--text-primary);
+  font-size: 26px;
+  line-height: 1.26;
+  letter-spacing: 0;
+}
+
+html.theme-dawn .page-intro .subtitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+html.theme-dawn .page-intro::after {
+  content: "✦ 区块链存证";
+  display: block;
+  margin-top: 18px;
+  color: var(--gold-soft);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .5px;
+}
+
+html.theme-dawn #formSection.card {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+html.theme-dawn .qr-id-hint {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+html.theme-dawn .qr-id-hint strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+html.theme-dawn .qr-id-hint a {
+  color: var(--gold-soft);
+  font-weight: 700;
+}
+
+html.theme-dawn label {
+  display: block;
+  margin: 26px 0 10px;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+html.theme-dawn .field-hint {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+html.theme-dawn .upload-area {
+  min-height: 142px;
+  margin: 0 0 14px;
+  border: 1px dashed rgba(181, 139, 74, .40);
+  border-radius: 8px;
+  background: var(--surface-photo);
+  box-shadow: 0 5px 15px rgba(66, 79, 91, .08);
+}
+
+html.theme-dawn .upload-area-placeholder {
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+html.theme-dawn .upload-area-placeholder::before {
+  content: "+";
+  display: block;
+  margin-bottom: 12px;
+  color: var(--gold-primary);
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+html.theme-dawn .upload-feedback {
+  color: var(--gold-soft);
+  font-size: 13px;
+}
+
+html.theme-dawn .preview {
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: var(--surface-photo);
+  box-shadow: 0 5px 15px rgba(66, 79, 91, .08);
+}
+
+html.theme-dawn .memory-input {
+  min-height: 150px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-input);
+  color: var(--text-primary);
+  box-shadow: none;
+  font-family: "Songti SC", STSong, serif;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+html.theme-dawn .memory-input::placeholder {
+  color: #8A96A3;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+
+html.theme-dawn .memory-input:focus {
+  border-color: rgba(181, 139, 74, .50);
+  background: rgba(248, 250, 251, .74);
+  box-shadow: none;
+}
+
+html.theme-dawn #count {
+  margin: -8px 0 22px;
+  color: #7B8998;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  text-align: right;
+}
+
+html.theme-dawn .save-mode-card {
+  margin: 0 0 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html.theme-dawn .section-title {
+  margin: 0 0 10px;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+html.theme-dawn .mode-option {
+  min-height: auto;
+  margin: 0 0 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-option);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
+html.theme-dawn .mode-option.selected {
+  border-color: var(--border-gold);
+  background: rgba(190, 150, 80, .08);
+  box-shadow: none;
+}
+
+html.theme-dawn .mode-option input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--gold-primary);
+}
+
+html.theme-dawn .mode-option strong {
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+html.theme-dawn .mode-option small {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+html.theme-dawn .brand-card {
+  margin: 0 0 22px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-option);
+  box-shadow: none;
+}
+
+html.theme-dawn .brand-preview,
+html.theme-dawn .checkbox-row {
+  color: var(--text-secondary);
+}
+
+html.theme-dawn .checkbox-row input {
+  accent-color: var(--gold-primary);
+}
+
+html.theme-dawn .btn {
+  width: 100%;
+  min-height: 48px;
+  margin: 0;
+  border-radius: 8px;
+  background: var(--gold-primary);
+  color: #162230;
+  box-shadow: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+
+html.theme-dawn .btn:hover:not(:disabled),
+html.theme-dawn .btn:active:not(:disabled) {
+  background: var(--gold-pressed);
+  box-shadow: none;
+  transform: none;
+}
+
+html.theme-dawn .btn:disabled {
+  background: rgba(201, 164, 94, .42);
+  color: rgba(22, 34, 48, .62);
+  box-shadow: none;
+}
+
+html.theme-dawn .message {
+  margin-top: 14px;
+  color: #A45F58;
+  font-size: 13px;
+  text-align: center;
+}
+
+html.theme-dawn .overlay-panel {
+  border: 1px solid rgba(55, 75, 94, .12);
+  background:
+    radial-gradient(circle at 92% 0%, rgba(244, 194, 142, .13), transparent 44%),
+    rgba(248, 250, 251, .94);
+  color: var(--text-primary);
+  box-shadow: 0 20px 48px rgba(66, 79, 91, .18);
+}
+
+html.theme-dawn .overlay-title,
+html.theme-dawn .confirm-preview-label {
+  color: var(--text-primary);
+}
+
+html.theme-dawn .overlay-subtitle,
+html.theme-dawn .confirm-preview-content.empty {
+  color: var(--text-secondary);
+}
+
+html.theme-dawn .confirm-preview {
+  border-color: rgba(55, 75, 94, .10);
+  background: rgba(255, 255, 255, .56);
+}

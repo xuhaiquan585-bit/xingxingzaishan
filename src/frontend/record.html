@@ -4,7 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>把此刻，记在这瓶酒里 - 星星在闪</title>
+    <script>
+      if (new URLSearchParams(window.location.search).get('ui') === 'dawn') {
+        document.documentElement.classList.add('theme-dawn');
+      }
+    </script>
     <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/theme-dawn.css" />
   </head>
   <body>
     <main class="container">
