@@ -380,3 +380,349 @@ html.theme-dawn .confirm-preview {
   border-color: rgba(55, 75, 94, .10);
   background: rgba(255, 255, 255, .56);
 }
+
+/* H5 record page Dawn final polish */
+html.theme-dawn .record-page {
+  --record-radius: 12px;
+  max-width: 430px;
+  padding: 24px 20px calc(28px + env(safe-area-inset-bottom));
+}
+
+html.theme-dawn .record-page .record-header {
+  margin-bottom: 30px;
+  text-align: left;
+}
+
+html.theme-dawn .record-page .page-intro::after {
+  content: none;
+  display: none;
+}
+
+html.theme-dawn .record-phone-line {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  margin: 0 0 22px;
+  color: #6F7F8E;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+html.theme-dawn .record-phone-line strong {
+  color: inherit;
+  font-weight: 400;
+}
+
+html.theme-dawn .record-phone-separator {
+  margin: 0 7px;
+  color: rgba(111, 127, 142, .82);
+}
+
+html.theme-dawn .record-phone-change {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: #9E8050;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+html.theme-dawn .record-phone-change:focus,
+html.theme-dawn .record-phone-change:focus-visible {
+  border-radius: 4px;
+  outline: 1px solid rgba(158, 128, 80, .36);
+  outline-offset: 2px;
+}
+
+html.theme-dawn .record-page .page-intro h1 {
+  max-width: none;
+  margin: 0 0 9px;
+  color: #223147;
+  font-weight: 650;
+  line-height: 1.34;
+  letter-spacing: .2px;
+}
+
+html.theme-dawn .record-page .page-intro .subtitle {
+  margin: 0;
+  color: #68798A;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+html.theme-dawn .record-trust-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+html.theme-dawn .record-star-id,
+html.theme-dawn .record-chain-note {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  line-height: 1.35;
+}
+
+html.theme-dawn .record-star-id {
+  min-width: 0;
+  color: #7A8997;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+html.theme-dawn .record-star-id strong {
+  color: #526576;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+html.theme-dawn .record-chain-note {
+  color: #A88955;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: .3px;
+  white-space: nowrap;
+}
+
+html.theme-dawn .record-page #formSection.card {
+  width: 100%;
+  margin: 0;
+}
+
+html.theme-dawn .record-page .field-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+}
+
+html.theme-dawn .record-page .field-label-row label {
+  margin: 0;
+  color: #223147;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+html.theme-dawn .record-page .field-label-row .field-hint {
+  flex: 0 0 auto;
+  margin: 0;
+  color: #8493A1;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+html.theme-dawn .record-page .upload-area {
+  width: 100%;
+  min-height: 142px;
+  margin: 0 0 12px;
+  border-radius: var(--record-radius);
+  box-sizing: border-box;
+}
+
+html.theme-dawn .record-page .upload-area.has-preview {
+  border-radius: var(--record-radius);
+}
+
+html.theme-dawn .record-page .upload-area .preview {
+  border-radius: var(--record-radius);
+  max-height: min(60vh, 500px);
+}
+
+html.theme-dawn .record-page .photo-change-link {
+  min-height: 40px;
+  margin: -4px 0 20px;
+  padding: 0 2px;
+}
+
+html.theme-dawn .record-page .memory-input-shell {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 24px;
+  border-radius: var(--record-radius);
+  overflow: hidden;
+}
+
+html.theme-dawn .record-page .memory-input {
+  min-height: 152px;
+  padding: 12px 14px 8px;
+  border-radius: var(--record-radius) var(--record-radius) 0 0;
+}
+
+html.theme-dawn .record-page #count {
+  position: static;
+  align-self: stretch;
+  margin: 0;
+  padding: 0 14px 12px;
+  color: #7E8D9A;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font-size: 12.5px;
+  line-height: 1.25;
+  text-align: right;
+}
+
+html.theme-dawn .record-page .save-mode-card {
+  margin: 0 0 20px;
+}
+
+html.theme-dawn .record-page .section-title {
+  margin: 0 0 10px;
+  color: #223147;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+html.theme-dawn .record-page .mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin: 0 0 11px;
+  padding: 12px 14px;
+  border-radius: var(--record-radius);
+  box-sizing: border-box;
+}
+
+html.theme-dawn .record-page .mode-option::before {
+  content: "";
+  display: inline-flex;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  border: 1px solid rgba(82, 101, 118, .34);
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  box-sizing: border-box;
+  transform: none;
+}
+
+html.theme-dawn .record-page .mode-option.selected::before {
+  border-color: #C79E55;
+  background: radial-gradient(circle, #C79E55 0 3px, transparent 3.6px);
+}
+
+html.theme-dawn .record-page .mode-option::after {
+  content: none;
+  display: none;
+}
+
+html.theme-dawn .record-page .mode-option:focus-within {
+  outline: 1px solid rgba(199, 158, 85, .24);
+  outline-offset: 2px;
+}
+
+html.theme-dawn .record-page .mode-option input[type="radio"] {
+  position: absolute;
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  accent-color: transparent;
+  border: 0;
+  outline: none;
+  opacity: 0;
+}
+
+html.theme-dawn .record-page .mode-option strong {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+html.theme-dawn .record-page .mode-option small {
+  margin-top: 3px;
+  color: #667889;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+html.theme-dawn .record-page .brand-card {
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  border-color: rgba(55, 75, 94, .08);
+  border-radius: var(--record-radius);
+  background: rgba(255, 255, 255, .34);
+}
+
+html.theme-dawn .record-page .brand-preview {
+  margin: 0 0 8px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #667889;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+html.theme-dawn .record-page .brand-card .checkbox-row {
+  align-items: center;
+  gap: 8px;
+  margin-top: 0;
+}
+
+html.theme-dawn .record-page .brand-card .checkbox-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  accent-color: #C79E55;
+}
+
+html.theme-dawn .record-page .brand-card .checkbox-row label {
+  margin: 0;
+  color: #526576;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+html.theme-dawn .record-page #submitBtn {
+  width: 100%;
+  min-height: 50px;
+  height: 50px;
+  border-radius: var(--record-radius);
+  background: #C79E55;
+  color: #162230;
+  box-shadow: none;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: .6px;
+}
+
+html.theme-dawn .record-page #submitBtn:hover:not(:disabled),
+html.theme-dawn .record-page #submitBtn:active:not(:disabled) {
+  background: #B58B45;
+  box-shadow: none;
+  transform: none;
+}
+
+html.theme-dawn .record-page #submitBtn:disabled {
+  background: rgba(199, 158, 85, .38);
+  color: rgba(22, 34, 48, .54);
+}
+
+html.theme-dawn .record-page .message {
+  margin: 12px 0 0;
+}
+
+@media (max-width: 340px) {
+  html.theme-dawn .record-trust-line {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+}

@@ -14,17 +14,25 @@
     <link rel="stylesheet" href="/css/theme-dawn.css" />
   </head>
   <body>
-    <main class="container">
-      <div id="pageIntro" class="page-intro">
+    <main class="container record-page">
+      <div id="pageIntro" class="page-intro record-header">
+        <div class="record-phone-line">
+          <strong id="currentPhoneText"></strong>
+          <span class="record-phone-separator">·</span>
+          <a id="switchPhoneBtn" class="record-phone-change" href="javascript:void(0)">更换手机号</a>
+        </div>
         <h1>留下这瓶酒的专属记录</h1>
         <p class="subtitle">选一张照片，写一句话，下次扫码还能看到。</p>
+        <div class="record-trust-line">
+          <p class="record-star-id"><span>星贴</span> <strong id="qrIdText"></strong></p>
+          <p class="record-chain-note">✦ 区块链存证</p>
+        </div>
       </div>
 
       <section id="formSection" class="card hidden">
-        <p class="qr-id-hint">星星ID：<strong id="qrIdText"></strong></p>
-        <p class="qr-id-hint">当前手机号：<strong id="currentPhoneText"></strong>（<a id="switchPhoneBtn" href="javascript:void(0)">更换手机号</a>）</p>
-
-        <label for="imageInput">添加照片</label>
+        <div class="field-label-row">
+          <label for="imageInput">添加照片</label>
+        </div>
         <input id="imageInput" class="file-input" type="file" accept="image/*" />
         <div class="upload-area" id="uploadArea">
           <div class="upload-area-placeholder">
@@ -34,8 +42,10 @@
         </div>
         <button id="changePhotoBtn" class="photo-change-link hidden" type="button">更换照片</button>
 
-        <label for="content">写下想记住的话</label>
-        <p class="field-hint">最多 200 字</p>
+        <div class="field-label-row">
+          <label for="content">写下想记住的话</label>
+          <p class="field-hint">最多 200 字</p>
+        </div>
         <div class="memory-input-shell">
           <textarea id="content" class="memory-input" maxlength="200" wrap="soft" placeholder="例：这一刻，我想记下的是……"></textarea>
           <p id="count">0 / 200</p>
