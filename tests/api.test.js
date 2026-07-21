@@ -763,6 +763,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const h5RecordJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'js', 'record.js'), 'utf8');
   const registerJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'js', 'register.js'), 'utf8');
   const frontendCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'css', 'style.css'), 'utf8');
+  const themeDawnCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'css', 'theme-dawn.css'), 'utf8');
   const appWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'app.wxss'), 'utf8');
   const bindPhoneWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.wxml'), 'utf8');
   const bindPhoneCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.wxss'), 'utf8');
@@ -891,8 +892,17 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxss.includes('font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'), true);
   assert.equal(h5RecordJs.includes("const SUPPORTED_UI_THEMES = new Set(['dark', 'dawn'])"), true);
   assert.equal(h5RecordJs.includes("next.set('ui', uiTheme)"), true);
+  assert.equal(h5RecordJs.includes("const SUPPORTED_BG_THEMES = new Set(['mist', 'paper', 'blue'])"), true);
+  assert.equal(h5RecordJs.includes("next.set('bg', bgTheme)"), true);
   assert.equal(registerJs.includes("const SUPPORTED_UI_THEMES = new Set(['dark', 'dawn'])"), true);
   assert.equal(registerJs.includes("next.set('ui', uiTheme)"), true);
+  assert.equal(registerJs.includes("const SUPPORTED_BG_THEMES = new Set(['mist', 'paper', 'blue'])"), true);
+  assert.equal(registerJs.includes("next.set('bg', bgTheme)"), true);
+  assert.equal(recordHtml.includes("const supportedBackgrounds = new Set(['mist', 'paper', 'blue'])"), true);
+  assert.equal(recordHtml.includes("document.documentElement.classList.add(`bg-${backgroundParam}`)"), true);
+  assert.equal(themeDawnCss.includes('html.theme-dawn.bg-mist body'), true);
+  assert.equal(themeDawnCss.includes('html.theme-dawn.bg-paper body'), true);
+  assert.equal(themeDawnCss.includes('html.theme-dawn.bg-blue body'), true);
   assert.equal(recordJs.includes('wx.getImageInfo'), true);
   assert.equal(recordJs.includes('calculatePreviewHeight'), true);
   assert.equal(recordJs.includes('showBrandSection'), true);

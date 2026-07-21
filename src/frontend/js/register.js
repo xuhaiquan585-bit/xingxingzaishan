@@ -10,6 +10,8 @@ const urlParams = new URLSearchParams(window.location.search);
 const qrId = urlParams.get('t') || urlParams.get('qr');
 const SUPPORTED_UI_THEMES = new Set(['dark', 'dawn']);
 const uiTheme = SUPPORTED_UI_THEMES.has(urlParams.get('ui')) ? urlParams.get('ui') : '';
+const SUPPORTED_BG_THEMES = new Set(['mist', 'paper', 'blue']);
+const bgTheme = SUPPORTED_BG_THEMES.has(urlParams.get('bg')) ? urlParams.get('bg') : '';
 
 if (/MicroMessenger/i.test(window.navigator.userAgent) && wechatLoginHint) {
   wechatLoginHint.classList.remove('hidden');
@@ -91,6 +93,9 @@ registerBtn.addEventListener('click', async () => {
     next.set('t', qrId || '');
     if (uiTheme) {
       next.set('ui', uiTheme);
+    }
+    if (bgTheme) {
+      next.set('bg', bgTheme);
     }
     window.location.href = `/record.html?${next.toString()}`;
   } catch (error) {

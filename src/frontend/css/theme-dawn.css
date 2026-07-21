@@ -22,6 +22,69 @@ html.theme-dawn body {
   color: var(--text-primary);
 }
 
+html.theme-dawn.bg-mist {
+  background-color: #F5F1E9;
+}
+
+html.theme-dawn.bg-mist body {
+  background:
+    radial-gradient(
+      circle at 88% 6%,
+      rgba(255, 243, 216, .205) 0%,
+      rgba(255, 243, 216, .068) 20%,
+      rgba(255, 243, 216, 0) 40%
+    ),
+    linear-gradient(
+      180deg,
+      #D8E4EA 0%,
+      #E8EEF0 38%,
+      #F0F1ED 70%,
+      #F5F1E9 100%
+    );
+}
+
+html.theme-dawn.bg-paper {
+  background-color: #F6EFE5;
+}
+
+html.theme-dawn.bg-paper body {
+  background:
+    radial-gradient(
+      circle at 86% 5%,
+      rgba(255, 239, 203, .22) 0%,
+      rgba(255, 239, 203, .07) 22%,
+      rgba(255, 239, 203, 0) 42%
+    ),
+    linear-gradient(
+      180deg,
+      #DEE7E9 0%,
+      #ECEFED 42%,
+      #F3F1EB 72%,
+      #F6EFE5 100%
+    );
+}
+
+html.theme-dawn.bg-blue {
+  background-color: #F4F1EA;
+}
+
+html.theme-dawn.bg-blue body {
+  background:
+    radial-gradient(
+      circle at 90% 4%,
+      rgba(255, 247, 225, .14) 0%,
+      rgba(255, 247, 225, .04) 18%,
+      rgba(255, 247, 225, 0) 36%
+    ),
+    linear-gradient(
+      180deg,
+      #D2E1E8 0%,
+      #E4ECEF 40%,
+      #EEF1EF 72%,
+      #F4F1EA 100%
+    );
+}
+
 html.theme-dawn .container {
   max-width: 430px;
   min-height: 100vh;
@@ -402,7 +465,7 @@ html.theme-dawn .record-phone-line {
   display: flex;
   align-items: center;
   min-height: 42px;
-  margin: 0 0 19px;
+  margin: 0 0 17px;
   color: #68798A;
   font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   font-size: 12.5px;
@@ -530,6 +593,26 @@ html.theme-dawn .record-page .upload-area {
   margin: 0 0 12px;
   border-radius: var(--record-radius);
   box-sizing: border-box;
+}
+
+html.theme-dawn .record-page .upload-area-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.35;
+}
+
+html.theme-dawn .record-page .upload-area-placeholder::before {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0 0 8px;
+  font-size: 28px;
+  line-height: 1;
 }
 
 html.theme-dawn .record-page .upload-area.has-preview {

@@ -6,8 +6,13 @@
     <title>把此刻，记在这瓶酒里 - 星星在闪</title>
     <script>
       // 默认黎明主题，?ui=dark 可切回深色主题用于对比测试
-      if (new URLSearchParams(window.location.search).get('ui') === 'dark') {
+      const themeParams = new URLSearchParams(window.location.search);
+      const backgroundParam = themeParams.get('bg');
+      const supportedBackgrounds = new Set(['mist', 'paper', 'blue']);
+      if (themeParams.get('ui') === 'dark') {
         document.documentElement.classList.remove('theme-dawn');
+      } else if (supportedBackgrounds.has(backgroundParam)) {
+        document.documentElement.classList.add(`bg-${backgroundParam}`);
       }
     </script>
     <link rel="stylesheet" href="/css/style.css" />
