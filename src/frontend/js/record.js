@@ -60,6 +60,8 @@ const commentsList = document.getElementById('commentsList');
 
 const params = new URLSearchParams(window.location.search);
 const qrId = params.get('t') || params.get('qr');
+const SUPPORTED_UI_THEMES = new Set(['dark', 'dawn']);
+const uiTheme = SUPPORTED_UI_THEMES.has(params.get('ui')) ? params.get('ui') : '';
 let userPhone = '';
 
 let uploadedImageUrl = '';
@@ -110,6 +112,9 @@ function setUploadPreviewState(hasPhoto) {
 function registerUrl() {
   const next = new URLSearchParams();
   next.set('t', qrId || '');
+  if (uiTheme) {
+    next.set('ui', uiTheme);
+  }
   return `/register.html?${next.toString()}`;
 }
 

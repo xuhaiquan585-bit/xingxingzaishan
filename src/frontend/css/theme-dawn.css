@@ -402,8 +402,8 @@ html.theme-dawn .record-phone-line {
   display: flex;
   align-items: center;
   min-height: 42px;
-  margin: 0 0 22px;
-  color: #6F7F8E;
+  margin: 0 0 19px;
+  color: #68798A;
   font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   font-size: 12.5px;
   font-weight: 400;
@@ -593,6 +593,8 @@ html.theme-dawn .record-page .mode-option {
   padding: 12px 14px;
   border-radius: var(--record-radius);
   box-sizing: border-box;
+  outline: none;
+  box-shadow: none;
 }
 
 html.theme-dawn .record-page .mode-option::before {
@@ -610,6 +612,13 @@ html.theme-dawn .record-page .mode-option::before {
   transform: none;
 }
 
+html.theme-dawn .record-page .mode-option.selected {
+  border-color: rgba(199, 158, 85, .62);
+  background: rgba(190, 150, 80, .06);
+  box-shadow: none;
+  outline: none;
+}
+
 html.theme-dawn .record-page .mode-option.selected::before {
   border-color: #C79E55;
   background: radial-gradient(circle, #C79E55 0 3px, transparent 3.6px);
@@ -621,8 +630,8 @@ html.theme-dawn .record-page .mode-option::after {
 }
 
 html.theme-dawn .record-page .mode-option:focus-within {
-  outline: 1px solid rgba(199, 158, 85, .24);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: none;
 }
 
 html.theme-dawn .record-page .mode-option input[type="radio"] {
@@ -639,6 +648,12 @@ html.theme-dawn .record-page .mode-option input[type="radio"] {
   opacity: 0;
 }
 
+html.theme-dawn .record-page .mode-option input[type="radio"]:focus-visible + span {
+  border-radius: 6px;
+  outline: 1px solid rgba(112, 128, 143, .28);
+  outline-offset: 3px;
+}
+
 html.theme-dawn .record-page .mode-option strong {
   font-size: 15px;
   line-height: 1.35;
@@ -653,24 +668,31 @@ html.theme-dawn .record-page .mode-option small {
 
 html.theme-dawn .record-page .brand-card {
   margin: 0 0 18px;
-  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  column-gap: 8px;
+  padding: 8px 12px;
   border-color: rgba(55, 75, 94, .08);
   border-radius: var(--record-radius);
-  background: rgba(255, 255, 255, .34);
+  background: rgba(255, 255, 255, .28);
 }
 
 html.theme-dawn .record-page .brand-preview {
-  margin: 0 0 8px;
+  grid-column: 2;
+  margin: 0 0 6px;
   padding: 0;
   border-radius: 0;
   background: transparent;
-  color: #667889;
+  color: #637586;
   font-size: 12.5px;
   font-weight: 400;
   line-height: 1.45;
 }
 
 html.theme-dawn .record-page .brand-card .checkbox-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   margin-top: 0;
