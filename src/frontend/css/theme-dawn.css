@@ -452,7 +452,7 @@ html.theme-dawn .record-page {
 }
 
 html.theme-dawn .record-page .record-header {
-  margin-bottom: 30px;
+  margin-bottom: 22px;
   text-align: left;
 }
 
@@ -464,8 +464,8 @@ html.theme-dawn .record-page .page-intro::after {
 html.theme-dawn .record-phone-line {
   display: flex;
   align-items: center;
-  min-height: 42px;
-  margin: 0 0 17px;
+  min-height: 38px;
+  margin: 0 0 11px;
   color: #68798A;
   font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   font-size: 12.5px;
@@ -487,7 +487,7 @@ html.theme-dawn .record-phone-separator {
 html.theme-dawn .record-phone-change {
   display: inline-flex;
   align-items: center;
-  min-height: 40px;
+  min-height: 38px;
   color: #9E8050;
   font-size: 12.5px;
   font-weight: 500;
@@ -600,8 +600,9 @@ html.theme-dawn .record-page .upload-area-placeholder {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 0;
   text-align: center;
-  line-height: 1.35;
+  line-height: 1.25;
 }
 
 html.theme-dawn .record-page .upload-area-placeholder::before {
@@ -610,9 +611,15 @@ html.theme-dawn .record-page .upload-area-placeholder::before {
   justify-content: center;
   width: 28px;
   height: 28px;
-  margin: 0 0 8px;
+  margin: 0 0 2px;
   font-size: 28px;
   line-height: 1;
+}
+
+html.theme-dawn .record-page #uploadActionText {
+  display: block;
+  margin: 0;
+  line-height: 1.25;
 }
 
 html.theme-dawn .record-page .upload-area.has-preview {
