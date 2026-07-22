@@ -452,7 +452,7 @@ html.theme-dawn .record-page {
 }
 
 html.theme-dawn .record-page .record-header {
-  margin-bottom: 22px;
+  margin-bottom: 28px;
   text-align: left;
 }
 
@@ -461,11 +461,22 @@ html.theme-dawn .record-page .page-intro::after {
   display: none;
 }
 
-html.theme-dawn .record-phone-line {
+html.theme-dawn .record-meta-line {
   display: flex;
-  align-items: center;
-  min-height: 38px;
-  margin: 0 0 11px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 14px;
+  min-height: 40px;
+  margin: 0 0 12px;
+}
+
+html.theme-dawn .record-phone-line {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  min-height: 40px;
+  margin: 0 0 0 auto;
   color: #68798A;
   font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   font-size: 12.5px;
@@ -487,7 +498,7 @@ html.theme-dawn .record-phone-separator {
 html.theme-dawn .record-phone-change {
   display: inline-flex;
   align-items: center;
-  min-height: 38px;
+  min-height: 40px;
   color: #9E8050;
   font-size: 12.5px;
   font-weight: 500;
@@ -520,11 +531,8 @@ html.theme-dawn .record-page .page-intro .subtitle {
 }
 
 html.theme-dawn .record-trust-line {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  margin-top: 22px;
+  display: block;
+  margin-top: 18px;
 }
 
 html.theme-dawn .record-star-id,
@@ -535,7 +543,8 @@ html.theme-dawn .record-chain-note {
 }
 
 html.theme-dawn .record-star-id {
-  min-width: 0;
+  flex: 0 1 auto;
+  min-width: max-content;
   color: #7A8997;
   font-size: 12px;
   font-weight: 400;
@@ -649,6 +658,7 @@ html.theme-dawn .record-page .memory-input {
   min-height: 152px;
   padding: 12px 14px 8px;
   border-radius: var(--record-radius) var(--record-radius) 0 0;
+  resize: none;
 }
 
 html.theme-dawn .record-page #count {
@@ -761,15 +771,15 @@ html.theme-dawn .record-page .brand-card {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
   column-gap: 8px;
-  padding: 8px 12px;
-  border-color: rgba(55, 75, 94, .08);
+  padding: 6px 12px 8px;
+  border-color: rgba(55, 75, 94, .06);
   border-radius: var(--record-radius);
-  background: rgba(255, 255, 255, .28);
+  background: rgba(255, 255, 255, .22);
 }
 
 html.theme-dawn .record-page .brand-preview {
   grid-column: 2;
-  margin: 0 0 6px;
+  margin: 0 0 4px;
   padding: 0;
   border-radius: 0;
   background: transparent;
@@ -785,6 +795,7 @@ html.theme-dawn .record-page .brand-card .checkbox-row {
   grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
+  min-height: 40px;
   margin-top: 0;
 }
 
@@ -796,6 +807,9 @@ html.theme-dawn .record-page .brand-card .checkbox-row input[type="checkbox"] {
 }
 
 html.theme-dawn .record-page .brand-card .checkbox-row label {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
   margin: 0;
   color: #526576;
   font-size: 13px;
@@ -833,8 +847,13 @@ html.theme-dawn .record-page .message {
 }
 
 @media (max-width: 340px) {
-  html.theme-dawn .record-trust-line {
-    grid-template-columns: 1fr;
-    gap: 6px;
+  html.theme-dawn .record-meta-line {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  html.theme-dawn .record-phone-line {
+    margin-left: 0;
   }
 }

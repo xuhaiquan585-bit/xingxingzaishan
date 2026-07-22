@@ -21,15 +21,17 @@
   <body>
     <main class="container record-page">
       <div id="pageIntro" class="page-intro record-header">
-        <div class="record-phone-line">
-          <strong id="currentPhoneText"></strong>
-          <span class="record-phone-separator">·</span>
-          <a id="switchPhoneBtn" class="record-phone-change" href="javascript:void(0)">更换手机号</a>
+        <div class="record-meta-line">
+          <p class="record-star-id"><span>星贴</span> <strong id="qrIdText"></strong></p>
+          <div class="record-phone-line">
+            <strong id="currentPhoneText"></strong>
+            <span class="record-phone-separator">·</span>
+            <a id="switchPhoneBtn" class="record-phone-change" href="javascript:void(0)">更换手机号</a>
+          </div>
         </div>
         <h1>留下这瓶酒的专属记录</h1>
         <p class="subtitle">选一张照片，写一句话，下次扫码还能看到。</p>
         <div class="record-trust-line">
-          <p class="record-star-id"><span>星贴</span> <strong id="qrIdText"></strong></p>
           <p class="record-chain-note">✦ 区块链存证</p>
         </div>
       </div>
@@ -49,7 +51,6 @@
 
         <div class="field-label-row">
           <label for="content">写下想记住的话</label>
-          <p class="field-hint">最多 200 字</p>
         </div>
         <div class="memory-input-shell">
           <textarea id="content" class="memory-input" maxlength="200" wrap="soft" placeholder="例：这一刻，我想记下的是……"></textarea>
