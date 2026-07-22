@@ -4,6 +4,7 @@ const coCreateSection = document.getElementById('coCreateSection');
 const resultSection = document.getElementById('resultSection');
 const qrIdText = document.getElementById('qrIdText');
 const uploadArea = document.getElementById('uploadArea');
+const uploadLabel = document.querySelector('label[for="imageInput"]');
 const imageInput = document.getElementById('imageInput');
 const preview = document.getElementById('preview');
 const uploadActionText = document.getElementById('uploadActionText');
@@ -64,6 +65,7 @@ const SUPPORTED_UI_THEMES = new Set(['dark', 'dawn']);
 const uiTheme = SUPPORTED_UI_THEMES.has(params.get('ui')) ? params.get('ui') : '';
 const SUPPORTED_BG_THEMES = new Set(['mist', 'paper', 'blue']);
 const bgTheme = SUPPORTED_BG_THEMES.has(params.get('bg')) ? params.get('bg') : '';
+const recordDraftKey = qrId ? `record_draft:${qrId}` : '';
 let userPhone = '';
 
 let uploadedImageUrl = '';
@@ -121,6 +123,111 @@ function registerUrl() {
     next.set('bg', bgTheme);
   }
   return `/register.html?${next.toString()}`;
+}
+
+function getRecordDraftStorage() {
+  try {
+    return window.sessionStorage || null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function readRecordDraft() {
+  const storage = getRecordDraftStorage();
+  if (!recordDraftKey || !storage) {
+    return null;
+  }
+
+  try {
+    const raw = storage.getItem(recordDraftKey);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function saveRecordDraft() {
+  const storage = getRecordDraftStorage();
+  if (!recordDraftKey || !storage) {
+    return;
+  }
+
+  try {
+    storage.setItem(recordDraftKey, JSON.stringify({
+      content: contentInput ? contentInput.value : '',
+      mode: getSaveMode(),
+      showBrandDisclosure: showBrandDisclosureInput ? showBrandDisclosureInput.checked : false
+    }));
+  } catch (_error) {
+    // sessionStorage may be unavailable in private or restricted browsers.
+  }
+}
+
+function restoreRecordDraft() {
+  const draft = readRecordDraft();
+  if (!draft || typeof draft !== 'object') {
+    return;
+  }
+
+  if (contentInput && typeof draft.content === 'string') {
+    contentInput.value = draft.content.slice(0, Number(contentInput.maxLength) || 200);
+    if (countEl) {
+      countEl.textContent = `${contentInput.value.length} / 200`;
+    }
+  }
+
+  if (typeof draft.mode === 'string') {
+    const draftModeInput = saveModeInputs.find((input) => input.value === draft.mode);
+    if (draftModeInput) {
+      draftModeInput.checked = true;
+      syncSaveModeStyles();
+    }
+  }
+
+  if (
+    showBrandDisclosureInput
+    && brandSection
+    && !brandSection.classList.contains('hidden')
+    && typeof draft.showBrandDisclosure === 'boolean'
+  ) {
+    showBrandDisclosureInput.checked = draft.showBrandDisclosure;
+  }
+}
+
+function clearRecordDraft() {
+  const storage = getRecordDraftStorage();
+  if (!recordDraftKey || !storage) {
+    return;
+  }
+
+  try {
+    storage.removeItem(recordDraftKey);
+  } catch (_error) {
+    // Ignore storage cleanup failures.
+  }
+}
+
+function redirectToRegisterWithDraft() {
+  saveRecordDraft();
+  window.location.href = registerUrl();
+}
+
+function hasBoundPhone() {
+  return /^1\d{10}$/.test(String(userPhone || '').trim());
+}
+
+function requirePhoneBeforeProtectedAction() {
+  if (hasBoundPhone()) {
+    return true;
+  }
+
+  redirectToRegisterWithDraft();
+  return false;
+}
+
+function isUnauthorizedError(error) {
+  return error && error.code === 'UNAUTHORIZED';
 }
 
 function maskPhone(phone) {
@@ -483,11 +590,6 @@ async function loadQRStatus() {
       return;
     }
 
-    if (!userPhone) {
-      window.location.href = registerUrl();
-      return;
-    }
-
     const batchBrandDisclosureText = String(res.data.batch_brand_disclosure_text || '').trim();
     if (res.data.batch_id && batchBrandDisclosureText) {
       brandSection.classList.remove('hidden');
@@ -503,6 +605,7 @@ async function loadQRStatus() {
       brandPreviewText.textContent = '';
     }
 
+    restoreRecordDraft();
     setPageMode('form');
   } catch (error) {
     setPageMode('form');
@@ -532,11 +635,17 @@ initPage();
 
 if (switchPhoneBtn) {
   switchPhoneBtn.addEventListener('click', async () => {
+    if (!hasBoundPhone()) {
+      redirectToRegisterWithDraft();
+      return;
+    }
+
     const confirmed = window.confirm('确认更换手机号吗？更换后会退出当前设备登录状态，需要重新验证手机号。');
     if (!confirmed) {
       return;
     }
 
+    saveRecordDraft();
     try {
       await apiRequest('/api/user/logout', {
         method: 'POST'
@@ -551,13 +660,35 @@ if (switchPhoneBtn) {
 }
 
 saveModeInputs.forEach((input) => {
-  input.addEventListener('change', syncSaveModeStyles);
+  input.addEventListener('change', () => {
+    syncSaveModeStyles();
+    saveRecordDraft();
+  });
 });
 syncSaveModeStyles();
+
+if (showBrandDisclosureInput) {
+  showBrandDisclosureInput.addEventListener('change', saveRecordDraft);
+}
+
+if (uploadLabel) {
+  uploadLabel.addEventListener('click', (event) => {
+    if (submitting) {
+      event.preventDefault();
+      return;
+    }
+
+    if (!hasBoundPhone()) {
+      event.preventDefault();
+      redirectToRegisterWithDraft();
+    }
+  });
+}
 
 if (uploadArea) {
   uploadArea.addEventListener('click', () => {
     if (submitting) return;
+    if (!requirePhoneBeforeProtectedAction()) return;
     imageInput.click();
   });
 }
@@ -565,12 +696,18 @@ if (uploadArea) {
 if (changePhotoBtn) {
   changePhotoBtn.addEventListener('click', () => {
     if (submitting) return;
+    if (!requirePhoneBeforeProtectedAction()) return;
     imageInput.click();
   });
 }
 
 imageInput.addEventListener('change', async () => {
   if (!imageInput.files || imageInput.files.length === 0) {
+    return;
+  }
+
+  if (!requirePhoneBeforeProtectedAction()) {
+    imageInput.value = '';
     return;
   }
 
@@ -605,6 +742,10 @@ imageInput.addEventListener('change', async () => {
     preview.src = '';
     setUploadPreviewState(false);
     imageInput.value = '';
+    if (isUnauthorizedError(error)) {
+      redirectToRegisterWithDraft();
+      return;
+    }
     showError(error.message || '上传失败，请换张图片试试');
   }
 });
@@ -625,6 +766,7 @@ if (resultHashToggle) {
 
 contentInput.addEventListener('input', () => {
   countEl.textContent = `${contentInput.value.length} / 200`;
+  saveRecordDraft();
 });
 
 submitBtn.addEventListener('click', async () => {
@@ -635,6 +777,7 @@ submitBtn.addEventListener('click', async () => {
     return;
   }
 
+  if (!requirePhoneBeforeProtectedAction()) return;
   openConfirmOverlay();
 });
 
@@ -656,6 +799,8 @@ if (confirmOverlay) {
 
 async function submitRecord() {
   if (submitting) return;
+  if (!requirePhoneBeforeProtectedAction()) return;
+
   const content = contentInput.value.trim();
   const saveMode = getSaveMode();
   submitting = true;
@@ -689,6 +834,7 @@ async function submitRecord() {
 
     const elapsed = Date.now() - startAt;
     const remain = Math.max(0, minimumDelayMs - elapsed);
+    clearRecordDraft();
     window.setTimeout(() => {
       stageHint.classList.add('hidden');
       formSection.classList.remove('content-fade-out');
@@ -702,6 +848,13 @@ async function submitRecord() {
   } catch (error) {
     stageHint.classList.add('hidden');
     formSection.classList.remove('content-fade-out');
+    if (isUnauthorizedError(error)) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '预览并确认';
+      submitting = false;
+      redirectToRegisterWithDraft();
+      return;
+    }
     showError(error.message || '提交失败，请检查网络后重试');
     submitBtn.disabled = false;
     submitBtn.textContent = '预览并确认';

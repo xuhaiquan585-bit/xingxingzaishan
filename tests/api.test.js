@@ -764,6 +764,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const registerJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'js', 'register.js'), 'utf8');
   const frontendCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'css', 'style.css'), 'utf8');
   const themeDawnCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'css', 'theme-dawn.css'), 'utf8');
+  const normalizedH5RecordJs = h5RecordJs.replace(/\r\n/g, '\n');
   const appWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'app.wxss'), 'utf8');
   const bindPhoneWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.wxml'), 'utf8');
   const bindPhoneCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.wxss'), 'utf8');
@@ -894,6 +895,18 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(h5RecordJs.includes("next.set('ui', uiTheme)"), true);
   assert.equal(h5RecordJs.includes("const SUPPORTED_BG_THEMES = new Set(['mist', 'paper', 'blue'])"), true);
   assert.equal(h5RecordJs.includes("next.set('bg', bgTheme)"), true);
+  assert.equal(h5RecordJs.includes('function saveRecordDraft()'), true);
+  assert.equal(h5RecordJs.includes('function restoreRecordDraft()'), true);
+  assert.equal(h5RecordJs.includes('function requirePhoneBeforeProtectedAction()'), true);
+  assert.equal(h5RecordJs.includes('storage.setItem(recordDraftKey'), true);
+  assert.equal(h5RecordJs.includes('clearRecordDraft();'), true);
+  assert.equal(normalizedH5RecordJs.includes("if (!userPhone) {\n      window.location.href = registerUrl();\n      return;\n    }\n\n    const batchBrandDisclosureText"), false);
+  assert.equal(normalizedH5RecordJs.includes("restoreRecordDraft();\n    setPageMode('form');"), true);
+  assert.equal(normalizedH5RecordJs.includes("if (!requirePhoneBeforeProtectedAction()) return;\n    imageInput.click();"), true);
+  assert.equal(h5RecordJs.includes("document.querySelector('label[for=\"imageInput\"]')"), true);
+  assert.equal(h5RecordJs.includes("uploadLabel.addEventListener('click'"), true);
+  assert.equal(normalizedH5RecordJs.includes("if (!hasBoundPhone()) {\n      redirectToRegisterWithDraft();\n      return;\n    }\n\n    const confirmed"), true);
+  assert.equal(h5RecordJs.includes("showBrandDisclosureInput.addEventListener('change', saveRecordDraft)"), true);
   assert.equal(registerJs.includes("const SUPPORTED_UI_THEMES = new Set(['dark', 'dawn'])"), true);
   assert.equal(registerJs.includes("next.set('ui', uiTheme)"), true);
   assert.equal(registerJs.includes("const SUPPORTED_BG_THEMES = new Set(['mist', 'paper', 'blue'])"), true);
