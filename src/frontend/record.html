@@ -25,7 +25,7 @@
           <p class="record-star-id"><span>星贴</span> <strong id="qrIdText"></strong></p>
           <div class="record-phone-line">
             <strong id="currentPhoneText"></strong>
-            <span class="record-phone-separator">·</span>
+            <span id="recordPhoneSeparator" class="record-phone-separator">·</span>
             <a id="switchPhoneBtn" class="record-phone-change" href="javascript:void(0)">更换手机号</a>
           </div>
         </div>
@@ -37,6 +37,7 @@
       </div>
 
       <section id="formSection" class="card hidden">
+        <p id="draftNotice" class="draft-notice hidden"></p>
         <div class="field-label-row">
           <label for="imageInput">添加照片</label>
         </div>
@@ -121,8 +122,8 @@
 
       <section id="resultSection" class="card hidden">
         <div class="result-success-banner">
-          <p class="result-success-title">✨ 保存成功</p>
-          <p class="result-success-sub">记在星上，闪到永远</p>
+          <p id="resultTitle" class="result-success-title"></p>
+          <p id="resultSubtitle" class="result-success-sub"></p>
         </div>
 
         <div class="memory-card">
@@ -132,9 +133,10 @@
         </div>
 
         <div class="credential-card">
-          <p class="brand-line"><span class="brand">星星在闪</span> - <span id="resultTime"></span></p>
-          <p class="credential-label">区块链存证：<span id="resultChainStatus">存证生成中</span></p>
-          <button id="resultHashToggle" class="hash-toggle" type="button">查看存证哈希</button>
+          <p class="credential-row"><span class="credential-label">星贴编号</span><strong id="resultQrId" class="credential-value"></strong></p>
+          <p class="credential-row"><span class="credential-label">保存时间</span><span id="resultTime" class="credential-value"></span></p>
+          <p class="credential-row"><span class="credential-label">存证状态</span><span id="resultChainStatus" class="credential-value">存证生成中</span></p>
+          <button id="resultHashToggle" class="hash-toggle hidden" type="button">查看存证信息</button>
           <div id="resultHash" class="credential-detail hidden">
             <p class="credential-label">存证哈希</p>
             <p id="resultHashValue" class="credential-hash"></p>
@@ -147,13 +149,13 @@
           <a id="myRecordsBtn" class="btn btn-secondary" href="/me.html">查看我的记录</a>
         </div>
         <p class="project-link-wrap"><a class="project-link" href="/landing.html?from=success">这是什么？</a></p>
-        <p class="field-hint" style="text-align:center;">别人扫码就能看到您的记录了</p>
+        <p id="resultVisibilityHint" class="field-hint result-visibility-hint">以后再扫码，可以重新看到这条记录。</p>
       </section>
 
       <div id="confirmOverlay" class="overlay hidden">
         <div class="overlay-mask"></div>
         <div class="overlay-panel">
-          <p class="overlay-title">确认保存这一刻</p>
+          <p class="overlay-title">预览并确认</p>
           <div class="confirm-preview">
             <div class="confirm-preview-photo">
               <img id="confirmPreviewImage" class="confirm-preview-image hidden" alt="即将保存的照片" />
@@ -164,8 +166,8 @@
             </div>
           </div>
           <p id="confirmOverlaySubtitle" class="overlay-subtitle confirm-notice-card">
-            提交后，这张照片和这句话将保存到这瓶酒的记录里。<br />
-            以后扫码可查看，<strong>不能修改</strong>。
+            提交后，这张照片和这句话会保存到这瓶酒的记录中。<br />
+            以后扫码可以查看，提交后<strong>不能修改</strong>。
           </p>
           <button id="confirmSubmitBtn" class="btn">确认提交</button>
           <button id="cancelSubmitBtn" class="btn btn-secondary">返回修改</button>

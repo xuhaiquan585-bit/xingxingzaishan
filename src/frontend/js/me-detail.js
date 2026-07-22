@@ -3,17 +3,26 @@ const switchPhoneBtn = document.getElementById('switchPhoneBtn');
 const detailMessage = document.getElementById('detailMessage');
 
 const detailSection = document.getElementById('detailSection');
+const detailHeaderId = document.getElementById('detailHeaderId');
 const detailImage = document.getElementById('detailImage');
 const detailContent = document.getElementById('detailContent');
 const detailComments = document.getElementById('detailComments');
 const detailTime = document.getElementById('detailTime');
-const detailId = document.getElementById('detailId');
 const detailChainStatus = document.getElementById('detailChainStatus');
+const detailHashGroup = document.getElementById('detailHashGroup');
 const detailHash = document.getElementById('detailHash');
+const copyHashBtn = document.getElementById('copyHashBtn');
+const toggleHashBtn = document.getElementById('toggleHashBtn');
+const detailCertificateLink = document.getElementById('detailCertificateLink');
+const hashMessage = document.getElementById('hashMessage');
+const detailBrandGroup = document.getElementById('detailBrandGroup');
 const detailBrand = document.getElementById('detailBrand');
 
 const params = new URLSearchParams(window.location.search);
 const recordId = params.get('id') || '';
+let currentHash = '';
+let hashExpanded = false;
+let hashMessageTimer = null;
 
 function maskPhone(phone) {
   const value = String(phone || '').trim();
@@ -33,6 +42,82 @@ function formatTime(value) {
   const hh = String(date.getHours()).padStart(2, '0');
   const mm = String(date.getMinutes()).padStart(2, '0');
   return `${y}/${m}/${d} ${hh}:${mm}`;
+}
+
+function getRecordHash(record = {}) {
+  return String(record.manifest_hash || record.blockchain_hash || '').trim();
+}
+
+function formatHashSummary(hash) {
+  const value = String(hash || '').trim();
+  if (!value) return '';
+  if (value.length <= 24) return value;
+  return `${value.slice(0, 12)}…${value.slice(-6)}`;
+}
+
+function getSafeHttpUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    return (url.protocol === 'http:' || url.protocol === 'https:') ? url.href : '';
+  } catch (_error) {
+    return '';
+  }
+}
+
+function setHashExpanded(expanded) {
+  hashExpanded = expanded === true;
+  if (!detailHash || !toggleHashBtn) return;
+
+  detailHash.textContent = hashExpanded ? currentHash : formatHashSummary(currentHash);
+  detailHash.classList.toggle('is-expanded', hashExpanded);
+  toggleHashBtn.textContent = hashExpanded ? '收起完整哈希' : '查看完整哈希';
+  toggleHashBtn.classList.toggle('hidden', !currentHash || currentHash.length <= 24);
+}
+
+function showHashMessage(text) {
+  if (!hashMessage) return;
+  window.clearTimeout(hashMessageTimer);
+  hashMessage.textContent = text || '';
+  hashMessage.classList.toggle('hidden', !text);
+  if (text) {
+    hashMessageTimer = window.setTimeout(() => {
+      hashMessage.textContent = '';
+      hashMessage.classList.add('hidden');
+    }, 2600);
+  }
+}
+
+async function copyTextWithFallback(text) {
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch (_error) {
+      // Fall through to the textarea copy path for embedded browsers.
+    }
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '-999px';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } finally {
+    document.body.removeChild(textarea);
+  }
+  if (!copied) {
+    throw new Error('copy failed');
+  }
 }
 
 function renderComments(comments = []) {
@@ -75,13 +160,45 @@ function renderComments(comments = []) {
 }
 
 function renderDetail(record) {
+  const displayId = record.id || recordId || '';
+  detailHeaderId.textContent = displayId;
   detailImage.src = record.image_url || '';
   detailContent.textContent = record.content || '（未填写留言）';
   detailTime.textContent = formatTime(record.activated_at);
-  detailId.textContent = record.id || '';
   detailChainStatus.textContent = record.chain_status_text || '存证生成中';
-  detailHash.textContent = record.manifest_hash || record.blockchain_hash || '-';
   renderComments(record.co_creation_comments || []);
+
+  currentHash = getRecordHash(record);
+  const certificateUrl = getSafeHttpUrl(record.chain_certificate_url);
+  if (currentHash || certificateUrl) {
+    detailHashGroup.classList.remove('hidden');
+    if (currentHash) {
+      detailHash.classList.remove('hidden');
+      copyHashBtn.classList.remove('hidden');
+      setHashExpanded(false);
+    } else {
+      detailHash.textContent = '';
+      detailHash.classList.add('hidden');
+      copyHashBtn.classList.add('hidden');
+      toggleHashBtn.classList.add('hidden');
+    }
+
+    if (certificateUrl) {
+      detailCertificateLink.href = certificateUrl;
+      detailCertificateLink.classList.remove('hidden');
+    } else {
+      detailCertificateLink.removeAttribute('href');
+      detailCertificateLink.classList.add('hidden');
+    }
+  } else {
+    detailHash.textContent = '';
+    detailHashGroup.classList.add('hidden');
+    copyHashBtn.classList.add('hidden');
+    toggleHashBtn.classList.add('hidden');
+    detailCertificateLink.removeAttribute('href');
+    detailCertificateLink.classList.add('hidden');
+  }
+  showHashMessage('');
 
   const brandDisclosureText = String(record.brand_disclosure_text_snapshot || '').trim();
   if (record.show_brand_disclosure && brandDisclosureText) {
@@ -89,10 +206,10 @@ function renderDetail(record) {
     detailBrand.textContent = brandName
       ? `${brandName} · ${brandDisclosureText}`
       : brandDisclosureText;
-    detailBrand.classList.remove('hidden');
+    detailBrandGroup.classList.remove('hidden');
   } else {
     detailBrand.textContent = '';
-    detailBrand.classList.add('hidden');
+    detailBrandGroup.classList.add('hidden');
   }
   detailSection.classList.remove('hidden');
 }
@@ -134,6 +251,25 @@ if (switchPhoneBtn) {
       // 忽略退出失败，直接跳转注册
     }
     window.location.href = '/register.html';
+  });
+}
+
+if (toggleHashBtn) {
+  toggleHashBtn.addEventListener('click', () => {
+    if (!currentHash) return;
+    setHashExpanded(!hashExpanded);
+  });
+}
+
+if (copyHashBtn) {
+  copyHashBtn.addEventListener('click', async () => {
+    if (!currentHash) return;
+    try {
+      await copyTextWithFallback(currentHash);
+      showHashMessage('已复制存证哈希');
+    } catch (_error) {
+      showHashMessage('复制失败，请长按选择复制');
+    }
   });
 }
 

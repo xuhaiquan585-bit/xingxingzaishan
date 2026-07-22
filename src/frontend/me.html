@@ -13,26 +13,28 @@
     <link rel="stylesheet" href="/css/theme-dawn.css" />
   </head>
   <body>
-    <main class="container">
+    <main class="container my-records-page">
       <div class="page-intro">
         <h1>我的记录</h1>
         <p class="subtitle">查看你留在酒里的照片和留言</p>
+        <p class="account-meta-line">
+          <strong id="currentPhoneText"></strong>
+          <span class="account-meta-separator">·</span>
+          <a id="switchPhoneBtn" class="account-meta-link" href="javascript:void(0)">更换手机号</a>
+        </p>
+        <p id="pageMessage" class="message"></p>
       </div>
 
-      <section class="card account-card">
-        <p class="qr-id-hint">当前手机号：<strong id="currentPhoneText"></strong>（<a id="switchPhoneBtn" href="javascript:void(0)">更换手机号</a>）</p>
-        <p id="pageMessage" class="message"></p>
-      </section>
-
-      <section id="emptySection" class="card hidden">
-        <p class="subtitle">你还没有留下记录，扫码后可以把照片和留言留在酒里。</p>
-        <a href="/" class="btn">去留下记录</a>
+      <section id="emptySection" class="card empty-card hidden">
+        <p class="empty-title">还没有留下记录</p>
+        <p class="subtitle">扫码一张新的星贴，开始保存照片和留言。</p>
+        <a href="/" class="btn btn-secondary empty-action">去留下记录</a>
       </section>
 
       <section id="recordsSection" class="record-feed hidden"></section>
 
-      <section class="card">
-        <a class="btn btn-secondary" href="/landing.html?from=me">合作方案</a>
+      <section class="card support-card">
+        <a class="btn btn-secondary support-link" href="/landing.html?from=me">合作方案</a>
       </section>
     </main>
 

@@ -18,7 +18,9 @@ const brandPreviewText = document.getElementById('brandPreviewText');
 const submitBtn = document.getElementById('submitBtn');
 const formMessage = document.getElementById('formMessage');
 const currentPhoneText = document.getElementById('currentPhoneText');
+const recordPhoneSeparator = document.getElementById('recordPhoneSeparator');
 const switchPhoneBtn = document.getElementById('switchPhoneBtn');
+const draftNotice = document.getElementById('draftNotice');
 
 const shareBtn = document.getElementById('shareBtn');
 const confirmOverlay = document.getElementById('confirmOverlay');
@@ -33,11 +35,15 @@ const stageHint = document.getElementById('stageHint');
 
 const resultImage = document.getElementById('resultImage');
 const resultContent = document.getElementById('resultContent');
+const resultTitle = document.getElementById('resultTitle');
+const resultSubtitle = document.getElementById('resultSubtitle');
+const resultQrId = document.getElementById('resultQrId');
 const resultHashToggle = document.getElementById('resultHashToggle');
 const resultHash = document.getElementById('resultHash');
 const resultHashValue = document.getElementById('resultHashValue');
 const resultTime = document.getElementById('resultTime');
 const resultChainStatus = document.getElementById('resultChainStatus');
+const resultVisibilityHint = document.getElementById('resultVisibilityHint');
 const resultBrandDisclosure = document.getElementById('resultBrandDisclosure');
 const resultBrandName = document.getElementById('resultBrandName');
 const resultBrandSeparator = document.getElementById('resultBrandSeparator');
@@ -65,12 +71,18 @@ const SUPPORTED_UI_THEMES = new Set(['dark', 'dawn']);
 const uiTheme = SUPPORTED_UI_THEMES.has(params.get('ui')) ? params.get('ui') : '';
 const SUPPORTED_BG_THEMES = new Set(['mist', 'paper', 'blue']);
 const bgTheme = SUPPORTED_BG_THEMES.has(params.get('bg')) ? params.get('bg') : '';
+const SUPPORTED_DRAFT_SOURCES = new Set(['upload', 'replace-photo', 'submit']);
+const draftReturnSource = SUPPORTED_DRAFT_SOURCES.has(params.get('source')) ? params.get('source') : '';
+const RECORD_DRAFT_VERSION = 1;
+const RECORD_DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
 const recordDraftKey = qrId ? `record_draft:${qrId}` : '';
+const recordDraftPendingKey = recordDraftKey ? `${recordDraftKey}:verify_pending` : '';
 let userPhone = '';
 
 let uploadedImageUrl = '';
 let uploadedImageObjectKey = '';
 let uploadedStorageMode = '';
+let pendingPhotoSource = 'upload';
 let currentResult = null;
 let currentCoCreate = null;
 let submitting = false;
@@ -113,7 +125,11 @@ function setUploadPreviewState(hasPhoto) {
   }
 }
 
-function registerUrl() {
+function getValidDraftSource(value) {
+  return SUPPORTED_DRAFT_SOURCES.has(value) ? value : '';
+}
+
+function registerUrl(source = '') {
   const next = new URLSearchParams();
   next.set('t', qrId || '');
   if (uiTheme) {
@@ -121,6 +137,10 @@ function registerUrl() {
   }
   if (bgTheme) {
     next.set('bg', bgTheme);
+  }
+  const safeSource = getValidDraftSource(source);
+  if (safeSource) {
+    next.set('source', safeSource);
   }
   return `/register.html?${next.toString()}`;
 }
@@ -141,20 +161,46 @@ function readRecordDraft() {
 
   try {
     const raw = storage.getItem(recordDraftKey);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) {
+      return null;
+    }
+    const draft = JSON.parse(raw);
+    const now = Date.now();
+    if (
+      !draft
+      || typeof draft !== 'object'
+      || draft.version !== RECORD_DRAFT_VERSION
+      || typeof draft.expiresAt !== 'number'
+      || draft.expiresAt <= now
+    ) {
+      storage.removeItem(recordDraftKey);
+      return null;
+    }
+    return draft;
   } catch (_error) {
+    try {
+      storage.removeItem(recordDraftKey);
+    } catch (_cleanupError) {
+      // Ignore cleanup failures.
+    }
     return null;
   }
 }
 
-function saveRecordDraft() {
+function saveRecordDraft(source = draftReturnSource) {
   const storage = getRecordDraftStorage();
   if (!recordDraftKey || !storage) {
     return;
   }
 
   try {
+    const savedAt = Date.now();
+    const safeSource = getValidDraftSource(typeof source === 'string' ? source : draftReturnSource);
     storage.setItem(recordDraftKey, JSON.stringify({
+      version: RECORD_DRAFT_VERSION,
+      source: safeSource,
+      savedAt,
+      expiresAt: savedAt + RECORD_DRAFT_TTL_MS,
       content: contentInput ? contentInput.value : '',
       mode: getSaveMode(),
       showBrandDisclosure: showBrandDisclosureInput ? showBrandDisclosureInput.checked : false
@@ -164,10 +210,62 @@ function saveRecordDraft() {
   }
 }
 
+function readVerificationPending() {
+  const storage = getRecordDraftStorage();
+  if (!recordDraftPendingKey || !storage) {
+    return null;
+  }
+
+  try {
+    const raw = storage.getItem(recordDraftPendingKey);
+    if (!raw) {
+      return null;
+    }
+    const pending = JSON.parse(raw);
+    storage.removeItem(recordDraftPendingKey);
+    if (
+      !pending
+      || typeof pending !== 'object'
+      || pending.version !== RECORD_DRAFT_VERSION
+      || typeof pending.expiresAt !== 'number'
+      || pending.expiresAt <= Date.now()
+    ) {
+      return null;
+    }
+    return pending;
+  } catch (_error) {
+    try {
+      storage.removeItem(recordDraftPendingKey);
+    } catch (_cleanupError) {
+      // Ignore cleanup failures.
+    }
+    return null;
+  }
+}
+
+function markVerificationPending(source = '') {
+  const storage = getRecordDraftStorage();
+  if (!recordDraftPendingKey || !storage) {
+    return;
+  }
+
+  try {
+    const savedAt = Date.now();
+    storage.setItem(recordDraftPendingKey, JSON.stringify({
+      version: RECORD_DRAFT_VERSION,
+      source: getValidDraftSource(source),
+      savedAt,
+      expiresAt: savedAt + RECORD_DRAFT_TTL_MS
+    }));
+  } catch (_error) {
+    // sessionStorage may be unavailable in private or restricted browsers.
+  }
+}
+
 function restoreRecordDraft() {
   const draft = readRecordDraft();
   if (!draft || typeof draft !== 'object') {
-    return;
+    return null;
   }
 
   if (contentInput && typeof draft.content === 'string') {
@@ -193,6 +291,8 @@ function restoreRecordDraft() {
   ) {
     showBrandDisclosureInput.checked = draft.showBrandDisclosure;
   }
+
+  return draft;
 }
 
 function clearRecordDraft() {
@@ -203,26 +303,58 @@ function clearRecordDraft() {
 
   try {
     storage.removeItem(recordDraftKey);
+    if (recordDraftPendingKey) {
+      storage.removeItem(recordDraftPendingKey);
+    }
   } catch (_error) {
     // Ignore storage cleanup failures.
   }
 }
 
-function redirectToRegisterWithDraft() {
-  saveRecordDraft();
-  window.location.href = registerUrl();
+function showDraftRestoreNotice(restoredDraft, verificationPending) {
+  if (!draftNotice || !verificationPending) {
+    return;
+  }
+
+  const source = getValidDraftSource(verificationPending.source);
+  let message = '验证成功，请继续完成这条记录。';
+  if (restoredDraft) {
+    if (source === 'upload' || source === 'replace-photo') {
+      message = '已恢复刚才填写的内容，请继续选择照片。';
+    } else if (source === 'submit') {
+      message = '已恢复刚才填写的内容，请继续预览确认。';
+    } else {
+      message = '已恢复刚才填写的内容。';
+    }
+  }
+
+  draftNotice.textContent = message;
+  draftNotice.classList.remove('hidden');
+  window.setTimeout(() => {
+    if (draftNotice.textContent === message) {
+      draftNotice.textContent = '';
+      draftNotice.classList.add('hidden');
+    }
+  }, 3500);
+}
+
+function redirectToRegisterWithDraft(source = '') {
+  const safeSource = getValidDraftSource(source);
+  saveRecordDraft(safeSource);
+  markVerificationPending(safeSource);
+  window.location.href = registerUrl(safeSource);
 }
 
 function hasBoundPhone() {
   return /^1\d{10}$/.test(String(userPhone || '').trim());
 }
 
-function requirePhoneBeforeProtectedAction() {
+function requirePhoneBeforeProtectedAction(source = '') {
   if (hasBoundPhone()) {
     return true;
   }
 
-  redirectToRegisterWithDraft();
+  redirectToRegisterWithDraft(source);
   return false;
 }
 
@@ -238,6 +370,21 @@ function maskPhone(phone) {
   return `${value.slice(0, 3)}****${value.slice(-4)}`;
 }
 
+function syncPhoneMetaLine() {
+  const boundPhone = hasBoundPhone();
+  if (currentPhoneText) {
+    currentPhoneText.textContent = boundPhone ? maskPhone(userPhone) : '';
+    currentPhoneText.classList.toggle('hidden', !boundPhone);
+  }
+  if (recordPhoneSeparator) {
+    recordPhoneSeparator.classList.toggle('hidden', !boundPhone);
+  }
+  if (switchPhoneBtn) {
+    switchPhoneBtn.textContent = boundPhone ? '更换手机号' : '验证手机号';
+    switchPhoneBtn.setAttribute('aria-label', boundPhone ? '更换手机号' : '验证手机号');
+  }
+}
+
 function formatMinuteTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
@@ -247,6 +394,12 @@ function formatMinuteTime(value) {
   const hh = String(date.getHours()).padStart(2, '0');
   const mm = String(date.getMinutes()).padStart(2, '0');
   return `${y}/${m}/${d} ${hh}:${mm}`;
+}
+
+function formatRecordDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `保存于 ${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
 function setPageMode(mode) {
@@ -336,6 +489,22 @@ function renderComments(container, comments, { canDelete = false } = {}) {
 function renderResult(data, { justSaved = false } = {}) {
   currentResult = data;
   currentCoCreate = null;
+
+  if (resultTitle) {
+    resultTitle.textContent = justSaved ? '保存成功' : '这瓶酒里的记录';
+  }
+  if (resultSubtitle) {
+    resultSubtitle.textContent = justSaved
+      ? '以后再扫码，还能回到这一刻'
+      : (formatRecordDate(data.activated_at) || '以后再扫码，还能回到这一刻');
+  }
+  if (resultQrId) {
+    resultQrId.textContent = data.qr_id || qrId || '-';
+  }
+  if (resultVisibilityHint) {
+    resultVisibilityHint.textContent = '以后再扫码，可以重新看到这条记录。';
+  }
+
   setPageMode('result');
   resultSection.classList.remove('result-animate');
   resultSection.classList.remove('show-actions');
@@ -346,11 +515,6 @@ function renderResult(data, { justSaved = false } = {}) {
   window.setTimeout(() => {
     resultSection.classList.add('show-actions');
   }, 900);
-
-  const resultSuccessTitle = document.querySelector('.result-success-title');
-  if (resultSuccessTitle) {
-    resultSuccessTitle.textContent = justSaved ? '✨ 保存成功' : '这瓶酒里的记录';
-  }
 
   resultImage.src = data.image_url || '';
   resultContent.textContent = data.content || '（未填写留言）';
@@ -373,12 +537,16 @@ function renderResult(data, { justSaved = false } = {}) {
   }
   hashExpanded = false;
   const blockchainHash = String(data.manifest_hash || data.blockchain_hash || '').trim();
+  const certificateUrl = String(data.chain_certificate_url || '').trim();
   resultHashValue.textContent = blockchainHash;
   resultHash.classList.add('hidden');
-  resultHashToggle.disabled = !blockchainHash;
-  resultHashToggle.textContent = blockchainHash
-    ? '查看存证哈希'
-    : (data.chain_status_text || '存证生成中');
+  if (resultHashToggle) {
+    const hasCredentialInfo = !!(certificateUrl || blockchainHash);
+    resultHashToggle.dataset.certificateUrl = certificateUrl;
+    resultHashToggle.disabled = !hasCredentialInfo;
+    resultHashToggle.classList.toggle('hidden', !hasCredentialInfo);
+    resultHashToggle.textContent = '查看存证信息';
+  }
   resultTime.textContent = formatMinuteTime(data.activated_at);
   if (resultChainStatus) {
     resultChainStatus.textContent = data.chain_status_text || '存证生成中';
@@ -447,7 +615,7 @@ function openConfirmOverlay(mode = 'record') {
   if (confirmOverlayTitle) {
     confirmOverlayTitle.textContent = mode === 'finalize'
       ? '确认封存共创记录'
-      : '确认保存这一刻';
+      : '预览并确认';
   }
   if (confirmSubmitBtn) {
     confirmSubmitBtn.textContent = mode === 'finalize' ? '确认封存' : '确认提交';
@@ -513,9 +681,9 @@ function openConfirmOverlay(mode = 'record') {
     } else {
       confirmOverlaySubtitle.textContent = '';
       confirmOverlaySubtitle.append(
-        document.createTextNode('提交后，这张照片和这句话将保存到这瓶酒的记录里。'),
+        document.createTextNode('提交后，这张照片和这句话会保存到这瓶酒的记录中。'),
         document.createElement('br'),
-        document.createTextNode('以后扫码可查看，'),
+        document.createTextNode('以后扫码可以查看，提交后'),
         Object.assign(document.createElement('strong'), { textContent: '不能修改' }),
         document.createTextNode('。')
       );
@@ -605,8 +773,10 @@ async function loadQRStatus() {
       brandPreviewText.textContent = '';
     }
 
-    restoreRecordDraft();
+    const restoredDraft = restoreRecordDraft();
+    const verificationPending = hasBoundPhone() ? readVerificationPending() : null;
     setPageMode('form');
+    showDraftRestoreNotice(restoredDraft, verificationPending);
   } catch (error) {
     setPageMode('form');
     showError(error.message || '加载失败，请重新扫码或检查网络');
@@ -621,9 +791,7 @@ async function syncSessionUser() {
     userPhone = '';
   }
 
-  if (currentPhoneText) {
-    currentPhoneText.textContent = maskPhone(userPhone);
-  }
+  syncPhoneMetaLine();
 }
 
 async function initPage() {
@@ -673,6 +841,7 @@ if (showBrandDisclosureInput) {
 
 if (uploadLabel) {
   uploadLabel.addEventListener('click', (event) => {
+    pendingPhotoSource = 'upload';
     if (submitting) {
       event.preventDefault();
       return;
@@ -680,7 +849,7 @@ if (uploadLabel) {
 
     if (!hasBoundPhone()) {
       event.preventDefault();
-      redirectToRegisterWithDraft();
+      redirectToRegisterWithDraft('upload');
     }
   });
 }
@@ -688,7 +857,8 @@ if (uploadLabel) {
 if (uploadArea) {
   uploadArea.addEventListener('click', () => {
     if (submitting) return;
-    if (!requirePhoneBeforeProtectedAction()) return;
+    pendingPhotoSource = 'upload';
+    if (!requirePhoneBeforeProtectedAction('upload')) return;
     imageInput.click();
   });
 }
@@ -696,7 +866,8 @@ if (uploadArea) {
 if (changePhotoBtn) {
   changePhotoBtn.addEventListener('click', () => {
     if (submitting) return;
-    if (!requirePhoneBeforeProtectedAction()) return;
+    pendingPhotoSource = 'replace-photo';
+    if (!requirePhoneBeforeProtectedAction('replace-photo')) return;
     imageInput.click();
   });
 }
@@ -706,7 +877,7 @@ imageInput.addEventListener('change', async () => {
     return;
   }
 
-  if (!requirePhoneBeforeProtectedAction()) {
+  if (!requirePhoneBeforeProtectedAction(pendingPhotoSource)) {
     imageInput.value = '';
     return;
   }
@@ -743,7 +914,7 @@ imageInput.addEventListener('change', async () => {
     setUploadPreviewState(false);
     imageInput.value = '';
     if (isUnauthorizedError(error)) {
-      redirectToRegisterWithDraft();
+      redirectToRegisterWithDraft(pendingPhotoSource);
       return;
     }
     showError(error.message || '上传失败，请换张图片试试');
@@ -752,15 +923,28 @@ imageInput.addEventListener('change', async () => {
 
 if (resultHashToggle) {
   resultHashToggle.addEventListener('click', () => {
+    const certificateUrl = String(resultHashToggle.dataset.certificateUrl || '').trim();
+    if (certificateUrl) {
+      try {
+        const targetUrl = new URL(certificateUrl, window.location.origin);
+        if (targetUrl.protocol === 'http:' || targetUrl.protocol === 'https:') {
+          window.open(targetUrl.href, '_blank', 'noopener,noreferrer');
+          return;
+        }
+      } catch (_error) {
+        // Invalid certificate URLs fall back to local hash details when available.
+      }
+    }
+
     if (!resultHashValue.textContent) return;
     hashExpanded = !hashExpanded;
     if (hashExpanded) {
       resultHash.classList.remove('hidden');
-      resultHashToggle.textContent = '收起存证哈希';
+      resultHashToggle.textContent = '收起存证信息';
       return;
     }
     resultHash.classList.add('hidden');
-    resultHashToggle.textContent = '查看存证哈希';
+    resultHashToggle.textContent = '查看存证信息';
   });
 }
 
@@ -777,7 +961,7 @@ submitBtn.addEventListener('click', async () => {
     return;
   }
 
-  if (!requirePhoneBeforeProtectedAction()) return;
+  if (!requirePhoneBeforeProtectedAction('submit')) return;
   openConfirmOverlay();
 });
 
@@ -799,7 +983,7 @@ if (confirmOverlay) {
 
 async function submitRecord() {
   if (submitting) return;
-  if (!requirePhoneBeforeProtectedAction()) return;
+  if (!requirePhoneBeforeProtectedAction('submit')) return;
 
   const content = contentInput.value.trim();
   const saveMode = getSaveMode();
@@ -852,7 +1036,7 @@ async function submitRecord() {
       submitBtn.disabled = false;
       submitBtn.textContent = '预览并确认';
       submitting = false;
-      redirectToRegisterWithDraft();
+      redirectToRegisterWithDraft('submit');
       return;
     }
     showError(error.message || '提交失败，请检查网络后重试');

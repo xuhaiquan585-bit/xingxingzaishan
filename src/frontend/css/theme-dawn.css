@@ -571,6 +571,18 @@ html.theme-dawn .record-page #formSection.card {
   margin: 0;
 }
 
+html.theme-dawn .record-page .draft-notice {
+  margin: 0 0 14px;
+  padding: 8px 10px;
+  border: 1px solid rgba(181, 139, 74, .16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .30);
+  color: #68798A;
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: left;
+}
+
 html.theme-dawn .record-page .field-label-row {
   display: flex;
   align-items: baseline;
@@ -846,6 +858,675 @@ html.theme-dawn .record-page .message {
   margin: 12px 0 0;
 }
 
+html.theme-dawn .record-page .overlay {
+  align-items: flex-end;
+}
+
+html.theme-dawn .record-page .overlay-mask {
+  background: rgba(22, 34, 48, .24);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html.theme-dawn .record-page .overlay-panel {
+  width: min(430px, calc(100% - 24px));
+  max-height: calc(100vh - 32px - env(safe-area-inset-bottom));
+  margin: 0 12px calc(16px + env(safe-area-inset-bottom));
+  padding: 20px;
+  border: 1px solid rgba(55, 75, 94, .12);
+  border-radius: var(--record-radius);
+  background: rgba(248, 250, 251, .96);
+  color: #223147;
+  box-shadow: 0 12px 28px rgba(66, 79, 91, .12);
+}
+
+html.theme-dawn .record-page .overlay-title {
+  color: #223147;
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+html.theme-dawn .record-page .overlay-subtitle {
+  color: #68798A;
+  opacity: 1;
+}
+
+html.theme-dawn .record-page .overlay-subtitle strong {
+  color: #526576;
+}
+
+html.theme-dawn .record-page .confirm-preview {
+  margin-top: 14px;
+  border: 0;
+  background: transparent;
+}
+
+html.theme-dawn .record-page .confirm-preview-photo {
+  min-height: 210px;
+  border: 1px solid rgba(55, 75, 94, .10);
+  border-radius: var(--record-radius);
+  background: rgba(255, 255, 255, .76);
+}
+
+html.theme-dawn .record-page .confirm-preview-image {
+  max-height: min(52vh, 500px);
+  border-radius: var(--record-radius);
+  object-fit: contain;
+}
+
+html.theme-dawn .record-page .confirm-preview-text {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(55, 75, 94, .10);
+  border-radius: var(--record-radius);
+  background: rgba(255, 255, 255, .56);
+}
+
+html.theme-dawn .record-page .confirm-preview-label {
+  color: #718392;
+  font-size: 12px;
+}
+
+html.theme-dawn .record-page .confirm-preview-content {
+  color: #526576;
+  font-family: "Songti SC", STSong, serif;
+}
+
+html.theme-dawn .record-page .confirm-preview-content.empty {
+  color: #8493A1;
+}
+
+html.theme-dawn .record-page .confirm-notice-card {
+  margin: 12px 0 4px;
+  padding: 11px 12px;
+  border: 1px solid rgba(55, 75, 94, .08);
+  border-radius: var(--record-radius);
+  background: rgba(255, 255, 255, .36);
+  color: #68798A;
+}
+
+html.theme-dawn .record-page .btn.btn-secondary,
+html.theme-dawn .record-page #cancelSubmitBtn,
+html.theme-dawn .record-page #myRecordsBtn {
+  border: 1px solid rgba(82, 101, 118, .22);
+  background: rgba(255, 255, 255, .38);
+  color: #223147;
+}
+
+html.theme-dawn .record-page .btn.btn-secondary:hover:not(:disabled),
+html.theme-dawn .record-page .btn.btn-secondary:active:not(:disabled),
+html.theme-dawn .record-page #cancelSubmitBtn:hover:not(:disabled),
+html.theme-dawn .record-page #cancelSubmitBtn:active:not(:disabled),
+html.theme-dawn .record-page #myRecordsBtn:hover:not(:disabled),
+html.theme-dawn .record-page #myRecordsBtn:active:not(:disabled) {
+  border-color: rgba(158, 128, 80, .34);
+  background: rgba(255, 255, 255, .54);
+  color: #223147;
+}
+
+html.theme-dawn .record-page #confirmSubmitBtn,
+html.theme-dawn .record-page #shareBtn {
+  background: #C79E55;
+  color: #162230;
+}
+
+html.theme-dawn .record-page #resultSection.card {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+html.theme-dawn .record-page #resultSection .result-success-banner {
+  margin: 0 0 24px;
+  padding: 0;
+  border: 0;
+  text-align: left;
+}
+
+html.theme-dawn .record-page #resultSection .result-success-title {
+  margin: 0 0 8px;
+  color: #223147;
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: .2px;
+}
+
+html.theme-dawn .record-page #resultSection .result-success-sub {
+  margin: 0;
+  color: #68798A;
+  opacity: 1;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+html.theme-dawn .record-page #resultSection .memory-card {
+  padding: 0;
+  border: 0;
+}
+
+html.theme-dawn .record-page #resultSection .result-image {
+  display: block;
+  width: 100%;
+  max-height: min(62vh, 520px);
+  border-radius: var(--record-radius);
+  background: rgba(255, 255, 255, .78);
+  box-shadow: 0 5px 15px rgba(66, 79, 91, .08);
+  object-fit: contain;
+}
+
+html.theme-dawn .record-page #resultSection .memory-content {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(55, 75, 94, .08);
+  border-radius: var(--record-radius);
+  background: rgba(255, 255, 255, .48);
+  color: #526576;
+  font-family: "Songti SC", STSong, serif;
+}
+
+html.theme-dawn .record-page #resultSection .credential-card {
+  margin: 18px 0 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(55, 75, 94, .08);
+  border-radius: var(--record-radius);
+  background: rgba(255, 255, 255, .28);
+  color: #68798A;
+  box-shadow: none;
+}
+
+html.theme-dawn .record-page #resultSection .credential-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 7px;
+}
+
+html.theme-dawn .record-page #resultSection .credential-row:last-of-type {
+  margin-bottom: 0;
+}
+
+html.theme-dawn .record-page #resultSection .credential-label {
+  margin: 0;
+  color: #718392;
+  font-weight: 400;
+}
+
+html.theme-dawn .record-page #resultSection .credential-value {
+  min-width: 0;
+  color: #526576;
+  font-weight: 500;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+html.theme-dawn .record-page #resultSection #resultQrId,
+html.theme-dawn .record-page #resultSection .credential-hash {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+html.theme-dawn .record-page #resultSection .hash-toggle {
+  margin-top: 8px;
+  border: 0;
+  border-bottom: 1px solid rgba(168, 137, 85, .38);
+  color: #A88955;
+  background: transparent;
+}
+
+html.theme-dawn .record-page #resultSection .credential-detail {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(55, 75, 94, .08);
+}
+
+html.theme-dawn .record-page #resultSection .credential-hash {
+  color: #526576;
+}
+
+html.theme-dawn .record-page #resultSection .credential-brand {
+  color: #526576;
+}
+
+html.theme-dawn .record-page #resultSection .result-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+html.theme-dawn .record-page #resultSection .result-actions .btn {
+  margin: 0;
+}
+
+html.theme-dawn .record-page #resultSection .project-link {
+  color: #A88955;
+  text-decoration: none;
+}
+
+html.theme-dawn .record-page #resultSection .result-visibility-hint {
+  margin: 10px 0 0;
+  color: #8493A1;
+  text-align: center;
+}
+
+html.theme-dawn .record-page #resultSection.result-animate .result-success-title {
+  animation: textRiseIn .24s ease .12s forwards;
+  filter: none;
+  text-shadow: none;
+}
+
+/* My records and record detail Dawn polish */
+html.theme-dawn .my-records-page,
+html.theme-dawn .record-detail-page {
+  --record-radius: 12px;
+  max-width: 430px;
+  padding: 24px 20px calc(28px + env(safe-area-inset-bottom));
+}
+
+html.theme-dawn .my-records-page .page-intro,
+html.theme-dawn .record-detail-page .page-intro {
+  margin-bottom: 24px;
+}
+
+html.theme-dawn .my-records-page .page-intro::after,
+html.theme-dawn .record-detail-page .page-intro::after {
+  content: none;
+  display: none;
+}
+
+html.theme-dawn .my-records-page .account-meta-line,
+html.theme-dawn .record-detail-page .account-meta-line {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  margin: 16px 0 0;
+  color: #6F7F8E;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+html.theme-dawn .my-records-page .account-meta-line strong,
+html.theme-dawn .record-detail-page .account-meta-line strong {
+  color: inherit;
+  font-weight: 400;
+}
+
+html.theme-dawn .my-records-page .account-meta-separator,
+html.theme-dawn .record-detail-page .account-meta-separator {
+  margin: 0 7px;
+  color: rgba(111, 127, 142, .82);
+}
+
+html.theme-dawn .my-records-page .account-meta-link,
+html.theme-dawn .record-detail-page .account-meta-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: #9E8050;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+html.theme-dawn .my-records-page .account-meta-link:focus-visible,
+html.theme-dawn .record-detail-page .account-meta-link:focus-visible {
+  border-radius: 4px;
+  outline: 1px solid rgba(158, 128, 80, .36);
+  outline-offset: 2px;
+}
+
+html.theme-dawn .my-records-page .message,
+html.theme-dawn .record-detail-page .message {
+  margin: 8px 0 0;
+  color: #A45F58;
+  text-align: left;
+}
+
+html.theme-dawn .my-records-page .empty-card,
+html.theme-dawn .my-records-page .support-card {
+  padding: 16px 14px;
+  border: 1px solid rgba(55, 75, 94, .08);
+  border-radius: var(--record-radius);
+  background: rgba(255, 255, 255, .36);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+html.theme-dawn .my-records-page .empty-title {
+  margin: 0 0 6px;
+  color: #223147;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+html.theme-dawn .my-records-page .empty-card .subtitle {
+  margin: 0 0 14px;
+  color: #68798A;
+  line-height: 1.55;
+}
+
+html.theme-dawn .my-records-page .record-feed {
+  display: grid;
+  gap: 18px;
+  margin: 0 0 20px;
+}
+
+html.theme-dawn .my-records-page .record-item.card {
+  padding: 0;
+  border: 1px solid rgba(55, 75, 94, .08);
+  border-radius: var(--record-radius);
+  background: rgba(255, 255, 255, .42);
+  box-shadow: none;
+  overflow: hidden;
+  backdrop-filter: none;
+}
+
+html.theme-dawn .my-records-page .record-cover {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: var(--record-radius) var(--record-radius) 0 0;
+  background: rgba(255, 255, 255, .72);
+  object-fit: cover;
+}
+
+html.theme-dawn .my-records-page .record-body {
+  padding: 12px 14px 14px;
+}
+
+html.theme-dawn .my-records-page .record-content {
+  margin: 0 0 11px;
+  color: #526576;
+  font-family: "Songti SC", STSong, serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+html.theme-dawn .my-records-page .record-summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+html.theme-dawn .my-records-page .record-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin: 0 0 10px;
+}
+
+html.theme-dawn .my-records-page .record-meta-item {
+  margin: 0;
+  color: #8493A1;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+html.theme-dawn .my-records-page .record-star-id strong {
+  color: #526576;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-weight: 500;
+}
+
+html.theme-dawn .my-records-page .record-status-hint {
+  margin: 0 0 10px;
+  color: #A88955;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+html.theme-dawn .my-records-page .record-detail-link,
+html.theme-dawn .my-records-page .empty-action,
+html.theme-dawn .my-records-page .support-link {
+  display: inline-flex;
+  width: auto;
+  min-height: 38px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid rgba(168, 137, 85, .28);
+  border-radius: 0;
+  background: transparent;
+  color: #A88955;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 38px;
+  text-decoration: none;
+}
+
+html.theme-dawn .my-records-page .record-detail-link:hover,
+html.theme-dawn .my-records-page .record-detail-link:active,
+html.theme-dawn .my-records-page .empty-action:hover,
+html.theme-dawn .my-records-page .empty-action:active,
+html.theme-dawn .my-records-page .support-link:hover,
+html.theme-dawn .my-records-page .support-link:active {
+  border-color: rgba(168, 137, 85, .46);
+  background: transparent;
+  color: #9E8050;
+  box-shadow: none;
+  transform: none;
+}
+
+html.theme-dawn .record-detail-page .detail-meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 14px;
+  margin-top: 18px;
+}
+
+html.theme-dawn .record-detail-page .detail-star-id {
+  margin: 0;
+  color: #7A8997;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+html.theme-dawn .record-detail-page .detail-star-id strong {
+  color: #526576;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-weight: 500;
+}
+
+html.theme-dawn .record-detail-page .detail-meta-line .account-meta-line {
+  margin: 0;
+}
+
+html.theme-dawn .record-detail-page .detail-card.card {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+html.theme-dawn .record-detail-page .detail-cover {
+  display: block;
+  width: 100%;
+  max-height: min(62vh, 520px);
+  border-radius: var(--record-radius);
+  background: rgba(255, 255, 255, .78);
+  box-shadow: 0 5px 15px rgba(66, 79, 91, .08);
+  object-fit: contain;
+}
+
+html.theme-dawn .record-detail-page .detail-body {
+  display: grid;
+  gap: 16px;
+  padding: 0;
+  margin-top: 16px;
+}
+
+html.theme-dawn .record-detail-page .detail-memory-group,
+html.theme-dawn .record-detail-page .detail-credential-group,
+html.theme-dawn .record-detail-page .detail-brand-group,
+html.theme-dawn .record-detail-page .result-comments {
+  padding: 12px 14px;
+  border: 1px solid rgba(55, 75, 94, .08);
+  border-radius: var(--record-radius);
+  background: rgba(255, 255, 255, .42);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+html.theme-dawn .record-detail-page .detail-memory-group {
+  background: rgba(255, 255, 255, .54);
+}
+
+html.theme-dawn .record-detail-page .detail-section-label,
+html.theme-dawn .record-detail-page .section-title {
+  margin: 0 0 8px;
+  color: #718392;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+html.theme-dawn .record-detail-page .record-content {
+  margin: 0;
+  color: #526576;
+  font-family: "Songti SC", STSong, serif;
+  font-size: 16px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+html.theme-dawn .record-detail-page .detail-info-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 9px;
+  color: #8493A1;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+html.theme-dawn .record-detail-page .detail-info-row strong {
+  min-width: 0;
+  color: #526576;
+  font-weight: 500;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+html.theme-dawn .record-detail-page .detail-hash-group {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(55, 75, 94, .08);
+}
+
+html.theme-dawn .record-detail-page .detail-hash-value {
+  margin: 0 0 8px;
+  color: #526576;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+html.theme-dawn .record-detail-page .detail-hash-value.is-expanded {
+  overflow-wrap: anywhere;
+}
+
+html.theme-dawn .record-detail-page .detail-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  margin: 0 0 8px;
+}
+
+html.theme-dawn .record-detail-page .text-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid rgba(168, 137, 85, .28);
+  border-radius: 0;
+  background: transparent;
+  color: #A88955;
+  box-shadow: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 34px;
+  text-decoration: none;
+}
+
+html.theme-dawn .record-detail-page .text-button:hover,
+html.theme-dawn .record-detail-page .text-button:active {
+  border-color: rgba(168, 137, 85, .46);
+  background: transparent;
+  color: #9E8050;
+  box-shadow: none;
+  transform: none;
+}
+
+html.theme-dawn .record-detail-page .detail-hash-note {
+  margin: 0;
+  color: #68798A;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+html.theme-dawn .record-detail-page .hash-message {
+  margin-top: 8px;
+  color: #68798A;
+}
+
+html.theme-dawn .record-detail-page .credential-brand {
+  margin: 0;
+  color: #526576;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+html.theme-dawn .record-detail-page .comment-head {
+  color: #526576;
+}
+
+html.theme-dawn .record-detail-page .comment-item p {
+  color: #526576;
+}
+
+html.theme-dawn .record-detail-page .detail-back-link {
+  width: 100%;
+  margin-top: 20px;
+  border: 1px solid rgba(82, 101, 118, .22);
+  background: rgba(255, 255, 255, .38);
+  color: #223147;
+  box-shadow: none;
+}
+
+html.theme-dawn .record-detail-page .detail-back-link:hover,
+html.theme-dawn .record-detail-page .detail-back-link:active {
+  border-color: rgba(158, 128, 80, .34);
+  background: rgba(255, 255, 255, .54);
+  color: #223147;
+  box-shadow: none;
+  transform: none;
+}
+
 @media (max-width: 340px) {
   html.theme-dawn .record-meta-line {
     flex-direction: column;
@@ -855,5 +1536,27 @@ html.theme-dawn .record-page .message {
 
   html.theme-dawn .record-phone-line {
     margin-left: 0;
+  }
+
+  html.theme-dawn .record-detail-page .detail-meta-line {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  html.theme-dawn .my-records-page .account-meta-line,
+  html.theme-dawn .record-detail-page .account-meta-line {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+  html.theme-dawn .record-detail-page .detail-info-row {
+    display: block;
+  }
+
+  html.theme-dawn .record-detail-page .detail-info-row strong {
+    display: block;
+    margin-top: 3px;
+    text-align: left;
   }
 }

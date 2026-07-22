@@ -62,36 +62,39 @@ function renderRecords(records) {
     content.textContent = summarizeContent(item.content);
 
     const timeHint = document.createElement('p');
-    timeHint.className = 'qr-id-hint';
-    timeHint.textContent = `保存时间：${formatTime(displayTime)}`;
+    timeHint.className = 'record-meta-item';
+    timeHint.textContent = formatTime(displayTime);
 
     const statusHint = document.createElement('p');
-    statusHint.className = 'qr-id-hint record-status-hint';
-    statusHint.textContent = isCoCreating ? '状态：共创中' : '';
+    statusHint.className = 'record-status-hint';
+    statusHint.textContent = isCoCreating ? '共创中' : '';
 
-    const idHint = document.createElement('p');
-    idHint.className = 'qr-id-hint';
-    idHint.textContent = '二维码编号：';
+    const meta = document.createElement('div');
+    meta.className = 'record-card-meta';
+
+    const idHint = document.createElement('span');
+    idHint.className = 'record-meta-item record-star-id';
+    idHint.textContent = '星贴 ';
     const idStrong = document.createElement('strong');
     idStrong.textContent = item.id || '';
     idHint.appendChild(idStrong);
 
     const detailLink = document.createElement('a');
-    detailLink.className = 'btn btn-secondary';
+    detailLink.className = 'btn btn-secondary record-detail-link';
     if (isCoCreating) {
-      detailLink.textContent = '继续共创';
+      detailLink.textContent = '继续共创 →';
       detailLink.href = `/record.html?t=${encodeURIComponent(item.id || '')}`;
     } else {
-      detailLink.textContent = '查看详情';
+      detailLink.textContent = '查看详情 →';
       detailLink.href = `/me-detail.html?id=${encodeURIComponent(item.id || '')}`;
     }
 
+    meta.append(timeHint, idHint);
     body.appendChild(content);
-    body.appendChild(timeHint);
+    body.appendChild(meta);
     if (isCoCreating) {
       body.appendChild(statusHint);
     }
-    body.appendChild(idHint);
     body.appendChild(detailLink);
     article.appendChild(image);
     article.appendChild(body);

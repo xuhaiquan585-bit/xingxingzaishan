@@ -13,36 +13,52 @@
     <link rel="stylesheet" href="/css/theme-dawn.css" />
   </head>
   <body>
-    <main class="container">
-      <div class="page-intro">
+    <main class="container record-detail-page">
+      <div class="page-intro detail-intro">
         <h1>记录详情</h1>
-        <p class="subtitle">查看这瓶酒里的完整记录</p>
-      </div>
-
-      <section class="card account-card">
-        <p class="qr-id-hint">当前手机号：<strong id="currentPhoneText"></strong>（<a id="switchPhoneBtn" href="javascript:void(0)">更换手机号</a>）</p>
+        <p class="subtitle">查看这张星贴里的完整记录</p>
+        <div class="detail-meta-line">
+          <p class="detail-star-id">星贴 <strong id="detailHeaderId"></strong></p>
+          <p class="account-meta-line">
+            <strong id="currentPhoneText"></strong>
+            <span class="account-meta-separator">·</span>
+            <a id="switchPhoneBtn" class="account-meta-link" href="javascript:void(0)">更换手机号</a>
+          </p>
+        </div>
         <p id="detailMessage" class="message"></p>
-      </section>
+      </div>
 
       <section id="detailSection" class="card detail-card hidden">
         <img id="detailImage" class="detail-cover" alt="点亮图片" />
         <div class="detail-body">
-          <p id="detailContent" class="record-content"></p>
+          <section class="detail-memory-group">
+            <p class="detail-section-label">留下的话</p>
+            <p id="detailContent" class="record-content"></p>
+          </section>
           <div id="detailComments" class="result-comments hidden"></div>
           <div class="detail-credential-group">
-            <p class="qr-id-hint">保存时间：<strong id="detailTime"></strong></p>
-            <p class="qr-id-hint">存证状态：<strong id="detailChainStatus"></strong></p>
-            <p class="qr-id-hint">存证哈希：<strong id="detailHash"></strong></p>
+            <p class="detail-info-row"><span>保存时间</span><strong id="detailTime"></strong></p>
+            <p class="detail-info-row"><span>存证状态</span><strong id="detailChainStatus"></strong></p>
+            <div id="detailHashGroup" class="detail-hash-group hidden">
+              <p class="detail-section-label">存证哈希</p>
+              <p id="detailHash" class="detail-hash-value"></p>
+              <div class="detail-link-row">
+                <button id="copyHashBtn" class="text-button" type="button">复制</button>
+                <button id="toggleHashBtn" class="text-button" type="button">查看完整哈希</button>
+                <a id="detailCertificateLink" class="text-button hidden" href="#" target="_blank" rel="noopener noreferrer">查看存证信息</a>
+              </div>
+              <p class="field-hint detail-hash-note">存证哈希是这条记录的唯一校验信息，可用于核对存证记录是否一致。</p>
+              <p id="hashMessage" class="message hash-message"></p>
+            </div>
           </div>
-          <div class="detail-bottle-group">
-            <p id="detailBrand" class="credential-brand hidden"></p>
-            <p class="credential-brand detail-slogan">星星在闪 · 记在星上，闪到永远</p>
-            <p class="qr-id-hint">二维码编号：<strong id="detailId"></strong></p>
+          <div id="detailBrandGroup" class="detail-brand-group hidden">
+            <p class="detail-section-label">品牌信息</p>
+            <p id="detailBrand" class="credential-brand"></p>
           </div>
         </div>
       </section>
 
-      <a href="/me.html" class="btn btn-secondary">返回我的记录</a>
+      <a href="/me.html" class="btn btn-secondary detail-back-link">返回我的记录</a>
     </main>
 
     <script src="/js/api.js"></script>
