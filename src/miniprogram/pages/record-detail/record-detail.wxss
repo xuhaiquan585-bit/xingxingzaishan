@@ -1,55 +1,219 @@
+.record-detail-page {
+  background:
+    radial-gradient(
+      circle at 92% 4%,
+      rgba(244, 194, 142, .16),
+      transparent 48%
+    ),
+    linear-gradient(
+      180deg,
+      #C9D8E6 0%,
+      #E2E9ED 42%,
+      #F0EEE8 100%
+    );
+  color: #263445;
+}
+
+.record-detail-page::before,
+.record-detail-page::after {
+  display: none;
+}
+
+.detail-hero,
+.detail-content {
+  position: relative;
+  z-index: 1;
+}
+
+.record-detail-page .hero-title {
+  color: #223147;
+}
+
+.record-detail-page .subtitle {
+  color: #68798A;
+}
+
+.record-detail-page .meta {
+  color: #68798A;
+}
+
+.detail-meta-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 18rpx;
+  margin: -14rpx 0 28rpx;
+  color: #6F7F8E;
+  font-size: 23rpx;
+  line-height: 1.45;
+}
+
+.detail-sticker,
+.detail-phone {
+  display: flex;
+  align-items: baseline;
+  gap: 8rpx;
+  min-width: 0;
+}
+
+.detail-phone {
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.detail-dot {
+  color: #8493A1;
+}
+
+.detail-phone-change,
+.certificate-link,
+.hash-action {
+  color: #A88955;
+  font-weight: 600;
+}
+
 .detail-image {
-  height: 500rpx;
-  margin-bottom: 26rpx;
-  box-shadow: 0 18rpx 42rpx rgba(3, 8, 32, .24);
+  display: block;
+  max-height: 720rpx;
+  margin-bottom: 28rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, .78);
+  box-shadow: 0 10rpx 30rpx rgba(66, 79, 91, .08);
 }
 
 .memory-content {
-  color: #fff;
+  padding: 24rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, .62);
+  color: #263445;
   font-family: "Songti SC", STSong, serif;
   font-size: 32rpx;
   line-height: 1.82;
+  overflow-wrap: break-word;
 }
 
-.brand-disclosure-line {
-  margin-top: 22rpx;
-  padding: 20rpx;
-  border: 1rpx solid rgba(212, 175, 55, .22);
-  border-radius: 20rpx;
-  background: rgba(255, 255, 255, .04);
-  color: rgba(228, 196, 110, .92);
-  font-size: 25rpx;
-  line-height: 1.55;
-  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, .06);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-}
-
-.hash,
+.detail-info-group,
+.hash-card,
+.brand-disclosure-line,
 .comment-item {
-  margin-top: 18rpx;
-  padding: 20rpx;
-  border: 1rpx solid rgba(255, 255, 255, .08);
-  border-radius: 20rpx;
-  background: rgba(255, 255, 255, .04);
-  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, .05);
-  word-break: break-all;
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
+  margin-top: 22rpx;
+  padding: 22rpx;
+  border: 1px solid rgba(52, 72, 91, .10);
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, .46);
+  color: #526576;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 22rpx;
+  font-size: 24rpx;
+  line-height: 1.55;
+}
+
+.detail-row + .detail-row {
+  margin-top: 12rpx;
+}
+
+.detail-label {
+  color: #8493A1;
+  font-size: 23rpx;
+}
+
+.detail-value {
+  color: #526576;
+  text-align: right;
+}
+
+.mono,
+.hash {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
 .hash {
-  color: rgba(255, 255, 255, .64);
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 22rpx;
+  margin-top: 10rpx;
+  color: #526576;
+  font-size: 23rpx;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.hash-expanded {
+  word-break: break-all;
+}
+
+.hash-actions {
+  display: flex;
+  gap: 24rpx;
+  margin-top: 14rpx;
+}
+
+.hash-action,
+.certificate-link {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  font-size: 24rpx;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.hash-action::after,
+.certificate-link::after {
+  border: 0;
+}
+
+.hash-note {
+  margin-top: 14rpx;
+  color: #68798A;
+  font-size: 23rpx;
   line-height: 1.6;
 }
 
+.certificate-link {
+  margin-top: 20rpx;
+}
+
+.brand-disclosure-line {
+  color: #68798A;
+  font-size: 24rpx;
+  line-height: 1.6;
+}
+
+.brand-disclosure-line .detail-label {
+  margin-bottom: 8rpx;
+}
+
 .comment-item {
-  color: rgba(255, 255, 255, .82);
+  color: #526576;
   line-height: 1.7;
 }
 
 .list-title {
   margin-top: 28rpx;
+  color: #223147;
+}
+
+.detail-back-btn {
+  margin-top: 30rpx;
+  border: 1px solid rgba(52, 72, 91, .16);
+  border-radius: 14rpx;
+  background: rgba(255, 255, 255, .46);
+  color: #223147;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@media (max-width: 340px) {
+  .detail-meta-line {
+    flex-direction: column;
+    gap: 10rpx;
+  }
+
+  .detail-phone {
+    justify-content: flex-start;
+  }
 }

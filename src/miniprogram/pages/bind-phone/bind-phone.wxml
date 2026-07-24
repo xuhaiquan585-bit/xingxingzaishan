@@ -1,12 +1,12 @@
 <view class="page bind-phone-page">
   <view class="bind-brand">
     <view class="bind-brand-mark">记</view>
-    <view class="hero-title">星星在闪</view>
-    <view class="subtitle">用微信快速确认身份，继续记录这瓶酒的故事。</view>
+    <view class="hero-title">{{title}}</view>
+    <view class="subtitle bind-subtitle">{{subtitle}}</view>
   </view>
 
   <view class="card bind-login-card">
-    <view class="list-title">微信登录</view>
+    <view class="list-title">微信手机号验证</view>
     <view class="hint">授权后用于找回你留下的照片、文字和共创记录。</view>
     <button class="btn wechat-login-btn" open-type="getPhoneNumber" bindgetphonenumber="onGetPhoneNumber" disabled="{{binding}}">
       <text class="wechat-mark">微信</text>

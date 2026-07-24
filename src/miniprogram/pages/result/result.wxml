@@ -1,25 +1,35 @@
-<view class="page">
-  <view class="hero-title">保存成功</view>
-  <view class="subtitle">记在星上，闪到永远</view>
+<view class="page result-page">
+  <view class="hero-title">{{pageTitle}}</view>
+  <view class="subtitle">{{pageSubtitle}}</view>
 
-  <view wx:if="{{record}}" class="card">
-    <image class="cover result-image" mode="aspectFill" lazy-load src="{{record.image_url}}" />
+  <view wx:if="{{record}}" class="card result-card">
+    <image class="cover result-image" mode="aspectFit" lazy-load src="{{record.image_url}}" />
     <view class="memory-content">{{record.display_content}}</view>
-    <view wx:if="{{record.has_brand_disclosure}}" class="brand-disclosure-line">{{record.brand_disclosure_display}}</view>
 
-    <view class="meta">保存时间：{{record.activated_at}}</view>
-    <view class="meta">区块链存证：{{record.chain_status_text}}</view>
-    <button class="btn secondary" bindtap="toggleHash">{{hashButtonText}}</button>
-    <view wx:if="{{hashVisible}}" class="hash">{{record.manifest_hash || record.blockchain_hash}}</view>
-    <navigator wx:if="{{record.chain_certificate_url}}" class="text-link" url="{{record.chain_certificate_url}}">查看存证证书</navigator>
+    <view class="result-meta-group">
+      <view class="result-row">
+        <text class="result-label">星贴</text>
+        <text class="result-value mono">{{record.display_qr_id}}</text>
+      </view>
+      <view class="result-row">
+        <text class="result-label">存证状态</text>
+        <text class="result-value">{{record.chain_status_text}}</text>
+      </view>
+    </view>
+
+    <button wx:if="{{record.has_hash}}" class="btn secondary result-secondary" bindtap="toggleHash">{{hashButtonText}}</button>
+    <view wx:if="{{hashVisible}}" class="hash">{{record.manifest_hash}}</view>
+    <button wx:if="{{record.has_certificate_url}}" class="text-link result-text-link" bindtap="openCertificate">查看存证信息</button>
+
+    <view wx:if="{{record.has_brand_disclosure}}" class="brand-disclosure-line">{{record.brand_disclosure_display}}</view>
 
     <view wx:if="{{record.has_comments}}" class="list-title">共创留言</view>
     <block wx:for="{{record.co_creation_comments}}" wx:key="id">
       <view class="comment-item">{{item.author_name}}：{{item.content}}</view>
     </block>
 
-    <button class="btn" open-type="share">分享给朋友</button>
-    <button class="btn secondary" bindtap="goMe">查看我的记录</button>
+    <button class="btn result-primary" open-type="share">分享给朋友</button>
+    <button class="btn secondary result-secondary" bindtap="goMe">查看我的记录</button>
   </view>
 
   <view class="meta">{{message}}</view>

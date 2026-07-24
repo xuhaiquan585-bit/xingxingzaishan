@@ -1,3 +1,24 @@
+.me-page {
+  background:
+    radial-gradient(
+      circle at 92% 4%,
+      rgba(244, 194, 142, .16),
+      transparent 48%
+    ),
+    linear-gradient(
+      180deg,
+      #C9D8E6 0%,
+      #E2E9ED 42%,
+      #F0EEE8 100%
+    );
+  color: #263445;
+}
+
+.me-page::before,
+.me-page::after {
+  display: none;
+}
+
 .me-hero,
 .record-list {
   position: relative;
@@ -5,40 +26,109 @@
 }
 
 .me-hero {
-  padding: 10rpx 0 8rpx;
+  padding: 10rpx 0 22rpx;
+}
+
+.me-page .hero-title {
+  color: #223147;
+}
+
+.me-page .subtitle {
+  color: #68798A;
+}
+
+.me-phone-line {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-height: 72rpx;
+  color: #6F7F8E;
+  font-size: 24rpx;
+}
+
+.me-phone-dot {
+  color: #8493A1;
+}
+
+.me-phone-change {
+  color: #A88955;
+  font-weight: 600;
 }
 
 .me-order-entry {
-  margin-top: 20rpx;
+  width: 100%;
+  margin-top: 8rpx;
+  border: 1px solid rgba(52, 72, 91, .16);
+  border-radius: 14rpx;
+  background: rgba(255, 255, 255, .46);
+  color: #223147;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .record-card {
-  padding: 26rpx;
+  padding: 22rpx;
+  border: 1px solid rgba(52, 72, 91, .10);
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, .56);
+  box-shadow: 0 10rpx 30rpx rgba(66, 79, 91, .08);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
-.record-card .cover {
-  height: 330rpx;
-  margin-bottom: 22rpx;
-  box-shadow: 0 16rpx 36rpx rgba(3, 8, 32, .2);
+.record-card + .record-card {
+  margin-top: 18rpx;
 }
 
-.record-card .list-title {
+.record-cover {
+  display: block;
+  max-height: 340rpx;
+  margin-bottom: 18rpx;
+  border-radius: 14rpx;
+  background: rgba(255, 255, 255, .72);
+  box-shadow: none;
+}
+
+.record-summary {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  color: #fff;
+  color: #263445;
   font-family: "Songti SC", STSong, serif;
-  font-size: 30rpx;
+  font-size: 29rpx;
   line-height: 1.58;
 }
 
 .record-meta-group {
-  margin-top: 18rpx;
-  padding-top: 16rpx;
-  border-top: 1rpx solid rgba(255, 255, 255, .08);
+  display: flex;
+  justify-content: space-between;
+  gap: 18rpx;
+  margin-top: 14rpx;
+  color: #8493A1;
 }
 
-.record-meta-group .meta + .meta {
-  margin-top: 6rpx;
+.record-meta-group .meta {
+  color: #68798A;
+  font-size: 23rpx;
+}
+
+.mono {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.record-action {
+  margin-top: 16rpx;
+  color: #A88955;
+  font-size: 25rpx;
+  font-weight: 600;
+}
+
+.state-card {
+  border: 1px solid rgba(52, 72, 91, .10);
+  background: rgba(255, 255, 255, .54);
+  color: #68798A;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }

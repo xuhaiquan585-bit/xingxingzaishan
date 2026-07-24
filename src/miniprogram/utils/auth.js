@@ -1,5 +1,7 @@
 const { request, getToken, setToken, setPhoneBound, isPhoneBound } = require('./request');
 
+const BIND_PHONE_SOURCES = new Set(['upload', 'replace-photo', 'submit']);
+
 function login() {
   const existed = getToken();
   if (existed) {
@@ -46,9 +48,12 @@ function bindPhone(code) {
   });
 }
 
-function redirectToBindPhone(redirect) {
+function redirectToBindPhone(redirect, source = '') {
+  const safeSource = BIND_PHONE_SOURCES.has(source) ? source : '';
+  const query = [`redirect=${encodeURIComponent(redirect || '/pages/home/home')}`];
+  if (safeSource) query.push(`source=${encodeURIComponent(safeSource)}`);
   wx.navigateTo({
-    url: `/pages/bind-phone/bind-phone?redirect=${encodeURIComponent(redirect || '/pages/home/home')}`
+    url: `/pages/bind-phone/bind-phone?${query.join('&')}`
   });
 }
 

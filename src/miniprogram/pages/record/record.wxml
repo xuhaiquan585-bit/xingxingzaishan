@@ -2,73 +2,98 @@
   <view class="record-glow record-glow-top"></view>
   <view class="record-glow record-glow-bottom"></view>
 
-  <view class="record-hero">
-    <view class="hero-title record-title">把这一刻，记在这瓶酒里</view>
-    <view class="subtitle record-subtitle">选一张照片，写一句话，以后随时能看到。</view>
-    <view class="trust-line">✦ 区块链存证</view>
+  <view wx:if="{{pageState == 'ready'}}" class="record-form">
+    <view class="record-hero">
+      <view class="record-topline">
+        <view class="record-sticker">
+          <text class="record-meta-label">星贴</text>
+          <text class="record-meta-value">{{displayKey}}</text>
+        </view>
+        <view class="record-account">
+          <text wx:if="{{phoneBound}}" class="record-phone-text">{{currentPhoneText}}</text>
+          <text wx:if="{{phoneBound}}" class="record-phone-dot">·</text>
+          <text class="record-phone-change" bindtap="changePhone">{{phoneBound ? '更换手机号' : '验证手机号'}}</text>
+        </view>
+      </view>
+
+      <view class="hero-title record-title">留下这瓶酒的专属记录</view>
+      <view class="subtitle record-subtitle">选一张照片，写一句话，下次扫码还能看到。</view>
+      <view class="trust-line">✦ 区块链存证</view>
+    </view>
+
+    <view wx:if="{{draftNotice}}" class="draft-notice">{{draftNotice}}</view>
+
+    <view class="card record-card">
+      <view class="field-title photo-section-title">添加照片</view>
+      <button class="photo-frame {{!recordAvailable ? 'photo-frame-disabled' : ''}}" bindtap="chooseImage">
+        <image wx:if="{{previewUrl}}" class="cover preview" style="height: {{previewHeight}}rpx;" mode="aspectFit" src="{{previewUrl}}" />
+        <view wx:else class="photo-empty">
+          <view class="photo-icon">＋</view>
+          <view class="photo-title">添加照片</view>
+        </view>
+      </button>
+      <view wx:if="{{previewUrl}}" class="photo-action" bindtap="chooseImage">{{imageButtonText}}</view>
+
+      <view class="field-block">
+        <view class="field-title">写下想记住的话</view>
+        <view class="textarea-shell">
+          <textarea class="textarea memory-textarea" maxlength="200" cursor-spacing="80" placeholder="例：这一刻，我想记下的是……" placeholder-class="memory-placeholder" value="{{content}}" bindinput="onContentInput" />
+          <view class="count-row">{{contentCount}} / 200</view>
+        </view>
+      </view>
+
+      <radio-group class="mode-cards" bindchange="onModeChange">
+        <label class="mode-card {{isDirectMode ? 'mode-card-active' : ''}}">
+          <radio class="mode-radio" value="direct" checked="{{isDirectMode}}" />
+          <view class="mode-indicator">{{isDirectMode ? '✓' : ''}}</view>
+          <view>
+            <view class="mode-title">直接保存</view>
+            <view class="mode-desc">确认后保存，以后扫码可以查看。</view>
+          </view>
+        </label>
+        <label class="mode-card {{isCoCreateMode ? 'mode-card-active' : ''}}">
+          <radio class="mode-radio" value="co_create" checked="{{isCoCreateMode}}" />
+          <view class="mode-indicator">{{isCoCreateMode ? '✓' : ''}}</view>
+          <view>
+            <view class="mode-title">邀请共创</view>
+            <view class="mode-desc">先邀请他人留言，最后由你确认保存。</view>
+          </view>
+        </label>
+      </radio-group>
+
+      <view wx:if="{{showBrandSection}}" class="brand-disclosure-card">
+        <view class="brand-preview-text">{{brandPreviewText}}</view>
+        <checkbox-group bindchange="onBrandDisclosureChange">
+          <label class="brand-toggle-row">
+            <checkbox class="brand-checkbox" value="show" checked="{{showBrandDisclosure}}" />
+            <text class="brand-label">显示酒的品牌信息</text>
+          </label>
+        </checkbox-group>
+      </view>
+
+      <button class="btn record-submit btn-submit {{(!recordAvailable || !hasPhoto) ? 'record-submit-disabled' : ''}}" disabled="{{!recordAvailable || !hasPhoto || submitting}}" hover-class="record-submit-active" bindtap="submitRecord">预览并确认</button>
+      <view class="record-footnote">保存后，扫码即可查看这条记录。</view>
+      <view wx:if="{{message}}" class="meta record-message">{{message}}</view>
+    </view>
   </view>
 
-  <view class="card record-card">
-    <view wx:if="{{displayKey || currentPhoneText}}" class="record-meta-row">
-      <view wx:if="{{displayKey}}" class="record-meta-item">
-        <text class="record-meta-label">星星ID:</text>
-        <text class="record-meta-value">{{displayKey}}</text>
-      </view>
-      <view wx:if="{{currentPhoneText}}" class="record-meta-item record-phone-item">
-        <text class="record-meta-label">当前手机号:</text>
-        <text class="record-meta-value">{{currentPhoneText}}</text>
-        <text class="record-phone-change" bindtap="changePhone">更换手机号</text>
-      </view>
+  <view wx:else class="record-state-card">
+    <view class="record-state-title">{{stateTitle || '加载中'}}</view>
+    <view class="record-state-desc">{{stateMessage || message}}</view>
+    <button wx:if="{{stateCanRetry}}" class="btn record-state-btn" bindtap="reloadStatus">重新加载</button>
+    <button wx:if="{{pageState == 'missing' || pageState == 'invalid'}}" class="btn secondary record-state-btn" bindtap="goHome">返回首页</button>
+  </view>
+
+  <view wx:if="{{showPreview}}" class="preview-mask">
+    <view class="preview-panel">
+      <view class="preview-title">预览并确认</view>
+      <view class="preview-subtitle">最后检查一次照片和文字</view>
+      <image class="preview-image" style="height: {{previewHeight}}rpx;" mode="aspectFit" src="{{previewUrl}}" />
+      <view class="preview-section-title">将要保存的话</view>
+      <view class="preview-content">{{content || '（未填写留言）'}}</view>
+      <view class="preview-notice">提交后，这张照片和这句话会保存到这张星贴中。以后扫码可以查看，提交后不能修改。</view>
+      <button class="btn preview-primary" loading="{{submitting}}" disabled="{{submitting}}" bindtap="confirmPreview">确认提交</button>
+      <button class="btn secondary preview-secondary" disabled="{{submitting}}" bindtap="closePreview">返回修改</button>
     </view>
-
-    <button class="photo-frame {{!recordAvailable ? 'photo-frame-disabled' : ''}}" disabled="{{!recordAvailable}}" bindtap="chooseImage">
-      <image wx:if="{{previewUrl}}" class="cover preview" style="height: {{previewHeight}}rpx;" mode="aspectFit" src="{{previewUrl}}" />
-      <view wx:else class="photo-empty">
-        <view class="photo-icon">＋</view>
-        <view class="photo-title">添加照片</view>
-      </view>
-      <view wx:if="{{previewUrl}}" class="photo-action">{{imageButtonText}}</view>
-    </button>
-
-    <view class="field-block">
-      <view class="field-title">写下想记住的话</view>
-      <view class="textarea-shell">
-        <textarea class="textarea memory-textarea" maxlength="200" cursor-spacing="80" placeholder="例：这一刻，我想记下的是……" placeholder-class="memory-placeholder" value="{{content}}" bindinput="onContentInput" />
-        <view class="count-row">{{contentCount}} / 200</view>
-      </view>
-    </view>
-
-    <radio-group class="mode-cards" bindchange="onModeChange">
-      <label class="mode-card {{isDirectMode ? 'mode-card-active' : ''}}">
-        <radio class="mode-radio" value="direct" checked="{{isDirectMode}}" />
-        <view class="mode-indicator">{{isDirectMode ? '✓' : ''}}</view>
-        <view>
-          <view class="mode-title">直接保存</view>
-          <view class="mode-desc">现在确认保存，之后扫码即可查看。</view>
-        </view>
-      </label>
-      <label class="mode-card {{isCoCreateMode ? 'mode-card-active' : ''}}">
-        <radio class="mode-radio" value="co_create" checked="{{isCoCreateMode}}" />
-        <view class="mode-indicator">{{isCoCreateMode ? '✓' : ''}}</view>
-        <view>
-          <view class="mode-title">邀请共创</view>
-          <view class="mode-desc">邀请朋友留言，最后由你确认保存。</view>
-        </view>
-      </label>
-    </radio-group>
-
-    <view wx:if="{{showBrandSection}}" class="brand-disclosure-card">
-      <view class="brand-preview-text">{{brandPreviewText}}</view>
-      <checkbox-group bindchange="onBrandDisclosureChange">
-        <label class="brand-toggle-row">
-          <checkbox class="brand-checkbox" value="show" checked="{{showBrandDisclosure}}" />
-          <text class="brand-label">显示酒的品牌信息</text>
-        </label>
-      </checkbox-group>
-    </view>
-
-    <button class="btn record-submit btn-submit {{!recordAvailable ? 'record-submit-disabled' : ''}}" disabled="{{!recordAvailable}}" hover-class="record-submit-active" bindtap="submitRecord">预览并确认</button>
-    <view class="record-footnote">保存后，扫码即可查看这条记录。</view>
-    <view wx:if="{{message}}" class="meta record-message">{{message}}</view>
   </view>
 </view>

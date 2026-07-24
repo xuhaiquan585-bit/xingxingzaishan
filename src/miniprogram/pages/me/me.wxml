@@ -1,19 +1,25 @@
 <view class="page me-page">
   <view class="me-hero">
     <view class="hero-title">我的记录</view>
-    <view class="subtitle">你保存过的酒瓶记录，会出现在这里。</view>
+    <view class="subtitle">查看你留在酒里的照片和留言</view>
+    <view wx:if="{{currentPhoneText}}" class="me-phone-line">
+      <text>{{currentPhoneText}}</text>
+      <text class="me-phone-dot">·</text>
+      <text class="me-phone-change" bindtap="changePhone">更换手机号</text>
+    </view>
     <button class="btn secondary me-order-entry" bindtap="goOrders">我的订单</button>
   </view>
 
   <view class="record-list">
     <block wx:for="{{records}}" wx:key="id">
       <view class="card record-card" data-id="{{item.id}}" bindtap="openRecord">
-        <image wx:if="{{item.image_url}}" class="cover" mode="aspectFill" lazy-load src="{{item.image_url}}" />
-        <view class="list-title">{{item.display_content}}</view>
+        <image wx:if="{{item.image_url}}" class="cover record-cover" mode="aspectFit" lazy-load src="{{item.image_url}}" />
+        <view class="record-summary">{{item.display_content}}</view>
         <view class="record-meta-group">
-          <view class="meta">二维码编号：{{item.id}}</view>
-          <view class="meta">状态：{{item.status_label}}</view>
+          <view class="meta">{{item.display_date}}</view>
+          <view class="meta mono">星贴 {{item.display_qr_id}}</view>
         </view>
+        <view class="record-action">{{item.action_text}} →</view>
       </view>
     </block>
   </view>

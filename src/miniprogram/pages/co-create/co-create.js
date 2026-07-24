@@ -124,7 +124,7 @@ Page({
           url: `/api/miniapp/qr/${encodeURIComponent(this.data.key)}/finalize`,
           method: 'POST'
         }).then(() => {
-          wx.redirectTo({ url: `/pages/result/result?key=${encodeURIComponent(this.data.key)}` });
+          wx.redirectTo({ url: `/pages/result/result?key=${encodeURIComponent(this.data.key)}&just_saved=1` });
         }).catch((error) => {
           this.setData({ message: error.message || '封存失败，请稍后重试' });
         });
