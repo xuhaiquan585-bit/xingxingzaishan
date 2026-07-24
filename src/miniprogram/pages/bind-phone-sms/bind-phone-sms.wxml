@@ -1,0 +1,25 @@
+<view class="page bind-phone-page bind-phone-sms-page">
+  <view class="bind-brand">
+    <view class="bind-brand-mark">记</view>
+    <view class="hero-title">使用其他手机号</view>
+    <view class="subtitle bind-subtitle">输入并验证你希望用于后续查看和管理记录的手机号。</view>
+  </view>
+
+  <view class="card bind-login-card sms-bind-card">
+    <view class="sms-field">
+      <view class="sms-label">手机号</view>
+      <input class="sms-input" type="number" maxlength="11" value="{{phone}}" placeholder="请输入手机号" placeholder-class="sms-placeholder" bindinput="onPhoneInput" disabled="{{blocked || binding}}" />
+    </view>
+
+    <view class="sms-field">
+      <view class="sms-label">验证码</view>
+      <view class="sms-code-row">
+        <input class="sms-input sms-code-input" type="number" maxlength="6" value="{{code}}" placeholder="验证码" placeholder-class="sms-placeholder" bindinput="onCodeInput" disabled="{{blocked || binding}}" />
+        <button class="sms-code-btn" disabled="{{blocked || sending || countdown > 0 || phone.length != 11}}" bindtap="onSendCode">{{sendCodeText}}</button>
+      </view>
+    </view>
+
+    <button class="btn sms-submit-btn" loading="{{binding}}" disabled="{{blocked || binding || phone.length != 11 || code.length != 6}}" bindtap="onSubmit">验证并继续</button>
+    <view class="meta">{{message}}</view>
+  </view>
+</view>

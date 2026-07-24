@@ -1,4 +1,4 @@
-const { login, bindPhone } = require('../../utils/auth');
+const { login, bindPhone, normalizeBindPhoneSource } = require('../../utils/auth');
 
 const SOURCE_COPY = {
   upload: {
@@ -26,6 +26,14 @@ const TAB_PAGES = new Set([
   '/pages/project/project'
 ]);
 
+const BIND_PHONE_ERROR_MESSAGES = {
+  PHONE_ALREADY_BOUND_TO_OTHER_WECHAT: '这个手机号已关联其他微信账号，暂时无法绑定。',
+  MINIAPP_PHONE_REPLACE_REQUIRED: '当前微信账号已绑定其他手机号，如需修改，请使用更换手机号功能。',
+  MINIAPP_ACCOUNT_CONFLICT: '账号状态异常，暂时无法绑定手机号，请联系客服处理。',
+  PHONE_BIND_FAILED: '暂时无法获取微信手机号，请稍后重试。',
+  WECHAT_CONFIG_ERROR: '暂时无法获取微信手机号，请稍后重试。'
+};
+
 function goAfterBind(redirect) {
   const path = String(redirect || '/pages/home/home').split('?')[0];
   if (TAB_PAGES.has(path)) {
@@ -38,6 +46,7 @@ function goAfterBind(redirect) {
 Page({
   data: {
     redirect: '/pages/home/home',
+    source: '',
     title: SOURCE_COPY.generic.title,
     subtitle: SOURCE_COPY.generic.subtitle,
     message: '',
@@ -45,9 +54,11 @@ Page({
   },
 
   onLoad(options) {
-    const copy = SOURCE_COPY[options.source] || SOURCE_COPY.generic;
+    const source = normalizeBindPhoneSource(options.source);
+    const copy = SOURCE_COPY[source] || SOURCE_COPY.generic;
     this.setData({
       redirect: decodeURIComponent(options.redirect || '/pages/home/home'),
+      source,
       title: copy.title,
       subtitle: copy.subtitle
     });
@@ -59,20 +70,31 @@ Page({
   onGetPhoneNumber(event) {
     const code = event.detail && event.detail.code;
     if (!code) {
-      this.setData({ message: '需要授权手机号后继续。' });
+      this.setData({ message: '未获取到微信手机号，请再次尝试。' });
       return;
     }
     this.setData({
       binding: true,
-      message: '正在登录...'
+      message: '正在验证手机号...'
     });
     bindPhone(code).then(() => {
       goAfterBind(this.data.redirect);
     }).catch((error) => {
       this.setData({
         binding: false,
-        message: error.message || '手机号绑定失败，请稍后重试'
+        message: BIND_PHONE_ERROR_MESSAGES[error.code] || error.message || '暂时无法获取微信手机号，请稍后重试。'
       });
+    });
+  },
+
+  onUseOtherPhone() {
+    if (this.data.binding) return;
+    const query = [`redirect=${encodeURIComponent(this.data.redirect || '/pages/home/home')}`];
+    if (this.data.source) {
+      query.push(`source=${encodeURIComponent(this.data.source)}`);
+    }
+    wx.navigateTo({
+      url: `/pages/bind-phone-sms/bind-phone-sms?${query.join('&')}`
     });
   }
 });

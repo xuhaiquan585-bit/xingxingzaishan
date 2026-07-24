@@ -118,6 +118,8 @@ function createApp() {
   app.use('/api/admin/login', loginRateLimiter);
   app.use('/api/miniapp/auth/login', loginRateLimiter);
   app.use('/api/miniapp/auth/bind-phone', loginRateLimiter);
+  app.use('/api/miniapp/auth/sms/send-code', loginRateLimiter);
+  app.use('/api/miniapp/auth/sms/bind-phone', loginRateLimiter);
   app.use('/api/upload', writeRateLimiter);
   app.use('/api/qr', writeRateLimiter);
   app.use('/api/miniapp/upload', writeRateLimiter);

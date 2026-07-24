@@ -801,6 +801,30 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(homeJs.includes('/api/miniapp/content'), true);
 });
 
+test('miniapp QR parser should normalize only confirmed scan key formats', () => {
+  const { extractQrKey, parseTokenFromUrl } = require('../src/miniprogram/utils/qr');
+  const token = '0123456789abcdef0123456789abcdef';
+
+  assert.equal(extractQrKey({ key: 'SSS00010', t: token }), 'SSS00010');
+  assert.equal(extractQrKey({ t: token }), token);
+  assert.equal(extractQrKey({ scene: 'key%3DSTAR0011' }), 'STAR0011');
+  assert.equal(extractQrKey({ scene: `t%3D${token}` }), token);
+  assert.equal(
+    extractQrKey({ q: `https%3A%2F%2Fxingxingzaishan.top%2Frecord.html%3Ft%3D${token}%26ui%3Ddawn` }),
+    token
+  );
+  assert.equal(
+    extractQrKey({ key: 'https://xingxingzaishan.top/record.html?key=MQR00001&ui=dawn' }),
+    'MQR00001'
+  );
+  assert.equal(parseTokenFromUrl(`https://xingxingzaishan.top/not-record.html?t=${token}`), '');
+  assert.equal(extractQrKey({ scene: 'preview' }), '');
+  assert.equal(extractQrKey({ scene: 'foo=bar' }), '');
+  assert.equal(extractQrKey({ scene: `foo=bar&t=${token}` }), '');
+  assert.equal(extractQrKey({ scene: 'https://example.com/other.html?t=SSS00010' }), '');
+  assert.equal(extractQrKey({}), '');
+});
+
 test('user login pages should keep copy and expose miniapp-first login cues', () => {
   const registerHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'register.html'), 'utf8');
   const recordHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'record.html'), 'utf8');
@@ -812,9 +836,14 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const chainViewService = fs.readFileSync(path.join(__dirname, '..', 'src', 'server', 'services', 'chainViewService.js'), 'utf8');
   const normalizedH5RecordJs = h5RecordJs.replace(/\r\n/g, '\n');
   const appWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'app.wxss'), 'utf8');
+  const miniappAppJson = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'app.json'), 'utf8');
+  const miniappAuthJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'utils', 'auth.js'), 'utf8');
   const bindPhoneWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.wxml'), 'utf8');
   const bindPhoneCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.wxss'), 'utf8');
   const bindPhoneJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.js'), 'utf8');
+  const bindPhoneSmsWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone-sms', 'bind-phone-sms.wxml'), 'utf8');
+  const bindPhoneSmsCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone-sms', 'bind-phone-sms.wxss'), 'utf8');
+  const bindPhoneSmsJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone-sms', 'bind-phone-sms.js'), 'utf8');
   const recordWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record', 'record.wxml'), 'utf8');
   const recordWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record', 'record.wxss'), 'utf8');
   const recordJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record', 'record.js'), 'utf8');
@@ -881,17 +910,48 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(bindPhoneWxml.includes('<view class="subtitle bind-subtitle">{{subtitle}}</view>'), true);
   assert.equal(bindPhoneWxml.includes('微信手机号验证'), true);
   assert.equal(bindPhoneWxml.includes('<text class="wechat-mark">微信</text>'), true);
-  assert.equal(bindPhoneWxml.includes('<text class="wechat-login-text">手机号一键登录</text>'), true);
+  assert.equal(bindPhoneWxml.includes('<text class="wechat-login-text">使用微信手机号继续</text>'), true);
+  assert.equal(bindPhoneWxml.includes('使用其他手机号'), true);
+  assert.equal(bindPhoneWxml.includes('bindtap="onUseOtherPhone"'), true);
   assert.equal(bindPhoneWxml.includes('open-type="getPhoneNumber"'), true);
   assert.equal(bindPhoneCss.includes('white-space: nowrap'), true);
   assert.equal(bindPhoneCss.includes('width: 460rpx'), true);
   assert.equal(bindPhoneCss.includes('white-space: pre-line'), true);
+  assert.equal(bindPhoneCss.includes('.sms-fallback-btn'), true);
   assert.equal(bindPhoneJs.includes('event.detail && event.detail.code'), true);
+  assert.equal(bindPhoneJs.includes('normalizeBindPhoneSource'), true);
+  assert.equal(bindPhoneJs.includes('/pages/bind-phone-sms/bind-phone-sms'), true);
+  assert.equal(bindPhoneJs.includes('未获取到微信手机号，请再次尝试。'), true);
+  assert.equal(bindPhoneJs.includes('暂时无法获取微信手机号，请稍后重试。'), true);
+  assert.equal(bindPhoneJs.includes('这个手机号已关联其他微信账号，暂时无法绑定。'), true);
+  assert.equal(bindPhoneJs.includes('当前微信账号已绑定其他手机号，如需修改，请使用更换手机号功能。'), true);
+  assert.equal(bindPhoneJs.includes('errMsg'), false);
   assert.equal(bindPhoneJs.includes('验证手机号，继续添加照片'), true);
   assert.equal(bindPhoneJs.includes('验证手机号，继续保存记录'), true);
   assert.equal(bindPhoneJs.includes('验证手机号，继续完成这条记录'), true);
   assert.equal(bindPhoneJs.includes('encryptedData'), false);
   assert.equal(bindPhoneJs.includes("'/pages/order-confirm/order-confirm'"), false);
+  assert.equal(miniappAppJson.includes('pages/bind-phone-sms/bind-phone-sms'), true);
+  assert.equal(miniappAuthJs.includes('/api/miniapp/auth/sms/send-code'), true);
+  assert.equal(miniappAuthJs.includes('/api/miniapp/auth/sms/bind-phone'), true);
+  assert.equal(miniappAuthJs.includes('function bindPhoneBySms'), true);
+  assert.equal(bindPhoneSmsWxml.includes('使用其他手机号'), true);
+  assert.equal(bindPhoneSmsWxml.includes('输入并验证你希望用于后续查看和管理记录的手机号。'), true);
+  assert.equal(bindPhoneSmsWxml.includes('手机号'), true);
+  assert.equal(bindPhoneSmsWxml.includes('验证码'), true);
+  assert.equal(bindPhoneSmsWxml.includes('{{sendCodeText}}'), true);
+  assert.equal(bindPhoneSmsWxml.includes('验证并继续'), true);
+  assert.equal(bindPhoneSmsJs.includes('sendSmsCode'), true);
+  assert.equal(bindPhoneSmsJs.includes('bindPhoneBySms'), true);
+  assert.equal(bindPhoneSmsJs.includes('normalizeBindPhoneSource'), true);
+  assert.equal(bindPhoneSmsJs.includes("sendCodeText: '获取验证码'"), true);
+  assert.equal(bindPhoneSmsJs.includes('当前微信账号已绑定手机号，更换手机号功能暂未开放。'), true);
+  assert.equal(bindPhoneSmsJs.includes('验证码不正确或已过期，请重新获取。'), true);
+  assert.equal(bindPhoneSmsJs.includes('wx.chooseMedia'), false);
+  assert.equal(bindPhoneSmsJs.includes('wx.chooseImage'), false);
+  assert.equal(bindPhoneSmsJs.includes('wx.uploadFile'), false);
+  assert.equal(bindPhoneSmsCss.includes('#C79E55'), true);
+  assert.equal(bindPhoneSmsCss.includes('rgba(248, 250, 251, .74)'), true);
   assert.equal(recordWxml.includes('星星在闪 · 记在星上'), false);
   assert.equal(recordWxml.includes('留下这瓶酒的专属记录'), true);
   assert.equal(recordWxml.includes('✦ 区块链存证'), true);
@@ -904,10 +964,16 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordSubtitleIndex < recordTrustIndex, true);
   assert.equal(recordWxml.includes('永久记在这瓶酒里'), false);
   assert.equal(recordWxml.includes('星星ID:'), false);
+  assert.equal(recordWxml.includes('星星ID：'), false);
   assert.equal(recordWxml.includes('当前手机号:'), false);
+  assert.equal(recordWxml.includes('当前手机号：'), false);
+  assert.equal(recordWxml.includes('更换手机号'), false);
+  assert.equal(recordWxml.includes("{{phoneBound ? '更换手机号' : '验证手机号'}}"), false);
+  assert.equal(recordWxml.includes('<text wx:else class="record-phone-change" bindtap="changePhone">验证手机号</text>'), true);
   assert.equal(recordWxml.includes('星贴'), true);
   assert.equal(recordWxml.includes('验证手机号'), true);
   assert.equal(recordWxml.includes('写下想记住的话'), true);
+  assert.equal(recordWxml.includes('最多 200 字'), false);
   assert.equal(recordWxml.includes('这一刻，会成为这瓶酒的记忆'), false);
   assert.equal(recordWxml.includes('保存后，扫码即可查看这条记录。'), true);
   assert.equal(recordWxml.includes('扫码可查看'), false);
@@ -925,7 +991,8 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxml.includes('value="direct"'), true);
   assert.equal(recordWxml.includes('value="co_create"'), true);
   assert.equal(recordWxml.includes('wx:if="{{showBrandSection}}"'), true);
-  assert.equal(recordWxml.includes('checkbox-group bindchange="onBrandDisclosureChange"'), true);
+  assert.equal(recordWxml.includes('class="brand-disclosure-grid"'), true);
+  assert.equal(recordWxml.includes('checkbox-group class="brand-toggle-group" bindchange="onBrandDisclosureChange"'), true);
   assert.equal(recordWxml.includes('显示酒的品牌信息'), true);
   assert.equal(recordWxml.includes('{{brandPreviewText}}'), true);
   assert.equal(recordWxml.includes('bindtap="submitRecord"'), true);
@@ -948,6 +1015,9 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxss.includes('background: rgba(248, 250, 251, .66)'), true);
   assert.equal(recordWxss.includes('min-height: 258rpx'), true);
   assert.equal(recordWxss.includes('1px dashed rgba(181, 139, 74, .40)'), true);
+  assert.equal(recordWxss.includes('width: 100%'), true);
+  assert.equal(recordWxss.includes('width: 56rpx'), true);
+  assert.equal(recordWxss.includes('margin-bottom: 16rpx'), true);
   assert.equal(recordWxss.includes('min-height: 116rpx'), false);
   assert.equal(recordWxss.includes('color: #647487'), true);
   assert.equal(recordWxss.includes('.textarea-shell'), true);
@@ -958,6 +1028,8 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxss.includes('padding: 22rpx'), true);
   assert.equal(recordWxss.includes('box-shadow: none'), true);
   assert.equal(recordWxss.includes('.count-row'), true);
+  assert.equal(recordWxss.includes('grid-template-columns: 44rpx minmax(0, 1fr)'), true);
+  assert.equal(recordWxss.includes('min-height: 80rpx'), true);
   assert.equal(recordWxss.includes('font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'), true);
   assert.equal(h5RecordJs.includes("const SUPPORTED_UI_THEMES = new Set(['dark', 'dawn'])"), true);
   assert.equal(h5RecordJs.includes("next.set('ui', uiTheme)"), true);
@@ -1046,13 +1118,23 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordJs.includes('record_draft:${key}:verify_pending'), true);
   assert.equal(recordJs.includes('wx.chooseMedia'), true);
   assert.equal(recordJs.includes('requirePhoneBeforeProtectedAction(source)'), true);
+  assert.equal(recordJs.indexOf('if (!this.requirePhoneBeforeProtectedAction(source)) return;') < recordJs.indexOf('wx.chooseMedia'), true);
+  assert.equal(recordJs.includes('function getUnavailableActionMessage(pageState)'), true);
+  assert.equal(recordJs.includes('请通过星贴二维码进入。'), true);
+  assert.equal(recordJs.includes('没有找到这张星贴，请重新扫码。'), true);
+  assert.equal(recordJs.includes('页面尚未加载完成，请稍后重试。'), true);
   assert.equal(recordJs.includes('请通过星贴二维码进入'), true);
   assert.equal(recordJs.includes('没有找到这张星贴'), true);
   assert.equal(miniappQrUtil.includes('function safeDecode(value)'), true);
   assert.equal(miniappQrUtil.includes('function normalizeDirectKey(value)'), true);
+  assert.equal(miniappQrUtil.includes('const QR_ACCESS_TOKEN_PATTERN = /^[a-f0-9]{32}$/i'), true);
+  assert.equal(miniappQrUtil.includes('const QR_ID_PATTERN = /^[A-Za-z0-9]{2,12}\\d{4,6}$/'), true);
   assert.equal(miniappQrUtil.includes('record\\.html'), true);
   assert.equal(miniappQrUtil.includes('[?&](?:t|key)=([^&#]+)'), true);
-  assert.equal(miniappQrUtil.includes('decoded.match(/^(?:t|key)=([^&#]+)/)'), true);
+  assert.equal(miniappQrUtil.includes("decoded.includes('/')"), true);
+  assert.equal(miniappQrUtil.includes('decoded.match(/^\\??(?:t|key)=([^&#]+)(?:[&#].*)?$/)'), true);
+  assert.equal(miniappQrUtil.includes('if (options.key) return parseQrKeyValue(options.key);'), true);
+  assert.equal(miniappQrUtil.includes('if (options.t) return parseQrKeyValue(options.t);'), true);
   assert.equal(miniappQrUtil.includes('return parseQrKeyValue(options.scene);'), true);
   assert.equal(resultWxml.includes('brand-disclosure-line'), true);
   assert.equal(recordDetailWxml.includes('brand-disclosure-line'), true);
@@ -1668,6 +1750,417 @@ test('miniapp auth should login, reject bad token, and bind phone', async () => 
 
   const unauthedBind = await postJson('/api/miniapp/auth/bind-phone', { code: '13888889999' });
   assert.equal(unauthedBind.status, 401);
+});
+
+test('miniapp sms fallback should send codes and bind first-time users without H5 session', async () => {
+  const { verifyMiniappToken } = require('../src/server/services/miniappAuthService');
+
+  const token = await loginMiniappAndGetToken('mini-sms-first-bind');
+  const unauthedSend = await postJson('/api/miniapp/auth/sms/send-code', { phone: '13888002001' });
+  assert.equal(unauthedSend.status, 401);
+
+  const invalidSend = await postJson('/api/miniapp/auth/sms/send-code', { phone: '123' }, token);
+  assert.equal(invalidSend.status, 400);
+  assert.equal(invalidSend.body.code, 'INVALID_PHONE');
+  assert.equal(invalidSend.body.message, '请输入正确的手机号。');
+
+  const sendRes = await postJson('/api/miniapp/auth/sms/send-code', { phone: '13888002001' }, token);
+  assert.equal(sendRes.status, 200);
+  assert.equal(sendRes.body.data.sent, true);
+  assert.ok(sendRes.body.data.verification_code);
+  assert.equal(sendRes.headers['set-cookie'], undefined);
+
+  const cooldownRes = await postJson('/api/miniapp/auth/sms/send-code', { phone: '13888002001' }, token);
+  assert.equal(cooldownRes.status, 429);
+  assert.equal(cooldownRes.body.code, 'SMS_SEND_TOO_FREQUENT');
+  assert.equal(cooldownRes.body.message, '操作太频繁，请稍后再试。');
+
+  const wrongCodeRes = await postJson('/api/miniapp/auth/sms/bind-phone', {
+    phone: '13888002001',
+    code: '000000'
+  }, token);
+  assert.equal(wrongCodeRes.status, 400);
+  assert.equal(wrongCodeRes.body.code, 'INVALID_VERIFY_CODE');
+  assert.equal(wrongCodeRes.body.message, '验证码不正确或已过期，请重新获取。');
+
+  const bindRes = await postJson('/api/miniapp/auth/sms/bind-phone', {
+    phone: '13888002001',
+    code: sendRes.body.data.verification_code
+  }, token);
+  assert.equal(bindRes.status, 200);
+  assert.equal(bindRes.body.data.phone_bound, true);
+  assert.equal(bindRes.body.data.phone, '13888002001');
+  assert.equal(bindRes.headers['set-cookie'], undefined);
+  const payload = verifyMiniappToken(bindRes.body.data.token);
+  assert.ok(payload);
+  assert.equal(payload.phone, '13888002001');
+
+  const repeatSend = await postJson('/api/miniapp/auth/sms/send-code', { phone: '13888002001' }, bindRes.body.data.token);
+  assert.equal(repeatSend.status, 200);
+  const repeatBind = await postJson('/api/miniapp/auth/sms/bind-phone', {
+    phone: '13888002001',
+    code: repeatSend.body.data.verification_code
+  }, bindRes.body.data.token);
+  assert.equal(repeatBind.status, 200);
+  assert.equal(repeatBind.body.data.phone, '13888002001');
+});
+
+test('miniapp sms fallback should reuse safe binding conflict rules', async () => {
+  const {
+    getDatabaseSnapshot,
+    writeDatabaseSnapshot
+  } = require('../src/server/services/dbService');
+  const { verifyMiniappToken } = require('../src/server/services/miniappAuthService');
+
+  const ownerToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-sms-conflict-owner',
+    phone: '13888002010'
+  });
+  const conflictToken = await loginMiniappAndGetToken('mini-sms-conflict-claimant');
+  const conflictSend = await postJson('/api/miniapp/auth/sms/send-code', { phone: '13888002010' }, conflictToken);
+  assert.equal(conflictSend.status, 200);
+  const conflictBind = await postJson('/api/miniapp/auth/sms/bind-phone', {
+    phone: '13888002010',
+    code: conflictSend.body.data.verification_code
+  }, conflictToken);
+  assert.equal(conflictBind.status, 409);
+  assert.equal(conflictBind.body.code, 'PHONE_ALREADY_BOUND_TO_OTHER_WECHAT');
+  assert.equal(conflictBind.body.message, '这个手机号已关联其他微信账号，暂时无法绑定。');
+
+  let db = getDatabaseSnapshot();
+  assert.equal(db.users.filter((item) => item.phone === '13888002010').length, 1);
+  assert.ok(db.users.find((item) => item.openid === 'mock-openid-mini-sms-conflict-claimant' && !item.phone));
+  assert.ok(verifyMiniappToken(ownerToken));
+
+  const replaceToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-sms-replace-blocked',
+    phone: '13888002011'
+  });
+  const replaceSend = await postJson('/api/miniapp/auth/sms/send-code', { phone: '13888002012' }, replaceToken);
+  assert.equal(replaceSend.status, 200);
+  const replaceBind = await postJson('/api/miniapp/auth/sms/bind-phone', {
+    phone: '13888002012',
+    code: replaceSend.body.data.verification_code
+  }, replaceToken);
+  assert.equal(replaceBind.status, 409);
+  assert.equal(replaceBind.body.code, 'MINIAPP_PHONE_REPLACE_REQUIRED');
+  assert.equal(replaceBind.body.message, '当前微信账号已绑定手机号，更换手机号功能暂未开放。');
+  db = getDatabaseSnapshot();
+  assert.ok(db.users.find((item) => item.openid === 'mock-openid-mini-sms-replace-blocked' && item.phone === '13888002011'));
+  assert.equal(db.users.some((item) => item.openid === 'mock-openid-mini-sms-replace-blocked' && item.phone === '13888002012'), false);
+
+  const webPhone = '13888002013';
+  const webRecordId = 'SMSWEB001';
+  const nextUserId = Math.max(...db.users.map((item) => Number(item.id) || 0), 0) + 1;
+  db.users.push({
+    id: nextUserId,
+    phone: webPhone,
+    openid: null,
+    unionid: null,
+    source: 'web',
+    created_at: '2026-07-25T00:00:00.000Z'
+  });
+  db.qr_codes.push({
+    id: webRecordId,
+    issue_status: 'issued',
+    activation_status: 'activated',
+    hidden: false,
+    content: '短信关联 web 历史记录',
+    image_url: '/uploads/sms-web-old.jpg',
+    image_object_key: null,
+    phone: webPhone,
+    activated_at: '2026-07-25T00:00:00.000Z',
+    blockchain_hash: null,
+    co_creation_enabled: false,
+    co_creation_owner_phone: null,
+    co_creation_comments: [],
+    show_brand_disclosure: false,
+    brand_disclosure_text_snapshot: '',
+    qr_access_token: null,
+    created_at: '2026-07-25T00:00:00.000Z'
+  });
+  writeDatabaseSnapshot(db);
+
+  const webToken = await loginMiniappAndGetToken('mini-sms-web-canonical');
+  const webSend = await postJson('/api/miniapp/auth/sms/send-code', { phone: webPhone }, webToken);
+  assert.equal(webSend.status, 200);
+  const webBind = await postJson('/api/miniapp/auth/sms/bind-phone', {
+    phone: webPhone,
+    code: webSend.body.data.verification_code
+  }, webToken);
+  assert.equal(webBind.status, 200);
+  assert.equal(webBind.body.data.phone, webPhone);
+  const canonicalPayload = verifyMiniappToken(webBind.body.data.token);
+  assert.ok(canonicalPayload);
+  assert.equal(canonicalPayload.id, nextUserId);
+  assert.equal(canonicalPayload.openid, 'mock-openid-mini-sms-web-canonical');
+  assert.equal(canonicalPayload.phone, webPhone);
+
+  db = getDatabaseSnapshot();
+  const canonicalUsers = db.users.filter((item) => item.phone === webPhone);
+  assert.equal(canonicalUsers.length, 1);
+  assert.equal(canonicalUsers[0].id, nextUserId);
+  assert.equal(canonicalUsers[0].openid, 'mock-openid-mini-sms-web-canonical');
+  assert.equal(canonicalUsers[0].source, 'web+miniapp');
+  assert.equal(db.users.some((item) => item.openid === 'mock-openid-mini-sms-web-canonical' && !item.phone), false);
+
+  const webCookie = await loginUserAndGetCookie(webPhone);
+  const h5Records = await getJsonWithCookie('/api/user/records', webCookie);
+  assert.equal(h5Records.status, 200);
+  assert.ok(h5Records.body.data.records.some((item) => item.id === webRecordId));
+
+  const miniRecords = await getJson('/api/miniapp/user/records', webBind.body.data.token);
+  assert.equal(miniRecords.status, 200);
+  assert.ok(miniRecords.body.data.records.some((item) => item.id === webRecordId));
+});
+
+test('miniapp bind phone should be idempotent and protect canonical web accounts', async () => {
+  const {
+    getDatabaseSnapshot,
+    writeDatabaseSnapshot
+  } = require('../src/server/services/dbService');
+  const { verifyMiniappToken } = require('../src/server/services/miniappAuthService');
+
+  const tokenA = await loginMiniappAndGetToken('mini-safe-bind-a');
+  const bindA = await postJson('/api/miniapp/auth/bind-phone', {
+    code: '13888001001'
+  }, tokenA);
+  assert.equal(bindA.status, 200);
+  assert.equal(bindA.body.data.phone, '13888001001');
+
+  const repeatA = await postJson('/api/miniapp/auth/bind-phone', {
+    code: '13888001001'
+  }, bindA.body.data.token);
+  assert.equal(repeatA.status, 200);
+  assert.equal(repeatA.body.data.phone, '13888001001');
+
+  const replaceA = await postJson('/api/miniapp/auth/bind-phone', {
+    code: '13888001002'
+  }, repeatA.body.data.token);
+  assert.equal(replaceA.status, 409);
+  assert.equal(replaceA.body.code, 'MINIAPP_PHONE_REPLACE_REQUIRED');
+  assert.equal(replaceA.body.message, '当前微信账号已绑定其他手机号，如需修改，请使用更换手机号功能。');
+
+  const conflictToken = await loginMiniappAndGetToken('mini-safe-bind-conflict');
+  const conflict = await postJson('/api/miniapp/auth/bind-phone', {
+    code: '13888001001'
+  }, conflictToken);
+  assert.equal(conflict.status, 409);
+  assert.equal(conflict.body.code, 'PHONE_ALREADY_BOUND_TO_OTHER_WECHAT');
+  assert.equal(conflict.body.message, '这个手机号已关联其他微信账号，暂时无法绑定。');
+
+  let db = getDatabaseSnapshot();
+  assert.equal(db.users.filter((item) => item.phone === '13888001001').length, 1);
+  assert.ok(db.users.find((item) => item.openid === 'mock-openid-mini-safe-bind-conflict' && !item.phone));
+
+  const webPhone = '13888001003';
+  const webRecordId = 'WEBBIND001';
+  const nextUserId = Math.max(...db.users.map((item) => Number(item.id) || 0), 0) + 1;
+  db.users.push({
+    id: nextUserId,
+    phone: webPhone,
+    openid: null,
+    unionid: null,
+    source: 'web',
+    created_at: '2026-07-25T00:00:00.000Z'
+  });
+  db.qr_codes.push({
+    id: webRecordId,
+    issue_status: 'issued',
+    activation_status: 'activated',
+    hidden: false,
+    content: 'web 历史记录',
+    image_url: '/uploads/web-old.jpg',
+    image_object_key: null,
+    phone: webPhone,
+    activated_at: '2026-07-25T00:00:00.000Z',
+    blockchain_hash: null,
+    co_creation_enabled: false,
+    co_creation_owner_phone: null,
+    co_creation_comments: [],
+    show_brand_disclosure: false,
+    brand_disclosure_text_snapshot: '',
+    qr_access_token: null,
+    created_at: '2026-07-25T00:00:00.000Z'
+  });
+  writeDatabaseSnapshot(db);
+
+  const tokenB = await loginMiniappAndGetToken('mini-safe-bind-web');
+  const bindWeb = await postJson('/api/miniapp/auth/bind-phone', {
+    code: webPhone
+  }, tokenB);
+  assert.equal(bindWeb.status, 200);
+  assert.equal(bindWeb.body.data.phone, webPhone);
+  const canonicalTokenPayload = verifyMiniappToken(bindWeb.body.data.token);
+  assert.ok(canonicalTokenPayload);
+  assert.equal(canonicalTokenPayload.openid, 'mock-openid-mini-safe-bind-web');
+  assert.equal(canonicalTokenPayload.phone, webPhone);
+  assert.equal(canonicalTokenPayload.id, nextUserId);
+
+  db = getDatabaseSnapshot();
+  const canonicalUsers = db.users.filter((item) => item.phone === webPhone);
+  assert.equal(canonicalUsers.length, 1);
+  assert.equal(canonicalUsers[0].id, nextUserId);
+  assert.equal(canonicalUsers[0].openid, 'mock-openid-mini-safe-bind-web');
+  assert.equal(canonicalUsers[0].source, 'web+miniapp');
+  assert.equal(db.users.some((item) => item.openid === 'mock-openid-mini-safe-bind-web' && !item.phone), false);
+
+  const webCookie = await loginUserAndGetCookie(webPhone);
+  const h5Records = await getJsonWithCookie('/api/user/records', webCookie);
+  assert.equal(h5Records.status, 200);
+  assert.ok(h5Records.body.data.records.some((item) => item.id === webRecordId));
+
+  const miniRecords = await getJson('/api/miniapp/user/records', bindWeb.body.data.token);
+  assert.equal(miniRecords.status, 200);
+  assert.ok(miniRecords.body.data.records.some((item) => item.id === webRecordId));
+});
+
+test('miniapp bind phone should reject abnormal data and unsafe phone auth failures', async () => {
+  const {
+    getDatabaseSnapshot,
+    writeDatabaseSnapshot
+  } = require('../src/server/services/dbService');
+
+  let db = getDatabaseSnapshot();
+  const duplicatePhone = '13888001011';
+  let nextId = Math.max(...db.users.map((item) => Number(item.id) || 0), 0) + 1;
+  db.users.push(
+    {
+      id: nextId,
+      phone: duplicatePhone,
+      openid: null,
+      unionid: null,
+      source: 'web',
+      created_at: '2026-07-25T00:00:00.000Z'
+    },
+    {
+      id: nextId + 1,
+      phone: duplicatePhone,
+      openid: null,
+      unionid: null,
+      source: 'web',
+      created_at: '2026-07-25T00:00:01.000Z'
+    }
+  );
+  writeDatabaseSnapshot(db);
+
+  const duplicatePhoneToken = await loginMiniappAndGetToken('mini-safe-duplicate-phone');
+  const duplicatePhoneRes = await postJson('/api/miniapp/auth/bind-phone', {
+    code: duplicatePhone
+  }, duplicatePhoneToken);
+  assert.equal(duplicatePhoneRes.status, 409);
+  assert.equal(duplicatePhoneRes.body.code, 'MINIAPP_ACCOUNT_CONFLICT');
+  db = getDatabaseSnapshot();
+  assert.equal(db.users.filter((item) => item.phone === duplicatePhone).length, 2);
+
+  const duplicateOpenidToken = await loginMiniappAndGetToken('mini-safe-duplicate-openid');
+  db = getDatabaseSnapshot();
+  nextId = Math.max(...db.users.map((item) => Number(item.id) || 0), 0) + 1;
+  db.users.push({
+    id: nextId,
+    phone: null,
+    openid: 'mock-openid-mini-safe-duplicate-openid',
+    unionid: null,
+    source: 'miniapp',
+    created_at: '2026-07-25T00:00:02.000Z'
+  });
+  writeDatabaseSnapshot(db);
+  const duplicateOpenidRes = await postJson('/api/miniapp/auth/bind-phone', {
+    code: '13888001012'
+  }, duplicateOpenidToken);
+  assert.equal(duplicateOpenidRes.status, 409);
+  assert.equal(duplicateOpenidRes.body.code, 'MINIAPP_ACCOUNT_CONFLICT');
+
+  db = getDatabaseSnapshot();
+  const abnormalPhone = '13888001013';
+  nextId = Math.max(...db.users.map((item) => Number(item.id) || 0), 0) + 1;
+  db.users.push({
+    id: nextId,
+    phone: abnormalPhone,
+    openid: null,
+    unionid: null,
+    source: 'miniapp',
+    created_at: '2026-07-25T00:00:03.000Z'
+  });
+  writeDatabaseSnapshot(db);
+  const abnormalToken = await loginMiniappAndGetToken('mini-safe-abnormal-phone-user');
+  const abnormalRes = await postJson('/api/miniapp/auth/bind-phone', {
+    code: abnormalPhone
+  }, abnormalToken);
+  assert.equal(abnormalRes.status, 409);
+  assert.equal(abnormalRes.body.code, 'MINIAPP_ACCOUNT_CONFLICT');
+
+  db = getDatabaseSnapshot();
+  const blockedPhone = '13888001014';
+  nextId = Math.max(...db.users.map((item) => Number(item.id) || 0), 0) + 1;
+  db.users.push({
+    id: nextId,
+    phone: blockedPhone,
+    openid: null,
+    unionid: null,
+    source: 'web',
+    created_at: '2026-07-25T00:00:04.000Z'
+  });
+  writeDatabaseSnapshot(db);
+  const blockedToken = await loginMiniappAndGetToken('mini-safe-blocked-temp');
+  db = getDatabaseSnapshot();
+  db.orders.push({
+    id: 'ORDER_SAFE_BLOCKED_TEMP',
+    openid: 'mock-openid-mini-safe-blocked-temp',
+    phone: '',
+    product_id: '',
+    product_snapshot: {},
+    quantity: 1,
+    unit_price_cents: 0,
+    total_amount_cents: 0,
+    status: 'pending_payment',
+    payment_status: 'unpaid',
+    created_at: '2026-07-25T00:00:05.000Z',
+    updated_at: '2026-07-25T00:00:05.000Z'
+  });
+  writeDatabaseSnapshot(db);
+  const blockedRes = await postJson('/api/miniapp/auth/bind-phone', {
+    code: blockedPhone
+  }, blockedToken);
+  assert.equal(blockedRes.status, 409);
+  assert.equal(blockedRes.body.code, 'MINIAPP_ACCOUNT_CONFLICT');
+  db = getDatabaseSnapshot();
+  assert.ok(db.users.find((item) => item.phone === blockedPhone && !item.openid));
+  assert.ok(db.users.find((item) => item.openid === 'mock-openid-mini-safe-blocked-temp' && !item.phone));
+
+  const authFailureToken = await loginMiniappAndGetToken('mini-safe-auth-failure');
+  const noCodeRes = await postJson('/api/miniapp/auth/bind-phone', { code: '' }, authFailureToken);
+  assert.equal(noCodeRes.status, 400);
+  assert.equal(noCodeRes.body.code, 'INVALID_PHONE_CODE');
+  assert.equal(noCodeRes.body.message, '未获取到微信手机号，请再次尝试。');
+  assert.equal(noCodeRes.raw.includes('INVALID_PHONE_CODE'), true);
+  assert.equal(noCodeRes.raw.includes('微信 code'), false);
+
+  const badCodeRes = await postJson('/api/miniapp/auth/bind-phone', { code: 'bad-phone-code' }, authFailureToken);
+  assert.equal(badCodeRes.status, 502);
+  assert.equal(badCodeRes.body.code, 'PHONE_BIND_FAILED');
+  assert.equal(badCodeRes.body.message, '暂时无法获取微信手机号，请稍后重试。');
+  assert.equal(badCodeRes.raw.includes('bad-phone-code'), false);
+});
+
+test('miniapp bind phone should allow only one concurrent claimant per phone', async () => {
+  const phone = '13888001021';
+  const tokenA = await loginMiniappAndGetToken('mini-safe-race-a');
+  const tokenB = await loginMiniappAndGetToken('mini-safe-race-b');
+  const responses = await Promise.all([
+    postJson('/api/miniapp/auth/bind-phone', { code: phone }, tokenA),
+    postJson('/api/miniapp/auth/bind-phone', { code: phone }, tokenB)
+  ]);
+  const successes = responses.filter((item) => item.status === 200);
+  const rejections = responses.filter((item) => item.status !== 200);
+  assert.equal(successes.length, 1);
+  assert.equal(rejections.length, 1);
+  assert.equal(rejections[0].status, 409);
+  assert.ok(['PHONE_ALREADY_BOUND_TO_OTHER_WECHAT', 'MINIAPP_ACCOUNT_CONFLICT'].includes(rejections[0].body.code));
+
+  const { getDatabaseSnapshot } = require('../src/server/services/dbService');
+  const db = getDatabaseSnapshot();
+  assert.equal(db.users.filter((item) => item.phone === phone).length, 1);
 });
 
 test('admin product management should expose only published products to miniapp', async () => {

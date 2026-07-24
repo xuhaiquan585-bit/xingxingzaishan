@@ -6,6 +6,9 @@ function safeDecode(value) {
   }
 }
 
+const QR_ACCESS_TOKEN_PATTERN = /^[a-f0-9]{32}$/i;
+const QR_ID_PATTERN = /^[A-Za-z0-9]{2,12}\d{4,6}$/;
+
 function parseTokenFromUrl(rawUrl) {
   const decoded = safeDecode(rawUrl);
   if (!/(^|\/)record\.html([?#]|$)/.test(decoded)) return '';
@@ -16,7 +19,7 @@ function parseTokenFromUrl(rawUrl) {
 function normalizeDirectKey(value) {
   const decoded = safeDecode(value).trim();
   if (!decoded) return '';
-  return /^[A-Za-z0-9_-]+$/.test(decoded) ? decoded : '';
+  return QR_ACCESS_TOKEN_PATTERN.test(decoded) || QR_ID_PATTERN.test(decoded) ? decoded : '';
 }
 
 function parseQrKeyValue(value) {
@@ -24,14 +27,15 @@ function parseQrKeyValue(value) {
   if (!decoded) return '';
   const fromUrl = parseTokenFromUrl(decoded);
   if (fromUrl) return fromUrl;
-  const matched = decoded.match(/^(?:t|key)=([^&#]+)/);
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(decoded) || decoded.includes('/')) return '';
+  const matched = decoded.match(/^\??(?:t|key)=([^&#]+)(?:[&#].*)?$/);
   if (matched) return normalizeDirectKey(matched[1]);
   return normalizeDirectKey(decoded);
 }
 
 function extractQrKey(options = {}) {
-  if (options.t) return parseQrKeyValue(options.t);
   if (options.key) return parseQrKeyValue(options.key);
+  if (options.t) return parseQrKeyValue(options.t);
   if (options.q) {
     const fromUrl = parseTokenFromUrl(options.q);
     if (fromUrl) return fromUrl;

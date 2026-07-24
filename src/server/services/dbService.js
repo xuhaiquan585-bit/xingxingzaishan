@@ -444,6 +444,37 @@ function findUserByOpenid(openid) {
   return db.users.find((item) => item.openid === openid) || null;
 }
 
+function normalizeUserPhone(phone) {
+  return String(phone || '').trim();
+}
+
+function normalizeUserOpenid(openid) {
+  return String(openid || '').trim();
+}
+
+function logMiniappBindConflict(reason, details = {}) {
+  console.warn('[miniapp-bind-phone]', {
+    reason,
+    user_ids: details.userIds || [],
+    order_ids: details.orderIds || []
+  });
+}
+
+function hasBlockingMiniappUserData(db, user) {
+  const openid = normalizeUserOpenid(user && user.openid);
+  if (!openid) {
+    return { blocked: false, orderIds: [] };
+  }
+  const orderIds = (Array.isArray(db.orders) ? db.orders : [])
+    .filter((item) => item.openid === openid)
+    .map((item) => item.id)
+    .filter(Boolean);
+  return {
+    blocked: orderIds.length > 0,
+    orderIds
+  };
+}
+
 function createOrGetMiniappUser({ openid, unionid = null }) {
   const db = readDB();
   let user = db.users.find((item) => item.openid === openid);
@@ -471,18 +502,66 @@ function createOrGetMiniappUser({ openid, unionid = null }) {
 
 function bindMiniappUserPhone({ openid, phone, unionid = null }) {
   const db = readDB();
-  const miniUser = db.users.find((item) => item.openid === openid);
+  const targetOpenid = normalizeUserOpenid(openid);
+  const targetPhone = normalizeUserPhone(phone);
+  const openidUsers = db.users.filter((item) => normalizeUserOpenid(item.openid) === targetOpenid);
+  if (openidUsers.length !== 1) {
+    logMiniappBindConflict('openid_not_unique', { userIds: openidUsers.map((item) => item.id) });
+    return { error: openidUsers.length === 0 ? 'MINIAPP_USER_NOT_FOUND' : 'MINIAPP_ACCOUNT_CONFLICT' };
+  }
+
+  const miniUser = openidUsers[0];
+  const phoneUsers = db.users.filter((item) => normalizeUserPhone(item.phone) === targetPhone);
+  if (phoneUsers.length > 1) {
+    logMiniappBindConflict('phone_not_unique', { userIds: phoneUsers.map((item) => item.id) });
+    return { error: 'MINIAPP_ACCOUNT_CONFLICT' };
+  }
+
   if (!miniUser) {
     return { error: 'MINIAPP_USER_NOT_FOUND' };
   }
 
-  const phoneUser = db.users.find((item) => item.phone === phone);
   const nextUnionid = unionid || miniUser.unionid || null;
+  const miniUserPhone = normalizeUserPhone(miniUser.phone);
 
+  if (miniUserPhone) {
+    if (miniUserPhone !== targetPhone) {
+      return { error: 'MINIAPP_PHONE_REPLACE_REQUIRED' };
+    }
+    const updated = {
+      ...miniUser,
+      phone: targetPhone,
+      unionid: nextUnionid,
+      source: miniUser.source || 'miniapp'
+    };
+    db.users = db.users.map((item) => (item.id === miniUser.id ? updated : item));
+    writeDB(db);
+    return { data: updated };
+  }
+
+  const phoneUser = phoneUsers[0] || null;
   if (phoneUser && phoneUser.id !== miniUser.id) {
+    if (normalizeUserOpenid(phoneUser.openid)) {
+      return { error: 'PHONE_ALREADY_BOUND_TO_OTHER_WECHAT' };
+    }
+    if ((phoneUser.source || 'web') !== 'web') {
+      logMiniappBindConflict('phone_user_not_web_only', { userIds: [phoneUser.id, miniUser.id] });
+      return { error: 'MINIAPP_ACCOUNT_CONFLICT' };
+    }
+
+    const blockingData = hasBlockingMiniappUserData(db, miniUser);
+    if (blockingData.blocked) {
+      logMiniappBindConflict('temporary_user_has_linked_data', {
+        userIds: [miniUser.id],
+        orderIds: blockingData.orderIds
+      });
+      return { error: 'MINIAPP_ACCOUNT_CONFLICT' };
+    }
+
     const merged = {
       ...phoneUser,
-      openid,
+      phone: targetPhone,
+      openid: targetOpenid,
       unionid: nextUnionid,
       source: phoneUser.source === 'web' ? 'web+miniapp' : phoneUser.source || 'miniapp'
     };
@@ -495,11 +574,11 @@ function bindMiniappUserPhone({ openid, phone, unionid = null }) {
 
   const updated = {
     ...miniUser,
-    phone,
+    phone: targetPhone,
     unionid: nextUnionid,
     source: miniUser.source || 'miniapp'
   };
-  db.users = db.users.map((item) => (item.openid === openid ? updated : item));
+  db.users = db.users.map((item) => (item.id === miniUser.id ? updated : item));
   writeDB(db);
   return { data: updated };
 }

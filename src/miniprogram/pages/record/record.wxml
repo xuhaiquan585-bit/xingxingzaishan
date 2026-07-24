@@ -11,8 +11,7 @@
         </view>
         <view class="record-account">
           <text wx:if="{{phoneBound}}" class="record-phone-text">{{currentPhoneText}}</text>
-          <text wx:if="{{phoneBound}}" class="record-phone-dot">·</text>
-          <text class="record-phone-change" bindtap="changePhone">{{phoneBound ? '更换手机号' : '验证手机号'}}</text>
+          <text wx:else class="record-phone-change" bindtap="changePhone">验证手机号</text>
         </view>
       </view>
 
@@ -62,13 +61,16 @@
       </radio-group>
 
       <view wx:if="{{showBrandSection}}" class="brand-disclosure-card">
-        <view class="brand-preview-text">{{brandPreviewText}}</view>
-        <checkbox-group bindchange="onBrandDisclosureChange">
-          <label class="brand-toggle-row">
-            <checkbox class="brand-checkbox" value="show" checked="{{showBrandDisclosure}}" />
-            <text class="brand-label">显示酒的品牌信息</text>
-          </label>
-        </checkbox-group>
+        <view class="brand-disclosure-grid">
+          <view class="brand-grid-spacer"></view>
+          <view class="brand-preview-text">{{brandPreviewText}}</view>
+          <checkbox-group class="brand-toggle-group" bindchange="onBrandDisclosureChange">
+            <label class="brand-toggle-row">
+              <checkbox class="brand-checkbox" value="show" checked="{{showBrandDisclosure}}" />
+              <text class="brand-label">显示酒的品牌信息</text>
+            </label>
+          </checkbox-group>
+        </view>
       </view>
 
       <button class="btn record-submit btn-submit {{(!recordAvailable || !hasPhoto) ? 'record-submit-disabled' : ''}}" disabled="{{!recordAvailable || !hasPhoto || submitting}}" hover-class="record-submit-active" bindtap="submitRecord">预览并确认</button>

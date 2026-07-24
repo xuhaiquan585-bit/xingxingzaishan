@@ -4,6 +4,7 @@
     "pages/home/home",
     "pages/project/project",
     "pages/bind-phone/bind-phone",
+    "pages/bind-phone-sms/bind-phone-sms",
     "pages/products/products",
     "pages/product-detail/product-detail",
     "pages/order-confirm/order-confirm",

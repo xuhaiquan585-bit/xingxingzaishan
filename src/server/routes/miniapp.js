@@ -34,6 +34,7 @@ const {
   prepareRecordManifest,
   submitPreparedRecord
 } = require('../services/chainProofService');
+const { sendCode, verifyCode } = require('../services/smsCodeService');
 const {
   optionalMiniappAuth,
   requireMiniappAuth,
@@ -60,6 +61,14 @@ const upload = multer({
 
 function isValidPhone(phone) {
   return /^1\d{10}$/.test(String(phone || ''));
+}
+
+function normalizePhone(phone) {
+  return String(phone || '').trim();
+}
+
+function shouldExposeVerificationCode() {
+  return process.env.NODE_ENV !== 'production';
 }
 
 function resolveImageUrl(record) {
@@ -229,6 +238,69 @@ function handleContentSafetyError(error, res) {
   return null;
 }
 
+function miniappBindPhoneError(errorCode) {
+  const errors = {
+    MINIAPP_USER_NOT_FOUND: {
+      status: 404,
+      message: '未找到小程序登录用户，请重新进入小程序。'
+    },
+    PHONE_ALREADY_BOUND_TO_OTHER_WECHAT: {
+      status: 409,
+      message: '这个手机号已关联其他微信账号，暂时无法绑定。'
+    },
+    MINIAPP_PHONE_REPLACE_REQUIRED: {
+      status: 409,
+      message: '当前微信账号已绑定其他手机号，如需修改，请使用更换手机号功能。'
+    },
+    MINIAPP_ACCOUNT_CONFLICT: {
+      status: 409,
+      message: '账号状态异常，暂时无法绑定手机号，请联系客服处理。'
+    }
+  };
+  return errors[errorCode] || {
+    status: 409,
+    message: '暂时无法绑定手机号，请稍后重试。'
+  };
+}
+
+function phoneAuthError(errorCode) {
+  if (errorCode === 'INVALID_PHONE_CODE') {
+    return {
+      status: 400,
+      message: '未获取到微信手机号，请再次尝试。'
+    };
+  }
+  return {
+    status: 502,
+    message: '暂时无法获取微信手机号，请稍后重试。'
+  };
+}
+
+function miniappSmsSendError(errorCode) {
+  if (errorCode === 'SMS_SEND_TOO_FREQUENT') {
+    return {
+      status: 429,
+      code: 'SMS_SEND_TOO_FREQUENT',
+      message: '操作太频繁，请稍后再试。'
+    };
+  }
+  return {
+    status: 503,
+    code: 'SMS_SERVICE_UNAVAILABLE',
+    message: '暂时无法完成手机号验证，请稍后重试。'
+  };
+}
+
+function miniappSmsBindError(errorCode) {
+  if (errorCode === 'MINIAPP_PHONE_REPLACE_REQUIRED') {
+    return {
+      status: 409,
+      message: '当前微信账号已绑定手机号，更换手机号功能暂未开放。'
+    };
+  }
+  return miniappBindPhoneError(errorCode);
+}
+
 router.post('/auth/login', async (req, res) => {
   try {
     const session = await codeToSession(req.body.code);
@@ -273,10 +345,11 @@ router.post('/auth/bind-phone', requireMiniappAuth, async (req, res) => {
       unionid: req.miniappUser.unionid || null
     });
     if (result.error) {
-      return res.status(404).json({
+      const bindError = miniappBindPhoneError(result.error);
+      return res.status(bindError.status).json({
         status: 'error',
         code: result.error,
-        message: '未找到小程序登录用户。'
+        message: bindError.message
       });
     }
 
@@ -291,10 +364,110 @@ router.post('/auth/bind-phone', requireMiniappAuth, async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(error.code === 'INVALID_PHONE_CODE' ? 400 : 502).json({
+    const phoneError = phoneAuthError(error.code);
+    return res.status(phoneError.status).json({
       status: 'error',
       code: error.code || 'PHONE_BIND_FAILED',
-      message: error.message || '手机号授权失败。'
+      message: phoneError.message
+    });
+  }
+});
+
+router.post('/auth/sms/send-code', requireMiniappAuth, async (req, res) => {
+  const phone = normalizePhone(req.body.phone);
+  if (!isValidPhone(phone)) {
+    return res.status(400).json({
+      status: 'error',
+      code: 'INVALID_PHONE',
+      message: '请输入正确的手机号。'
+    });
+  }
+
+  try {
+    const sendResult = await sendCode(phone);
+    const data = {
+      sent: true,
+      expires_in_seconds: sendResult.expiresInSeconds,
+      cooldown_in_seconds: sendResult.cooldownInSeconds
+    };
+    if (shouldExposeVerificationCode() && sendResult.plainCode) {
+      data.verification_code = sendResult.plainCode;
+    }
+    return res.json({
+      status: 'success',
+      code: 'OK',
+      data
+    });
+  } catch (error) {
+    const smsError = miniappSmsSendError(error.code);
+    return res.status(smsError.status).json({
+      status: 'error',
+      code: smsError.code,
+      message: smsError.message
+    });
+  }
+});
+
+router.post('/auth/sms/bind-phone', requireMiniappAuth, (req, res) => {
+  const phone = normalizePhone(req.body.phone);
+  const code = String(req.body.code || '').trim();
+  if (!isValidPhone(phone)) {
+    return res.status(400).json({
+      status: 'error',
+      code: 'INVALID_PHONE',
+      message: '请输入正确的手机号。'
+    });
+  }
+  if (!/^\d{6}$/.test(code)) {
+    return res.status(400).json({
+      status: 'error',
+      code: 'INVALID_VERIFY_CODE',
+      message: '验证码不正确或已过期，请重新获取。'
+    });
+  }
+
+  try {
+    const verified = verifyCode(phone, code);
+    if (!verified.ok) {
+      return res.status(400).json({
+        status: 'error',
+        code: 'INVALID_VERIFY_CODE',
+        message: '验证码不正确或已过期，请重新获取。'
+      });
+    }
+
+    const result = bindMiniappUserPhone({
+      openid: req.miniappUser.openid,
+      phone,
+      unionid: req.miniappUser.unionid || null
+    });
+    if (result.error) {
+      const bindError = miniappSmsBindError(result.error);
+      return res.status(bindError.status).json({
+        status: 'error',
+        code: result.error,
+        message: bindError.message
+      });
+    }
+
+    const token = generateMiniappToken(result.data);
+    return res.json({
+      status: 'success',
+      code: 'OK',
+      data: {
+        token,
+        phone: result.data.phone,
+        phone_bound: true
+      }
+    });
+  } catch (error) {
+    console.warn('[miniapp-sms-bind]', {
+      reason: error.code || 'MINIAPP_SMS_BIND_FAILED'
+    });
+    return res.status(500).json({
+      status: 'error',
+      code: 'MINIAPP_SMS_BIND_FAILED',
+      message: '暂时无法完成手机号验证，请稍后重试。'
     });
   }
 });

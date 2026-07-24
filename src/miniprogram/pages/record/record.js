@@ -82,6 +82,12 @@ function getValidDraftSource(source) {
   return DRAFT_SOURCES.has(source) ? source : '';
 }
 
+function getUnavailableActionMessage(pageState) {
+  if (pageState === 'missing') return '请通过星贴二维码进入。';
+  if (pageState === 'invalid') return '没有找到这张星贴，请重新扫码。';
+  return '页面尚未加载完成，请稍后重试。';
+}
+
 function getDraftKey(key) {
   return key ? `record_draft:${key}` : '';
 }
@@ -156,8 +162,8 @@ Page({
         currentPhoneText: phoneBound ? formatCurrentPhone(data) : ''
       });
       return this.loadStatus();
-    }).catch((error) => {
-      this.showState('error', LOAD_FAILED_TITLE, error.message || LOAD_FAILED_MESSAGE, true);
+    }).catch(() => {
+      this.showState('error', LOAD_FAILED_TITLE, LOAD_FAILED_MESSAGE, true);
     });
   },
 
@@ -219,7 +225,7 @@ Page({
         this.showState('invalid', INVALID_QR_TITLE, INVALID_QR_MESSAGE, false);
         return;
       }
-      this.showState('error', LOAD_FAILED_TITLE, error.message || LOAD_FAILED_MESSAGE, true);
+      this.showState('error', LOAD_FAILED_TITLE, LOAD_FAILED_MESSAGE, true);
     });
   },
 
@@ -330,8 +336,9 @@ Page({
 
   chooseImage() {
     if (!this.data.recordAvailable) {
-      wx.showToast({ title: this.data.stateMessage || INVALID_QR_MESSAGE, icon: 'none' });
-      this.setData({ message: this.data.stateMessage || INVALID_QR_MESSAGE });
+      const title = getUnavailableActionMessage(this.data.pageState);
+      wx.showToast({ title, icon: 'none' });
+      this.setData({ message: title });
       return;
     }
     const source = this.data.hasPhoto ? 'replace-photo' : 'upload';
@@ -406,7 +413,7 @@ Page({
 
   submitRecord() {
     if (!this.data.recordAvailable) {
-      this.setData({ message: this.data.stateMessage || INVALID_QR_MESSAGE });
+      this.setData({ message: getUnavailableActionMessage(this.data.pageState) });
       return;
     }
     if (!this.data.imageObjectKey && !this.data.imageUrl) {

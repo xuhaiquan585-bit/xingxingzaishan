@@ -2,6 +2,10 @@ const { request, getToken, setToken, setPhoneBound, isPhoneBound } = require('./
 
 const BIND_PHONE_SOURCES = new Set(['upload', 'replace-photo', 'submit']);
 
+function normalizeBindPhoneSource(source) {
+  return BIND_PHONE_SOURCES.has(source) ? source : '';
+}
+
 function login() {
   const existed = getToken();
   if (existed) {
@@ -48,8 +52,28 @@ function bindPhone(code) {
   });
 }
 
+function sendSmsCode(phone) {
+  return request({
+    url: '/api/miniapp/auth/sms/send-code',
+    method: 'POST',
+    data: { phone }
+  });
+}
+
+function bindPhoneBySms(phone, code) {
+  return request({
+    url: '/api/miniapp/auth/sms/bind-phone',
+    method: 'POST',
+    data: { phone, code }
+  }).then((data) => {
+    setToken(data.token);
+    setPhoneBound(true);
+    return data;
+  });
+}
+
 function redirectToBindPhone(redirect, source = '') {
-  const safeSource = BIND_PHONE_SOURCES.has(source) ? source : '';
+  const safeSource = normalizeBindPhoneSource(source);
   const query = [`redirect=${encodeURIComponent(redirect || '/pages/home/home')}`];
   if (safeSource) query.push(`source=${encodeURIComponent(safeSource)}`);
   wx.navigateTo({
@@ -60,6 +84,9 @@ function redirectToBindPhone(redirect, source = '') {
 module.exports = {
   login,
   bindPhone,
+  bindPhoneBySms,
+  sendSmsCode,
   redirectToBindPhone,
+  normalizeBindPhoneSource,
   isPhoneBound
 };
