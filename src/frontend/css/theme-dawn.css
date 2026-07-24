@@ -420,6 +420,212 @@ html.theme-dawn .message {
   text-align: center;
 }
 
+/* H5 phone verification Dawn polish */
+html.theme-dawn .auth-container {
+  max-width: 430px;
+  padding: 28px 20px 72px;
+}
+
+html.theme-dawn .auth-container .page-intro {
+  margin-bottom: 24px;
+}
+
+html.theme-dawn .auth-card.login-card {
+  padding: 20px;
+  border: 1px solid rgba(52, 72, 91, .10);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .62);
+  box-shadow: 0 10px 30px rgba(66, 79, 91, .08);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html.theme-dawn .auth-card .wechat-login-hint {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid rgba(181, 139, 74, .24);
+  border-radius: 10px;
+  background: rgba(201, 166, 100, .08);
+  color: #7A623C;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+html.theme-dawn .auth-card .auth-method-title {
+  margin: 0 0 8px;
+  color: #223147;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.38;
+}
+
+html.theme-dawn .auth-card .auth-method-subtitle {
+  margin: 0 0 20px;
+  color: #68798A;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+html.theme-dawn .auth-card .auth-field-label {
+  margin: 18px 0 8px;
+  color: #223147;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+html.theme-dawn .auth-container .login-input {
+  min-height: 52px;
+  border: 1px solid rgba(52, 72, 91, .12);
+  border-radius: 14px;
+  background: rgba(248, 250, 251, .72);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+html.theme-dawn .auth-container .login-input:focus-within {
+  border-color: rgba(181, 139, 74, .50);
+  background: rgba(248, 250, 251, .82);
+  box-shadow: none;
+}
+
+html.theme-dawn .auth-container .login-input input {
+  height: 52px;
+  color: #223147;
+  font-size: 16px;
+  box-shadow: none;
+}
+
+html.theme-dawn .auth-container .login-input input::placeholder {
+  color: #8493A1;
+}
+
+html.theme-dawn .auth-container .login-input input:focus {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+html.theme-dawn .auth-container .country-code {
+  color: #223147;
+  font-weight: 700;
+}
+
+html.theme-dawn .auth-sms-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 116px;
+  gap: 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+html.theme-dawn .auth-sms-row:focus-within {
+  border-color: transparent;
+  background: transparent;
+}
+
+html.theme-dawn .auth-sms-row input {
+  height: 52px;
+  min-width: 0;
+  padding: 0 14px;
+  border: 1px solid rgba(52, 72, 91, .12);
+  border-radius: 14px;
+  background: rgba(248, 250, 251, .72);
+}
+
+html.theme-dawn .auth-container .auth-sms-row input:focus {
+  border-color: rgba(181, 139, 74, .50);
+  background: rgba(248, 250, 251, .82);
+}
+
+html.theme-dawn .auth-sms-row .btn.sms-btn {
+  width: 116px;
+  min-width: 116px;
+  height: 52px;
+  min-height: 52px;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid rgba(52, 72, 91, .12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .46);
+  color: #A88955;
+  box-shadow: none;
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 1;
+  white-space: nowrap;
+}
+
+html.theme-dawn .auth-sms-row .btn.sms-btn:hover:not(:disabled),
+html.theme-dawn .auth-sms-row .btn.sms-btn:active:not(:disabled) {
+  border-color: rgba(158, 128, 80, .32);
+  background: rgba(255, 255, 255, .58);
+  color: #9E8050;
+}
+
+html.theme-dawn .auth-sms-row .btn.sms-btn:disabled {
+  border-color: rgba(52, 72, 91, .10);
+  background: rgba(255, 255, 255, .34);
+  color: #8493A1;
+  opacity: 1;
+}
+
+html.theme-dawn .auth-agreement {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  margin: 18px 0 0;
+  color: #68798A;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+html.theme-dawn .auth-agreement input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 1px solid rgba(52, 72, 91, .28);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .56);
+  accent-color: #C79E55;
+}
+
+html.theme-dawn .login-card #registerBtn {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 20px;
+  border-radius: 14px;
+  background: #C79E55;
+  color: #162230;
+  box-shadow: none;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: .6px;
+  opacity: 1;
+}
+
+html.theme-dawn .login-card #registerBtn:hover:not(:disabled),
+html.theme-dawn .login-card #registerBtn:active:not(:disabled) {
+  background: #B58B45;
+  box-shadow: none;
+  transform: none;
+}
+
+html.theme-dawn .login-card #registerBtn:disabled {
+  background: rgba(199, 158, 85, .34);
+  color: rgba(22, 34, 48, .48);
+  box-shadow: none;
+  opacity: 1;
+}
+
+html.theme-dawn .auth-card #message {
+  min-height: 22px;
+  color: #A45F58;
+  text-align: center;
+}
+
 html.theme-dawn .overlay-panel {
   border: 1px solid rgba(55, 75, 94, .12);
   background:
@@ -1558,5 +1764,17 @@ html.theme-dawn .record-detail-page .detail-back-link:active {
     display: block;
     margin-top: 3px;
     text-align: left;
+  }
+
+  html.theme-dawn .auth-sms-row {
+    grid-template-columns: minmax(0, 1fr) 104px;
+    gap: 8px;
+  }
+
+  html.theme-dawn .auth-sms-row .btn.sms-btn {
+    width: 104px;
+    min-width: 104px;
+    padding: 0 8px;
+    font-size: 13px;
   }
 }

@@ -1013,6 +1013,12 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordHtml.includes('id="draftNotice"'), true);
   assert.equal(registerHtml.includes('id="authMethodTitle"'), true);
   assert.equal(registerHtml.includes('id="authMethodSubtitle"'), true);
+  assert.equal(themeDawnCss.includes('html.theme-dawn .auth-card.login-card'), true);
+  assert.equal(themeDawnCss.includes('html.theme-dawn .auth-container .login-input'), true);
+  assert.equal(themeDawnCss.includes('html.theme-dawn .auth-sms-row .btn.sms-btn'), true);
+  assert.equal(themeDawnCss.includes('html.theme-dawn .login-card #registerBtn'), true);
+  assert.equal(themeDawnCss.includes('background: #C79E55'), true);
+  assert.equal(themeDawnCss.includes('color: #A88955'), true);
   assert.equal(recordHtml.includes("const supportedBackgrounds = new Set(['mist', 'paper', 'blue'])"), true);
   assert.equal(recordHtml.includes("document.documentElement.classList.add(`bg-${backgroundParam}`)"), true);
   assert.equal(themeDawnCss.includes('html.theme-dawn.bg-mist body'), true);
