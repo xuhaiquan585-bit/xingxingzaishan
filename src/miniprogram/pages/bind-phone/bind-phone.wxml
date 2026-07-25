@@ -13,6 +13,6 @@
       <text class="wechat-login-text">使用微信手机号继续</text>
     </button>
     <button class="sms-fallback-btn" bindtap="onUseOtherPhone" disabled="{{binding}}">使用其他手机号</button>
-    <view class="meta">{{message}}</view>
+    <view wx:if="{{message}}" class="meta">{{message}}</view>
   </view>
 </view>

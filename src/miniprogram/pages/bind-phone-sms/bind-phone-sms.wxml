@@ -20,6 +20,6 @@
     </view>
 
     <button class="btn sms-submit-btn" loading="{{binding}}" disabled="{{blocked || binding || phone.length != 11 || code.length != 6}}" bindtap="onSubmit">验证并继续</button>
-    <view class="meta">{{message}}</view>
+    <view wx:if="{{message}}" class="meta">{{message}}</view>
   </view>
 </view>

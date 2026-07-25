@@ -27,7 +27,12 @@ const {
   cancelMiniappOrder,
   payMiniappOrderMock
 } = require('../services/dbService');
-const { saveImage, getStorageMode, getSignedUrl } = require('../services/storageService');
+const {
+  saveImage,
+  getStorageMode,
+  getPublicObjectUrl,
+  getSignedUrl
+} = require('../services/storageService');
 const { checkText, checkImageBuffer } = require('../services/contentSafetyService');
 const { chainPublicPayload } = require('../services/chainViewService');
 const {
@@ -72,7 +77,16 @@ function shouldExposeVerificationCode() {
 }
 
 function resolveImageUrl(record) {
+  if (record.image_url) {
+    return record.image_url;
+  }
   if (record.image_object_key) {
+    try {
+      const publicUrl = getPublicObjectUrl(record.image_object_key);
+      if (publicUrl) return publicUrl;
+    } catch (_error) {
+      // Fall back to signed URL below.
+    }
     try {
       return getSignedUrl(record.image_object_key);
     } catch (_error) {

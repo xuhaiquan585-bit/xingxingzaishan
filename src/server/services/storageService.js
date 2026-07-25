@@ -52,6 +52,15 @@ function makeCloudPublicUrl(objectKey) {
   return `/cloud/${objectKey}`;
 }
 
+function getPublicObjectUrl(objectKey) {
+  if (!objectKey) return null;
+  if (getStorageMode() === 'cloud') {
+    return makeCloudPublicUrl(objectKey);
+  }
+  const safeKey = String(objectKey).replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/');
+  return `/uploads/${safeKey}`;
+}
+
 function getOssConfig() {
   return {
     endpoint: process.env.OSS_ENDPOINT,
@@ -173,10 +182,11 @@ async function saveImage({ file, qrId }) {
   if (mode === 'cloud') {
     try {
       await putObjectToOss({ objectKey, localPath: bufferedPath });
+      const publicUrl = getPublicObjectUrl(objectKey);
       return {
         mode,
-        url: null,
-        preview_url: getSignedUrl(objectKey),
+        url: publicUrl,
+        preview_url: publicUrl,
         object_key: objectKey,
         buffer_path: bufferedPath
       };
@@ -336,6 +346,7 @@ module.exports = {
   saveBinaryObjectAtKey,
   readObjectBuffer,
   readTextObjectAtKey,
+  getPublicObjectUrl,
   getSignedUrl,
   getObjectPrefix,
   getLocalObjectPath

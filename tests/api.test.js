@@ -914,10 +914,16 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(bindPhoneWxml.includes('使用其他手机号'), true);
   assert.equal(bindPhoneWxml.includes('bindtap="onUseOtherPhone"'), true);
   assert.equal(bindPhoneWxml.includes('open-type="getPhoneNumber"'), true);
+  assert.equal(bindPhoneWxml.includes('<view wx:if="{{message}}" class="meta">{{message}}</view>'), true);
   assert.equal(bindPhoneCss.includes('white-space: nowrap'), true);
-  assert.equal(bindPhoneCss.includes('width: 460rpx'), true);
+  assert.equal(bindPhoneCss.includes('width: 100%'), true);
+  assert.equal(bindPhoneCss.includes('width: 460rpx'), false);
   assert.equal(bindPhoneCss.includes('white-space: pre-line'), true);
   assert.equal(bindPhoneCss.includes('.sms-fallback-btn'), true);
+  assert.equal(bindPhoneCss.includes('.wechat-login-btn::after'), true);
+  assert.equal(bindPhoneCss.includes('.sms-fallback-btn::after'), true);
+  assert.equal(bindPhoneCss.includes('background: #C79E55'), true);
+  assert.equal(bindPhoneCss.includes('background: rgba(255, 255, 255, .28)'), true);
   assert.equal(bindPhoneJs.includes('event.detail && event.detail.code'), true);
   assert.equal(bindPhoneJs.includes('normalizeBindPhoneSource'), true);
   assert.equal(bindPhoneJs.includes('/pages/bind-phone-sms/bind-phone-sms'), true);
@@ -941,6 +947,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(bindPhoneSmsWxml.includes('验证码'), true);
   assert.equal(bindPhoneSmsWxml.includes('{{sendCodeText}}'), true);
   assert.equal(bindPhoneSmsWxml.includes('验证并继续'), true);
+  assert.equal(bindPhoneSmsWxml.includes('<view wx:if="{{message}}" class="meta">{{message}}</view>'), true);
   assert.equal(bindPhoneSmsJs.includes('sendSmsCode'), true);
   assert.equal(bindPhoneSmsJs.includes('bindPhoneBySms'), true);
   assert.equal(bindPhoneSmsJs.includes('normalizeBindPhoneSource'), true);
@@ -951,7 +958,11 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(bindPhoneSmsJs.includes('wx.chooseImage'), false);
   assert.equal(bindPhoneSmsJs.includes('wx.uploadFile'), false);
   assert.equal(bindPhoneSmsCss.includes('#C79E55'), true);
-  assert.equal(bindPhoneSmsCss.includes('rgba(248, 250, 251, .74)'), true);
+  assert.equal(bindPhoneSmsCss.includes('rgba(248, 250, 251, .76)'), true);
+  assert.equal(bindPhoneSmsCss.includes('width: 460rpx'), false);
+  assert.equal(bindPhoneSmsCss.includes('.sms-code-btn::after'), true);
+  assert.equal(bindPhoneSmsCss.includes('.sms-submit-btn::after'), true);
+  assert.equal(bindPhoneSmsCss.includes('grid-template-columns: minmax(0, 1fr) 184rpx'), true);
   assert.equal(recordWxml.includes('星星在闪 · 记在星上'), false);
   assert.equal(recordWxml.includes('留下这瓶酒的专属记录'), true);
   assert.equal(recordWxml.includes('✦ 区块链存证'), true);
@@ -2801,6 +2812,46 @@ test('miniapp upload and record flow should require bound phone and reject dupli
   assert.equal(recordsRes.body.data.records.some((item) => item.id === 'MQR00001'), true);
 });
 
+test('miniapp record payload should use public cloud url for object-key-only images', async () => {
+  const oldStorageMode = process.env.STORAGE_MODE;
+  const oldCloudPublicBaseUrl = process.env.CLOUD_PUBLIC_BASE_URL;
+  try {
+    process.env.STORAGE_MODE = 'cloud';
+    process.env.CLOUD_PUBLIC_BASE_URL = 'https://cdn.example.com/xingxing';
+
+    const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+    const adminToken = adminLogin.body.data.token;
+    const genRes = await postJson('/api/admin/qr/generate', {
+      prefix: 'MOU',
+      count: 1
+    }, adminToken);
+    assert.equal(genRes.status, 200);
+    const accessToken = genRes.body.data.records[0].qr_access_token;
+
+    const token = await loginMiniappBindPhoneAndGetToken({
+      code: 'mini-object-url',
+      phone: '13877770009'
+    });
+    const objectKey = 'stars/MOU00001/photo.jpg';
+    const recordRes = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
+      mode: 'co_create',
+      content: '只有 object_key 的旧记录',
+      image_object_key: objectKey
+    }, token);
+    assert.equal(recordRes.status, 200);
+    assert.equal(recordRes.body.data.image_url, `https://cdn.example.com/xingxing/${objectKey}`);
+
+    const statusRes = await getJson(`/api/miniapp/qr/${accessToken}`, token);
+    assert.equal(statusRes.status, 200);
+    assert.equal(statusRes.body.data.image_url, `https://cdn.example.com/xingxing/${objectKey}`);
+  } finally {
+    if (oldStorageMode === undefined) delete process.env.STORAGE_MODE;
+    else process.env.STORAGE_MODE = oldStorageMode;
+    if (oldCloudPublicBaseUrl === undefined) delete process.env.CLOUD_PUBLIC_BASE_URL;
+    else process.env.CLOUD_PUBLIC_BASE_URL = oldCloudPublicBaseUrl;
+  }
+});
+
 test('miniapp content safety mock should reject unsafe text and image', async () => {
   const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
   const adminToken = adminLogin.body.data.token;
@@ -3295,4 +3346,69 @@ test('POST /api/upload should compress image and return .jpg object_key', async 
   const objectKey = uploadRes.body.data.object_key;
   assert.ok(objectKey, 'object_key should exist');
   assert.ok(objectKey.endsWith('.jpg'), `object_key should end with .jpg, got: ${objectKey}`);
+});
+
+test('cloud saveImage should return stable public image urls and keep object key', async () => {
+  const Module = require('module');
+  const originalLoad = Module._load;
+  const oldEnv = snapshotEnv([
+    'STORAGE_MODE',
+    'CLOUD_PUBLIC_BASE_URL',
+    'OSS_ENDPOINT',
+    'OSS_REGION',
+    'OSS_BUCKET',
+    'OSS_ACCESS_KEY_ID',
+    'OSS_ACCESS_KEY_SECRET'
+  ]);
+  const putCalls = [];
+
+  Module._load = function patchedLoad(request, parent, isMain) {
+    if (request === 'ali-oss') {
+      return class MockOssClient {
+        constructor(config) {
+          this.config = config;
+        }
+
+        async put(objectKey, localPath, options) {
+          putCalls.push({ objectKey, localPath, options, config: this.config });
+          return {};
+        }
+
+        signatureUrl(objectKey) {
+          return `https://signed.example.com/${objectKey}`;
+        }
+      };
+    }
+    return originalLoad.apply(this, [request, parent, isMain]);
+  };
+
+  try {
+    process.env.STORAGE_MODE = 'cloud';
+    process.env.CLOUD_PUBLIC_BASE_URL = 'https://oss-public.example.com/base/';
+    process.env.OSS_ENDPOINT = 'oss-cn-test.aliyuncs.com';
+    process.env.OSS_REGION = 'oss-cn-test';
+    process.env.OSS_BUCKET = 'xingxing-test';
+    process.env.OSS_ACCESS_KEY_ID = 'test-key';
+    process.env.OSS_ACCESS_KEY_SECRET = 'test-secret';
+
+    const { saveImage, getPublicObjectUrl } = require('../src/server/services/storageService');
+    const saved = await saveImage({
+      qrId: 'MIMG00001',
+      file: {
+        originalname: 'mini.png',
+        mimetype: 'image/png',
+        buffer: Buffer.from('cloud-public-image')
+      }
+    });
+
+    assert.equal(putCalls.length, 1);
+    assert.equal(saved.object_key.startsWith('stars/MIMG00001/'), true);
+    assert.equal(saved.url, `https://oss-public.example.com/base/${saved.object_key}`);
+    assert.equal(saved.preview_url, saved.url);
+    assert.equal(saved.url.includes('signed.example.com'), false);
+    assert.equal(getPublicObjectUrl('stars/OLD00001/photo.jpg'), 'https://oss-public.example.com/base/stars/OLD00001/photo.jpg');
+  } finally {
+    Module._load = originalLoad;
+    restoreEnv(oldEnv);
+  }
 });
