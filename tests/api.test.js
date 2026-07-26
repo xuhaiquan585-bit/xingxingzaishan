@@ -1015,6 +1015,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxml.includes('class="mode-row"'), false);
   assert.equal(recordWxml.includes('class="record-state-card"'), true);
   assert.equal(recordWxml.includes('class="preview-mask"'), true);
+  assert.equal(recordWxml.includes('wx:if="{{previewMessage}}" class="preview-message"'), true);
   assert.equal(recordWxml.includes('bindtap="confirmPreview"'), true);
   assert.equal(recordWxml.includes('bindtap="closePreview"'), true);
   assert.equal(recordWxss.includes('env(safe-area-inset-bottom)'), true);
@@ -1041,6 +1042,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxss.includes('padding: 22rpx'), true);
   assert.equal(recordWxss.includes('box-shadow: none'), true);
   assert.equal(recordWxss.includes('.count-row'), true);
+  assert.equal(recordWxss.includes('.preview-message'), true);
   assert.equal(recordWxss.includes('grid-template-columns: 44rpx minmax(0, 1fr)'), true);
   assert.equal(recordWxss.includes('min-height: 80rpx'), true);
   assert.equal(recordWxss.includes('font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'), true);
@@ -1122,6 +1124,8 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(chainViewService.includes('存证生成失败'), false);
   assert.equal(recordJs.includes('wx.getImageInfo'), true);
   assert.equal(recordJs.includes('calculatePreviewHeight'), true);
+  assert.equal(recordJs.includes('previewMessage'), true);
+  assert.equal(recordJs.includes('wx.showToast({'), true);
   assert.equal(recordJs.includes('showBrandSection'), true);
   assert.equal(recordJs.includes('onBrandDisclosureChange'), true);
   assert.equal(recordJs.includes('show_brand_disclosure'), true);
@@ -2826,6 +2830,8 @@ test('miniapp upload and record flow should require bound phone and reject dupli
   }, token);
   assert.equal(recordRes.status, 200);
   assert.equal(recordRes.body.data.activation_status, 'activated');
+  assert.ok(recordRes.body.data.image_url);
+  assert.equal(recordRes.body.data.image_object_key, uploadRes.body.data.object_key);
   assert.equal(recordRes.body.data.show_brand_disclosure, true);
   assert.equal(recordRes.body.data.brand_disclosure_text_snapshot, '品牌露出文案-MINI');
   assert.equal(recordRes.body.data.brand_name, '星酒品牌');
@@ -2835,8 +2841,15 @@ test('miniapp upload and record flow should require bound phone and reject dupli
   assert.ok(['manifest_ready', 'submitting', 'submitted', 'confirmed', 'failed'].includes(recordRes.body.data.chain_status));
   assert.equal(typeof recordRes.body.data.chain_status_text, 'string');
 
+  const activatedStatusRes = await getJson(`/api/miniapp/qr/${accessToken}`, token);
+  assert.equal(activatedStatusRes.status, 200);
+  assert.equal(activatedStatusRes.body.data.activation_status, 'activated');
+  assert.ok(activatedStatusRes.body.data.image_url);
+  assert.equal(activatedStatusRes.body.data.image_object_key, uploadRes.body.data.object_key);
+
   const detailRes = await getJson('/api/miniapp/user/records/MQR00001', token);
   assert.equal(detailRes.status, 200);
+  assert.ok(detailRes.body.data.image_url);
   assert.equal(detailRes.body.data.show_brand_disclosure, true);
   assert.equal(detailRes.body.data.brand_disclosure_text_snapshot, '品牌露出文案-MINI');
   assert.equal(detailRes.body.data.brand_name, '星酒品牌');

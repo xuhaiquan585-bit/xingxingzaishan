@@ -144,6 +144,7 @@ Page({
     phoneBound: false,
     draftNotice: '',
     showPreview: false,
+    previewMessage: '',
     submitting: false,
     message: '加载中...'
   },
@@ -421,16 +422,17 @@ Page({
       return;
     }
     if (!this.requirePhoneBeforeProtectedAction('submit')) return;
-    this.setData({ showPreview: true, message: '' });
+    this.setData({ showPreview: true, previewMessage: '', message: '' });
   },
 
   closePreview() {
     if (this.data.submitting) return;
-    this.setData({ showPreview: false });
+    this.setData({ showPreview: false, previewMessage: '' });
   },
 
   confirmPreview() {
     if (this.data.submitting) return;
+    this.setData({ previewMessage: '' });
     this.doSubmitRecord();
   },
 
@@ -466,7 +468,12 @@ Page({
       }
       this.setData({
         submitting: false,
+        previewMessage: error.message || '提交失败，请稍后重试',
         message: error.message || '提交失败，请稍后重试'
+      });
+      wx.showToast({
+        title: error.message || '提交失败，请稍后重试',
+        icon: 'none'
       });
     });
   }
