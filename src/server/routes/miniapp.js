@@ -281,11 +281,20 @@ function phoneAuthError(errorCode) {
   if (errorCode === 'INVALID_PHONE_CODE') {
     return {
       status: 400,
+      code: 'INVALID_PHONE_CODE',
       message: '未获取到微信手机号，请再次尝试。'
+    };
+  }
+  if (errorCode === 'WECHAT_CONFIG_ERROR') {
+    return {
+      status: 503,
+      code: 'MINIAPP_WECHAT_NOT_CONFIGURED',
+      message: '暂时无法获取微信手机号，请稍后重试。'
     };
   }
   return {
     status: 502,
+    code: 'PHONE_BIND_FAILED',
     message: '暂时无法获取微信手机号，请稍后重试。'
   };
 }
@@ -334,10 +343,11 @@ router.post('/auth/login', async (req, res) => {
       }
     });
   } catch (error) {
+    const isConfigError = error.code === 'WECHAT_CONFIG_ERROR';
     return res.status(error.code === 'INVALID_LOGIN_CODE' ? 400 : 502).json({
       status: 'error',
-      code: error.code || 'WECHAT_LOGIN_FAILED',
-      message: error.message || '微信登录失败。'
+      code: isConfigError ? 'MINIAPP_WECHAT_NOT_CONFIGURED' : error.code || 'WECHAT_LOGIN_FAILED',
+      message: isConfigError ? '微信登录暂时不可用，请稍后重试。' : error.message || '微信登录失败。'
     });
   }
 });
@@ -381,7 +391,7 @@ router.post('/auth/bind-phone', requireMiniappAuth, async (req, res) => {
     const phoneError = phoneAuthError(error.code);
     return res.status(phoneError.status).json({
       status: 'error',
-      code: error.code || 'PHONE_BIND_FAILED',
+      code: phoneError.code,
       message: phoneError.message
     });
   }

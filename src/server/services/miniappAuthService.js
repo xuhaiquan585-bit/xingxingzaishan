@@ -21,6 +21,27 @@ function isProduction() {
   return process.env.NODE_ENV === 'production';
 }
 
+function isMiniappMockEnabled() {
+  return !isProduction() && process.env.MINIAPP_MOCK_ENABLED === 'true';
+}
+
+function miniappConfigError() {
+  const error = new Error('微信小程序配置不完整。');
+  error.code = 'WECHAT_CONFIG_ERROR';
+  return error;
+}
+
+function mockPhoneFromCode(code) {
+  const value = String(code || '').trim();
+  if (/^1\d{10}$/.test(value)) {
+    return value;
+  }
+
+  const digest = crypto.createHash('sha256').update(value || 'anonymous').digest('hex');
+  const suffix = String(Number.parseInt(digest.slice(0, 12), 16) % 1_000_000_000).padStart(9, '0');
+  return `19${suffix}`;
+}
+
 function base64url(input) {
   return Buffer.from(input)
     .toString('base64')
@@ -109,10 +130,8 @@ async function codeToSession(code) {
   }
 
   if (!hasMiniappConfig()) {
-    if (isProduction()) {
-      const error = new Error('微信小程序配置不完整。');
-      error.code = 'WECHAT_CONFIG_ERROR';
-      throw error;
+    if (!isMiniappMockEnabled()) {
+      throw miniappConfigError();
     }
     if (value.startsWith('bad')) {
       const error = new Error('微信登录失败。');
@@ -143,10 +162,8 @@ async function getMiniappAccessToken() {
   }
 
   if (!hasMiniappConfig()) {
-    if (isProduction()) {
-      const error = new Error('微信小程序配置不完整。');
-      error.code = 'WECHAT_CONFIG_ERROR';
-      throw error;
+    if (!isMiniappMockEnabled()) {
+      throw miniappConfigError();
     }
     return null;
   }
@@ -176,17 +193,15 @@ async function getPhoneNumberByCode(code) {
   }
 
   if (!hasMiniappConfig()) {
-    if (isProduction()) {
-      const error = new Error('微信小程序配置不完整。');
-      error.code = 'WECHAT_CONFIG_ERROR';
-      throw error;
+    if (!isMiniappMockEnabled()) {
+      throw miniappConfigError();
     }
     if (value.startsWith('bad')) {
       const error = new Error('手机号授权失败。');
       error.code = 'PHONE_BIND_FAILED';
       throw error;
     }
-    return /^1\d{10}$/.test(value) ? value : '13800000000';
+    return mockPhoneFromCode(value);
   }
 
   const accessToken = await getMiniappAccessToken();
@@ -246,5 +261,6 @@ module.exports = {
   getMiniappAccessToken,
   generateMiniappToken,
   verifyMiniappToken,
-  hasMiniappConfig
+  hasMiniappConfig,
+  isMiniappMockEnabled
 };

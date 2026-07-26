@@ -450,6 +450,7 @@ test.before(async () => {
   process.env.AUTH_SECRET = 'test-secret-123';
   process.env.RATE_LIMIT_LOGIN_MAX = '1000';
   process.env.SMS_PROVIDER = 'mock';
+  process.env.MINIAPP_MOCK_ENABLED = 'true';
   process.env.ADMIN_INIT_ACCOUNTS_JSON = JSON.stringify([
     { username: 'admin', password: 'test-admin-pass', role: 'admin', name: '系统管理员' },
     { username: 'qc', password: 'test-qc-pass', role: 'qc', name: '质检员' }
@@ -488,6 +489,7 @@ test.after(async () => {
   delete process.env.AUTH_SECRET;
   delete process.env.RATE_LIMIT_LOGIN_MAX;
   delete process.env.SMS_PROVIDER;
+  delete process.env.MINIAPP_MOCK_ENABLED;
   delete process.env.ADMIN_INIT_ACCOUNTS_JSON;
   clearWechatPayEnv();
 });
@@ -1740,6 +1742,94 @@ test('GET /api/qc/logs should reject missing token', async () => {
   const res = await getJson('/api/qc/logs');
   assert.equal(res.status, 401);
   assert.equal(res.body.code, 'UNAUTHORIZED');
+});
+
+test('miniapp WeChat mock should be explicit and never use one fixed phone', async () => {
+  const oldEnv = snapshotEnv([
+    'NODE_ENV',
+    'MINIAPP_MOCK_ENABLED',
+    'WECHAT_MINIAPP_APPID',
+    'WECHAT_MINIAPP_SECRET'
+  ]);
+  const {
+    codeToSession,
+    getPhoneNumberByCode
+  } = require('../src/server/services/miniappAuthService');
+
+  try {
+    process.env.NODE_ENV = 'development';
+    delete process.env.MINIAPP_MOCK_ENABLED;
+    delete process.env.WECHAT_MINIAPP_APPID;
+    delete process.env.WECHAT_MINIAPP_SECRET;
+
+    await assert.rejects(
+      () => codeToSession('mini-no-mock-login'),
+      (error) => error.code === 'WECHAT_CONFIG_ERROR'
+    );
+    await assert.rejects(
+      () => getPhoneNumberByCode('mini-no-mock-phone'),
+      (error) => error.code === 'WECHAT_CONFIG_ERROR'
+    );
+
+    process.env.NODE_ENV = 'production';
+    process.env.MINIAPP_MOCK_ENABLED = 'true';
+    await assert.rejects(
+      () => getPhoneNumberByCode('mini-prod-mock-blocked'),
+      (error) => error.code === 'WECHAT_CONFIG_ERROR'
+    );
+
+    process.env.NODE_ENV = 'test';
+    process.env.MINIAPP_MOCK_ENABLED = 'true';
+    const first = await getPhoneNumberByCode('mini-mock-phone-a');
+    const firstAgain = await getPhoneNumberByCode('mini-mock-phone-a');
+    const second = await getPhoneNumberByCode('mini-mock-phone-b');
+    assert.match(first, /^1\d{10}$/);
+    assert.equal(first, firstAgain);
+    assert.notEqual(first, second);
+    assert.notEqual(first, '13800000000');
+
+    const explicit = await getPhoneNumberByCode('13888003001');
+    assert.equal(explicit, '13888003001');
+  } finally {
+    restoreEnv(oldEnv);
+  }
+});
+
+test('miniapp auth routes should fail closed without explicit mock config', async () => {
+  const oldEnv = snapshotEnv([
+    'NODE_ENV',
+    'MINIAPP_MOCK_ENABLED',
+    'WECHAT_MINIAPP_APPID',
+    'WECHAT_MINIAPP_SECRET'
+  ]);
+
+  try {
+    process.env.NODE_ENV = 'development';
+    delete process.env.MINIAPP_MOCK_ENABLED;
+    delete process.env.WECHAT_MINIAPP_APPID;
+    delete process.env.WECHAT_MINIAPP_SECRET;
+
+    const loginRes = await postJson('/api/miniapp/auth/login', { code: 'mini-route-no-mock' });
+    assert.equal(loginRes.status, 502);
+    assert.equal(loginRes.body.code, 'MINIAPP_WECHAT_NOT_CONFIGURED');
+    assert.equal(loginRes.raw.includes('WECHAT_MINIAPP_APPID'), false);
+    assert.equal(loginRes.raw.includes('WECHAT_MINIAPP_SECRET'), false);
+
+    process.env.MINIAPP_MOCK_ENABLED = 'true';
+    const loginOk = await postJson('/api/miniapp/auth/login', { code: 'mini-route-mock-enabled' });
+    assert.equal(loginOk.status, 200);
+
+    delete process.env.MINIAPP_MOCK_ENABLED;
+    const bindRes = await postJson('/api/miniapp/auth/bind-phone', {
+      code: 'mini-route-phone-code'
+    }, loginOk.body.data.token);
+    assert.equal(bindRes.status, 503);
+    assert.equal(bindRes.body.code, 'MINIAPP_WECHAT_NOT_CONFIGURED');
+    assert.equal(bindRes.body.message, '暂时无法获取微信手机号，请稍后重试。');
+    assert.equal(bindRes.raw.includes('mini-route-phone-code'), false);
+  } finally {
+    restoreEnv(oldEnv);
+  }
 });
 
 test('miniapp auth should login, reject bad token, and bind phone', async () => {
