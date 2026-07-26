@@ -1,6 +1,6 @@
 # 星星在闪 Codex 项目记忆
 
-更新时间：2026-07-19
+更新时间：2026-07-26
 
 这个文件用于新开的 Codex 对话快速对齐项目背景、产品判断、技术边界和近期已做决策。新窗口接手前，建议先读本文件，再看当前代码和 `git status`，因为代码可能已经继续变化。
 
@@ -648,3 +648,51 @@ git diff --stat
 8. 如果要改区块链存证/归档，先读 `src/server/services/manifestService.js`、`archiveService.js`、`chainProofService.js`、`avataService.js`、`src/server/routes/chain.js`，并区分顾客侧纪念凭证和后台侧运维细节。
 9. 对 UI 文案改动要小步收口，不要一口气做大视觉重构，除非用户明确要求某个页面重构。
 10. 对后端、数据库、上传、短信、二维码 token、支付回调、链上存证状态机的改动必须先讨论清楚。
+
+## 16. 生产配置排障记录（2026-07-26）
+
+小程序微信手机号绑定曾出现一个线上/体验版排障结论：多个微信账号扫码后点击“使用微信手机号继续”，都返回：
+
+```text
+这个手机号已关联其他微信账号，暂时无法绑定。
+```
+
+这次根因不是代码逻辑 bug，而是服务器生产配置缺失：
+
+```text
+WECHAT_MINIAPP_APPID
+WECHAT_MINIAPP_SECRET
+```
+
+缺少这两个环境变量时，`src/server/services/miniappAuthService.js` 中 `getPhoneNumberByCode` 在非 production 环境会走 mock 分支，把不同微信账号的手机号授权 code 都解析成同一个固定占位手机号：
+
+```text
+138****0000
+```
+
+第一个账号绑定了这个占位手机号后，后续账号再绑定同一手机号，会被 `src/server/services/dbService.js` 的 `bindMiniappUserPhone` 正确判定为：
+
+```text
+PHONE_ALREADY_BOUND_TO_OTHER_WECHAT
+```
+
+已采取的修复是配置和数据层面的，不需要代码回滚：
+
+- 服务器 `.env` 追加真实小程序配置（实际值只保存在服务器环境，不写入 Git）：
+  - `WECHAT_MINIAPP_APPID=<已配置>`
+  - `WECHAT_MINIAPP_SECRET=<已配置>`
+- 执行 `pm2 restart`，让 `getPhoneNumberByCode` 走微信真实 `getuserphonenumber`。
+- 清理 `db.json` 中固定占位手机号对应的测试记录：仅将该记录 `phone` 置为 `null`，保留 `openid`。
+
+后续判断原则：
+
+- 这是生产环境变量缺失，不是手机号绑定冲突规则错误。
+- 不要因为这个问题回滚第一轮手机号绑定安全收口。
+- 不要绕过 `PHONE_ALREADY_BOUND_TO_OTHER_WECHAT`。
+- 不要在生产或体验版中使用 mock 手机号。
+- `.env` 不进 git；换服务器、重建实例、迁移 PM2 环境时必须重新配置 `WECHAT_MINIAPP_APPID` 和 `WECHAT_MINIAPP_SECRET`。
+
+可选健壮性优化，需单独讨论后再做：
+
+- mock 分支不要使用固定占位手机号，可在开发环境按 openid/code 派生唯一占位号，避免多账号测试互相冲突。
+- 非 production 但缺少小程序 appid/secret 时，启动阶段或系统设置页给出明确告警，避免误以为是真实微信手机号能力。
