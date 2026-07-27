@@ -2428,6 +2428,87 @@ test('account migration should fail closed on duplicate or ambiguous users with 
   );
 });
 
+test('account migration should fail closed on duplicate user ids with masked report', () => {
+  const {
+    summarizeDbForAccountMigration,
+    applyAccountMigrationToSnapshot
+  } = require('../src/server/services/accountMigrationService');
+
+  const duplicatePhone = '13888003061';
+  const duplicateOpenid = 'mock-openid-duplicate-user-id-secret';
+  const identicalRow = {
+    id: 60,
+    phone: duplicatePhone,
+    openid: duplicateOpenid,
+    unionid: null,
+    source: 'web+miniapp',
+    created_at: '2026-07-26T00:00:00.000Z'
+  };
+  const identicalDb = {
+    users: [
+      { ...identicalRow },
+      { ...identicalRow }
+    ],
+    accounts: [],
+    meta: { next_account_id: 1 },
+    orders: [],
+    qr_codes: []
+  };
+
+  const identicalSummary = summarizeDbForAccountMigration(identicalDb);
+  assert.equal(identicalSummary.can_apply, false);
+  assert.ok(identicalSummary.blocked_reasons.includes('duplicate_user_id'));
+  assert.ok(identicalSummary.blocked_reasons.includes('duplicate_phone'));
+  assert.ok(identicalSummary.blocked_reasons.includes('duplicate_openid'));
+  assert.equal(identicalSummary.duplicate_user_id_groups.length, 1);
+  assert.equal(identicalSummary.duplicate_user_id_groups[0].id, '60');
+  assert.equal(identicalSummary.duplicate_user_id_groups[0].count, 2);
+  assert.deepEqual(identicalSummary.duplicate_user_id_groups[0].array_indexes, [0, 1]);
+  assert.deepEqual(identicalSummary.duplicate_user_id_groups[0].masked_phones, ['138****3061']);
+  assert.match(identicalSummary.duplicate_user_id_groups[0].masked_openids[0], /^mock-o\.\.\./);
+  assert.equal(identicalSummary.duplicate_user_id_groups[0].rows_identical, true);
+  const identicalRawSummary = JSON.stringify(identicalSummary);
+  assert.equal(identicalRawSummary.includes(duplicatePhone), false);
+  assert.equal(identicalRawSummary.includes(duplicateOpenid), false);
+
+  assert.throws(
+    () => applyAccountMigrationToSnapshot(identicalDb),
+    (error) => error && error.code === 'ACCOUNT_MIGRATION_BLOCKED'
+  );
+
+  const differentDb = {
+    users: [
+      {
+        id: 61,
+        phone: '13888003062',
+        openid: 'mock-openid-duplicate-user-id-a',
+        source: 'web+miniapp'
+      },
+      {
+        id: 61,
+        phone: '13888003063',
+        openid: 'mock-openid-duplicate-user-id-b',
+        source: 'web+miniapp'
+      }
+    ],
+    accounts: [],
+    meta: { next_account_id: 1 },
+    orders: [],
+    qr_codes: []
+  };
+
+  const differentSummary = summarizeDbForAccountMigration(differentDb);
+  assert.equal(differentSummary.can_apply, false);
+  assert.deepEqual(differentSummary.blocked_reasons, ['duplicate_user_id']);
+  assert.equal(differentSummary.duplicate_user_id_groups[0].rows_identical, false);
+  assert.deepEqual(differentSummary.duplicate_user_id_groups[0].array_indexes, [0, 1]);
+
+  assert.throws(
+    () => applyAccountMigrationToSnapshot(differentDb),
+    (error) => error && error.code === 'ACCOUNT_MIGRATION_BLOCKED'
+  );
+});
+
 test('account migration file apply should be atomic, guarded, and leave dry-run untouched', () => {
   const {
     auditAccountMigration,
@@ -2445,7 +2526,7 @@ test('account migration file apply should be atomic, guarded, and leave dry-run 
     const blockedDb = {
       users: [
         { id: 30, phone: '13888003031', openid: null, source: 'web' },
-        { id: 31, phone: '13888003031', openid: null, source: 'web' }
+        { id: 30, phone: '13888003031', openid: null, source: 'web' }
       ],
       accounts: [],
       meta: { next_account_id: 20 },
@@ -2457,6 +2538,7 @@ test('account migration file apply should be atomic, guarded, and leave dry-run 
     const beforeDryRunMtime = fs.statSync(dbFile).mtimeMs;
     const audit = auditAccountMigration();
     assert.equal(audit.can_apply, false);
+    assert.ok(audit.blocked_reasons.includes('duplicate_user_id'));
     assert.equal(fs.readFileSync(dbFile, 'utf-8'), beforeDryRunBytes);
     assert.equal(fs.statSync(dbFile).mtimeMs, beforeDryRunMtime);
 

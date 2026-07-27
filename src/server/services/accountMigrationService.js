@@ -73,6 +73,15 @@ function maskOpenid(openid) {
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
 }
 
+function stableStringify(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  return `{${Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+    .join(',')}}`;
+}
+
 function normalizePositiveInteger(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : null;
@@ -113,6 +122,30 @@ function groupDuplicateUsers(users, field, masker) {
       count: items.length,
       user_ids: items.map((item) => item.id)
     }));
+}
+
+function groupDuplicateUserIds(users) {
+  const groups = new Map();
+  users.forEach((user, index) => {
+    if (user.id === undefined || user.id === null || user.id === '') return;
+    const value = String(user.id);
+    if (!groups.has(value)) groups.set(value, []);
+    groups.get(value).push({ user, index });
+  });
+
+  return [...groups.entries()]
+    .filter(([, items]) => items.length > 1)
+    .map(([id, items]) => {
+      const rowFingerprints = items.map((item) => stableStringify(item.user));
+      return {
+        id,
+        count: items.length,
+        array_indexes: items.map((item) => item.index),
+        masked_phones: [...new Set(items.map((item) => maskPhone(item.user.phone)).filter(Boolean))],
+        masked_openids: [...new Set(items.map((item) => maskOpenid(item.user.openid)).filter(Boolean))],
+        rows_identical: rowFingerprints.every((value) => value === rowFingerprints[0])
+      };
+    });
 }
 
 function duplicateValueSet(users, field) {
@@ -184,7 +217,9 @@ function summarizeDbForAccountMigration(inputDb = {}) {
 
   const duplicatePhoneGroups = groupDuplicateUsers(users, 'phone', maskPhone);
   const duplicateOpenidGroups = groupDuplicateUsers(users, 'openid', maskOpenid);
+  const duplicateUserIdGroups = groupDuplicateUserIds(users);
   const blockedReasons = [];
+  if (duplicateUserIdGroups.length > 0) blockedReasons.push('duplicate_user_id');
   if (duplicatePhoneGroups.length > 0) blockedReasons.push('duplicate_phone');
   if (duplicateOpenidGroups.length > 0) blockedReasons.push('duplicate_openid');
   if (missingAccountUsers.length > 0) blockedReasons.push('missing_account_reference');
@@ -197,6 +232,7 @@ function summarizeDbForAccountMigration(inputDb = {}) {
     accounts_total: accounts.length,
     mapped_users: users.filter((user) => !!user.account_id).length,
     mappable_users: mappableUsers.length,
+    duplicate_user_id_groups: duplicateUserIdGroups,
     duplicate_phone_groups: duplicatePhoneGroups,
     duplicate_openid_groups: duplicateOpenidGroups,
     missing_account_users: missingAccountUsers,
