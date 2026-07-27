@@ -28,6 +28,18 @@ function isValidPhone(phone) {
   return /^1\d{10}$/.test(phone);
 }
 
+function getAccountId(user) {
+  return user && user.account_id ? String(user.account_id) : '';
+}
+
+function respondAccountContextRequired(res) {
+  return res.status(401).json({
+    status: 'error',
+    code: 'UNAUTHORIZED',
+    message: '璇峰厛瀹屾垚鎵嬫満鍙风櫥褰曘€?'
+  });
+}
+
 function resolveImageUrl(qr) {
   if (qr.image_object_key) {
     try {
@@ -222,6 +234,7 @@ router.post('/:qrId/record', requireUserSession, async (req, res) => {
     mode = 'direct'
   } = req.body;
   const phone = req.user.phone;
+  const accountId = getAccountId(req.user);
 
   if (!isValidPhone(phone)) {
     return res.status(400).json({
@@ -229,6 +242,10 @@ router.post('/:qrId/record', requireUserSession, async (req, res) => {
       code: 'INVALID_PHONE',
       message: '手机号格式不正确，请检查后重试。'
     });
+  }
+
+  if (!accountId) {
+    return respondAccountContextRequired(res);
   }
 
   if (!imageUrl && !imageObjectKey) {
@@ -252,12 +269,17 @@ router.post('/:qrId/record', requireUserSession, async (req, res) => {
     image_url: imageUrl || null,
     image_object_key: imageObjectKey || null,
     phone,
+    account_id: accountId,
     show_brand_disclosure: showBrandDisclosure === true
   };
 
   const result = mode === 'co_create'
     ? startCoCreationByKey(req.params.qrId, payload)
     : activateQRByKey(req.params.qrId, payload);
+
+  if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
+    return respondAccountContextRequired(res);
+  }
 
   if (result.error === 'QR_NOT_FOUND') {
     return res.status(404).json({
@@ -291,6 +313,7 @@ router.post('/:qrId/record', requireUserSession, async (req, res) => {
 router.post('/:qrId/comments', requireUserSession, (req, res) => {
   const authorName = String(req.body.author_name || '').trim();
   const content = String(req.body.content || '').trim();
+  const accountId = getAccountId(req.user);
 
   if (!authorName || authorName.length > 20) {
     return res.status(400).json({
@@ -308,11 +331,20 @@ router.post('/:qrId/comments', requireUserSession, (req, res) => {
     });
   }
 
+  if (!accountId) {
+    return respondAccountContextRequired(res);
+  }
+
   const result = addCoCreationCommentByKey(req.params.qrId, {
     phone: req.user.phone,
+    account_id: accountId,
     authorName,
     content
   });
+
+  if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
+    return respondAccountContextRequired(res);
+  }
 
   if (result.error === 'QR_NOT_FOUND') {
     return res.status(404).json({
@@ -379,9 +411,19 @@ router.delete('/:qrId/comments/:commentId', requireUserSession, (req, res) => {
 });
 
 router.post('/:qrId/finalize', requireUserSession, async (req, res) => {
+  const accountId = getAccountId(req.user);
+  if (!accountId) {
+    return respondAccountContextRequired(res);
+  }
+
   const result = finalizeCoCreationByKey(req.params.qrId, {
-    phone: req.user.phone
+    phone: req.user.phone,
+    account_id: accountId
   });
+
+  if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
+    return respondAccountContextRequired(res);
+  }
 
   if (result.error === 'QR_NOT_FOUND') {
     return res.status(404).json({

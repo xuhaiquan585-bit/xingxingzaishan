@@ -175,6 +175,14 @@ function requireMappedUser(db, user, { accountId = null, openid = null } = {}) {
   return user;
 }
 
+function normalizeAccountId(value) {
+  return String(value || '').trim();
+}
+
+function payloadAccountId(payload) {
+  return normalizeAccountId(payload && payload.account_id);
+}
+
 function findUniqueUserByPhone(db, phone) {
   const targetPhone = normalizeUserPhone(phone);
   if (!targetPhone) return null;
@@ -437,6 +445,7 @@ function migrateSchema(db) {
     order_no: item.order_no || `JS${Date.now()}${String(idx + 1).padStart(4, '0')}`,
     openid: item.openid || '',
     phone: item.phone || '',
+    ...(Object.prototype.hasOwnProperty.call(item, 'account_id') ? { account_id: item.account_id || null } : {}),
     product_id: item.product_id || '',
     product_snapshot: item.product_snapshot || {},
     quantity: Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 1,
@@ -821,6 +830,11 @@ function getSampleUnactivated() {
 }
 
 function activateQRCodeOnce(qrId, payload) {
+  const accountId = payloadAccountId(payload);
+  if (!accountId) {
+    return { error: 'ACCOUNT_CONTEXT_REQUIRED' };
+  }
+
   const db = readDB();
   const index = db.qr_codes.findIndex((item) => item.id === qrId);
   if (index === -1) {
@@ -843,6 +857,7 @@ function activateQRCodeOnce(qrId, payload) {
     image_url: payload.image_url,
     image_object_key: payload.image_object_key || null,
     phone: payload.phone,
+    account_id: accountId,
     activated_at: nowISO(),
     blockchain_hash: payload.blockchain_hash,
     co_creation_enabled: qrCode.co_creation_enabled === true,
@@ -872,6 +887,11 @@ function activateQRByKey(key, payload) {
 }
 
 function startCoCreationOnce(qrId, payload) {
+  const accountId = payloadAccountId(payload);
+  if (!accountId) {
+    return { error: 'ACCOUNT_CONTEXT_REQUIRED' };
+  }
+
   const db = readDB();
   const index = db.qr_codes.findIndex((item) => item.id === qrId);
   if (index === -1) {
@@ -892,12 +912,14 @@ function startCoCreationOnce(qrId, payload) {
     activation_status: 'co_creating',
     co_creation_enabled: true,
     co_creation_owner_phone: payload.phone,
+    co_creation_owner_account_id: accountId,
     co_creation_comments: [],
     co_creation_started_at: nowISO(),
     content: payload.content,
     image_url: payload.image_url,
     image_object_key: payload.image_object_key || null,
     phone: payload.phone,
+    account_id: accountId,
     show_brand_disclosure: showBrandDisclosure,
     brand_disclosure_text_snapshot: showBrandDisclosure ? batchDisclosure : ''
   };
@@ -917,7 +939,12 @@ function startCoCreationByKey(key, payload) {
   return startCoCreationOnce(key, payload);
 }
 
-function addCoCreationCommentByKey(key, { phone, authorName, content }) {
+function addCoCreationCommentByKey(key, { phone, account_id: accountIdValue, authorName, content }) {
+  const accountId = normalizeAccountId(accountIdValue);
+  if (!accountId) {
+    return { error: 'ACCOUNT_CONTEXT_REQUIRED' };
+  }
+
   const db = readDB();
   const index = db.qr_codes.findIndex((item) => item.qr_access_token === key || item.id === key);
   if (index === -1) {
@@ -941,6 +968,7 @@ function addCoCreationCommentByKey(key, { phone, authorName, content }) {
   const comment = {
     id: comments.length > 0 ? Math.max(...comments.map((item) => Number(item.id) || 0)) + 1 : 1,
     phone,
+    account_id: accountId,
     author_name: authorName,
     content,
     status: 'kept',
@@ -990,7 +1018,12 @@ function deleteCoCreationCommentByKey(key, { commentId, phone }) {
   return { data: next };
 }
 
-function finalizeCoCreationByKey(key, { phone, blockchain_hash: blockchainHash }) {
+function finalizeCoCreationByKey(key, { phone, account_id: accountIdValue, blockchain_hash: blockchainHash }) {
+  const accountId = normalizeAccountId(accountIdValue);
+  if (!accountId) {
+    return { error: 'ACCOUNT_CONTEXT_REQUIRED' };
+  }
+
   const db = readDB();
   const index = db.qr_codes.findIndex((item) => item.qr_access_token === key || item.id === key);
   if (index === -1) {
@@ -1010,6 +1043,7 @@ function finalizeCoCreationByKey(key, { phone, blockchain_hash: blockchainHash }
     activation_status: 'activated',
     activated_at: nowISO(),
     blockchain_hash: blockchainHash,
+    account_id: accountId,
     co_creation_comments: (qrCode.co_creation_comments || []).map((comment) => ({
       ...comment,
       status: comment.status || 'kept'
@@ -1497,14 +1531,20 @@ function orderStatusText(status) {
 
 function orderPayload(order) {
   if (!order) return null;
+  const { account_id: _accountId, ...publicOrder } = order;
   return {
-    ...order,
+    ...publicOrder,
     status_text: orderStatusText(order.status),
     amount_text: `¥${(Number(order.total_amount_cents || 0) / 100).toFixed(2)}`
   };
 }
 
-function createMiniappOrder({ openid, phone, productId, quantity, receiverName, receiverPhone, region, address, remark }) {
+function createMiniappOrder({ openid, phone, account_id: accountIdValue, productId, quantity, receiverName, receiverPhone, region, address, remark }) {
+  const accountId = normalizeAccountId(accountIdValue);
+  if (!accountId) {
+    return { error: 'ACCOUNT_CONTEXT_REQUIRED' };
+  }
+
   const db = readDB();
   const product = db.products.find((item) => item.id === productId && item.status === 'published');
   if (!product) {
@@ -1529,6 +1569,7 @@ function createMiniappOrder({ openid, phone, productId, quantity, receiverName, 
     order_no: `JS${Date.now()}${String(db.orders.length + 1).padStart(4, '0')}`,
     openid: String(openid || ''),
     phone: String(phone || ''),
+    account_id: accountId,
     product_id: product.id,
     product_snapshot: {
       id: product.id,

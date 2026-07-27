@@ -402,6 +402,28 @@ function attachTestAccount(db, user, createdFrom = 'migration') {
   return accountId;
 }
 
+function getTestDbSnapshot() {
+  const { getDatabaseSnapshot } = require('../src/server/services/dbService');
+  return getDatabaseSnapshot();
+}
+
+function writeTestDbSnapshot(snapshot) {
+  const { writeDatabaseSnapshot } = require('../src/server/services/dbService');
+  return writeDatabaseSnapshot(snapshot);
+}
+
+function findTestUserByPhone(db, phone) {
+  return db.users.find((item) => item.phone === phone);
+}
+
+function findTestUserByOpenid(db, openid) {
+  return db.users.find((item) => item.openid === openid);
+}
+
+function mockOpenidForCode(code) {
+  return `mock-openid-${code}`;
+}
+
 const WECHAT_PAY_ENV_KEYS = [
   'WECHAT_PAY_MCH_ID',
   'WECHAT_PAY_APPID',
@@ -3063,6 +3085,8 @@ test('miniapp sticker orders should create, mock pay, list, and allow admin ship
   const orderRes = await postJson('/api/miniapp/orders', {
     product_id: productId,
     quantity: 2,
+    account_id: 'FORGED_ACCOUNT',
+    owner_account_id: 'FORGED_OWNER',
     receiver_name: '张三',
     receiver_phone: '13888880001',
     region: '四川省 成都市 锦江区',
@@ -3071,10 +3095,17 @@ test('miniapp sticker orders should create, mock pay, list, and allow admin ship
   }, token);
   assert.equal(orderRes.status, 200);
   assert.equal(orderRes.body.data.status, 'pending_payment');
+  assert.equal(Object.prototype.hasOwnProperty.call(orderRes.body.data, 'account_id'), false);
   assert.equal(orderRes.body.data.payment_status, 'unpaid');
   assert.equal(orderRes.body.data.total_amount_cents, 5800);
   assert.equal(orderRes.body.data.product_snapshot.title, '恋人酒瓶星贴');
   const orderId = orderRes.body.data.id;
+  const dbAfterOrder = getTestDbSnapshot();
+  const orderUser = findTestUserByPhone(dbAfterOrder, '13888880001');
+  const createdOrder = dbAfterOrder.orders.find((item) => item.id === orderId);
+  assert.equal(createdOrder.openid, mockOpenidForCode('mini-order-bound'));
+  assert.equal(createdOrder.account_id, orderUser.account_id);
+  assert.notEqual(createdOrder.account_id, 'FORGED_ACCOUNT');
 
   const unconfiguredPayRes = await postJson(`/api/miniapp/orders/${orderId}/pay`, {}, token);
   assert.equal(unconfiguredPayRes.status, 503);
@@ -3514,10 +3545,14 @@ test('miniapp upload and record flow should require bound phone and reject dupli
     content: '小程序记录',
     image_url: uploadRes.body.data.url,
     image_object_key: uploadRes.body.data.object_key,
-    show_brand_disclosure: true
+    show_brand_disclosure: true,
+    account_id: 'FORGED_ACCOUNT',
+    owner_account_id: 'FORGED_OWNER',
+    co_creation_owner_account_id: 'FORGED_CO_OWNER'
   }, token);
   assert.equal(recordRes.status, 200);
   assert.equal(recordRes.body.data.activation_status, 'activated');
+  assert.equal(Object.prototype.hasOwnProperty.call(recordRes.body.data, 'account_id'), false);
   assert.ok(recordRes.body.data.image_url);
   assert.equal(recordRes.body.data.image_object_key, uploadRes.body.data.object_key);
   assert.equal(recordRes.body.data.show_brand_disclosure, true);
@@ -3528,6 +3563,13 @@ test('miniapp upload and record flow should require bound phone and reject dupli
   assert.equal(recordRes.body.data.blockchain_hash, recordRes.body.data.manifest_hash);
   assert.ok(['manifest_ready', 'submitting', 'submitted', 'confirmed', 'failed'].includes(recordRes.body.data.chain_status));
   assert.equal(typeof recordRes.body.data.chain_status_text, 'string');
+  const dbAfterMiniRecord = getTestDbSnapshot();
+  const miniRecordOwner = findTestUserByPhone(dbAfterMiniRecord, '13877770001');
+  const miniRecord = dbAfterMiniRecord.qr_codes.find((item) => item.qr_access_token === accessToken);
+  assert.equal(miniRecord.phone, '13877770001');
+  assert.equal(miniRecord.account_id, miniRecordOwner.account_id);
+  assert.notEqual(miniRecord.account_id, 'FORGED_ACCOUNT');
+  assert.equal(Object.prototype.hasOwnProperty.call(miniRecord, 'owner_account_id'), false);
 
   const activatedStatusRes = await getJson(`/api/miniapp/qr/${accessToken}`, token);
   assert.equal(activatedStatusRes.status, 200);
@@ -3693,10 +3735,13 @@ test('miniapp co-creation flow should collect comments and finalize', async () =
     code: 'mini-owner',
     phone: '13877770003'
   });
+  const ownerPayload = decodeJwtPayload(ownerToken);
   const startRes = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
     mode: 'co_create',
     content: '主留言',
-    image_object_key: 'owner.jpg'
+    image_object_key: 'owner.jpg',
+    account_id: 'FORGED_ACCOUNT',
+    co_creation_owner_account_id: 'FORGED_CO_OWNER'
   }, ownerToken);
   assert.equal(startRes.status, 200);
   assert.equal(startRes.body.data.activation_status, 'co_creating');
@@ -3704,16 +3749,34 @@ test('miniapp co-creation flow should collect comments and finalize', async () =
   assert.equal(startRes.body.data.blockchain_hash, null);
   assert.equal(startRes.body.data.manifest_hash, null);
   assert.equal(startRes.body.data.chain_status, 'not_started');
+  let miniCoCreateDb = getTestDbSnapshot();
+  let miniCoCreateQr = miniCoCreateDb.qr_codes.find((item) => item.qr_access_token === accessToken);
+  assert.equal(miniCoCreateQr.phone, '13877770003');
+  assert.equal(miniCoCreateQr.account_id, ownerPayload.account_id);
+  assert.equal(miniCoCreateQr.co_creation_owner_phone, '13877770003');
+  assert.equal(miniCoCreateQr.co_creation_owner_account_id, ownerPayload.account_id);
+  assert.notEqual(miniCoCreateQr.account_id, 'FORGED_ACCOUNT');
 
   const participantToken = await loginMiniappBindPhoneAndGetToken({
     code: 'mini-participant',
     phone: '13877770004'
   });
+  const participantPayload = decodeJwtPayload(participantToken);
   const commentRes = await postJson(`/api/miniapp/qr/${accessToken}/comments`, {
+    account_id: 'FORGED_ACCOUNT',
+    commenter_account_id: 'FORGED_COMMENTER',
     author_name: '朋友',
     content: '一起见证'
   }, participantToken);
   assert.equal(commentRes.status, 200);
+
+  miniCoCreateDb = getTestDbSnapshot();
+  miniCoCreateQr = miniCoCreateDb.qr_codes.find((item) => item.qr_access_token === accessToken);
+  const miniComment = miniCoCreateQr.co_creation_comments.find((item) => item.id === commentRes.body.data.id);
+  assert.equal(miniComment.phone, '13877770004');
+  assert.equal(miniComment.account_id, participantPayload.account_id);
+  assert.notEqual(miniComment.account_id, 'FORGED_ACCOUNT');
+  assert.equal(Object.prototype.hasOwnProperty.call(miniComment, 'commenter_account_id'), false);
 
   const duplicateCommentRes = await postJson(`/api/miniapp/qr/${accessToken}/comments`, {
     author_name: '朋友',
@@ -3731,6 +3794,166 @@ test('miniapp co-creation flow should collect comments and finalize', async () =
   assert.ok(finalizeRes.body.data.manifest_hash);
   assert.equal(finalizeRes.body.data.blockchain_hash, finalizeRes.body.data.manifest_hash);
   assert.ok(['manifest_ready', 'submitting', 'submitted', 'confirmed', 'failed'].includes(finalizeRes.body.data.chain_status));
+  miniCoCreateDb = getTestDbSnapshot();
+  miniCoCreateQr = miniCoCreateDb.qr_codes.find((item) => item.qr_access_token === accessToken);
+  assert.equal(miniCoCreateQr.account_id, ownerPayload.account_id);
+  assert.equal(miniCoCreateQr.co_creation_owner_account_id, ownerPayload.account_id);
+});
+
+test('business writes should fail closed when authenticated account mapping is missing', async () => {
+  const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const adminToken = adminLogin.body.data.token;
+
+  const productRes = await postJson('/api/admin/products', {
+    title: 'Account Context Test Product',
+    price_text: '¥1',
+    price_cents: 100,
+    product_type: 'wine_sticker',
+    sticker_count: 1,
+    stock: 5,
+    status: 'published'
+  }, adminToken);
+  assert.equal(productRes.status, 200);
+
+  const h5QrRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'ACH',
+    count: 2
+  }, adminToken);
+  assert.equal(h5QrRes.status, 200);
+  const [h5AccessToken, h5CoCreateToken] = h5QrRes.body.data.records.map((item) => item.qr_access_token);
+  const h5Cookie = await loginUserAndGetCookie('13870001001');
+  let db = getTestDbSnapshot();
+  db.users = db.users.map((item) => (
+    item.phone === '13870001001' ? { ...item, account_id: null } : item
+  ));
+  writeTestDbSnapshot(db);
+  const beforeH5Write = JSON.stringify(getTestDbSnapshot());
+  const h5Write = await postJsonWithCookie(`/api/qr/${h5AccessToken}/record`, {
+    content: 'missing account context',
+    image_object_key: 'missing-account-h5.jpg'
+  }, h5Cookie);
+  assert.equal(h5Write.status, 401);
+  assert.equal(JSON.stringify(getTestDbSnapshot()), beforeH5Write);
+
+  const h5MissingOwnerCookie = await loginUserAndGetCookie('13870001005');
+  db = getTestDbSnapshot();
+  db.users = db.users.map((item) => (
+    item.phone === '13870001005' ? { ...item, account_id: null } : item
+  ));
+  writeTestDbSnapshot(db);
+  const beforeH5CoCreateStart = JSON.stringify(getTestDbSnapshot());
+  const h5CoCreateStart = await postJsonWithCookie(`/api/qr/${h5CoCreateToken}/record`, {
+    mode: 'co_create',
+    content: 'missing h5 co-create account',
+    image_object_key: 'missing-h5-co-create.jpg'
+  }, h5MissingOwnerCookie);
+  assert.equal(h5CoCreateStart.status, 401);
+  assert.equal(JSON.stringify(getTestDbSnapshot()), beforeH5CoCreateStart);
+
+  const h5OwnerCookie = await loginUserAndGetCookie('13870001006');
+  const h5ValidCoCreate = await postJsonWithCookie(`/api/qr/${h5CoCreateToken}/record`, {
+    mode: 'co_create',
+    content: 'owner account exists',
+    image_object_key: 'h5-owner-account.jpg'
+  }, h5OwnerCookie);
+  assert.equal(h5ValidCoCreate.status, 200);
+
+  const h5ParticipantCookie = await loginUserAndGetCookie('13870001007');
+  db = getTestDbSnapshot();
+  db.users = db.users.map((item) => (
+    item.phone === '13870001007' ? { ...item, account_id: null } : item
+  ));
+  writeTestDbSnapshot(db);
+  const beforeH5CommentWrite = JSON.stringify(getTestDbSnapshot());
+  const h5CommentWrite = await postJsonWithCookie(`/api/qr/${h5CoCreateToken}/comments`, {
+    author_name: 'Account Test',
+    content: 'missing'
+  }, h5ParticipantCookie);
+  assert.equal(h5CommentWrite.status, 401);
+  assert.equal(JSON.stringify(getTestDbSnapshot()), beforeH5CommentWrite);
+
+  db = getTestDbSnapshot();
+  db.users = db.users.map((item) => (
+    item.phone === '13870001006' ? { ...item, account_id: null } : item
+  ));
+  writeTestDbSnapshot(db);
+  const beforeH5FinalizeWrite = JSON.stringify(getTestDbSnapshot());
+  const h5FinalizeWrite = await postJsonWithCookie(`/api/qr/${h5CoCreateToken}/finalize`, {}, h5OwnerCookie);
+  assert.equal(h5FinalizeWrite.status, 401);
+  assert.equal(JSON.stringify(getTestDbSnapshot()), beforeH5FinalizeWrite);
+
+  const miniQrRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'ACM',
+    count: 2
+  }, adminToken);
+  assert.equal(miniQrRes.status, 200);
+  const [miniRecordKey, miniCoCreateKey] = miniQrRes.body.data.records.map((item) => item.qr_access_token);
+
+  const miniToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-missing-account-writes',
+    phone: '13870001002'
+  });
+  db = getTestDbSnapshot();
+  db.users = db.users.map((item) => (
+    item.openid === mockOpenidForCode('mini-missing-account-writes') ? { ...item, account_id: null } : item
+  ));
+  writeTestDbSnapshot(db);
+  const beforeMiniWrites = JSON.stringify(getTestDbSnapshot());
+  const orderWrite = await postJson('/api/miniapp/orders', {
+    product_id: productRes.body.data.id,
+    quantity: 1,
+    receiver_name: 'Account Test',
+    receiver_phone: '13870001002',
+    region: '四川 成都',
+    address: '测试地址'
+  }, miniToken);
+  assert.equal(orderWrite.status, 401);
+  assert.equal(JSON.stringify(getTestDbSnapshot()), beforeMiniWrites);
+
+  const miniRecordWrite = await postJson(`/api/miniapp/qr/${miniRecordKey}/record`, {
+    content: 'missing mini account',
+    image_object_key: 'missing-account-mini.jpg'
+  }, miniToken);
+  assert.equal(miniRecordWrite.status, 401);
+  assert.equal(JSON.stringify(getTestDbSnapshot()), beforeMiniWrites);
+
+  const ownerToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-missing-account-owner',
+    phone: '13870001003'
+  });
+  const startRes = await postJson(`/api/miniapp/qr/${miniCoCreateKey}/record`, {
+    mode: 'co_create',
+    content: 'owner account exists',
+    image_object_key: 'owner-account.jpg'
+  }, ownerToken);
+  assert.equal(startRes.status, 200);
+
+  const participantToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-missing-account-commenter',
+    phone: '13870001004'
+  });
+  db = getTestDbSnapshot();
+  db.users = db.users.map((item) => (
+    item.openid === mockOpenidForCode('mini-missing-account-commenter') ? { ...item, account_id: null } : item
+  ));
+  writeTestDbSnapshot(db);
+  const beforeCommentWrite = JSON.stringify(getTestDbSnapshot());
+  const commentWrite = await postJson(`/api/miniapp/qr/${miniCoCreateKey}/comments`, {
+    author_name: 'Account Test',
+    content: 'missing'
+  }, participantToken);
+  assert.equal(commentWrite.status, 401);
+  assert.equal(JSON.stringify(getTestDbSnapshot()), beforeCommentWrite);
+
+  db = getTestDbSnapshot();
+  db.users = db.users.map((item) => (
+    item.openid === mockOpenidForCode('mini-missing-account-owner') ? { ...item, account_id: null } : item
+  ));
+  writeTestDbSnapshot(db);
+  const beforeFinalizeWrite = JSON.stringify(getTestDbSnapshot());
+  const finalizeWrite = await postJson(`/api/miniapp/qr/${miniCoCreateKey}/finalize`, {}, ownerToken);
+  assert.equal(finalizeWrite.status, 401);
+  assert.equal(JSON.stringify(getTestDbSnapshot()), beforeFinalizeWrite);
 });
 
 
@@ -3829,6 +4052,11 @@ test('GET /api/nft/:id/download should return download_url after activation', as
     image_object_key: uploadBody.data.object_key
   }, userCookie);
   assert.equal(recordRes.status, 200);
+  const dbAfterRecord = getTestDbSnapshot();
+  const recordOwner = findTestUserByPhone(dbAfterRecord, '13800138000');
+  const directRecord = dbAfterRecord.qr_codes.find((item) => item.id === 'STAR0002');
+  assert.equal(directRecord.phone, '13800138000');
+  assert.equal(directRecord.account_id, recordOwner.account_id);
 
   const downloadRes = await getJson('/api/nft/STAR0002/download');
   assert.equal(downloadRes.status, 200);
@@ -3912,11 +4140,23 @@ test('POST /api/qr/:token/record should activate QR by access token', async () =
   const recordRes = await postJsonWithCookie(`/api/qr/${accessToken}/record`, {
     content: 'activated by token',
     image_url: uploadRes.body.data.url,
-    image_object_key: uploadRes.body.data.object_key
+    image_object_key: uploadRes.body.data.object_key,
+    account_id: 'FORGED_ACCOUNT',
+    owner_account_id: 'FORGED_OWNER',
+    co_creation_owner_account_id: 'FORGED_CO_OWNER'
   }, userCookie);
   assert.equal(recordRes.status, 200);
   assert.equal(recordRes.body.data.activation_status, 'activated');
   assert.equal(recordRes.body.data.content, 'activated by token');
+  assert.equal(Object.prototype.hasOwnProperty.call(recordRes.body.data, 'account_id'), false);
+
+  const db = getTestDbSnapshot();
+  const user = findTestUserByPhone(db, '13900139000');
+  const qr = db.qr_codes.find((item) => item.qr_access_token === accessToken);
+  assert.equal(qr.phone, '13900139000');
+  assert.equal(qr.account_id, user.account_id);
+  assert.notEqual(qr.account_id, 'FORGED_ACCOUNT');
+  assert.equal(Object.prototype.hasOwnProperty.call(qr, 'owner_account_id'), false);
 });
 
 test('co-creation flow should collect comments and owner finalize record', async () => {
@@ -3960,6 +4200,13 @@ test('co-creation flow should collect comments and owner finalize record', async
   assert.equal(startRes.body.data.chain_status, 'not_started');
   assert.equal(startRes.body.data.co_creation_comment_count, 0);
   assert.equal(startRes.body.data.co_creation_comment_limit, 12);
+  let coCreateDb = getTestDbSnapshot();
+  const ownerUser = findTestUserByPhone(coCreateDb, '13811112222');
+  let coCreateQr = coCreateDb.qr_codes.find((item) => item.id === qrId);
+  assert.equal(coCreateQr.phone, '13811112222');
+  assert.equal(coCreateQr.account_id, ownerUser.account_id);
+  assert.equal(coCreateQr.co_creation_owner_phone, '13811112222');
+  assert.equal(coCreateQr.co_creation_owner_account_id, ownerUser.account_id);
 
   const anonymousStatus = await getJson(`/api/qr/${accessToken}`);
   assert.equal(anonymousStatus.status, 200);
@@ -3977,11 +4224,22 @@ test('co-creation flow should collect comments and owner finalize record', async
 
   const participantCookie = await loginUserAndGetCookie('13811113333');
   const commentRes = await postJsonWithCookie(`/api/qr/${accessToken}/comments`, {
+    account_id: 'FORGED_ACCOUNT',
+    commenter_account_id: 'FORGED_COMMENTER',
     author_name: '朋友',
     content: '一起见证'
   }, participantCookie);
   assert.equal(commentRes.status, 200);
   assert.equal(commentRes.body.data.content, '一起见证');
+
+  coCreateDb = getTestDbSnapshot();
+  const participantUser = findTestUserByPhone(coCreateDb, '13811113333');
+  coCreateQr = coCreateDb.qr_codes.find((item) => item.id === qrId);
+  const participantComment = coCreateQr.co_creation_comments.find((item) => item.id === commentRes.body.data.id);
+  assert.equal(participantComment.phone, '13811113333');
+  assert.equal(participantComment.account_id, participantUser.account_id);
+  assert.notEqual(participantComment.account_id, 'FORGED_ACCOUNT');
+  assert.equal(Object.prototype.hasOwnProperty.call(participantComment, 'commenter_account_id'), false);
 
   const duplicateCommentRes = await postJsonWithCookie(`/api/qr/${accessToken}/comments`, {
     author_name: '朋友',
@@ -4033,6 +4291,10 @@ test('co-creation flow should collect comments and owner finalize record', async
   assert.equal(finalizedRecord.activation_status, 'activated');
   assert.equal(finalizeRes.body.data.co_creation_comments.length, 1);
   assert.equal(finalizeRes.body.data.co_creation_comments[0].content, '留在酒里');
+  coCreateDb = getTestDbSnapshot();
+  coCreateQr = coCreateDb.qr_codes.find((item) => item.id === qrId);
+  assert.equal(coCreateQr.account_id, ownerUser.account_id);
+  assert.equal(coCreateQr.co_creation_owner_account_id, ownerUser.account_id);
 });
 
 test('co-creation comments should be limited to 12 active comments', async () => {

@@ -72,6 +72,18 @@ function normalizePhone(phone) {
   return String(phone || '').trim();
 }
 
+function getMiniappAccountId(user) {
+  return user && user.account_id ? String(user.account_id) : '';
+}
+
+function respondMiniappAccountContextRequired(res) {
+  return res.status(401).json({
+    status: 'error',
+    code: 'UNAUTHORIZED',
+    message: '璇峰厛鐧诲綍灏忕▼搴忋€?'
+  });
+}
+
 function shouldExposeVerificationCode() {
   return process.env.NODE_ENV !== 'production';
 }
@@ -570,9 +582,15 @@ router.get('/products/:id', (req, res) => {
 });
 
 router.post('/orders', requireMiniappAuth, requireMiniappPhone, (req, res) => {
+  const accountId = getMiniappAccountId(req.miniappUser);
+  if (!accountId) {
+    return respondMiniappAccountContextRequired(res);
+  }
+
   const result = createMiniappOrder({
     openid: req.miniappUser.openid,
     phone: req.miniappUser.phone,
+    account_id: accountId,
     productId: String(req.body.product_id || '').trim(),
     quantity: req.body.quantity,
     receiverName: req.body.receiver_name,
@@ -583,6 +601,9 @@ router.post('/orders', requireMiniappAuth, requireMiniappPhone, (req, res) => {
   });
   if (result.error === 'PRODUCT_NOT_FOUND') {
     return res.status(404).json({ status: 'error', code: 'PRODUCT_NOT_FOUND', message: '未找到该商品或商品未上架。' });
+  }
+  if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
+    return respondMiniappAccountContextRequired(res);
   }
   if (result.error === 'OUT_OF_STOCK') {
     return res.status(409).json({ status: 'error', code: 'OUT_OF_STOCK', message: '库存不足，请减少数量或联系客服。' });
@@ -759,6 +780,7 @@ router.post('/qr/:key/record', requireMiniappAuth, requireMiniappPhone, async (r
   const mode = req.body.mode === 'co_create' ? 'co_create' : 'direct';
   const imageUrl = req.body.image_url || null;
   const imageObjectKey = req.body.image_object_key || null;
+  const accountId = getMiniappAccountId(req.miniappUser);
 
   if (!imageUrl && !imageObjectKey) {
     return res.status(400).json({
@@ -775,6 +797,10 @@ router.post('/qr/:key/record', requireMiniappAuth, requireMiniappPhone, async (r
     });
   }
 
+  if (!accountId) {
+    return respondMiniappAccountContextRequired(res);
+  }
+
   try {
     await checkText(content, { openid: req.miniappUser.openid });
   } catch (error) {
@@ -788,11 +814,16 @@ router.post('/qr/:key/record', requireMiniappAuth, requireMiniappPhone, async (r
     image_url: imageUrl,
     image_object_key: imageObjectKey,
     phone: req.miniappUser.phone,
+    account_id: accountId,
     show_brand_disclosure: req.body.show_brand_disclosure === true
   };
   const result = mode === 'co_create'
     ? startCoCreationByKey(req.params.key, payload)
     : activateQRByKey(req.params.key, payload);
+
+  if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
+    return respondMiniappAccountContextRequired(res);
+  }
 
   if (result.error === 'QR_NOT_FOUND') {
     return res.status(404).json({
@@ -825,6 +856,7 @@ router.post('/qr/:key/record', requireMiniappAuth, requireMiniappPhone, async (r
 router.post('/qr/:key/comments', requireMiniappAuth, requireMiniappPhone, async (req, res) => {
   const authorName = String(req.body.author_name || '').trim();
   const content = String(req.body.content || '').trim();
+  const accountId = getMiniappAccountId(req.miniappUser);
 
   if (!authorName || authorName.length > 20) {
     return res.status(400).json({
@@ -841,6 +873,10 @@ router.post('/qr/:key/comments', requireMiniappAuth, requireMiniappPhone, async 
     });
   }
 
+  if (!accountId) {
+    return respondMiniappAccountContextRequired(res);
+  }
+
   try {
     await checkText(`${authorName}\n${content}`, { openid: req.miniappUser.openid });
   } catch (error) {
@@ -851,9 +887,13 @@ router.post('/qr/:key/comments', requireMiniappAuth, requireMiniappPhone, async 
 
   const result = addCoCreationCommentByKey(req.params.key, {
     phone: req.miniappUser.phone,
+    account_id: accountId,
     authorName,
     content
   });
+  if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
+    return respondMiniappAccountContextRequired(res);
+  }
   if (result.error === 'QR_NOT_FOUND') {
     return res.status(404).json({ status: 'error', code: 'QR_NOT_FOUND', message: '未找到这颗星，请确认二维码是否正确。' });
   }
@@ -889,9 +929,18 @@ router.delete('/qr/:key/comments/:commentId', requireMiniappAuth, requireMiniapp
 });
 
 router.post('/qr/:key/finalize', requireMiniappAuth, requireMiniappPhone, async (req, res) => {
+  const accountId = getMiniappAccountId(req.miniappUser);
+  if (!accountId) {
+    return respondMiniappAccountContextRequired(res);
+  }
+
   const result = finalizeCoCreationByKey(req.params.key, {
-    phone: req.miniappUser.phone
+    phone: req.miniappUser.phone,
+    account_id: accountId
   });
+  if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
+    return respondMiniappAccountContextRequired(res);
+  }
   if (result.error === 'QR_NOT_FOUND') {
     return res.status(404).json({ status: 'error', code: 'QR_NOT_FOUND', message: '未找到这颗星，请确认二维码是否正确。' });
   }
