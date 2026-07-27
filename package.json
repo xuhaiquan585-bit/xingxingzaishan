@@ -9,6 +9,8 @@
     "test": "node --test tests/api.test.js",
     "migrate:oss": "node scripts/migrate-local-to-oss.js",
     "migrate:oss:dry": "node scripts/migrate-local-to-oss.js --dry-run",
+    "accounts:audit": "node scripts/accounts-foundation.js --dry-run",
+    "accounts:migrate": "node scripts/accounts-foundation.js --apply",
     "recover:oss": "node scripts/recover-from-oss.js",
     "recover:oss:write": "node scripts/recover-from-oss.js --write",
     "check:conflicts": "bash scripts/check-conflict-markers.sh"

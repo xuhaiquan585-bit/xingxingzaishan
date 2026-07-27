@@ -2233,6 +2233,46 @@ test('miniapp bind phone should reject abnormal data and unsafe phone auth failu
   assert.ok(db.users.find((item) => item.phone === blockedPhone && !item.openid));
   assert.ok(db.users.find((item) => item.openid === 'mock-openid-mini-safe-blocked-temp' && !item.phone));
 
+  const mappedTempPhone = '13888001015';
+  nextId = Math.max(...db.users.map((item) => Number(item.id) || 0), 0) + 1;
+  db.users.push({
+    id: nextId,
+    phone: mappedTempPhone,
+    openid: null,
+    unionid: null,
+    source: 'web',
+    created_at: '2026-07-25T00:00:06.000Z'
+  });
+  writeDatabaseSnapshot(db);
+  const mappedTempToken = await loginMiniappAndGetToken('mini-safe-mapped-temp');
+  db = getDatabaseSnapshot();
+  db.users = db.users.map((item) =>
+    item.openid === 'mock-openid-mini-safe-mapped-temp'
+      ? { ...item, account_id: 'ACC888888' }
+      : item
+  );
+  db.accounts = [
+    ...(Array.isArray(db.accounts) ? db.accounts : []),
+    {
+      id: 'ACC888888',
+      status: 'active',
+      display_name: '',
+      avatar_url: '',
+      created_from: 'miniapp_openid',
+      created_at: '2026-07-25T00:00:07.000Z',
+      updated_at: '2026-07-25T00:00:07.000Z'
+    }
+  ];
+  writeDatabaseSnapshot(db);
+  const mappedTempRes = await postJson('/api/miniapp/auth/bind-phone', {
+    code: mappedTempPhone
+  }, mappedTempToken);
+  assert.equal(mappedTempRes.status, 409);
+  assert.equal(mappedTempRes.body.code, 'MINIAPP_ACCOUNT_CONFLICT');
+  db = getDatabaseSnapshot();
+  assert.ok(db.users.find((item) => item.phone === mappedTempPhone && !item.openid));
+  assert.ok(db.users.find((item) => item.openid === 'mock-openid-mini-safe-mapped-temp' && item.account_id === 'ACC888888'));
+
   const authFailureToken = await loginMiniappAndGetToken('mini-safe-auth-failure');
   const noCodeRes = await postJson('/api/miniapp/auth/bind-phone', { code: '' }, authFailureToken);
   assert.equal(noCodeRes.status, 400);
@@ -2266,6 +2306,237 @@ test('miniapp bind phone should allow only one concurrent claimant per phone', a
   const { getDatabaseSnapshot } = require('../src/server/services/dbService');
   const db = getDatabaseSnapshot();
   assert.equal(db.users.filter((item) => item.phone === phone).length, 1);
+});
+
+test('account migration dry-run and apply should create stable account mappings without moving data', () => {
+  const {
+    summarizeDbForAccountMigration,
+    applyAccountMigrationToSnapshot
+  } = require('../src/server/services/accountMigrationService');
+
+  const db = {
+    users: [
+      {
+        id: 10,
+        phone: '13888003001',
+        openid: null,
+        unionid: null,
+        source: 'web',
+        created_at: '2026-07-26T00:00:00.000Z'
+      },
+      {
+        id: 11,
+        phone: null,
+        openid: 'mock-openid-account-temp',
+        unionid: null,
+        source: 'miniapp',
+        created_at: '2026-07-26T00:00:01.000Z'
+      },
+      {
+        id: 12,
+        phone: '13888003002',
+        openid: 'mock-openid-account-bound',
+        unionid: null,
+        source: 'web+miniapp',
+        created_at: '2026-07-26T00:00:02.000Z'
+      }
+    ],
+    accounts: [],
+    meta: { next_account_id: 5 },
+    orders: [
+      {
+        id: 'ORDER_ACCOUNT_TEMP',
+        openid: 'mock-openid-account-temp',
+        status: 'pending_payment'
+      }
+    ],
+    qr_codes: [
+      {
+        id: 'ACCOUNTREC001',
+        activation_status: 'activated',
+        phone: '13888003001'
+      }
+    ]
+  };
+
+  const summary = summarizeDbForAccountMigration(db);
+  assert.equal(summary.can_apply, true);
+  assert.equal(summary.mappable_users, 3);
+  assert.equal(summary.temporary_users_with_orders.length, 1);
+  assert.equal(summary.temporary_users_with_orders[0].order_ids[0], 'ORDER_ACCOUNT_TEMP');
+  assert.equal(Object.prototype.hasOwnProperty.call(db.users[0], 'account_id'), false);
+
+  const result = applyAccountMigrationToSnapshot(db);
+  assert.equal(result.summary.created_accounts, 3);
+  assert.equal(result.summary.mapped_users_in_run, 3);
+  assert.deepEqual(result.db.accounts.map((item) => item.id), ['ACC000005', 'ACC000006', 'ACC000007']);
+  assert.deepEqual(result.db.users.map((item) => item.account_id), ['ACC000005', 'ACC000006', 'ACC000007']);
+  assert.equal(result.db.meta.accounts_migration_version, 'accounts_foundation_v1');
+  assert.match(result.db.meta.accounts_migrated_at, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(result.db.accounts[0].created_from, 'web_phone');
+  assert.equal(result.db.accounts[1].created_from, 'miniapp_openid');
+  assert.equal(result.db.accounts[2].created_from, 'migration');
+  assert.equal(result.db.orders[0].openid, 'mock-openid-account-temp');
+  assert.equal(result.db.qr_codes[0].phone, '13888003001');
+
+  const repeat = applyAccountMigrationToSnapshot(result.db);
+  assert.equal(repeat.summary.created_accounts, 0);
+  assert.equal(repeat.summary.mapped_users_in_run, 0);
+  assert.equal(repeat.db.accounts.length, 3);
+  assert.equal(repeat.db.meta.accounts_migrated_at, result.db.meta.accounts_migrated_at);
+  assert.deepEqual(repeat.db.users.map((item) => item.account_id), ['ACC000005', 'ACC000006', 'ACC000007']);
+});
+
+test('account migration should fail closed on duplicate or ambiguous users with masked report', () => {
+  const {
+    summarizeDbForAccountMigration,
+    applyAccountMigrationToSnapshot
+  } = require('../src/server/services/accountMigrationService');
+
+  const duplicatePhone = '13888003011';
+  const duplicateOpenid = 'mock-openid-account-duplicate-secret';
+  const db = {
+    users: [
+      { id: 20, phone: duplicatePhone, openid: null, source: 'web' },
+      { id: 21, phone: duplicatePhone, openid: null, source: 'web' },
+      { id: 22, phone: null, openid: duplicateOpenid, source: 'miniapp' },
+      { id: 23, phone: null, openid: duplicateOpenid, source: 'miniapp' },
+      { id: 24, phone: null, openid: null, source: 'web' },
+      { id: 25, phone: '13888003012', openid: null, source: 'web', account_id: 'ACC999999' }
+    ],
+    accounts: [],
+    meta: { next_account_id: 1 },
+    orders: [],
+    qr_codes: []
+  };
+
+  const summary = summarizeDbForAccountMigration(db);
+  assert.equal(summary.can_apply, false);
+  assert.ok(summary.blocked_reasons.includes('duplicate_phone'));
+  assert.ok(summary.blocked_reasons.includes('duplicate_openid'));
+  assert.ok(summary.blocked_reasons.includes('user_without_identity'));
+  assert.ok(summary.blocked_reasons.includes('missing_account_reference'));
+  const rawSummary = JSON.stringify(summary);
+  assert.equal(rawSummary.includes(duplicatePhone), false);
+  assert.equal(rawSummary.includes(duplicateOpenid), false);
+  assert.equal(summary.duplicate_phone_groups[0].value, '138****3011');
+  assert.match(summary.duplicate_openid_groups[0].value, /^mock-o\.\.\./);
+
+  assert.throws(
+    () => applyAccountMigrationToSnapshot(db),
+    (error) => error && error.code === 'ACCOUNT_MIGRATION_BLOCKED'
+  );
+});
+
+test('account migration file apply should be atomic, guarded, and leave dry-run untouched', () => {
+  const {
+    auditAccountMigration,
+    applyAccountMigration
+  } = require('../src/server/services/accountMigrationService');
+
+  const dbFile = process.env.DB_FILE;
+  const dbDir = path.dirname(dbFile);
+  const dbBase = path.basename(dbFile);
+  const listTempFiles = () => fs.readdirSync(dbDir)
+    .filter((name) => name.includes(`${dbBase}.accounts-migration`));
+  const originalBytes = fs.readFileSync(dbFile);
+
+  try {
+    const blockedDb = {
+      users: [
+        { id: 30, phone: '13888003031', openid: null, source: 'web' },
+        { id: 31, phone: '13888003031', openid: null, source: 'web' }
+      ],
+      accounts: [],
+      meta: { next_account_id: 20 },
+      orders: [],
+      qr_codes: []
+    };
+    fs.writeFileSync(dbFile, JSON.stringify(blockedDb, null, 2), 'utf-8');
+    const beforeDryRunBytes = fs.readFileSync(dbFile, 'utf-8');
+    const beforeDryRunMtime = fs.statSync(dbFile).mtimeMs;
+    const audit = auditAccountMigration();
+    assert.equal(audit.can_apply, false);
+    assert.equal(fs.readFileSync(dbFile, 'utf-8'), beforeDryRunBytes);
+    assert.equal(fs.statSync(dbFile).mtimeMs, beforeDryRunMtime);
+
+    assert.throws(
+      () => applyAccountMigration(),
+      (error) => error && error.code === 'ACCOUNT_MIGRATION_BLOCKED'
+    );
+    assert.equal(fs.readFileSync(dbFile, 'utf-8'), beforeDryRunBytes);
+    assert.deepEqual(listTempFiles(), []);
+
+    const validDb = {
+      users: [
+        { id: 40, phone: '13888003041', openid: null, source: 'web' },
+        { id: 41, phone: null, openid: 'mock-openid-file-account', source: 'miniapp' }
+      ],
+      accounts: [],
+      meta: { next_account_id: 30 },
+      orders: [],
+      qr_codes: []
+    };
+    fs.writeFileSync(dbFile, JSON.stringify(validDb, null, 2), 'utf-8');
+    const applySummary = applyAccountMigration();
+    assert.equal(applySummary.applied, true);
+    assert.equal(applySummary.created_accounts, 2);
+    assert.deepEqual(listTempFiles(), []);
+
+    const appliedDb = JSON.parse(fs.readFileSync(dbFile, 'utf-8'));
+    assert.deepEqual(appliedDb.accounts.map((item) => item.id), ['ACC000030', 'ACC000031']);
+    assert.deepEqual(appliedDb.users.map((item) => item.account_id), ['ACC000030', 'ACC000031']);
+    assert.equal(appliedDb.meta.next_account_id, 32);
+    assert.equal(appliedDb.meta.accounts_migration_version, 'accounts_foundation_v1');
+    assert.match(appliedDb.meta.accounts_migrated_at, /^\d{4}-\d{2}-\d{2}T/);
+    const migratedAt = appliedDb.meta.accounts_migrated_at;
+
+    const repeatSummary = applyAccountMigration();
+    assert.equal(repeatSummary.applied, true);
+    assert.equal(repeatSummary.created_accounts, 0);
+    assert.equal(repeatSummary.mapped_users_in_run, 0);
+    assert.deepEqual(listTempFiles(), []);
+    const repeatedDb = JSON.parse(fs.readFileSync(dbFile, 'utf-8'));
+    assert.equal(repeatedDb.meta.accounts_migrated_at, migratedAt);
+    assert.deepEqual(repeatedDb.accounts.map((item) => item.id), ['ACC000030', 'ACC000031']);
+  } finally {
+    fs.writeFileSync(dbFile, originalBytes);
+  }
+});
+
+test('user id generation should not reuse deleted array positions', async () => {
+  const {
+    getDatabaseSnapshot,
+    writeDatabaseSnapshot
+  } = require('../src/server/services/dbService');
+  const { verifyMiniappToken } = require('../src/server/services/miniappAuthService');
+
+  let db = getDatabaseSnapshot();
+  const maxId = Math.max(...db.users.map((item) => Number(item.id) || 0), 0);
+  const sentinelId = maxId + 50;
+  db.meta = { ...(db.meta || {}), next_user_id: 1 };
+  db.users.push({
+    id: sentinelId,
+    phone: '13888003021',
+    openid: null,
+    unionid: null,
+    source: 'web',
+    created_at: '2026-07-26T00:00:00.000Z'
+  });
+  writeDatabaseSnapshot(db);
+
+  await loginUserAndGetCookie('13888003022');
+  db = getDatabaseSnapshot();
+  const h5User = db.users.find((item) => item.phone === '13888003022');
+  assert.ok(h5User);
+  assert.equal(h5User.id, sentinelId + 1);
+  assert.equal(db.meta.next_user_id, sentinelId + 2);
+
+  const token = await loginMiniappAndGetToken('mini-account-id-no-reuse');
+  const payload = verifyMiniappToken(token);
+  assert.equal(Number(payload.id), sentinelId + 2);
+  db = getDatabaseSnapshot();
+  assert.equal(db.meta.next_user_id, sentinelId + 3);
 });
 
 test('admin product management should expose only published products to miniapp', async () => {

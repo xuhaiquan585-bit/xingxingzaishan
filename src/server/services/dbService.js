@@ -86,6 +86,31 @@ function nowISO() {
   return new Date().toISOString();
 }
 
+function normalizePositiveInteger(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : null;
+}
+
+function maxNumericId(items = []) {
+  return Math.max(0, ...items.map((item) => Number(item && item.id) || 0));
+}
+
+function ensureDbMeta(db) {
+  if (!db.meta || typeof db.meta !== 'object' || Array.isArray(db.meta)) {
+    db.meta = {};
+  }
+  return db.meta;
+}
+
+function getNextUserId(db) {
+  const meta = ensureDbMeta(db);
+  const nextFromMeta = normalizePositiveInteger(meta.next_user_id);
+  const nextFromUsers = maxNumericId(Array.isArray(db.users) ? db.users : []) + 1;
+  const nextId = Math.max(nextFromMeta || 1, nextFromUsers);
+  meta.next_user_id = nextId + 1;
+  return nextId;
+}
+
 function normalizeChainStatus(value, hasHash = false) {
   if (CHAIN_STATUSES.includes(value)) return value;
   return hasHash ? 'confirmed' : 'not_started';
@@ -244,7 +269,8 @@ function migrateSchema(db) {
     openid: item.openid || null,
     unionid: item.unionid || null,
     source: item.source || (item.openid ? 'miniapp' : 'web'),
-    created_at: item.created_at || nowISO()
+    created_at: item.created_at || nowISO(),
+    ...(Object.prototype.hasOwnProperty.call(item, 'account_id') ? { account_id: item.account_id || null } : {})
   }));
 
   if (!Array.isArray(db.qr_codes)) {
@@ -426,12 +452,13 @@ function createOrGetUser(phone) {
   let user = db.users.find((item) => item.phone === phone);
   if (!user) {
     user = {
-      id: db.users.length + 1,
+      id: getNextUserId(db),
       phone,
       openid: null,
       unionid: null,
       source: 'web',
-      created_at: nowISO()
+      created_at: nowISO(),
+      account_id: null
     };
     db.users.push(user);
     writeDB(db);
@@ -488,12 +515,13 @@ function createOrGetMiniappUser({ openid, unionid = null }) {
   }
 
   user = {
-    id: db.users.length + 1,
+    id: getNextUserId(db),
     phone: null,
     openid,
     unionid,
     source: 'miniapp',
-    created_at: nowISO()
+    created_at: nowISO(),
+    account_id: null
   };
   db.users.push(user);
   writeDB(db);
@@ -550,7 +578,7 @@ function bindMiniappUserPhone({ openid, phone, unionid = null }) {
     }
 
     const blockingData = hasBlockingMiniappUserData(db, miniUser);
-    if (blockingData.blocked) {
+    if (blockingData.blocked || miniUser.account_id) {
       logMiniappBindConflict('temporary_user_has_linked_data', {
         userIds: [miniUser.id],
         orderIds: blockingData.orderIds
