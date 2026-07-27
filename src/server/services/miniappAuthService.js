@@ -219,11 +219,17 @@ async function getPhoneNumberByCode(code) {
 }
 
 function generateMiniappToken(user, options = {}) {
+  if (!user || !user.account_id) {
+    const error = new Error('小程序账号映射缺失。');
+    error.code = 'ACCOUNT_MAPPING_REQUIRED';
+    throw error;
+  }
   const ttlSeconds = Number(options.ttl_seconds || process.env.MINIAPP_TOKEN_TTL_SECONDS || DEFAULT_TOKEN_TTL_SECONDS);
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     id: user.id,
     openid: user.openid,
+    account_id: user.account_id,
     phone: user.phone || null,
     source: 'miniapp',
     iat: now,
@@ -251,6 +257,7 @@ function verifyMiniappToken(token) {
   return {
     id: payload.id,
     openid: payload.openid,
+    account_id: payload.account_id || null,
     phone: payload.phone || null
   };
 }

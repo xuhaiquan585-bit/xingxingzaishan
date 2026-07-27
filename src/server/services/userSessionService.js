@@ -8,12 +8,13 @@ function now() {
   return Date.now();
 }
 
-function createSession({ userId, phone }) {
+function createSession({ userId, phone, accountId = null }) {
   const sid = crypto.randomBytes(24).toString('hex');
   const expiresAt = now() + DEFAULT_TTL_SECONDS * 1000;
   sessions.set(sid, {
     sid,
     user_id: userId,
+    account_id: accountId || null,
     phone,
     created_at: new Date().toISOString(),
     expires_at: new Date(expiresAt).toISOString()

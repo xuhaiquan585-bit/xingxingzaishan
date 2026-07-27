@@ -34,7 +34,24 @@ function shouldExposeVerificationCode() {
   return process.env.NODE_ENV !== 'production';
 }
 
-function handleLogin(req, res) {
+function accountMappingFailure(res, code = 'ACCOUNT_MAPPING_REQUIRED') {
+  return res.status(409).json({
+    status: 'error',
+    code,
+    message: '账号状态异常，暂时无法登录，请稍后处理。'
+  });
+}
+
+function isAccountLoginError(errorCode) {
+  return [
+    'ACCOUNT_MAPPING_REQUIRED',
+    'ACCOUNT_MAPPING_MISMATCH',
+    'ACCOUNT_IDENTITY_MISMATCH',
+    'DUPLICATE_PHONE_IDENTITY'
+  ].includes(errorCode);
+}
+
+function handleLogin(req, res, next) {
   if (!isLegacyLoginEnabled()) {
     return res.status(403).json({
       status: 'error',
@@ -52,10 +69,19 @@ function handleLogin(req, res) {
     });
   }
 
-  const user = createOrGetUser(phone);
+  let user;
+  try {
+    user = createOrGetUser(phone);
+  } catch (error) {
+    if (isAccountLoginError(error.code)) {
+      return accountMappingFailure(res, error.code);
+    }
+    return next(error);
+  }
   const session = createSession({
     userId: user.id,
-    phone: user.phone
+    phone: user.phone,
+    accountId: user.account_id
   });
   res.setHeader('Set-Cookie', buildCookieHeader(session.sid, getCookieMaxAge()));
 
@@ -112,7 +138,7 @@ async function handleSendCode(req, res) {
   }
 }
 
-function handleVerifyCode(req, res) {
+function handleVerifyCode(req, res, next) {
   const { phone, code } = req.body;
   if (!phone || !isValidPhone(phone)) {
     return res.status(400).json({
@@ -138,10 +164,19 @@ function handleVerifyCode(req, res) {
     });
   }
 
-  const user = createOrGetUser(phone);
+  let user;
+  try {
+    user = createOrGetUser(phone);
+  } catch (error) {
+    if (isAccountLoginError(error.code)) {
+      return accountMappingFailure(res, error.code);
+    }
+    return next(error);
+  }
   const session = createSession({
     userId: user.id,
-    phone: user.phone
+    phone: user.phone,
+    accountId: user.account_id
   });
   res.setHeader('Set-Cookie', buildCookieHeader(session.sid, getCookieMaxAge()));
   return res.json({

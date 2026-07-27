@@ -294,6 +294,53 @@ function getSessionCookie(response) {
   return setCookie[0].split(';')[0];
 }
 
+function decodeJwtPayload(token) {
+  const encodedPayload = String(token || '').split('.')[1];
+  assert.ok(encodedPayload);
+  const normalized = encodedPayload.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = normalized.length % 4;
+  return JSON.parse(Buffer.from(pad ? normalized + '='.repeat(4 - pad) : normalized, 'base64').toString('utf8'));
+}
+
+function base64urlJson(value) {
+  return Buffer.from(JSON.stringify(value))
+    .toString('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+}
+
+function signTestMiniappToken(payload) {
+  const header = base64urlJson({ alg: 'HS256', typ: 'JWT' });
+  const body = base64urlJson(payload);
+  const content = `${header}.${body}`;
+  const signature = Buffer.from(
+    crypto
+      .createHmac('sha256', process.env.AUTH_SECRET || 'test-secret-123')
+      .update(content)
+      .digest()
+  )
+    .toString('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+  return `${content}.${signature}`;
+}
+
+function makeMiniappTokenForUser(user, overrides = {}) {
+  const now = Math.floor(Date.now() / 1000);
+  return signTestMiniappToken({
+    id: user.id,
+    openid: user.openid,
+    account_id: user.account_id,
+    phone: user.phone || null,
+    source: 'miniapp',
+    iat: now,
+    exp: now + 7 * 24 * 60 * 60,
+    ...overrides
+  });
+}
+
 async function loginUserAndGetCookie(phone = '13800138000') {
   const sendRes = await postJson('/api/user/sms/send-code', { phone });
   assert.equal(sendRes.status, 200);
@@ -323,6 +370,36 @@ async function loginMiniappBindPhoneAndGetToken({ code = 'mini-code', phone = '1
   assert.ok(bindRes.body.data.token);
   assert.equal(bindRes.body.data.phone, phone);
   return bindRes.body.data.token;
+}
+
+function nextTestAccountId(db) {
+  const maxAccount = Math.max(0, ...(Array.isArray(db.accounts) ? db.accounts : [])
+    .map((item) => {
+      const match = String(item && item.id || '').match(/^ACC(\d+)$/);
+      return match ? Number(match[1]) : 0;
+    }));
+  const nextFromMeta = Number(db.meta && db.meta.next_account_id) || 1;
+  return Math.max(maxAccount + 1, nextFromMeta);
+}
+
+function attachTestAccount(db, user, createdFrom = 'migration') {
+  if (!Array.isArray(db.accounts)) db.accounts = [];
+  if (!db.meta || typeof db.meta !== 'object' || Array.isArray(db.meta)) db.meta = {};
+  const nextIndex = nextTestAccountId(db);
+  const accountId = `ACC${String(nextIndex).padStart(6, '0')}`;
+  const createdAt = user.created_at || '2026-07-26T00:00:00.000Z';
+  db.accounts.push({
+    id: accountId,
+    status: 'active',
+    display_name: '',
+    avatar_url: '',
+    created_from: createdFrom,
+    created_at: createdAt,
+    updated_at: createdAt
+  });
+  db.meta.next_account_id = nextIndex + 1;
+  user.account_id = accountId;
+  return accountId;
 }
 
 const WECHAT_PAY_ENV_KEYS = [
@@ -506,6 +583,99 @@ test('POST /api/user/login should login with valid phone', async () => {
   assert.equal(res.body.status, 'success');
   assert.equal(res.body.data.phone, '13800138000');
   assert.ok(getSessionCookie(res).startsWith('user_session_id='));
+
+  const { getDatabaseSnapshot } = require('../src/server/services/dbService');
+  let db = getDatabaseSnapshot();
+  const user = db.users.find((item) => item.phone === '13800138000');
+  assert.ok(user.account_id);
+  const accountsBeforeRepeat = db.accounts.length;
+  const repeat = await postJson('/api/user/login', { phone: '13800138000' });
+  assert.equal(repeat.status, 200);
+  db = getDatabaseSnapshot();
+  assert.equal(db.users.filter((item) => item.phone === '13800138000').length, 1);
+  assert.equal(db.accounts.length, accountsBeforeRepeat);
+});
+
+test('H5 login should fail closed on duplicate phone identity', async () => {
+  const {
+    getDatabaseSnapshot,
+    writeDatabaseSnapshot
+  } = require('../src/server/services/dbService');
+
+  const duplicatePhone = '13900139998';
+  let db = getDatabaseSnapshot();
+  const nextUserId = Math.max(...db.users.map((item) => Number(item.id) || 0), 0) + 1;
+  const userA = {
+    id: nextUserId,
+    phone: duplicatePhone,
+    openid: null,
+    unionid: null,
+    source: 'web',
+    created_at: '2026-07-27T00:00:00.000Z'
+  };
+  const userB = {
+    id: nextUserId + 1,
+    phone: duplicatePhone,
+    openid: 'mock-openid-h5-duplicate-phone',
+    unionid: null,
+    source: 'web+miniapp',
+    created_at: '2026-07-27T00:00:01.000Z'
+  };
+  attachTestAccount(db, userA, 'web_phone');
+  attachTestAccount(db, userB, 'web_phone');
+  db.users.push(userA, userB);
+  writeDatabaseSnapshot(db);
+
+  const beforeLogin = JSON.stringify(getDatabaseSnapshot());
+  const loginRes = await postJson('/api/user/login', { phone: duplicatePhone });
+  assert.equal(loginRes.status, 409);
+  assert.equal(loginRes.body.code, 'DUPLICATE_PHONE_IDENTITY');
+  assert.equal(loginRes.headers['set-cookie'], undefined);
+  assert.equal(JSON.stringify(getDatabaseSnapshot()), beforeLogin);
+
+  const sendRes = await postJson('/api/user/sms/send-code', { phone: duplicatePhone });
+  assert.equal(sendRes.status, 200);
+  const beforeVerify = JSON.stringify(getDatabaseSnapshot());
+  const verifyRes = await postJson('/api/user/sms/verify-code', {
+    phone: duplicatePhone,
+    code: sendRes.body.data.verification_code
+  });
+  assert.equal(verifyRes.status, 409);
+  assert.equal(verifyRes.body.code, 'DUPLICATE_PHONE_IDENTITY');
+  assert.equal(verifyRes.headers['set-cookie'], undefined);
+  assert.equal(JSON.stringify(getDatabaseSnapshot()), beforeVerify);
+});
+
+test('H5 login should pass unknown account creation errors to internal error handler', async () => {
+  const sendRes = await postJson('/api/user/sms/send-code', { phone: '13900139997' });
+  assert.equal(sendRes.status, 200);
+
+  const originalWriteFileSync = fs.writeFileSync;
+  try {
+    fs.writeFileSync = function patchedWriteFileSync(filePath, ...args) {
+      if (String(filePath).endsWith(`${path.sep}db.json`)) {
+        throw new Error('SIMULATED_DB_WRITE_FAILURE');
+      }
+      return originalWriteFileSync.call(this, filePath, ...args);
+    };
+
+    const loginRes = await postJson('/api/user/login', { phone: '13900139996' });
+    assert.equal(loginRes.status, 500);
+    assert.equal(loginRes.body.code, 'INTERNAL_ERROR');
+    assert.notEqual(loginRes.status, 409);
+    assert.equal(loginRes.headers['set-cookie'], undefined);
+
+    const verifyRes = await postJson('/api/user/sms/verify-code', {
+      phone: '13900139997',
+      code: sendRes.body.data.verification_code
+    });
+    assert.equal(verifyRes.status, 500);
+    assert.equal(verifyRes.body.code, 'INTERNAL_ERROR');
+    assert.notEqual(verifyRes.status, 409);
+    assert.equal(verifyRes.headers['set-cookie'], undefined);
+  } finally {
+    fs.writeFileSync = originalWriteFileSync;
+  }
 });
 
 test('POST /api/user/sms/send-code and /verify-code should create session', async () => {
@@ -576,6 +746,72 @@ test('GET /api/user/me should require session and return current user', async ()
   const meRes = await getJsonWithCookie('/api/user/me', cookie);
   assert.equal(meRes.status, 200);
   assert.equal(meRes.body.data.phone, '13900139000');
+});
+
+test('H5 sessions should verify account mapping from database context', async () => {
+  const {
+    createSession,
+    getSession,
+    getCookieName
+  } = require('../src/server/services/userSessionService');
+  const {
+    getDatabaseSnapshot,
+    writeDatabaseSnapshot
+  } = require('../src/server/services/dbService');
+
+  const cookie = await loginUserAndGetCookie('13900139010');
+  let db = getDatabaseSnapshot();
+  const user = db.users.find((item) => item.phone === '13900139010');
+  assert.ok(user.account_id);
+
+  const sessionId = decodeURIComponent(cookie.split('=')[1]);
+  const session = getSession(sessionId);
+  assert.equal(session.user_id, user.id);
+  assert.equal(session.account_id, user.account_id);
+
+  const oldSession = createSession({
+    userId: user.id,
+    phone: user.phone
+  });
+  const oldSessionRes = await getJsonWithCookie('/api/user/me', `${getCookieName()}=${oldSession.sid}`);
+  assert.equal(oldSessionRes.status, 200);
+  assert.equal(oldSessionRes.body.data.phone, user.phone);
+
+  const mismatchSession = createSession({
+    userId: user.id,
+    phone: user.phone,
+    accountId: 'ACC999999'
+  });
+  const mismatchRes = await getJsonWithCookie('/api/user/me', `${getCookieName()}=${mismatchSession.sid}`);
+  assert.equal(mismatchRes.status, 401);
+
+  const noPhoneFallbackSession = createSession({
+    userId: 'missing-user-id',
+    phone: user.phone
+  });
+  const noPhoneFallbackRes = await getJsonWithCookie('/api/user/me', `${getCookieName()}=${noPhoneFallbackSession.sid}`);
+  assert.equal(noPhoneFallbackRes.status, 401);
+
+  db = getDatabaseSnapshot();
+  db.users = db.users.map((item) =>
+    item.id === user.id ? { ...item, account_id: null } : item
+  );
+  writeDatabaseSnapshot(db);
+  const missingAccountSession = createSession({
+    userId: user.id,
+    phone: user.phone
+  });
+  const missingAccountRes = await getJsonWithCookie('/api/user/me', `${getCookieName()}=${missingAccountSession.sid}`);
+  assert.equal(missingAccountRes.status, 401);
+
+  const reloginRes = await postJson('/api/user/sms/send-code', { phone: user.phone });
+  assert.equal(reloginRes.status, 200);
+  const verifyRes = await postJson('/api/user/sms/verify-code', {
+    phone: user.phone,
+    code: reloginRes.body.data.verification_code
+  });
+  assert.equal(verifyRes.status, 409);
+  assert.equal(verifyRes.body.code, 'ACCOUNT_MAPPING_REQUIRED');
 });
 
 test('POST /api/user/logout should clear session and cookie', async () => {
@@ -1841,6 +2077,16 @@ test('miniapp auth should login, reject bad token, and bind phone', async () => 
   assert.equal(loginRes.status, 200);
   assert.equal(loginRes.body.data.phone_bound, false);
   assert.ok(loginRes.body.data.token);
+  const loginPayload = decodeJwtPayload(loginRes.body.data.token);
+  assert.ok(loginPayload.account_id);
+  const { getDatabaseSnapshot } = require('../src/server/services/dbService');
+  let db = getDatabaseSnapshot();
+  const accountsBeforeRepeat = db.accounts.length;
+  const repeatLogin = await postJson('/api/miniapp/auth/login', { code: 'mini-auth' });
+  assert.equal(repeatLogin.status, 200);
+  db = getDatabaseSnapshot();
+  assert.equal(db.users.filter((item) => item.openid === 'mock-openid-mini-auth').length, 1);
+  assert.equal(db.accounts.length, accountsBeforeRepeat);
 
   const badTokenRes = await getJson('/api/miniapp/user/records', 'bad.token.value');
   assert.equal(badTokenRes.status, 401);
@@ -1855,6 +2101,91 @@ test('miniapp auth should login, reject bad token, and bind phone', async () => 
 
   const unauthedBind = await postJson('/api/miniapp/auth/bind-phone', { code: '13888889999' });
   assert.equal(unauthedBind.status, 401);
+});
+
+test('miniapp login should fail closed on duplicate openid identity', async () => {
+  const {
+    getDatabaseSnapshot,
+    writeDatabaseSnapshot
+  } = require('../src/server/services/dbService');
+
+  const loginCode = 'mini-duplicate-openid-login';
+  const duplicateOpenid = `mock-openid-${loginCode}`;
+  let db = getDatabaseSnapshot();
+  const nextUserId = Math.max(...db.users.map((item) => Number(item.id) || 0), 0) + 1;
+  const userA = {
+    id: nextUserId,
+    phone: null,
+    openid: duplicateOpenid,
+    unionid: null,
+    source: 'miniapp',
+    created_at: '2026-07-27T00:00:02.000Z'
+  };
+  const userB = {
+    id: nextUserId + 1,
+    phone: '13900139999',
+    openid: duplicateOpenid,
+    unionid: null,
+    source: 'web+miniapp',
+    created_at: '2026-07-27T00:00:03.000Z'
+  };
+  attachTestAccount(db, userA, 'miniapp_openid');
+  attachTestAccount(db, userB, 'web_phone');
+  db.users.push(userA, userB);
+  writeDatabaseSnapshot(db);
+
+  const beforeLogin = JSON.stringify(getDatabaseSnapshot());
+  const loginRes = await postJson('/api/miniapp/auth/login', { code: loginCode });
+  assert.equal(loginRes.status, 409);
+  assert.equal(loginRes.body.code, 'DUPLICATE_OPENID_IDENTITY');
+  assert.equal(loginRes.body.data && loginRes.body.data.token, undefined);
+  assert.equal(JSON.stringify(getDatabaseSnapshot()), beforeLogin);
+});
+
+test('miniapp tokens should verify account mapping from database context', async () => {
+  const {
+    getDatabaseSnapshot,
+    writeDatabaseSnapshot
+  } = require('../src/server/services/dbService');
+  const { verifyMiniappToken } = require('../src/server/services/miniappAuthService');
+
+  const token = await loginMiniappAndGetToken('mini-account-context');
+  let db = getDatabaseSnapshot();
+  const user = db.users.find((item) => item.openid === 'mock-openid-mini-account-context');
+  assert.ok(user.account_id);
+  const payload = verifyMiniappToken(token);
+  assert.equal(payload.id, user.id);
+  assert.equal(payload.openid, user.openid);
+  assert.equal(payload.account_id, user.account_id);
+
+  const oldToken = makeMiniappTokenForUser(user, { account_id: undefined });
+  assert.equal(verifyMiniappToken(oldToken).account_id, null);
+  const oldTokenRes = await postJson('/api/miniapp/auth/sms/send-code', { phone: '13888003101' }, oldToken);
+  assert.equal(oldTokenRes.status, 200);
+
+  const wrongAccountToken = makeMiniappTokenForUser(user, { account_id: 'ACC999999' });
+  const wrongAccountRes = await postJson('/api/miniapp/auth/sms/send-code', { phone: '13888003102' }, wrongAccountToken);
+  assert.equal(wrongAccountRes.status, 401);
+
+  const wrongOpenidToken = makeMiniappTokenForUser(user, { openid: 'mock-openid-wrong-account-context' });
+  const wrongOpenidRes = await postJson('/api/miniapp/auth/sms/send-code', { phone: '13888003103' }, wrongOpenidToken);
+  assert.equal(wrongOpenidRes.status, 401);
+
+  const wrongUserToken = makeMiniappTokenForUser(user, { id: 'missing-user-id' });
+  const wrongUserRes = await postJson('/api/miniapp/auth/sms/send-code', { phone: '13888003104' }, wrongUserToken);
+  assert.equal(wrongUserRes.status, 401);
+
+  db = getDatabaseSnapshot();
+  db.users = db.users.map((item) =>
+    item.id === user.id ? { ...item, account_id: null } : item
+  );
+  writeDatabaseSnapshot(db);
+  const missingAccountRes = await postJson('/api/miniapp/auth/sms/send-code', { phone: '13888003105' }, oldToken);
+  assert.equal(missingAccountRes.status, 401);
+
+  const reloginRes = await postJson('/api/miniapp/auth/login', { code: 'mini-account-context' });
+  assert.equal(reloginRes.status, 409);
+  assert.equal(reloginRes.body.code, 'ACCOUNT_MAPPING_REQUIRED');
 });
 
 test('miniapp sms fallback should send codes and bind first-time users without H5 session', async () => {
@@ -1957,14 +2288,16 @@ test('miniapp sms fallback should reuse safe binding conflict rules', async () =
   const webPhone = '13888002013';
   const webRecordId = 'SMSWEB001';
   const nextUserId = Math.max(...db.users.map((item) => Number(item.id) || 0), 0) + 1;
-  db.users.push({
+  const smsWebUser = {
     id: nextUserId,
     phone: webPhone,
     openid: null,
     unionid: null,
     source: 'web',
     created_at: '2026-07-25T00:00:00.000Z'
-  });
+  };
+  attachTestAccount(db, smsWebUser, 'web_phone');
+  db.users.push(smsWebUser);
   db.qr_codes.push({
     id: webRecordId,
     issue_status: 'issued',
@@ -2061,14 +2394,16 @@ test('miniapp bind phone should be idempotent and protect canonical web accounts
   const webPhone = '13888001003';
   const webRecordId = 'WEBBIND001';
   const nextUserId = Math.max(...db.users.map((item) => Number(item.id) || 0), 0) + 1;
-  db.users.push({
+  const safeWebUser = {
     id: nextUserId,
     phone: webPhone,
     openid: null,
     unionid: null,
     source: 'web',
     created_at: '2026-07-25T00:00:00.000Z'
-  });
+  };
+  attachTestAccount(db, safeWebUser, 'web_phone');
+  db.users.push(safeWebUser);
   db.qr_codes.push({
     id: webRecordId,
     issue_status: 'issued',
@@ -2267,8 +2602,8 @@ test('miniapp bind phone should reject abnormal data and unsafe phone auth failu
   const mappedTempRes = await postJson('/api/miniapp/auth/bind-phone', {
     code: mappedTempPhone
   }, mappedTempToken);
-  assert.equal(mappedTempRes.status, 409);
-  assert.equal(mappedTempRes.body.code, 'MINIAPP_ACCOUNT_CONFLICT');
+  assert.equal(mappedTempRes.status, 401);
+  assert.equal(mappedTempRes.body.code, 'UNAUTHORIZED');
   db = getDatabaseSnapshot();
   assert.ok(db.users.find((item) => item.phone === mappedTempPhone && !item.openid));
   assert.ok(db.users.find((item) => item.openid === 'mock-openid-mini-safe-mapped-temp' && item.account_id === 'ACC888888'));

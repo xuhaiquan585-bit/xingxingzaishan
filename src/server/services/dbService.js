@@ -12,6 +12,9 @@ const dataFile = process.env.DB_FILE
   ? path.resolve(process.env.DB_FILE)
   : path.join(dataDir, 'db.json');
 const CO_CREATION_COMMENT_LIMIT = 12;
+const ACCOUNT_ID_PREFIX = 'ACC';
+const ACCOUNT_ID_WIDTH = 6;
+const ACCOUNT_STATUS_ACTIVE = 'active';
 
 const DEFAULT_MINIAPP_CONTENT = {
   home_title: '给这瓶酒，贴上一颗星',
@@ -95,6 +98,19 @@ function maxNumericId(items = []) {
   return Math.max(0, ...items.map((item) => Number(item && item.id) || 0));
 }
 
+function parseAccountNumber(id) {
+  const match = String(id || '').match(/^ACC(\d+)$/);
+  return match ? Number(match[1]) : 0;
+}
+
+function makeAccountId(index) {
+  return `${ACCOUNT_ID_PREFIX}${String(index).padStart(ACCOUNT_ID_WIDTH, '0')}`;
+}
+
+function maxExistingAccountNumber(accounts = []) {
+  return Math.max(0, ...accounts.map((item) => parseAccountNumber(item && item.id)));
+}
+
 function ensureDbMeta(db) {
   if (!db.meta || typeof db.meta !== 'object' || Array.isArray(db.meta)) {
     db.meta = {};
@@ -109,6 +125,74 @@ function getNextUserId(db) {
   const nextId = Math.max(nextFromMeta || 1, nextFromUsers);
   meta.next_user_id = nextId + 1;
   return nextId;
+}
+
+function getNextAccountId(db) {
+  const meta = ensureDbMeta(db);
+  if (!Array.isArray(db.accounts)) db.accounts = [];
+  const nextFromMeta = normalizePositiveInteger(meta.next_account_id);
+  const nextFromAccounts = maxExistingAccountNumber(db.accounts) + 1;
+  const nextIndex = Math.max(nextFromMeta || 1, nextFromAccounts);
+  meta.next_account_id = nextIndex + 1;
+  return makeAccountId(nextIndex);
+}
+
+function createAccountForUser(db, { createdFrom, createdAt }) {
+  if (!Array.isArray(db.accounts)) db.accounts = [];
+  const accountId = getNextAccountId(db);
+  db.accounts.push({
+    id: accountId,
+    status: ACCOUNT_STATUS_ACTIVE,
+    display_name: '',
+    avatar_url: '',
+    created_from: createdFrom,
+    created_at: createdAt,
+    updated_at: createdAt
+  });
+  return accountId;
+}
+
+function accountExists(db, accountId) {
+  return !!accountId && Array.isArray(db.accounts) && db.accounts.some((item) => item && item.id === accountId);
+}
+
+function accountMappingError(code = 'ACCOUNT_MAPPING_REQUIRED') {
+  const error = new Error(code);
+  error.code = code;
+  return error;
+}
+
+function requireMappedUser(db, user, { accountId = null, openid = null } = {}) {
+  if (!user || !user.account_id || !accountExists(db, user.account_id)) {
+    throw accountMappingError('ACCOUNT_MAPPING_REQUIRED');
+  }
+  if (accountId && accountId !== user.account_id) {
+    throw accountMappingError('ACCOUNT_MAPPING_MISMATCH');
+  }
+  if (openid && normalizeUserOpenid(user.openid) !== normalizeUserOpenid(openid)) {
+    throw accountMappingError('ACCOUNT_IDENTITY_MISMATCH');
+  }
+  return user;
+}
+
+function findUniqueUserByPhone(db, phone) {
+  const targetPhone = normalizeUserPhone(phone);
+  if (!targetPhone) return null;
+  const matches = db.users.filter((item) => normalizeUserPhone(item.phone) === targetPhone);
+  if (matches.length > 1) {
+    throw accountMappingError('DUPLICATE_PHONE_IDENTITY');
+  }
+  return matches[0] || null;
+}
+
+function findUniqueUserByOpenid(db, openid) {
+  const targetOpenid = normalizeUserOpenid(openid);
+  if (!targetOpenid) return null;
+  const matches = db.users.filter((item) => normalizeUserOpenid(item.openid) === targetOpenid);
+  if (matches.length > 1) {
+    throw accountMappingError('DUPLICATE_OPENID_IDENTITY');
+  }
+  return matches[0] || null;
 }
 
 function normalizeChainStatus(value, hasHash = false) {
@@ -261,6 +345,9 @@ function ensureAdminsInitialized(db) {
 function migrateSchema(db) {
   if (!Array.isArray(db.users)) {
     db.users = [];
+  }
+  if (!Array.isArray(db.accounts)) {
+    db.accounts = [];
   }
 
   db.users = db.users.map((item, idx) => ({
@@ -419,6 +506,7 @@ function initializeDB() {
   if (!fs.existsSync(dataFile)) {
     const initialData = migrateSchema({
       users: [],
+      accounts: [],
       qr_codes: seedQRCodes(),
       admins: [],
       quality_check_logs: [],
@@ -449,21 +537,62 @@ function writeDB(db) {
 
 function createOrGetUser(phone) {
   const db = readDB();
-  let user = db.users.find((item) => item.phone === phone);
+  const targetPhone = normalizeUserPhone(phone);
+  let user = findUniqueUserByPhone(db, targetPhone);
+  if (user) {
+    return requireMappedUser(db, user);
+  }
   if (!user) {
+    const createdAt = nowISO();
+    const accountId = createAccountForUser(db, {
+      createdFrom: 'web_phone',
+      createdAt
+    });
     user = {
       id: getNextUserId(db),
-      phone,
+      phone: targetPhone,
       openid: null,
       unionid: null,
       source: 'web',
-      created_at: nowISO(),
-      account_id: null
+      created_at: createdAt,
+      account_id: accountId
     };
     db.users.push(user);
     writeDB(db);
   }
   return user;
+}
+
+function findUserById(userId) {
+  const db = readDB();
+  const matches = db.users.filter((item) => String(item.id) === String(userId));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function getAuthenticatedUserById({ userId, accountId = null }) {
+  const db = readDB();
+  const matches = db.users.filter((item) => String(item.id) === String(userId));
+  if (matches.length !== 1) {
+    return { error: 'UNAUTHORIZED' };
+  }
+  try {
+    return { data: requireMappedUser(db, matches[0], { accountId }) };
+  } catch (error) {
+    return { error: error.code || 'UNAUTHORIZED' };
+  }
+}
+
+function getAuthenticatedMiniappUser({ userId, openid, accountId = null }) {
+  const db = readDB();
+  const matches = db.users.filter((item) => String(item.id) === String(userId));
+  if (matches.length !== 1) {
+    return { error: 'UNAUTHORIZED' };
+  }
+  try {
+    return { data: requireMappedUser(db, matches[0], { accountId, openid }) };
+  } catch (error) {
+    return { error: error.code || 'UNAUTHORIZED' };
+  }
 }
 
 function findUserByOpenid(openid) {
@@ -504,24 +633,31 @@ function hasBlockingMiniappUserData(db, user) {
 
 function createOrGetMiniappUser({ openid, unionid = null }) {
   const db = readDB();
-  let user = db.users.find((item) => item.openid === openid);
+  const targetOpenid = normalizeUserOpenid(openid);
+  let user = findUniqueUserByOpenid(db, targetOpenid);
   if (user) {
+    requireMappedUser(db, user);
     if (unionid && user.unionid !== unionid) {
       user = { ...user, unionid };
-      db.users = db.users.map((item) => (item.openid === openid ? user : item));
+      db.users = db.users.map((item) => (String(item.id) === String(user.id) ? user : item));
       writeDB(db);
     }
     return user;
   }
 
+  const createdAt = nowISO();
+  const accountId = createAccountForUser(db, {
+    createdFrom: 'miniapp_openid',
+    createdAt
+  });
   user = {
     id: getNextUserId(db),
     phone: null,
-    openid,
+    openid: targetOpenid,
     unionid,
     source: 'miniapp',
-    created_at: nowISO(),
-    account_id: null
+    created_at: createdAt,
+    account_id: accountId
   };
   db.users.push(user);
   writeDB(db);
@@ -539,6 +675,11 @@ function bindMiniappUserPhone({ openid, phone, unionid = null }) {
   }
 
   const miniUser = openidUsers[0];
+  try {
+    requireMappedUser(db, miniUser);
+  } catch (error) {
+    return { error: error.code || 'MINIAPP_ACCOUNT_CONFLICT' };
+  }
   const phoneUsers = db.users.filter((item) => normalizeUserPhone(item.phone) === targetPhone);
   if (phoneUsers.length > 1) {
     logMiniappBindConflict('phone_not_unique', { userIds: phoneUsers.map((item) => item.id) });
@@ -569,6 +710,12 @@ function bindMiniappUserPhone({ openid, phone, unionid = null }) {
 
   const phoneUser = phoneUsers[0] || null;
   if (phoneUser && phoneUser.id !== miniUser.id) {
+    try {
+      requireMappedUser(db, phoneUser);
+    } catch (_error) {
+      logMiniappBindConflict('phone_user_missing_account', { userIds: [phoneUser.id, miniUser.id] });
+      return { error: 'MINIAPP_ACCOUNT_CONFLICT' };
+    }
     if (normalizeUserOpenid(phoneUser.openid)) {
       return { error: 'PHONE_ALREADY_BOUND_TO_OTHER_WECHAT' };
     }
@@ -578,7 +725,7 @@ function bindMiniappUserPhone({ openid, phone, unionid = null }) {
     }
 
     const blockingData = hasBlockingMiniappUserData(db, miniUser);
-    if (blockingData.blocked || miniUser.account_id) {
+    if (blockingData.blocked) {
       logMiniappBindConflict('temporary_user_has_linked_data', {
         userIds: [miniUser.id],
         orderIds: blockingData.orderIds
@@ -2031,6 +2178,9 @@ module.exports = {
   getDatabaseSnapshot,
   writeDatabaseSnapshot,
   createOrGetUser,
+  findUserById,
+  getAuthenticatedUserById,
+  getAuthenticatedMiniappUser,
   findUserByOpenid,
   createOrGetMiniappUser,
   bindMiniappUserPhone,

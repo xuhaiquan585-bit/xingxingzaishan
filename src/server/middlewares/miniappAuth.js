@@ -1,5 +1,5 @@
 const { verifyMiniappToken } = require('../services/miniappAuthService');
-const { findUserByOpenid } = require('../services/dbService');
+const { getAuthenticatedMiniappUser } = require('../services/dbService');
 
 function getBearerToken(req) {
   const value = req.headers.authorization || '';
@@ -12,13 +12,17 @@ function getBearerToken(req) {
 function attachMiniappUser(req) {
   const token = getBearerToken(req);
   const payload = verifyMiniappToken(token);
-  if (!payload || !payload.openid) {
+  if (!payload || !payload.id || !payload.openid) {
     req.miniappUser = null;
     return null;
   }
 
-  const user = findUserByOpenid(payload.openid);
-  req.miniappUser = user || null;
+  const result = getAuthenticatedMiniappUser({
+    userId: payload.id,
+    openid: payload.openid,
+    accountId: payload.account_id || null
+  });
+  req.miniappUser = result.data || null;
   return req.miniappUser;
 }
 

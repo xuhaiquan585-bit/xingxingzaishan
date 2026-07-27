@@ -3,6 +3,7 @@ const {
   getCookieName,
   getCookieMaxAge
 } = require('../services/userSessionService');
+const { getAuthenticatedUserById } = require('../services/dbService');
 
 function parseCookies(rawCookie = '') {
   return rawCookie
@@ -62,10 +63,17 @@ function attachUserSession() {
     if (req.userSessionId) {
       const session = getSession(req.userSessionId);
       if (session) {
-        req.user = {
-          id: session.user_id,
-          phone: session.phone
-        };
+        const result = getAuthenticatedUserById({
+          userId: session.user_id,
+          accountId: session.account_id || null
+        });
+        if (result.data) {
+          req.user = {
+            id: result.data.id,
+            phone: result.data.phone,
+            account_id: result.data.account_id
+          };
+        }
       }
     }
     next();

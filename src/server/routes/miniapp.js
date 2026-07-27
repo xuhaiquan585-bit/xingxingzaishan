@@ -269,12 +269,26 @@ function miniappBindPhoneError(errorCode) {
     MINIAPP_ACCOUNT_CONFLICT: {
       status: 409,
       message: '账号状态异常，暂时无法绑定手机号，请联系客服处理。'
+    },
+    ACCOUNT_MAPPING_REQUIRED: {
+      status: 409,
+      message: '账号状态异常，暂时无法绑定手机号，请联系客服处理。'
     }
   };
   return errors[errorCode] || {
     status: 409,
     message: '暂时无法绑定手机号，请稍后重试。'
   };
+}
+
+function isAccountMappingError(errorCode) {
+  return [
+    'ACCOUNT_MAPPING_REQUIRED',
+    'ACCOUNT_MAPPING_MISMATCH',
+    'ACCOUNT_IDENTITY_MISMATCH',
+    'DUPLICATE_PHONE_IDENTITY',
+    'DUPLICATE_OPENID_IDENTITY'
+  ].includes(errorCode);
 }
 
 function phoneAuthError(errorCode) {
@@ -344,6 +358,13 @@ router.post('/auth/login', async (req, res) => {
     });
   } catch (error) {
     const isConfigError = error.code === 'WECHAT_CONFIG_ERROR';
+    if (isAccountMappingError(error.code)) {
+      return res.status(409).json({
+        status: 'error',
+        code: error.code || 'ACCOUNT_MAPPING_REQUIRED',
+        message: '账号状态异常，暂时无法登录，请稍后处理。'
+      });
+    }
     return res.status(error.code === 'INVALID_LOGIN_CODE' ? 400 : 502).json({
       status: 'error',
       code: isConfigError ? 'MINIAPP_WECHAT_NOT_CONFIGURED' : error.code || 'WECHAT_LOGIN_FAILED',
@@ -388,6 +409,14 @@ router.post('/auth/bind-phone', requireMiniappAuth, async (req, res) => {
       }
     });
   } catch (error) {
+    if (isAccountMappingError(error.code)) {
+      const bindError = miniappBindPhoneError('ACCOUNT_MAPPING_REQUIRED');
+      return res.status(bindError.status).json({
+        status: 'error',
+        code: 'ACCOUNT_MAPPING_REQUIRED',
+        message: bindError.message
+      });
+    }
     const phoneError = phoneAuthError(error.code);
     return res.status(phoneError.status).json({
       status: 'error',
@@ -485,6 +514,14 @@ router.post('/auth/sms/bind-phone', requireMiniappAuth, (req, res) => {
       }
     });
   } catch (error) {
+    if (isAccountMappingError(error.code)) {
+      const bindError = miniappSmsBindError('ACCOUNT_MAPPING_REQUIRED');
+      return res.status(bindError.status).json({
+        status: 'error',
+        code: 'ACCOUNT_MAPPING_REQUIRED',
+        message: bindError.message
+      });
+    }
     console.warn('[miniapp-sms-bind]', {
       reason: error.code || 'MINIAPP_SMS_BIND_FAILED'
     });
