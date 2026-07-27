@@ -2943,6 +2943,142 @@ test('account migration file apply should be atomic, guarded, and leave dry-run 
   }
 });
 
+test('business account audit should classify legacy data read-only with masked report', () => {
+  const { spawnSync } = require('child_process');
+  const {
+    auditBusinessAccountsFromDb
+  } = require('../src/server/services/businessAccountAuditService');
+
+  const db = {
+    users: [
+      { id: 1, phone: '13888004001', openid: null, source: 'web', account_id: 'ACC000101' },
+      { id: 2, phone: null, openid: 'mock-openid-order-safe-secret', source: 'miniapp', account_id: 'ACC000102' },
+      { id: 3, phone: '13888004003', openid: null, source: 'web', account_id: 'ACC000103' },
+      { id: 4, phone: '13888004004', openid: null, source: 'web', account_id: 'ACC000104' },
+      { id: 5, phone: '13888004005', openid: null, source: 'web', account_id: 'ACC000105' },
+      { id: 6, phone: '13888004005', openid: null, source: 'web', account_id: 'ACC000106' },
+      { id: 7, phone: '13888004007', openid: null, source: 'web' },
+      { id: 8, phone: '13888004008', openid: null, source: 'web', account_id: 'ACC000404' },
+      { id: 9, phone: null, openid: 'mock-openid-order-consistent-secret', source: 'miniapp', account_id: 'ACC000107' },
+      { id: 10, phone: null, openid: 'mock-openid-order-duplicate-secret', source: 'miniapp', account_id: 'ACC000108' },
+      { id: 11, phone: null, openid: 'mock-openid-order-duplicate-secret', source: 'miniapp', account_id: 'ACC000109' }
+    ],
+    accounts: [
+      { id: 'ACC000101', status: 'active' },
+      { id: 'ACC000102', status: 'active' },
+      { id: 'ACC000103', status: 'active' },
+      { id: 'ACC000104', status: 'active' },
+      { id: 'ACC000105', status: 'active' },
+      { id: 'ACC000106', status: 'active' },
+      { id: 'ACC000107', status: 'active' },
+      { id: 'ACC000108', status: 'active' },
+      { id: 'ACC000109', status: 'active' }
+    ],
+    qr_codes: [
+      { id: 'REC_SAFE', activation_status: 'activated', phone: '13888004001' },
+      { id: 'REC_CONSISTENT', activation_status: 'activated', phone: '13888004003', account_id: 'ACC000103' },
+      { id: 'REC_MISMATCH', activation_status: 'activated', phone: '13888004004', account_id: 'ACC999999' },
+      { id: 'REC_DUP_PHONE', activation_status: 'activated', phone: '13888004005' },
+      { id: 'REC_USER_MISSING_ACC', activation_status: 'activated', phone: '13888004007' },
+      { id: 'REC_ACC_MISSING', activation_status: 'activated', phone: '13888004008' },
+      { id: 'REC_NO_MATCH', activation_status: 'activated', phone: '13888004009' },
+      { id: 'REC_MISSING_IDENTITY', activation_status: 'activated', phone: '' },
+      { id: 'QR_UNACTIVATED_EMPTY', activation_status: 'unactivated', phone: '' },
+      {
+        id: 'CO_OWNER_SAFE',
+        activation_status: 'co_creating',
+        co_creation_enabled: true,
+        co_creation_owner_phone: '13888004001',
+        co_creation_comments: [
+          { id: 1, phone: '13888004001', content: 'hidden text', status: 'kept' },
+          { id: 2, phone: '13888004003', content: 'hidden text', status: 'kept', account_id: 'ACC000103' },
+          { id: 3, phone: '13888004009', content: 'hidden text', status: 'deleted' }
+        ]
+      },
+      {
+        id: 'CO_OWNER_MISMATCH',
+        activation_status: 'co_creating',
+        co_creation_enabled: true,
+        co_creation_owner_phone: '13888004003',
+        co_creation_owner_account_id: 'ACC999998',
+        co_creation_comments: []
+      }
+    ],
+    orders: [
+      { id: 'ORDER_SAFE', openid: 'mock-openid-order-safe-secret' },
+      { id: 'ORDER_CONSISTENT', openid: 'mock-openid-order-consistent-secret', account_id: 'ACC000107' },
+      { id: 'ORDER_DUP_OPENID', openid: 'mock-openid-order-duplicate-secret' },
+      { id: 'ORDER_MISSING_IDENTITY', openid: '' }
+    ]
+  };
+
+  const audit = auditBusinessAccountsFromDb(db, {
+    dbPath: path.join(tmpDir, 'business-audit-fixture.json'),
+    defaultLocal: false
+  });
+  assert.equal(audit.records_total, 8);
+  assert.equal(audit.orders_total, 4);
+  assert.equal(audit.co_creation_owners_total, 2);
+  assert.equal(audit.co_creation_comments_total, 2);
+  assert.equal(audit.ignored_deleted_comments, 1);
+  assert.equal(audit.category_counts.safe_match, 4);
+  assert.equal(audit.category_counts.already_consistent, 3);
+  assert.equal(audit.category_counts.existing_account_mismatch, 2);
+  assert.equal(audit.category_counts.duplicate_identity, 2);
+  assert.equal(audit.category_counts.missing_identity, 2);
+  assert.equal(audit.category_counts.user_missing_account, 1);
+  assert.equal(audit.category_counts.account_missing, 1);
+  assert.equal(audit.category_counts.no_match, 1);
+  assert.equal(audit.can_apply, false);
+  assert.deepEqual(
+    audit.details.filter((item) => item.data_id === 'REC_MISMATCH').map((item) => item.category),
+    ['existing_account_mismatch']
+  );
+  assert.deepEqual(
+    audit.details.filter((item) => item.data_id === 'QR_UNACTIVATED_EMPTY'),
+    []
+  );
+
+  const rawAudit = JSON.stringify(audit);
+  assert.equal(rawAudit.includes('13888004001'), false);
+  assert.equal(rawAudit.includes('mock-openid-order-safe-secret'), false);
+  assert.equal(rawAudit.includes('ACC000103'), false);
+  assert.equal(rawAudit.includes('hidden text'), false);
+
+  const serviceSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'server', 'services', 'businessAccountAuditService.js'), 'utf8');
+  assert.equal(serviceSource.includes('dbService'), false);
+  assert.equal(serviceSource.includes('writeDB'), false);
+  assert.equal(serviceSource.includes('applyAccountMigration'), false);
+
+  const auditDbFile = path.join(tmpDir, 'business-account-audit-db.json');
+  fs.writeFileSync(auditDbFile, JSON.stringify(db, null, 2), 'utf-8');
+  const beforeBytes = fs.readFileSync(auditDbFile);
+  const beforeHash = crypto.createHash('sha256').update(beforeBytes).digest('hex');
+  const beforeStat = fs.statSync(auditDbFile);
+
+  const scriptResult = spawnSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'business-account-audit.js')], {
+    cwd: path.join(__dirname, '..'),
+    env: {
+      ...process.env,
+      DB_FILE: auditDbFile
+    },
+    encoding: 'utf8'
+  });
+  assert.equal(scriptResult.status, 0, scriptResult.stderr);
+  const scriptSummary = JSON.parse(scriptResult.stdout);
+  assert.equal(scriptSummary.database.path, path.resolve(auditDbFile));
+  assert.equal(scriptSummary.database.read_only, true);
+  assert.equal(scriptSummary.database.default_local, false);
+  assert.equal(scriptSummary.records_total, 8);
+
+  const afterBytes = fs.readFileSync(auditDbFile);
+  const afterHash = crypto.createHash('sha256').update(afterBytes).digest('hex');
+  const afterStat = fs.statSync(auditDbFile);
+  assert.equal(afterHash, beforeHash);
+  assert.equal(afterStat.size, beforeStat.size);
+  assert.equal(afterStat.mtimeMs, beforeStat.mtimeMs);
+});
+
 test('user id generation should not reuse deleted array positions', async () => {
   const {
     getDatabaseSnapshot,
