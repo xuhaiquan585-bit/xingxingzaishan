@@ -528,7 +528,7 @@ page {
 }
 
 .record-state-btn.secondary,
-.preview-secondary {
+.preview-panel .preview-secondary {
   border: 1px solid rgba(52, 72, 91, .16);
   border-radius: 14rpx;
   background: rgba(255, 255, 255, .46);
@@ -582,7 +582,6 @@ page {
 .preview-image {
   display: block;
   width: 100%;
-  max-height: 620rpx;
   margin: 26rpx 0;
   border-radius: 16rpx;
   background: rgba(255, 255, 255, .72);
@@ -625,7 +624,7 @@ page {
 }
 
 .preview-primary,
-.preview-secondary {
+.preview-panel .preview-secondary {
   margin-top: 24rpx;
 }
 

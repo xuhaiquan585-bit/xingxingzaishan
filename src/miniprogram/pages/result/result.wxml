@@ -3,7 +3,7 @@
   <view class="subtitle">{{pageSubtitle}}</view>
 
   <view wx:if="{{record}}" class="card result-card">
-    <image class="cover result-image" mode="aspectFit" lazy-load src="{{record.image_url}}" />
+    <image class="cover result-image" mode="widthFix" lazy-load src="{{record.image_url}}" />
     <view class="memory-content">{{record.display_content}}</view>
 
     <view class="result-meta-group">

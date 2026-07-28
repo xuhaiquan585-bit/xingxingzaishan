@@ -42,7 +42,7 @@
 
 .result-image {
   display: block;
-  max-height: 680rpx;
+  width: 100%;
   margin-bottom: 28rpx;
   border-radius: 16rpx;
   background: rgba(255, 255, 255, .78);
@@ -138,7 +138,7 @@
   box-shadow: none;
 }
 
-.result-secondary {
+.result-page .result-secondary {
   margin-top: 18rpx;
   border: 1px solid rgba(52, 72, 91, .16);
   border-radius: 14rpx;

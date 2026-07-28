@@ -73,7 +73,7 @@
 
 .detail-image {
   display: block;
-  max-height: 720rpx;
+  width: 100%;
   margin-bottom: 28rpx;
   border-radius: 16rpx;
   background: rgba(255, 255, 255, .78);
@@ -196,7 +196,7 @@
   color: #223147;
 }
 
-.detail-back-btn {
+.record-detail-page .detail-back-btn {
   margin-top: 30rpx;
   border: 1px solid rgba(52, 72, 91, .16);
   border-radius: 14rpx;

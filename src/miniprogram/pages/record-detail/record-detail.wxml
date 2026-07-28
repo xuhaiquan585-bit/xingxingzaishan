@@ -16,7 +16,7 @@
   </view>
 
   <view wx:if="{{record}}" class="detail-content">
-    <image class="cover detail-image" mode="aspectFit" lazy-load src="{{record.image_url}}" />
+    <image class="cover detail-image" mode="widthFix" lazy-load src="{{record.image_url}}" />
     <view class="memory-content">{{record.display_content}}</view>
 
     <view class="detail-info-group">
