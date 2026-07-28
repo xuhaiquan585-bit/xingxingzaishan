@@ -958,7 +958,7 @@ function addCoCreationCommentByKey(key, { phone, account_id: accountIdValue, aut
 
   const comments = Array.isArray(qrCode.co_creation_comments) ? qrCode.co_creation_comments.slice() : [];
   const activeComments = comments.filter((item) => item.status !== 'deleted');
-  if (activeComments.some((item) => item.phone === phone)) {
+  if (activeComments.some((item) => normalizeAccountId(item.account_id) === accountId)) {
     return { error: 'CO_CREATION_COMMENT_EXISTS' };
   }
   if (activeComments.length >= CO_CREATION_COMMENT_LIMIT) {
@@ -985,7 +985,12 @@ function addCoCreationCommentByKey(key, { phone, account_id: accountIdValue, aut
   return { data: comment };
 }
 
-function deleteCoCreationCommentByKey(key, { commentId, phone }) {
+function deleteCoCreationCommentByKey(key, { commentId, account_id: accountIdValue }) {
+  const accountId = normalizeAccountId(accountIdValue);
+  if (!accountId) {
+    return { error: 'ACCOUNT_CONTEXT_REQUIRED' };
+  }
+
   const db = readDB();
   const index = db.qr_codes.findIndex((item) => item.qr_access_token === key || item.id === key);
   if (index === -1) {
@@ -993,7 +998,8 @@ function deleteCoCreationCommentByKey(key, { commentId, phone }) {
   }
 
   const qrCode = db.qr_codes[index];
-  if (qrCode.activation_status !== 'co_creating' || qrCode.co_creation_owner_phone !== phone) {
+  const ownerAccountId = normalizeAccountId(qrCode.co_creation_owner_account_id);
+  if (qrCode.activation_status !== 'co_creating' || !ownerAccountId || ownerAccountId !== accountId) {
     return { error: 'FORBIDDEN' };
   }
 
@@ -1018,7 +1024,7 @@ function deleteCoCreationCommentByKey(key, { commentId, phone }) {
   return { data: next };
 }
 
-function finalizeCoCreationByKey(key, { phone, account_id: accountIdValue, blockchain_hash: blockchainHash }) {
+function finalizeCoCreationByKey(key, { account_id: accountIdValue, blockchain_hash: blockchainHash }) {
   const accountId = normalizeAccountId(accountIdValue);
   if (!accountId) {
     return { error: 'ACCOUNT_CONTEXT_REQUIRED' };
@@ -1034,7 +1040,8 @@ function finalizeCoCreationByKey(key, { phone, account_id: accountIdValue, block
   if (qrCode.activation_status !== 'co_creating' || qrCode.co_creation_enabled !== true) {
     return { error: 'CO_CREATION_CLOSED' };
   }
-  if (qrCode.co_creation_owner_phone !== phone) {
+  const ownerAccountId = normalizeAccountId(qrCode.co_creation_owner_account_id);
+  if (!ownerAccountId || ownerAccountId !== accountId) {
     return { error: 'FORBIDDEN' };
   }
 
@@ -1043,7 +1050,7 @@ function finalizeCoCreationByKey(key, { phone, account_id: accountIdValue, block
     activation_status: 'activated',
     activated_at: nowISO(),
     blockchain_hash: blockchainHash,
-    account_id: accountId,
+    account_id: ownerAccountId,
     co_creation_comments: (qrCode.co_creation_comments || []).map((comment) => ({
       ...comment,
       status: comment.status || 'kept'

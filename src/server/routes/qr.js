@@ -383,10 +383,19 @@ router.post('/:qrId/comments', requireUserSession, (req, res) => {
 });
 
 router.delete('/:qrId/comments/:commentId', requireUserSession, (req, res) => {
+  const accountId = getAccountId(req.user);
+  if (!accountId) {
+    return respondAccountContextRequired(res);
+  }
+
   const result = deleteCoCreationCommentByKey(req.params.qrId, {
     commentId: req.params.commentId,
-    phone: req.user.phone
+    account_id: accountId
   });
+
+  if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
+    return respondAccountContextRequired(res);
+  }
 
   if (result.error === 'QR_NOT_FOUND' || result.error === 'COMMENT_NOT_FOUND') {
     return res.status(404).json({
@@ -417,7 +426,6 @@ router.post('/:qrId/finalize', requireUserSession, async (req, res) => {
   }
 
   const result = finalizeCoCreationByKey(req.params.qrId, {
-    phone: req.user.phone,
     account_id: accountId
   });
 

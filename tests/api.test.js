@@ -230,6 +230,14 @@ function deleteJsonWithCookie(urlPath, cookie = '') {
   });
 }
 
+function deleteJson(urlPath, token) {
+  const headers = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return requestRaw('DELETE', urlPath, { headers });
+}
+
 function createMultipartBody(fields = {}, files = []) {
   const boundary = `----NodeFormBoundary${crypto.randomBytes(12).toString('hex')}`;
   const chunks = [];
@@ -4354,18 +4362,58 @@ test('miniapp co-creation flow should collect comments and finalize', async () =
   assert.notEqual(miniComment.account_id, 'FORGED_ACCOUNT');
   assert.equal(Object.prototype.hasOwnProperty.call(miniComment, 'commenter_account_id'), false);
 
+  miniCoCreateDb.users = miniCoCreateDb.users.map((item) => (
+    Number(item.id) === Number(participantPayload.id) ? { ...item, phone: '13877779904' } : item
+  ));
+  writeTestDbSnapshot(miniCoCreateDb);
   const duplicateCommentRes = await postJson(`/api/miniapp/qr/${accessToken}/comments`, {
     author_name: '朋友',
     content: '第二次'
   }, participantToken);
   assert.equal(duplicateCommentRes.status, 409);
+  assert.equal(duplicateCommentRes.body.code, 'CO_CREATION_COMMENT_EXISTS');
+
+  const samePhoneDifferentAccountToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-participant-same-phone-snapshot',
+    phone: '13877770005'
+  });
+  const samePhoneDifferentAccountPayload = decodeJwtPayload(samePhoneDifferentAccountToken);
+  miniCoCreateDb = getTestDbSnapshot();
+  miniCoCreateDb.users = miniCoCreateDb.users.map((item) => (
+    Number(item.id) === Number(samePhoneDifferentAccountPayload.id) ? { ...item, phone: '13877770004' } : item
+  ));
+  writeTestDbSnapshot(miniCoCreateDb);
+  const samePhoneDifferentAccountRes = await postJson(`/api/miniapp/qr/${accessToken}/comments`, {
+    author_name: '另一位朋友',
+    content: '同手机号快照不同账号'
+  }, samePhoneDifferentAccountToken);
+  assert.equal(samePhoneDifferentAccountRes.status, 200);
 
   const forbiddenFinalize = await postJson(`/api/miniapp/qr/${accessToken}/finalize`, {}, participantToken);
   assert.equal(forbiddenFinalize.status, 403);
 
+  miniCoCreateDb = getTestDbSnapshot();
+  miniCoCreateQr = miniCoCreateDb.qr_codes.find((item) => item.qr_access_token === accessToken);
+  miniCoCreateQr.co_creation_owner_phone = '13877779999';
+  writeTestDbSnapshot(miniCoCreateDb);
+
+  const ownerDeleteRes = await deleteJson(`/api/miniapp/qr/${accessToken}/comments/${commentRes.body.data.id}`, ownerToken);
+  assert.equal(ownerDeleteRes.status, 200);
+  assert.equal(ownerDeleteRes.body.data.co_creation_comment_count, 1);
+  assert.equal(ownerDeleteRes.body.data.co_creation_comments.some((item) => Object.prototype.hasOwnProperty.call(item, 'account_id')), false);
+
+  const participantCommentAfterDelete = await postJson(`/api/miniapp/qr/${accessToken}/comments`, {
+    author_name: '朋友',
+    content: '删除后重新留言'
+  }, participantToken);
+  assert.equal(participantCommentAfterDelete.status, 200);
+
   const finalizeRes = await postJson(`/api/miniapp/qr/${accessToken}/finalize`, {}, ownerToken);
   assert.equal(finalizeRes.status, 200);
   assert.equal(finalizeRes.body.data.activation_status, 'activated');
+  assert.equal(Object.prototype.hasOwnProperty.call(finalizeRes.body.data, 'account_id'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(finalizeRes.body.data, 'co_creation_owner_account_id'), false);
+  assert.equal(finalizeRes.body.data.co_creation_comments.some((item) => Object.prototype.hasOwnProperty.call(item, 'account_id')), false);
   assert.ok(finalizeRes.body.data.blockchain_hash);
   assert.ok(finalizeRes.body.data.manifest_hash);
   assert.equal(finalizeRes.body.data.blockchain_hash, finalizeRes.body.data.manifest_hash);
@@ -4374,6 +4422,7 @@ test('miniapp co-creation flow should collect comments and finalize', async () =
   miniCoCreateQr = miniCoCreateDb.qr_codes.find((item) => item.qr_access_token === accessToken);
   assert.equal(miniCoCreateQr.account_id, ownerPayload.account_id);
   assert.equal(miniCoCreateQr.co_creation_owner_account_id, ownerPayload.account_id);
+  assert.equal(miniCoCreateQr.co_creation_owner_phone, '13877779999');
 });
 
 test('business writes should fail closed when authenticated account mapping is missing', async () => {
@@ -4836,6 +4885,11 @@ test('co-creation flow should collect comments and owner finalize record', async
   assert.equal(Object.prototype.hasOwnProperty.call(participantStatus.body.data, 'co_creation_owner_phone'), false);
   assert.equal(participantStatus.body.data.co_creation_comments.length, 1);
 
+  coCreateDb = getTestDbSnapshot();
+  coCreateQr = coCreateDb.qr_codes.find((item) => item.id === qrId);
+  coCreateQr.co_creation_owner_phone = '13811119999';
+  writeTestDbSnapshot(coCreateDb);
+
   const forbiddenDelete = await deleteJsonWithCookie(`/api/qr/${accessToken}/comments/${commentRes.body.data.id}`, participantCookie);
   assert.equal(forbiddenDelete.status, 403);
 
@@ -4856,6 +4910,9 @@ test('co-creation flow should collect comments and owner finalize record', async
   const finalizeRes = await postJsonWithCookie(`/api/qr/${accessToken}/finalize`, {}, ownerCookie);
   assert.equal(finalizeRes.status, 200);
   assert.equal(finalizeRes.body.data.activation_status, 'activated');
+  assert.equal(Object.prototype.hasOwnProperty.call(finalizeRes.body.data, 'account_id'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(finalizeRes.body.data, 'co_creation_owner_account_id'), false);
+  assert.equal(finalizeRes.body.data.co_creation_comments.some((item) => Object.prototype.hasOwnProperty.call(item, 'account_id')), false);
   assert.ok(finalizeRes.body.data.blockchain_hash);
   assert.ok(finalizeRes.body.data.manifest_hash);
   assert.equal(finalizeRes.body.data.blockchain_hash, finalizeRes.body.data.manifest_hash);
@@ -4871,6 +4928,131 @@ test('co-creation flow should collect comments and owner finalize record', async
   coCreateQr = coCreateDb.qr_codes.find((item) => item.id === qrId);
   assert.equal(coCreateQr.account_id, ownerUser.account_id);
   assert.equal(coCreateQr.co_creation_owner_account_id, ownerUser.account_id);
+  assert.equal(coCreateQr.co_creation_owner_phone, '13811119999');
+});
+
+test('co-creation account ownership should not fall back to phone snapshots', async () => {
+  const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const adminToken = adminLogin.body.data.token;
+
+  const genRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'ACO',
+    count: 3
+  }, adminToken);
+  assert.equal(genRes.status, 200);
+  const [h5OwnerFallbackKey, h5LegacyCommentKey, miniOwnerFallbackKey] = genRes.body.data.records.map((item) => item.qr_access_token);
+
+  const h5OwnerCookie = await loginUserAndGetCookie('13822220001');
+  const h5ForeignCookie = await loginUserAndGetCookie('13822220002');
+  const h5Start = await postJsonWithCookie(`/api/qr/${h5OwnerFallbackKey}/record`, {
+    mode: 'co_create',
+    content: 'owner by account',
+    image_object_key: 'h5-owner-account.jpg'
+  }, h5OwnerCookie);
+  assert.equal(h5Start.status, 200);
+
+  let db = getTestDbSnapshot();
+  const h5Owner = findTestUserByPhone(db, '13822220001');
+  const h5Foreign = findTestUserByPhone(db, '13822220002');
+  let qr = db.qr_codes.find((item) => item.qr_access_token === h5OwnerFallbackKey);
+  qr.co_creation_owner_phone = h5Owner.phone;
+  qr.co_creation_owner_account_id = h5Foreign.account_id;
+  qr.co_creation_comments = [{
+    id: 1,
+    phone: '13822220003',
+    account_id: h5Foreign.account_id,
+    author_name: '朋友',
+    content: '待删除',
+    status: 'kept',
+    created_at: '2026-07-27T00:00:00.000Z'
+  }];
+  writeTestDbSnapshot(db);
+
+  const beforeForbiddenOwnerDelete = JSON.stringify(getTestDbSnapshot());
+  const forbiddenOwnerDelete = await deleteJsonWithCookie(`/api/qr/${h5OwnerFallbackKey}/comments/1`, h5OwnerCookie);
+  assert.equal(forbiddenOwnerDelete.status, 403);
+  assert.equal(JSON.stringify(getTestDbSnapshot()), beforeForbiddenOwnerDelete);
+
+  const forbiddenOwnerFinalize = await postJsonWithCookie(`/api/qr/${h5OwnerFallbackKey}/finalize`, {}, h5OwnerCookie);
+  assert.equal(forbiddenOwnerFinalize.status, 403);
+  assert.equal(JSON.stringify(getTestDbSnapshot()), beforeForbiddenOwnerDelete);
+
+  db = getTestDbSnapshot();
+  qr = db.qr_codes.find((item) => item.qr_access_token === h5OwnerFallbackKey);
+  qr.co_creation_owner_account_id = null;
+  writeTestDbSnapshot(db);
+  const beforeMissingOwnerAccount = JSON.stringify(getTestDbSnapshot());
+  const missingOwnerAccountFinalize = await postJsonWithCookie(`/api/qr/${h5OwnerFallbackKey}/finalize`, {}, h5OwnerCookie);
+  assert.equal(missingOwnerAccountFinalize.status, 403);
+  assert.equal(JSON.stringify(getTestDbSnapshot()), beforeMissingOwnerAccount);
+
+  const h5LegacyOwnerCookie = await loginUserAndGetCookie('13822220004');
+  const h5LegacyParticipantCookie = await loginUserAndGetCookie('13822220005');
+  const h5LegacyStart = await postJsonWithCookie(`/api/qr/${h5LegacyCommentKey}/record`, {
+    mode: 'co_create',
+    content: 'legacy comment',
+    image_object_key: 'h5-legacy-comment.jpg'
+  }, h5LegacyOwnerCookie);
+  assert.equal(h5LegacyStart.status, 200);
+  db = getTestDbSnapshot();
+  qr = db.qr_codes.find((item) => item.qr_access_token === h5LegacyCommentKey);
+  qr.co_creation_comments = [{
+    id: 1,
+    phone: '13822220005',
+    author_name: '旧评论',
+    content: '缺少 account',
+    status: 'kept',
+    created_at: '2026-07-27T00:01:00.000Z'
+  }];
+  writeTestDbSnapshot(db);
+  const legacySamePhoneComment = await postJsonWithCookie(`/api/qr/${h5LegacyCommentKey}/comments`, {
+    author_name: '新评论',
+    content: '不按 phone 认领'
+  }, h5LegacyParticipantCookie);
+  assert.equal(legacySamePhoneComment.status, 200);
+
+  const miniOwnerToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-owner-account-fallback',
+    phone: '13822220006'
+  });
+  const miniForeignToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-foreign-account-fallback',
+    phone: '13822220007'
+  });
+  const miniStart = await postJson(`/api/miniapp/qr/${miniOwnerFallbackKey}/record`, {
+    mode: 'co_create',
+    content: 'mini owner by account',
+    image_object_key: 'mini-owner-account.jpg'
+  }, miniOwnerToken);
+  assert.equal(miniStart.status, 200);
+  const miniOwnerPayload = decodeJwtPayload(miniOwnerToken);
+  const miniForeignPayload = decodeJwtPayload(miniForeignToken);
+
+  db = getTestDbSnapshot();
+  qr = db.qr_codes.find((item) => item.qr_access_token === miniOwnerFallbackKey);
+  qr.co_creation_owner_phone = '13822220006';
+  qr.co_creation_owner_account_id = miniForeignPayload.account_id;
+  qr.co_creation_comments = [{
+    id: 1,
+    phone: '13822220008',
+    account_id: miniForeignPayload.account_id,
+    author_name: '朋友',
+    content: '待删除',
+    status: 'kept',
+    created_at: '2026-07-27T00:02:00.000Z'
+  }];
+  writeTestDbSnapshot(db);
+
+  const beforeMiniForbidden = JSON.stringify(getTestDbSnapshot());
+  const miniForbiddenDelete = await deleteJson(`/api/miniapp/qr/${miniOwnerFallbackKey}/comments/1`, miniOwnerToken);
+  assert.equal(miniForbiddenDelete.status, 403);
+  assert.equal(JSON.stringify(getTestDbSnapshot()), beforeMiniForbidden);
+
+  const miniForbiddenFinalize = await postJson(`/api/miniapp/qr/${miniOwnerFallbackKey}/finalize`, {}, miniOwnerToken);
+  assert.equal(miniForbiddenFinalize.status, 403);
+  assert.equal(JSON.stringify(getTestDbSnapshot()), beforeMiniForbidden);
+
+  assert.notEqual(miniOwnerPayload.account_id, miniForeignPayload.account_id);
 });
 
 test('co-creation comments should be limited to 12 active comments', async () => {

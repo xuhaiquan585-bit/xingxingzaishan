@@ -911,10 +911,18 @@ router.post('/qr/:key/comments', requireMiniappAuth, requireMiniappPhone, async 
 });
 
 router.delete('/qr/:key/comments/:commentId', requireMiniappAuth, requireMiniappPhone, (req, res) => {
+  const accountId = getMiniappAccountId(req.miniappUser);
+  if (!accountId) {
+    return respondMiniappAccountContextRequired(res);
+  }
+
   const result = deleteCoCreationCommentByKey(req.params.key, {
     commentId: req.params.commentId,
-    phone: req.miniappUser.phone
+    account_id: accountId
   });
+  if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
+    return respondMiniappAccountContextRequired(res);
+  }
   if (result.error === 'QR_NOT_FOUND' || result.error === 'COMMENT_NOT_FOUND') {
     return res.status(404).json({ status: 'error', code: result.error, message: '未找到要删除的留言。' });
   }
@@ -935,7 +943,6 @@ router.post('/qr/:key/finalize', requireMiniappAuth, requireMiniappPhone, async 
   }
 
   const result = finalizeCoCreationByKey(req.params.key, {
-    phone: req.miniappUser.phone,
     account_id: accountId
   });
   if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
