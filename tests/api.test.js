@@ -3029,6 +3029,10 @@ test('business account audit should classify legacy data read-only with masked r
   assert.equal(audit.category_counts.user_missing_account, 1);
   assert.equal(audit.category_counts.account_missing, 1);
   assert.equal(audit.category_counts.no_match, 1);
+  assert.equal(audit.records_to_update, 1);
+  assert.equal(audit.orders_to_update, 1);
+  assert.equal(audit.co_creation_owners_to_update, 1);
+  assert.equal(audit.co_creation_comments_to_update, 1);
   assert.equal(audit.can_apply, false);
   assert.deepEqual(
     audit.details.filter((item) => item.data_id === 'REC_MISMATCH').map((item) => item.category),
@@ -3077,6 +3081,237 @@ test('business account audit should classify legacy data read-only with masked r
   assert.equal(afterHash, beforeHash);
   assert.equal(afterStat.size, beforeStat.size);
   assert.equal(afterStat.mtimeMs, beforeStat.mtimeMs);
+});
+
+test('business account backfill should be guarded, atomic, and idempotent', () => {
+  const { spawnSync } = require('child_process');
+  const {
+    applyBusinessAccountBackfill,
+    auditBusinessAccountsFromDb
+  } = require('../src/server/services/businessAccountAuditService');
+
+  const makeSafeDb = () => ({
+    users: [
+      { id: 1, phone: '13888004101', openid: null, source: 'web', account_id: 'ACC000201' },
+      { id: 2, phone: '13888004102', openid: null, source: 'web', account_id: 'ACC000202' },
+      { id: 3, phone: '13888004103', openid: null, source: 'web', account_id: 'ACC000203' },
+      { id: 4, phone: null, openid: 'mock-openid-backfill-order-secret', source: 'miniapp', account_id: 'ACC000204' },
+      { id: 5, phone: '13888004105', openid: null, source: 'web', account_id: 'ACC000205' }
+    ],
+    accounts: [
+      { id: 'ACC000201', status: 'active' },
+      { id: 'ACC000202', status: 'active' },
+      { id: 'ACC000203', status: 'active' },
+      { id: 'ACC000204', status: 'active' },
+      { id: 'ACC000205', status: 'active' }
+    ],
+    qr_codes: [
+      {
+        id: 'REC_BACKFILL',
+        activation_status: 'activated',
+        phone: '13888004101',
+        content: 'customer content stays',
+        image_url: 'https://example.com/secret-image.jpg'
+      },
+      {
+        id: 'REC_ALREADY',
+        activation_status: 'activated',
+        phone: '13888004105',
+        account_id: 'ACC000205'
+      },
+      {
+        id: 'CO_BACKFILL',
+        activation_status: 'co_creating',
+        co_creation_enabled: true,
+        co_creation_owner_phone: '13888004102',
+        co_creation_comments: [
+          { id: 1, phone: '13888004103', content: 'comment text stays', status: 'kept' },
+          { id: 2, phone: '13888004103', content: 'deleted comment stays untouched', status: 'deleted' }
+        ]
+      }
+    ],
+    orders: [
+      {
+        id: 'ORDER_BACKFILL',
+        openid: 'mock-openid-backfill-order-secret',
+        receiver_name: 'Hidden receiver',
+        address: 'Hidden address'
+      }
+    ]
+  });
+  const hashFile = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  const scriptPath = path.join(__dirname, '..', 'scripts', 'business-account-audit.js');
+  const dbFile = path.join(tmpDir, 'business-account-backfill-db.json');
+  fs.writeFileSync(dbFile, JSON.stringify(makeSafeDb(), null, 2), 'utf-8');
+
+  const initialHash = hashFile(dbFile);
+  const initialStat = fs.statSync(dbFile);
+  const dryRun = spawnSync(process.execPath, [scriptPath], {
+    cwd: path.join(__dirname, '..'),
+    env: { ...process.env, DB_FILE: dbFile },
+    encoding: 'utf8'
+  });
+  assert.equal(dryRun.status, 0, dryRun.stderr);
+  const dryRunReport = JSON.parse(dryRun.stdout);
+  assert.equal(dryRunReport.can_apply, true);
+  assert.equal(dryRunReport.records_to_update, 1);
+  assert.equal(dryRunReport.orders_to_update, 1);
+  assert.equal(dryRunReport.co_creation_owners_to_update, 1);
+  assert.equal(dryRunReport.co_creation_comments_to_update, 1);
+  assert.equal(dryRunReport.already_consistent, 1);
+  assert.equal(hashFile(dbFile), initialHash);
+  assert.equal(fs.statSync(dbFile).size, initialStat.size);
+  assert.equal(fs.statSync(dbFile).mtimeMs, initialStat.mtimeMs);
+
+  const envWithoutDbFile = { ...process.env };
+  delete envWithoutDbFile.DB_FILE;
+  const missingDbFile = spawnSync(process.execPath, [
+    scriptPath,
+    '--apply',
+    '--backup-confirmed',
+    '--single-instance-confirmed',
+    `--expected-source-sha256=${initialHash}`
+  ], {
+    cwd: path.join(__dirname, '..'),
+    env: envWithoutDbFile,
+    encoding: 'utf8'
+  });
+  assert.notEqual(missingDbFile.status, 0);
+  assert.match(missingDbFile.stderr, /BUSINESS_ACCOUNT_BACKFILL_DB_FILE_REQUIRED/);
+
+  const missingHash = spawnSync(process.execPath, [
+    scriptPath,
+    '--apply',
+    '--backup-confirmed',
+    '--single-instance-confirmed'
+  ], {
+    cwd: path.join(__dirname, '..'),
+    env: { ...process.env, DB_FILE: dbFile },
+    encoding: 'utf8'
+  });
+  assert.notEqual(missingHash.status, 0);
+  assert.match(missingHash.stderr, /BUSINESS_ACCOUNT_BACKFILL_EXPECTED_HASH_REQUIRED/);
+
+  const applyReport = applyBusinessAccountBackfill({
+    dbFile,
+    expectedSourceSha256: initialHash,
+    backupConfirmed: true,
+    singleInstanceConfirmed: true
+  });
+  assert.equal(applyReport.applied, true);
+  assert.equal(applyReport.records_to_update, 1);
+  assert.equal(applyReport.orders_to_update, 1);
+  assert.equal(applyReport.co_creation_owners_to_update, 1);
+  assert.equal(applyReport.co_creation_comments_to_update, 1);
+  assert.notEqual(applyReport.source_hash_after, initialHash);
+  assert.equal(applyReport.object_counts_unchanged, true);
+
+  const appliedDb = JSON.parse(fs.readFileSync(dbFile, 'utf8'));
+  assert.equal(appliedDb.qr_codes.find((item) => item.id === 'REC_BACKFILL').account_id, 'ACC000201');
+  assert.equal(appliedDb.qr_codes.find((item) => item.id === 'REC_BACKFILL').phone, '13888004101');
+  assert.equal(appliedDb.qr_codes.find((item) => item.id === 'REC_BACKFILL').content, 'customer content stays');
+  assert.equal(appliedDb.qr_codes.find((item) => item.id === 'REC_BACKFILL').image_url, 'https://example.com/secret-image.jpg');
+  assert.equal(appliedDb.qr_codes.find((item) => item.id === 'REC_ALREADY').account_id, 'ACC000205');
+  const coCreate = appliedDb.qr_codes.find((item) => item.id === 'CO_BACKFILL');
+  assert.equal(coCreate.co_creation_owner_account_id, 'ACC000202');
+  assert.equal(coCreate.co_creation_owner_phone, '13888004102');
+  assert.equal(coCreate.co_creation_comments[0].account_id, 'ACC000203');
+  assert.equal(coCreate.co_creation_comments[0].phone, '13888004103');
+  assert.equal(Object.prototype.hasOwnProperty.call(coCreate.co_creation_comments[1], 'account_id'), false);
+  assert.equal(coCreate.co_creation_comments[1].content, 'deleted comment stays untouched');
+  const order = appliedDb.orders.find((item) => item.id === 'ORDER_BACKFILL');
+  assert.equal(order.account_id, 'ACC000204');
+  assert.equal(order.openid, 'mock-openid-backfill-order-secret');
+  assert.equal(order.address, 'Hidden address');
+  assert.equal(appliedDb.qr_codes.length, makeSafeDb().qr_codes.length);
+  assert.equal(appliedDb.orders.length, makeSafeDb().orders.length);
+
+  const secondHash = hashFile(dbFile);
+  const secondStat = fs.statSync(dbFile);
+  const repeatReport = applyBusinessAccountBackfill({
+    dbFile,
+    expectedSourceSha256: secondHash,
+    backupConfirmed: true,
+    singleInstanceConfirmed: true
+  });
+  assert.equal(repeatReport.applied, true);
+  assert.equal(repeatReport.records_to_update, 0);
+  assert.equal(repeatReport.orders_to_update, 0);
+  assert.equal(repeatReport.co_creation_owners_to_update, 0);
+  assert.equal(repeatReport.co_creation_comments_to_update, 0);
+  assert.equal(repeatReport.already_consistent, 5);
+  assert.equal(repeatReport.source_hash_after, secondHash);
+  assert.equal(hashFile(dbFile), secondHash);
+  assert.equal(fs.statSync(dbFile).size, secondStat.size);
+  assert.equal(fs.statSync(dbFile).mtimeMs, secondStat.mtimeMs);
+
+  const blockedFile = path.join(tmpDir, 'business-account-backfill-blocked.json');
+  const blockedDb = makeSafeDb();
+  blockedDb.qr_codes[0].account_id = 'ACC999999';
+  fs.writeFileSync(blockedFile, JSON.stringify(blockedDb, null, 2), 'utf-8');
+  const blockedHash = hashFile(blockedFile);
+  assert.throws(
+    () => applyBusinessAccountBackfill({
+      dbFile: blockedFile,
+      expectedSourceSha256: blockedHash,
+      backupConfirmed: true,
+      singleInstanceConfirmed: true
+    }),
+    (error) => error && error.code === 'BUSINESS_ACCOUNT_BACKFILL_BLOCKED'
+  );
+  assert.equal(hashFile(blockedFile), blockedHash);
+
+  const changedFile = path.join(tmpDir, 'business-account-backfill-changed.json');
+  fs.writeFileSync(changedFile, JSON.stringify(makeSafeDb(), null, 2), 'utf-8');
+  const changedHash = hashFile(changedFile);
+  assert.throws(
+    () => applyBusinessAccountBackfill({
+      dbFile: changedFile,
+      expectedSourceSha256: changedHash,
+      backupConfirmed: true,
+      singleInstanceConfirmed: true,
+      beforeWrite: ({ dbPath }) => {
+        const changed = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+        changed.qr_codes.push({ id: 'CONCURRENT_CHANGE', activation_status: 'unactivated' });
+        fs.writeFileSync(dbPath, JSON.stringify(changed, null, 2), 'utf-8');
+      }
+    }),
+    (error) => error && error.code === 'BUSINESS_ACCOUNT_BACKFILL_SOURCE_CHANGED'
+  );
+  const changedAfter = JSON.parse(fs.readFileSync(changedFile, 'utf8'));
+  assert.ok(changedAfter.qr_codes.some((item) => item.id === 'CONCURRENT_CHANGE'));
+  assert.equal(changedAfter.qr_codes.some((item) => item.account_id === 'ACC000201'), false);
+
+  const renameFailFile = path.join(tmpDir, 'business-account-backfill-rename-fail.json');
+  fs.writeFileSync(renameFailFile, JSON.stringify(makeSafeDb(), null, 2), 'utf-8');
+  const renameFailHash = hashFile(renameFailFile);
+  const renameFailDir = path.dirname(renameFailFile);
+  const renameFailBase = path.basename(renameFailFile);
+  const tempFiles = () => fs.readdirSync(renameFailDir)
+    .filter((name) => name.includes(`${renameFailBase}.business-account-backfill`));
+  const originalRename = fs.renameSync;
+  fs.renameSync = () => {
+    throw new Error('forced rename failure');
+  };
+  try {
+    assert.throws(
+      () => applyBusinessAccountBackfill({
+        dbFile: renameFailFile,
+        expectedSourceSha256: renameFailHash,
+        backupConfirmed: true,
+        singleInstanceConfirmed: true
+      }),
+      /forced rename failure/
+    );
+  } finally {
+    fs.renameSync = originalRename;
+  }
+  assert.equal(hashFile(renameFailFile), renameFailHash);
+  assert.deepEqual(tempFiles(), []);
+
+  const postApplyAudit = auditBusinessAccountsFromDb(appliedDb, { dbPath: dbFile, defaultLocal: false });
+  assert.equal(postApplyAudit.records_to_update, 0);
+  assert.equal(postApplyAudit.orders_to_update, 0);
 });
 
 test('user id generation should not reuse deleted array positions', async () => {

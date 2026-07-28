@@ -12,6 +12,7 @@
     "accounts:audit": "node scripts/accounts-foundation.js --dry-run",
     "accounts:migrate": "node scripts/accounts-foundation.js --apply",
     "business-accounts:audit": "node scripts/business-account-audit.js",
+    "business-accounts:migrate": "node scripts/business-account-audit.js --apply",
     "recover:oss": "node scripts/recover-from-oss.js",
     "recover:oss:write": "node scripts/recover-from-oss.js --write",
     "check:conflicts": "bash scripts/check-conflict-markers.sh"
