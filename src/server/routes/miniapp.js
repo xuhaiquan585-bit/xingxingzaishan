@@ -291,7 +291,7 @@ function miniappBindPhoneError(errorCode) {
     },
     MINIAPP_PHONE_REPLACE_REQUIRED: {
       status: 409,
-      message: '当前微信账号已绑定其他手机号，如需修改，请使用更换手机号功能。'
+      message: '当前微信账号已绑定手机号，更换手机号功能暂未开放。'
     },
     MINIAPP_ACCOUNT_CONFLICT: {
       status: 409,

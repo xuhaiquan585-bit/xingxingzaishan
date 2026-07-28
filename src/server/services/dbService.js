@@ -544,6 +544,59 @@ function writeDB(db) {
   fs.writeFileSync(dataFile, JSON.stringify(db, null, 2), 'utf-8');
 }
 
+function sha256Content(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function readDBWithHash() {
+  initializeDB();
+  const raw = fs.readFileSync(dataFile, 'utf-8');
+  return {
+    db: migrateSchema(JSON.parse(raw)),
+    sourceHash: sha256Content(raw)
+  };
+}
+
+function unlinkTempFile(tempFile) {
+  try {
+    if (tempFile && fs.existsSync(tempFile)) {
+      fs.unlinkSync(tempFile);
+    }
+  } catch (_error) {
+    // Best-effort cleanup; the caller still receives the original write error.
+  }
+}
+
+function writeDBAtomicallyIfUnchanged(db, expectedSourceHash) {
+  const dir = path.dirname(dataFile);
+  const basename = path.basename(dataFile);
+  const tempFile = path.join(dir, `.${basename}.${process.pid}.${Date.now()}.tmp`);
+  const stat = fs.existsSync(dataFile) ? fs.statSync(dataFile) : null;
+  const serialized = JSON.stringify(db, null, 2);
+  try {
+    const currentHash = sha256Content(fs.readFileSync(dataFile, 'utf-8'));
+    if (currentHash !== expectedSourceHash) {
+      const error = new Error('DB_CHANGED_DURING_BIND');
+      error.code = 'DB_CHANGED_DURING_BIND';
+      throw error;
+    }
+    fs.writeFileSync(tempFile, serialized, {
+      encoding: 'utf-8',
+      mode: stat ? stat.mode : 0o600
+    });
+    const hashBeforeRename = sha256Content(fs.readFileSync(dataFile, 'utf-8'));
+    if (hashBeforeRename !== expectedSourceHash) {
+      const error = new Error('DB_CHANGED_DURING_BIND');
+      error.code = 'DB_CHANGED_DURING_BIND';
+      throw error;
+    }
+    fs.renameSync(tempFile, dataFile);
+  } catch (error) {
+    unlinkTempFile(tempFile);
+    throw error;
+  }
+}
+
 function createOrGetUser(phone) {
   const db = readDB();
   const targetPhone = normalizeUserPhone(phone);
@@ -618,26 +671,118 @@ function normalizeUserOpenid(openid) {
 }
 
 function logMiniappBindConflict(reason, details = {}) {
+  const userCount = Array.isArray(details.userIds) ? details.userIds.length : 0;
+  const orderCount = Array.isArray(details.orderIds) ? details.orderIds.length : 0;
   console.warn('[miniapp-bind-phone]', {
     reason,
-    user_ids: details.userIds || [],
-    order_ids: details.orderIds || []
+    user_count: userCount,
+    order_count: orderCount
   });
 }
 
-function hasBlockingMiniappUserData(db, user) {
-  const openid = normalizeUserOpenid(user && user.openid);
-  if (!openid) {
-    return { blocked: false, orderIds: [] };
+function isMiniappOnlySource(source) {
+  const value = String(source || 'miniapp').trim() || 'miniapp';
+  return value === 'miniapp';
+}
+
+function sourceWithMiniapp(source) {
+  const value = String(source || '').trim();
+  if (!value) return 'miniapp';
+  if (value.split('+').includes('miniapp')) return value;
+  if (value === 'web') return 'web+miniapp';
+  return `${value}+miniapp`;
+}
+
+function containsValueDeep(value, target) {
+  if (!target || value === null || value === undefined) return false;
+  if (typeof value === 'string') return value === target;
+  if (typeof value !== 'object') return false;
+  if (Array.isArray(value)) {
+    return value.some((item) => containsValueDeep(item, target));
   }
-  const orderIds = (Array.isArray(db.orders) ? db.orders : [])
-    .filter((item) => item.openid === openid)
-    .map((item) => item.id)
-    .filter(Boolean);
-  return {
-    blocked: orderIds.length > 0,
-    orderIds
-  };
+  return Object.values(value).some((item) => containsValueDeep(item, target));
+}
+
+function usersForAccount(db, accountId) {
+  const target = normalizeAccountId(accountId);
+  return (Array.isArray(db.users) ? db.users : [])
+    .filter((item) => normalizeAccountId(item.account_id) === target);
+}
+
+function collectMiniappIdentityReferences(db, { accountId, openid }) {
+  const account = normalizeAccountId(accountId);
+  const userOpenid = normalizeUserOpenid(openid);
+  const refs = [];
+
+  (Array.isArray(db.qr_codes) ? db.qr_codes : []).forEach((qr) => {
+    if (account && normalizeAccountId(qr.account_id) === account) {
+      refs.push({ type: 'qr_account', id: qr.id });
+    }
+    if (account && normalizeAccountId(qr.co_creation_owner_account_id) === account) {
+      refs.push({ type: 'qr_co_creation_owner', id: qr.id });
+    }
+    (Array.isArray(qr.co_creation_comments) ? qr.co_creation_comments : []).forEach((comment) => {
+      if (account && normalizeAccountId(comment.account_id) === account) {
+        refs.push({ type: 'qr_co_creation_comment', id: qr.id, comment_id: comment.id });
+      }
+    });
+  });
+
+  (Array.isArray(db.orders) ? db.orders : []).forEach((order) => {
+    if (account && normalizeAccountId(order.account_id) === account) {
+      refs.push({ type: 'order_account', id: order.id });
+    }
+    if (userOpenid && normalizeUserOpenid(order.openid) === userOpenid) {
+      refs.push({ type: 'order_openid', id: order.id });
+    }
+  });
+
+  (Array.isArray(db.payment_logs) ? db.payment_logs : []).forEach((log) => {
+    if (account && containsValueDeep(log, account)) {
+      refs.push({ type: 'payment_log_account', id: log.id });
+    }
+    if (userOpenid && containsValueDeep(log, userOpenid)) {
+      refs.push({ type: 'payment_log_openid', id: log.id });
+    }
+  });
+
+  return refs;
+}
+
+function ensureSingleUserAccount(db, user, reason) {
+  const accountUsers = usersForAccount(db, user && user.account_id);
+  if (!user || accountUsers.length !== 1 || String(accountUsers[0].id) !== String(user.id)) {
+    logMiniappBindConflict(reason, { userIds: accountUsers.map((item) => item.id) });
+    return false;
+  }
+  return true;
+}
+
+function ensureDisposableMiniappUser(db, user, targetOpenid) {
+  if (
+    !user ||
+    normalizeUserPhone(user.phone) ||
+    normalizeUserOpenid(user.openid) !== normalizeUserOpenid(targetOpenid) ||
+    !isMiniappOnlySource(user.source)
+  ) {
+    logMiniappBindConflict('temporary_user_not_disposable', { userIds: user ? [user.id] : [] });
+    return false;
+  }
+  if (!ensureSingleUserAccount(db, user, 'temporary_account_not_unique')) {
+    return false;
+  }
+  const refs = collectMiniappIdentityReferences(db, {
+    accountId: user.account_id,
+    openid: user.openid
+  });
+  if (refs.length > 0) {
+    logMiniappBindConflict('temporary_identity_has_linked_data', {
+      userIds: [user.id],
+      orderIds: refs.filter((item) => item.type.startsWith('order')).map((item) => item.id)
+    });
+    return false;
+  }
+  return true;
 }
 
 function createOrGetMiniappUser({ openid, unionid = null }) {
@@ -674,7 +819,15 @@ function createOrGetMiniappUser({ openid, unionid = null }) {
 }
 
 function bindMiniappUserPhone({ openid, phone, unionid = null }) {
-  const db = readDB();
+  let context;
+  try {
+    context = readDBWithHash();
+  } catch (error) {
+    logMiniappBindConflict('read_failed');
+    return { error: 'MINIAPP_ACCOUNT_CONFLICT' };
+  }
+
+  const { db, sourceHash } = context;
   const targetOpenid = normalizeUserOpenid(openid);
   const targetPhone = normalizeUserPhone(phone);
   const openidUsers = db.users.filter((item) => normalizeUserOpenid(item.openid) === targetOpenid);
@@ -689,82 +842,86 @@ function bindMiniappUserPhone({ openid, phone, unionid = null }) {
   } catch (error) {
     return { error: error.code || 'MINIAPP_ACCOUNT_CONFLICT' };
   }
+  if (!ensureSingleUserAccount(db, miniUser, 'current_account_not_unique')) {
+    return { error: 'MINIAPP_ACCOUNT_CONFLICT' };
+  }
+
   const phoneUsers = db.users.filter((item) => normalizeUserPhone(item.phone) === targetPhone);
   if (phoneUsers.length > 1) {
     logMiniappBindConflict('phone_not_unique', { userIds: phoneUsers.map((item) => item.id) });
     return { error: 'MINIAPP_ACCOUNT_CONFLICT' };
   }
 
-  if (!miniUser) {
-    return { error: 'MINIAPP_USER_NOT_FOUND' };
-  }
-
   const nextUnionid = unionid || miniUser.unionid || null;
   const miniUserPhone = normalizeUserPhone(miniUser.phone);
+  let finalUser = null;
+  let changed = false;
 
   if (miniUserPhone) {
     if (miniUserPhone !== targetPhone) {
       return { error: 'MINIAPP_PHONE_REPLACE_REQUIRED' };
     }
-    const updated = {
+    finalUser = {
       ...miniUser,
       phone: targetPhone,
       unionid: nextUnionid,
       source: miniUser.source || 'miniapp'
     };
-    db.users = db.users.map((item) => (item.id === miniUser.id ? updated : item));
-    writeDB(db);
-    return { data: updated };
+    changed = JSON.stringify(finalUser) !== JSON.stringify(miniUser);
+    if (changed) {
+      db.users = db.users.map((item) => (item.id === miniUser.id ? finalUser : item));
+    }
+  } else {
+    const phoneUser = phoneUsers[0] || null;
+    if (!phoneUser || phoneUser.id === miniUser.id) {
+      finalUser = {
+        ...miniUser,
+        phone: targetPhone,
+        unionid: nextUnionid,
+        source: miniUser.source || 'miniapp'
+      };
+      db.users = db.users.map((item) => (item.id === miniUser.id ? finalUser : item));
+      changed = true;
+    } else {
+      try {
+        requireMappedUser(db, phoneUser);
+      } catch (_error) {
+        logMiniappBindConflict('phone_user_missing_account', { userIds: [phoneUser.id, miniUser.id] });
+        return { error: 'MINIAPP_ACCOUNT_CONFLICT' };
+      }
+      if (!ensureSingleUserAccount(db, phoneUser, 'target_account_not_unique')) {
+        return { error: 'MINIAPP_ACCOUNT_CONFLICT' };
+      }
+      if (!ensureDisposableMiniappUser(db, miniUser, targetOpenid)) {
+        return { error: 'MINIAPP_ACCOUNT_CONFLICT' };
+      }
+
+      finalUser = {
+        ...phoneUser,
+        phone: targetPhone,
+        openid: targetOpenid,
+        unionid: nextUnionid,
+        source: sourceWithMiniapp(phoneUser.source)
+      };
+      db.users = db.users
+        .filter((item) => item.id !== miniUser.id)
+        .map((item) => (item.id === phoneUser.id ? finalUser : item));
+      db.accounts = (Array.isArray(db.accounts) ? db.accounts : [])
+        .filter((item) => item.id !== miniUser.account_id);
+      changed = true;
+    }
   }
 
-  const phoneUser = phoneUsers[0] || null;
-  if (phoneUser && phoneUser.id !== miniUser.id) {
+  if (changed) {
     try {
-      requireMappedUser(db, phoneUser);
-    } catch (_error) {
-      logMiniappBindConflict('phone_user_missing_account', { userIds: [phoneUser.id, miniUser.id] });
+      writeDBAtomicallyIfUnchanged(db, sourceHash);
+    } catch (error) {
+      logMiniappBindConflict(error.code || 'atomic_write_failed', { userIds: [miniUser.id] });
       return { error: 'MINIAPP_ACCOUNT_CONFLICT' };
     }
-    if (normalizeUserOpenid(phoneUser.openid)) {
-      return { error: 'PHONE_ALREADY_BOUND_TO_OTHER_WECHAT' };
-    }
-    if ((phoneUser.source || 'web') !== 'web') {
-      logMiniappBindConflict('phone_user_not_web_only', { userIds: [phoneUser.id, miniUser.id] });
-      return { error: 'MINIAPP_ACCOUNT_CONFLICT' };
-    }
-
-    const blockingData = hasBlockingMiniappUserData(db, miniUser);
-    if (blockingData.blocked) {
-      logMiniappBindConflict('temporary_user_has_linked_data', {
-        userIds: [miniUser.id],
-        orderIds: blockingData.orderIds
-      });
-      return { error: 'MINIAPP_ACCOUNT_CONFLICT' };
-    }
-
-    const merged = {
-      ...phoneUser,
-      phone: targetPhone,
-      openid: targetOpenid,
-      unionid: nextUnionid,
-      source: phoneUser.source === 'web' ? 'web+miniapp' : phoneUser.source || 'miniapp'
-    };
-    db.users = db.users
-      .filter((item) => item.id !== miniUser.id)
-      .map((item) => (item.id === phoneUser.id ? merged : item));
-    writeDB(db);
-    return { data: merged };
   }
 
-  const updated = {
-    ...miniUser,
-    phone: targetPhone,
-    unionid: nextUnionid,
-    source: miniUser.source || 'miniapp'
-  };
-  db.users = db.users.map((item) => (item.id === miniUser.id ? updated : item));
-  writeDB(db);
-  return { data: updated };
+  return { data: finalUser };
 }
 
 function getQRCode(qrId) {

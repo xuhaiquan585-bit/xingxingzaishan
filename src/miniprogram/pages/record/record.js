@@ -16,6 +16,7 @@ const INVALID_QR_TITLE = '没有找到这张星贴';
 const INVALID_QR_MESSAGE = '请重新扫描星贴上的二维码。';
 const LOAD_FAILED_TITLE = '加载失败';
 const LOAD_FAILED_MESSAGE = '加载失败，请稍后重试。';
+const PHONE_REPLACE_UNAVAILABLE_MESSAGE = '更换手机号功能暂未开放';
 
 function clampPreviewHeight(height) {
   return Math.max(MIN_PREVIEW_HEIGHT_RPX, Math.min(MAX_PREVIEW_HEIGHT_RPX, height));
@@ -407,6 +408,10 @@ Page({
   },
 
   changePhone() {
+    if (this.data.phoneBound || this.data.currentPhoneText || isPhoneBound()) {
+      wx.showToast({ title: PHONE_REPLACE_UNAVAILABLE_MESSAGE, icon: 'none' });
+      return;
+    }
     if (!this.data.key) return;
     this.saveRecordDraft();
     redirectToBindPhone(this.recordRedirectUrl());

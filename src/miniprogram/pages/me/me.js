@@ -1,5 +1,7 @@
-const { login, redirectToBindPhone } = require('../../utils/auth');
+const { login, redirectToBindPhone, isPhoneBound } = require('../../utils/auth');
 const { request, resolveAssetUrl, getToken } = require('../../utils/request');
+
+const PHONE_REPLACE_UNAVAILABLE_MESSAGE = '更换手机号功能暂未开放';
 
 function maskPhone(phone) {
   const value = String(phone || '').trim();
@@ -88,6 +90,10 @@ Page({
   },
 
   changePhone() {
+    if (this.data.currentPhoneText || isPhoneBound()) {
+      wx.showToast({ title: PHONE_REPLACE_UNAVAILABLE_MESSAGE, icon: 'none' });
+      return;
+    }
     redirectToBindPhone('/pages/me/me');
   },
 

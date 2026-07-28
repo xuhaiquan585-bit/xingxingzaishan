@@ -1199,6 +1199,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const productDetailWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'product-detail', 'product-detail.wxml'), 'utf8');
   const productDetailJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'product-detail', 'product-detail.js'), 'utf8');
   const productDetailWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'product-detail', 'product-detail.wxss'), 'utf8');
+  const miniappMeJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'me', 'me.js'), 'utf8');
   const orderConfirmWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'order-confirm', 'order-confirm.wxml'), 'utf8');
   const orderConfirmJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'order-confirm', 'order-confirm.js'), 'utf8');
   const ordersWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'orders', 'orders.wxml'), 'utf8');
@@ -1207,6 +1208,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const projectWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'project', 'project.wxss'), 'utf8');
   const meWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'me', 'me.wxml'), 'utf8');
   const meWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'me', 'me.wxss'), 'utf8');
+  const miniappRecordDetailJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record-detail', 'record-detail.js'), 'utf8');
   const recordDetailWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record-detail', 'record-detail.wxml'), 'utf8');
   const recordDetailWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record-detail', 'record-detail.wxss'), 'utf8');
 
@@ -1267,7 +1269,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(bindPhoneJs.includes('未获取到微信手机号，请再次尝试。'), true);
   assert.equal(bindPhoneJs.includes('暂时无法获取微信手机号，请稍后重试。'), true);
   assert.equal(bindPhoneJs.includes('这个手机号已关联其他微信账号，暂时无法绑定。'), true);
-  assert.equal(bindPhoneJs.includes('当前微信账号已绑定其他手机号，如需修改，请使用更换手机号功能。'), true);
+  assert.equal(bindPhoneJs.includes('当前微信账号已绑定手机号，更换手机号功能暂未开放。'), true);
   assert.equal(bindPhoneJs.includes('errMsg'), false);
   assert.equal(bindPhoneJs.includes('验证手机号，继续添加照片'), true);
   assert.equal(bindPhoneJs.includes('验证手机号，继续保存记录'), true);
@@ -1320,6 +1322,11 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxml.includes('<text wx:else class="record-phone-change" bindtap="changePhone">验证手机号</text>'), true);
   assert.equal(recordWxml.includes('星贴'), true);
   assert.equal(recordWxml.includes('验证手机号'), true);
+  assert.equal(recordJs.includes('更换手机号功能暂未开放'), true);
+  assert.equal(miniappMeJs.includes('更换手机号功能暂未开放'), true);
+  assert.equal(miniappRecordDetailJs.includes('更换手机号功能暂未开放'), true);
+  assert.equal(miniappMeJs.includes('wx.showToast'), true);
+  assert.equal(miniappRecordDetailJs.includes('wx.showToast'), true);
   assert.equal(recordWxml.includes('写下想记住的话'), true);
   assert.equal(recordWxml.includes('最多 200 字'), false);
   assert.equal(recordWxml.includes('这一刻，会成为这瓶酒的记忆'), false);
@@ -2340,7 +2347,7 @@ test('miniapp sms fallback should send codes and bind first-time users without H
   assert.equal(repeatBind.body.data.phone, '13888002001');
 });
 
-test('miniapp sms fallback should reuse safe binding conflict rules', async () => {
+test('miniapp sms fallback should enter the verified phone account safely', async () => {
   const {
     getDatabaseSnapshot,
     writeDatabaseSnapshot
@@ -2351,21 +2358,31 @@ test('miniapp sms fallback should reuse safe binding conflict rules', async () =
     code: 'mini-sms-conflict-owner',
     phone: '13888002010'
   });
+  const ownerPayload = decodeJwtPayload(ownerToken);
   const conflictToken = await loginMiniappAndGetToken('mini-sms-conflict-claimant');
+  const tempPayload = decodeJwtPayload(conflictToken);
   const conflictSend = await postJson('/api/miniapp/auth/sms/send-code', { phone: '13888002010' }, conflictToken);
   assert.equal(conflictSend.status, 200);
   const conflictBind = await postJson('/api/miniapp/auth/sms/bind-phone', {
     phone: '13888002010',
     code: conflictSend.body.data.verification_code
   }, conflictToken);
-  assert.equal(conflictBind.status, 409);
-  assert.equal(conflictBind.body.code, 'PHONE_ALREADY_BOUND_TO_OTHER_WECHAT');
-  assert.equal(conflictBind.body.message, '这个手机号已关联其他微信账号，暂时无法绑定。');
+  assert.equal(conflictBind.status, 200);
+  assert.equal(conflictBind.body.data.phone, '13888002010');
+  const takeoverPayload = verifyMiniappToken(conflictBind.body.data.token);
+  assert.equal(takeoverPayload.id, ownerPayload.id);
+  assert.equal(takeoverPayload.account_id, ownerPayload.account_id);
+  assert.equal(takeoverPayload.openid, 'mock-openid-mini-sms-conflict-claimant');
 
   let db = getDatabaseSnapshot();
   assert.equal(db.users.filter((item) => item.phone === '13888002010').length, 1);
-  assert.ok(db.users.find((item) => item.openid === 'mock-openid-mini-sms-conflict-claimant' && !item.phone));
-  assert.ok(verifyMiniappToken(ownerToken));
+  assert.equal(db.users.some((item) => item.openid === 'mock-openid-mini-sms-conflict-owner'), false);
+  assert.equal(db.users.some((item) => item.id === tempPayload.id), false);
+  assert.equal(db.accounts.some((item) => item.id === tempPayload.account_id), false);
+  const ownerOldTokenRes = await getJson('/api/miniapp/user/records', ownerToken);
+  assert.equal(ownerOldTokenRes.status, 401);
+  const tempOldTokenRes = await getJson('/api/miniapp/user/records', conflictToken);
+  assert.equal(tempOldTokenRes.status, 401);
 
   const replaceToken = await loginMiniappBindPhoneAndGetToken({
     code: 'mini-sms-replace-blocked',
@@ -2420,6 +2437,7 @@ test('miniapp sms fallback should reuse safe binding conflict rules', async () =
   writeDatabaseSnapshot(db);
 
   const webToken = await loginMiniappAndGetToken('mini-sms-web-canonical');
+  const webTempPayload = decodeJwtPayload(webToken);
   const webSend = await postJson('/api/miniapp/auth/sms/send-code', { phone: webPhone }, webToken);
   assert.equal(webSend.status, 200);
   const webBind = await postJson('/api/miniapp/auth/sms/bind-phone', {
@@ -2441,6 +2459,8 @@ test('miniapp sms fallback should reuse safe binding conflict rules', async () =
   assert.equal(canonicalUsers[0].openid, 'mock-openid-mini-sms-web-canonical');
   assert.equal(canonicalUsers[0].source, 'web+miniapp');
   assert.equal(db.users.some((item) => item.openid === 'mock-openid-mini-sms-web-canonical' && !item.phone), false);
+  assert.equal(db.users.some((item) => item.id === webTempPayload.id), false);
+  assert.equal(db.accounts.some((item) => item.id === webTempPayload.account_id), false);
 
   const webCookie = await loginUserAndGetCookie(webPhone);
   const h5Records = await getJsonWithCookie('/api/user/records', webCookie);
@@ -2452,7 +2472,7 @@ test('miniapp sms fallback should reuse safe binding conflict rules', async () =
   assert.ok(miniRecords.body.data.records.some((item) => item.id === webRecordId));
 });
 
-test('miniapp bind phone should be idempotent and protect canonical web accounts', async () => {
+test('miniapp bind phone should be idempotent and enter verified phone accounts', async () => {
   const {
     getDatabaseSnapshot,
     writeDatabaseSnapshot
@@ -2465,6 +2485,7 @@ test('miniapp bind phone should be idempotent and protect canonical web accounts
   }, tokenA);
   assert.equal(bindA.status, 200);
   assert.equal(bindA.body.data.phone, '13888001001');
+  const boundAPayload = verifyMiniappToken(bindA.body.data.token);
 
   const repeatA = await postJson('/api/miniapp/auth/bind-phone', {
     code: '13888001001'
@@ -2477,19 +2498,28 @@ test('miniapp bind phone should be idempotent and protect canonical web accounts
   }, repeatA.body.data.token);
   assert.equal(replaceA.status, 409);
   assert.equal(replaceA.body.code, 'MINIAPP_PHONE_REPLACE_REQUIRED');
-  assert.equal(replaceA.body.message, '当前微信账号已绑定其他手机号，如需修改，请使用更换手机号功能。');
+  assert.equal(replaceA.body.message, '当前微信账号已绑定手机号，更换手机号功能暂未开放。');
 
   const conflictToken = await loginMiniappAndGetToken('mini-safe-bind-conflict');
+  const conflictTempPayload = decodeJwtPayload(conflictToken);
   const conflict = await postJson('/api/miniapp/auth/bind-phone', {
     code: '13888001001'
   }, conflictToken);
-  assert.equal(conflict.status, 409);
-  assert.equal(conflict.body.code, 'PHONE_ALREADY_BOUND_TO_OTHER_WECHAT');
-  assert.equal(conflict.body.message, '这个手机号已关联其他微信账号，暂时无法绑定。');
+  assert.equal(conflict.status, 200);
+  const conflictPayload = verifyMiniappToken(conflict.body.data.token);
+  assert.equal(conflictPayload.id, boundAPayload.id);
+  assert.equal(conflictPayload.account_id, boundAPayload.account_id);
+  assert.equal(conflictPayload.openid, 'mock-openid-mini-safe-bind-conflict');
+  const oldATokenRes = await getJson('/api/miniapp/user/records', bindA.body.data.token);
+  assert.equal(oldATokenRes.status, 401);
+  const oldTempTokenRes = await getJson('/api/miniapp/user/records', conflictToken);
+  assert.equal(oldTempTokenRes.status, 401);
 
   let db = getDatabaseSnapshot();
   assert.equal(db.users.filter((item) => item.phone === '13888001001').length, 1);
-  assert.ok(db.users.find((item) => item.openid === 'mock-openid-mini-safe-bind-conflict' && !item.phone));
+  assert.equal(db.users.find((item) => item.phone === '13888001001').openid, 'mock-openid-mini-safe-bind-conflict');
+  assert.equal(db.users.some((item) => item.id === conflictTempPayload.id), false);
+  assert.equal(db.accounts.some((item) => item.id === conflictTempPayload.account_id), false);
 
   const webPhone = '13888001003';
   const webRecordId = 'WEBBIND001';
@@ -2527,6 +2557,7 @@ test('miniapp bind phone should be idempotent and protect canonical web accounts
   writeDatabaseSnapshot(db);
 
   const tokenB = await loginMiniappAndGetToken('mini-safe-bind-web');
+  const tokenBTempPayload = decodeJwtPayload(tokenB);
   const bindWeb = await postJson('/api/miniapp/auth/bind-phone', {
     code: webPhone
   }, tokenB);
@@ -2545,6 +2576,8 @@ test('miniapp bind phone should be idempotent and protect canonical web accounts
   assert.equal(canonicalUsers[0].openid, 'mock-openid-mini-safe-bind-web');
   assert.equal(canonicalUsers[0].source, 'web+miniapp');
   assert.equal(db.users.some((item) => item.openid === 'mock-openid-mini-safe-bind-web' && !item.phone), false);
+  assert.equal(db.users.some((item) => item.id === tokenBTempPayload.id), false);
+  assert.equal(db.accounts.some((item) => item.id === tokenBTempPayload.account_id), false);
 
   const webCookie = await loginUserAndGetCookie(webPhone);
   const h5Records = await getJsonWithCookie('/api/user/records', webCookie);
@@ -2634,21 +2667,25 @@ test('miniapp bind phone should reject abnormal data and unsafe phone auth failu
   db = getDatabaseSnapshot();
   const blockedPhone = '13888001014';
   nextId = Math.max(...db.users.map((item) => Number(item.id) || 0), 0) + 1;
-  db.users.push({
+  const blockedWebUser = {
     id: nextId,
     phone: blockedPhone,
     openid: null,
     unionid: null,
     source: 'web',
     created_at: '2026-07-25T00:00:04.000Z'
-  });
+  };
+  attachTestAccount(db, blockedWebUser, 'web_phone');
+  db.users.push(blockedWebUser);
   writeDatabaseSnapshot(db);
   const blockedToken = await loginMiniappAndGetToken('mini-safe-blocked-temp');
+  const blockedTempPayload = decodeJwtPayload(blockedToken);
   db = getDatabaseSnapshot();
   db.orders.push({
     id: 'ORDER_SAFE_BLOCKED_TEMP',
     openid: 'mock-openid-mini-safe-blocked-temp',
     phone: '',
+    account_id: blockedTempPayload.account_id,
     product_id: '',
     product_snapshot: {},
     quantity: 1,
@@ -2724,7 +2761,58 @@ test('miniapp bind phone should reject abnormal data and unsafe phone auth failu
   assert.equal(badCodeRes.raw.includes('bad-phone-code'), false);
 });
 
-test('miniapp bind phone should allow only one concurrent claimant per phone', async () => {
+test('miniapp bind phone should not issue a token when account entry write fails', async () => {
+  const {
+    getDatabaseSnapshot,
+    writeDatabaseSnapshot
+  } = require('../src/server/services/dbService');
+
+  const phone = '13888001031';
+  let db = getDatabaseSnapshot();
+  const nextId = Math.max(...db.users.map((item) => Number(item.id) || 0), 0) + 1;
+  const targetUser = {
+    id: nextId,
+    phone,
+    openid: 'mock-openid-mini-write-fail-old',
+    unionid: null,
+    source: 'miniapp',
+    created_at: '2026-07-25T00:00:08.000Z'
+  };
+  attachTestAccount(db, targetUser, 'miniapp_openid');
+  db.users.push(targetUser);
+  writeDatabaseSnapshot(db);
+
+  const token = await loginMiniappAndGetToken('mini-write-fail-new');
+  const dbFile = process.env.DB_FILE;
+  const dbDir = path.dirname(dbFile);
+  const beforeRaw = fs.readFileSync(dbFile, 'utf8');
+  const beforeTempFiles = fs.readdirSync(dbDir).filter((name) => name.startsWith('.db.json.') && name.endsWith('.tmp'));
+  const originalRenameSync = fs.renameSync;
+  fs.renameSync = (from, to) => {
+    if (path.resolve(to) === path.resolve(dbFile)) {
+      const error = new Error('simulated rename failure');
+      error.code = 'EIO';
+      throw error;
+    }
+    return originalRenameSync(from, to);
+  };
+
+  let bindRes;
+  try {
+    bindRes = await postJson('/api/miniapp/auth/bind-phone', { code: phone }, token);
+  } finally {
+    fs.renameSync = originalRenameSync;
+  }
+
+  assert.equal(bindRes.status, 409);
+  assert.equal(bindRes.body.code, 'MINIAPP_ACCOUNT_CONFLICT');
+  assert.equal(bindRes.body.data && bindRes.body.data.token, undefined);
+  assert.equal(fs.readFileSync(dbFile, 'utf8'), beforeRaw);
+  const afterTempFiles = fs.readdirSync(dbDir).filter((name) => name.startsWith('.db.json.') && name.endsWith('.tmp'));
+  assert.deepEqual(afterTempFiles, beforeTempFiles);
+});
+
+test('miniapp bind phone should leave only one valid entry token per phone', async () => {
   const phone = '13888001021';
   const tokenA = await loginMiniappAndGetToken('mini-safe-race-a');
   const tokenB = await loginMiniappAndGetToken('mini-safe-race-b');
@@ -2734,14 +2822,29 @@ test('miniapp bind phone should allow only one concurrent claimant per phone', a
   ]);
   const successes = responses.filter((item) => item.status === 200);
   const rejections = responses.filter((item) => item.status !== 200);
-  assert.equal(successes.length, 1);
-  assert.equal(rejections.length, 1);
-  assert.equal(rejections[0].status, 409);
-  assert.ok(['PHONE_ALREADY_BOUND_TO_OTHER_WECHAT', 'MINIAPP_ACCOUNT_CONFLICT'].includes(rejections[0].body.code));
+  assert.ok(successes.length >= 1);
+  assert.ok(successes.length <= 2);
+  assert.equal(successes.every((item) => item.body.data && item.body.data.token), true);
+  assert.equal(rejections.every((item) => item.status === 409 && item.body.code === 'MINIAPP_ACCOUNT_CONFLICT'), true);
 
   const { getDatabaseSnapshot } = require('../src/server/services/dbService');
   const db = getDatabaseSnapshot();
   assert.equal(db.users.filter((item) => item.phone === phone).length, 1);
+  const finalUser = db.users.find((item) => item.phone === phone);
+  assert.equal(db.users.filter((item) => item.openid === finalUser.openid).length, 1);
+  assert.equal(db.users.filter((item) => item.account_id === finalUser.account_id).length, 1);
+  const validSuccesses = successes.filter((item) => {
+    const payload = decodeJwtPayload(item.body.data.token);
+    return String(payload.id) === String(finalUser.id)
+      && payload.openid === finalUser.openid
+      && payload.account_id === finalUser.account_id;
+  });
+  assert.equal(validSuccesses.length, 1);
+  const authResults = await Promise.all(successes.map((item) =>
+    getJson('/api/miniapp/user/records', item.body.data.token)
+  ));
+  assert.equal(authResults.filter((item) => item.status === 200).length, 1);
+  assert.equal(authResults.filter((item) => item.status === 401).length, successes.length - 1);
 });
 
 test('account migration dry-run and apply should create stable account mappings without moving data', () => {

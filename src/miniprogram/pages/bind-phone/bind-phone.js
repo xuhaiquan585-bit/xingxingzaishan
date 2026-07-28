@@ -28,7 +28,7 @@ const TAB_PAGES = new Set([
 
 const BIND_PHONE_ERROR_MESSAGES = {
   PHONE_ALREADY_BOUND_TO_OTHER_WECHAT: '这个手机号已关联其他微信账号，暂时无法绑定。',
-  MINIAPP_PHONE_REPLACE_REQUIRED: '当前微信账号已绑定其他手机号，如需修改，请使用更换手机号功能。',
+  MINIAPP_PHONE_REPLACE_REQUIRED: '当前微信账号已绑定手机号，更换手机号功能暂未开放。',
   MINIAPP_ACCOUNT_CONFLICT: '账号状态异常，暂时无法绑定手机号，请联系客服处理。',
   PHONE_BIND_FAILED: '暂时无法获取微信手机号，请稍后重试。',
   WECHAT_CONFIG_ERROR: '暂时无法获取微信手机号，请稍后重试。'
