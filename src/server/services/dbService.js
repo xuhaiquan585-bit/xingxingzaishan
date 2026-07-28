@@ -1359,6 +1359,36 @@ function listActivatedRecordsByPhone(phone) {
     }));
 }
 
+function listActivatedRecordsByAccountId(accountIdValue) {
+  const db = readDB();
+  const target = normalizeAccountId(accountIdValue);
+  if (!target) return [];
+
+  return db.qr_codes
+    .filter((item) => (
+      (item.activation_status === 'activated' && normalizeAccountId(item.account_id) === target)
+      || (item.activation_status === 'co_creating' && normalizeAccountId(item.co_creation_owner_account_id) === target)
+    ))
+    .sort((a, b) => {
+      const aTime = a.activated_at || a.co_creation_started_at || a.created_at;
+      const bTime = b.activated_at || b.co_creation_started_at || b.created_at;
+      return new Date(bTime) - new Date(aTime);
+    })
+    .map((item) => ({
+      id: item.id,
+      content: item.content || '',
+      image_url: item.image_url || null,
+      image_object_key: item.image_object_key || null,
+      activated_at: item.activated_at || null,
+      display_at: item.activated_at || item.co_creation_started_at || item.created_at,
+      activation_status: item.activation_status,
+      blockchain_hash: item.blockchain_hash || null,
+      ...chainPayload(item),
+      co_creation_enabled: item.co_creation_enabled === true,
+      co_creation_comments: Array.isArray(item.co_creation_comments) ? item.co_creation_comments : []
+    }));
+}
+
 function listActivatedRecordsByMiniappOpenid(openid) {
   const user = findUserByOpenid(openid);
   if (!user || !user.phone) {
@@ -1376,6 +1406,36 @@ function getActivatedRecordByPhoneAndId({ phone, id }) {
   const matched = db.qr_codes.find((item) =>
     item.activation_status === 'activated'
     && item.phone === targetPhone
+    && item.id === targetId
+  );
+
+  if (!matched) return null;
+
+  return {
+    id: matched.id,
+    content: matched.content || '',
+    image_url: matched.image_url || null,
+    image_object_key: matched.image_object_key || null,
+    activated_at: matched.activated_at,
+    blockchain_hash: matched.blockchain_hash || null,
+    ...chainPayload(matched),
+    co_creation_enabled: matched.co_creation_enabled === true,
+    co_creation_comments: Array.isArray(matched.co_creation_comments) ? matched.co_creation_comments : [],
+    show_brand_disclosure: matched.show_brand_disclosure === true,
+    brand_disclosure_text_snapshot: matched.brand_disclosure_text_snapshot || '',
+    batch_id: matched.batch_id || null
+  };
+}
+
+function getActivatedRecordByAccountIdAndId({ account_id: accountIdValue, id }) {
+  const db = readDB();
+  const targetAccountId = normalizeAccountId(accountIdValue);
+  const targetId = String(id || '').trim();
+  if (!targetAccountId || !targetId) return null;
+
+  const matched = db.qr_codes.find((item) =>
+    item.activation_status === 'activated'
+    && normalizeAccountId(item.account_id) === targetAccountId
     && item.id === targetId
   );
 
@@ -1617,9 +1677,27 @@ function listMiniappOrders(openid) {
     .map(orderPayload);
 }
 
+function listMiniappOrdersByAccountId(accountIdValue) {
+  const accountId = normalizeAccountId(accountIdValue);
+  if (!accountId) return [];
+  const db = readDB();
+  return db.orders
+    .filter((item) => normalizeAccountId(item.account_id) === accountId)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .map(orderPayload);
+}
+
 function getMiniappOrder({ openid, orderId }) {
   const db = readDB();
   return orderPayload(db.orders.find((item) => item.openid === openid && item.id === orderId));
+}
+
+function getMiniappOrderByAccountId({ account_id: accountIdValue, orderId }) {
+  const accountId = normalizeAccountId(accountIdValue);
+  const targetOrderId = String(orderId || '').trim();
+  if (!accountId || !targetOrderId) return null;
+  const db = readDB();
+  return orderPayload(db.orders.find((item) => normalizeAccountId(item.account_id) === accountId && item.id === targetOrderId));
 }
 
 function getOrderByOrderNo(orderNo) {
@@ -1641,9 +1719,60 @@ function cancelMiniappOrder({ openid, orderId }) {
   return { data: orderPayload(db.orders[index]) };
 }
 
+function cancelMiniappOrderByAccountId({ account_id: accountIdValue, orderId }) {
+  const accountId = normalizeAccountId(accountIdValue);
+  const targetOrderId = String(orderId || '').trim();
+  if (!accountId || !targetOrderId) return { error: 'ORDER_NOT_FOUND' };
+  const db = readDB();
+  const index = db.orders.findIndex((item) => normalizeAccountId(item.account_id) === accountId && item.id === targetOrderId);
+  if (index === -1) return { error: 'ORDER_NOT_FOUND' };
+  if (db.orders[index].status !== 'pending_payment') return { error: 'ORDER_NOT_CANCELABLE' };
+  db.orders[index] = {
+    ...db.orders[index],
+    status: 'cancelled',
+    updated_at: nowISO()
+  };
+  writeDB(db);
+  return { data: orderPayload(db.orders[index]) };
+}
+
 function payMiniappOrderMock({ openid, orderId }) {
   const db = readDB();
   const index = db.orders.findIndex((item) => item.openid === openid && item.id === orderId);
+  if (index === -1) return { error: 'ORDER_NOT_FOUND' };
+  if (db.orders[index].status !== 'pending_payment') return { error: 'ORDER_NOT_PAYABLE' };
+  const paidAt = nowISO();
+  db.orders[index] = {
+    ...db.orders[index],
+    status: 'paid',
+    payment_status: 'paid',
+    payment_method: 'wechat_mock',
+    payment_mock: true,
+    wechat_transaction_id: `MOCK_${Date.now()}`,
+    paid_at: paidAt,
+    updated_at: paidAt
+  };
+  db.payment_logs.push({
+    id: `PAY_${Date.now()}_${String(db.payment_logs.length + 1).padStart(4, '0')}`,
+    order_id: db.orders[index].id,
+    order_no: db.orders[index].order_no,
+    method: 'wechat_mock',
+    status: 'paid',
+    amount_cents: db.orders[index].total_amount_cents,
+    transaction_id: db.orders[index].wechat_transaction_id,
+    raw: { mock: true },
+    created_at: paidAt
+  });
+  writeDB(db);
+  return { data: orderPayload(db.orders[index]) };
+}
+
+function payMiniappOrderMockByAccountId({ account_id: accountIdValue, orderId }) {
+  const accountId = normalizeAccountId(accountIdValue);
+  const targetOrderId = String(orderId || '').trim();
+  if (!accountId || !targetOrderId) return { error: 'ORDER_NOT_FOUND' };
+  const db = readDB();
+  const index = db.orders.findIndex((item) => normalizeAccountId(item.account_id) === accountId && item.id === targetOrderId);
   if (index === -1) return { error: 'ORDER_NOT_FOUND' };
   if (db.orders[index].status !== 'pending_payment') return { error: 'ORDER_NOT_PAYABLE' };
   const paidAt = nowISO();
@@ -2245,8 +2374,10 @@ module.exports = {
   getDashboardStats,
   listQRRecords,
   listActivatedRecordsByPhone,
+  listActivatedRecordsByAccountId,
   listActivatedRecordsByMiniappOpenid,
   getActivatedRecordByPhoneAndId,
+  getActivatedRecordByAccountIdAndId,
   getActivatedRecordByMiniappOpenidAndId,
   createProduct,
   updateProduct,
@@ -2254,10 +2385,14 @@ module.exports = {
   getProduct,
   createMiniappOrder,
   listMiniappOrders,
+  listMiniappOrdersByAccountId,
   getMiniappOrder,
+  getMiniappOrderByAccountId,
   getOrderByOrderNo,
   cancelMiniappOrder,
+  cancelMiniappOrderByAccountId,
   payMiniappOrderMock,
+  payMiniappOrderMockByAccountId,
   appendPaymentLog,
   markOrderPaidByOrderNo,
   listOrders,

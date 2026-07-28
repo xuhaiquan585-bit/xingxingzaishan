@@ -883,15 +883,70 @@ test('GET /api/user/records should return only current user activated records', 
   }, userACookie);
   assert.equal(activateRes.status, 200);
 
+  const userBCookie = await loginUserAndGetCookie('13500135000');
+  let db = getTestDbSnapshot();
+  const userA = findTestUserByPhone(db, '13600136000');
+  const userB = findTestUserByPhone(db, '13500135000');
+  const ownedRecord = db.qr_codes.find((item) => item.id === 'STAR0003');
+  ownedRecord.phone = '13600999999';
+  db.qr_codes.push({
+    id: 'STAR_ACCOUNT_OTHER',
+    qr_access_token: 'star-account-other-token',
+    activation_status: 'activated',
+    issue_status: 'issued',
+    phone: '13600136000',
+    account_id: userB.account_id,
+    content: 'same phone snapshot but different account',
+    image_url: 'https://example.com/other.jpg',
+    image_object_key: null,
+    activated_at: '2026-07-27T01:00:00.000Z',
+    created_at: '2026-07-27T00:00:00.000Z'
+  });
+  db.qr_codes.push({
+    id: 'STAR_ACCOUNT_MISSING',
+    qr_access_token: 'star-account-missing-token',
+    activation_status: 'activated',
+    issue_status: 'issued',
+    phone: '13600136000',
+    content: 'legacy missing account',
+    image_url: 'https://example.com/missing.jpg',
+    image_object_key: null,
+    activated_at: '2026-07-27T02:00:00.000Z',
+    created_at: '2026-07-27T00:00:00.000Z'
+  });
+  db.qr_codes.push({
+    id: 'STAR_CO_ACCOUNT',
+    qr_access_token: 'star-co-account-token',
+    activation_status: 'co_creating',
+    issue_status: 'issued',
+    phone: '13600999999',
+    account_id: userA.account_id,
+    co_creation_owner_phone: '13600999999',
+    co_creation_owner_account_id: userA.account_id,
+    content: 'co-create by account',
+    image_url: 'https://example.com/co.jpg',
+    image_object_key: null,
+    co_creation_enabled: true,
+    co_creation_comments: [],
+    co_creation_started_at: '2026-07-27T03:00:00.000Z',
+    created_at: '2026-07-27T00:00:00.000Z'
+  });
+  writeTestDbSnapshot(db);
+
   const userARecords = await getJsonWithCookie('/api/user/records', userACookie);
   assert.equal(userARecords.status, 200);
-  assert.equal(userARecords.body.data.total, 1);
-  assert.equal(userARecords.body.data.records[0].id, 'STAR0003');
-  assert.ok(userARecords.body.data.records[0].image_url);
+  assert.equal(userARecords.body.data.total, 2);
+  assert.equal(userARecords.body.data.records.some((item) => item.id === 'STAR0003'), true);
+  assert.equal(userARecords.body.data.records.some((item) => item.id === 'STAR_CO_ACCOUNT'), true);
+  assert.equal(userARecords.body.data.records.some((item) => item.id === 'STAR_ACCOUNT_OTHER'), false);
+  assert.equal(userARecords.body.data.records.some((item) => item.id === 'STAR_ACCOUNT_MISSING'), false);
+  assert.equal(userARecords.body.data.records.some((item) => Object.prototype.hasOwnProperty.call(item, 'account_id')), false);
+  assert.ok(userARecords.body.data.records.find((item) => item.id === 'STAR0003').image_url);
 
   const userADetail = await getJsonWithCookie('/api/user/records/STAR0003', userACookie);
   assert.equal(userADetail.status, 200);
   assert.equal(userADetail.body.data.id, 'STAR0003');
+  assert.equal(Object.prototype.hasOwnProperty.call(userADetail.body.data, 'account_id'), false);
   assert.ok(userADetail.body.data.blockchain_hash);
   assert.ok(userADetail.body.data.manifest_hash);
   assert.equal(userADetail.body.data.blockchain_hash, userADetail.body.data.manifest_hash);
@@ -899,10 +954,15 @@ test('GET /api/user/records should return only current user activated records', 
   assert.ok(userADetail.body.data.image_url);
   assert.equal(typeof userADetail.body.data.brand_name, 'string');
 
-  const userBCookie = await loginUserAndGetCookie('13500135000');
+  const userAWrongAccountDetail = await getJsonWithCookie('/api/user/records/STAR_ACCOUNT_OTHER', userACookie);
+  assert.equal(userAWrongAccountDetail.status, 404);
+  const userAMissingAccountDetail = await getJsonWithCookie('/api/user/records/STAR_ACCOUNT_MISSING', userACookie);
+  assert.equal(userAMissingAccountDetail.status, 404);
+
   const userBRecords = await getJsonWithCookie('/api/user/records', userBCookie);
   assert.equal(userBRecords.status, 200);
-  assert.equal(userBRecords.body.data.total, 0);
+  assert.equal(userBRecords.body.data.records.some((item) => item.id === 'STAR_ACCOUNT_OTHER'), true);
+  assert.equal(userBRecords.body.data.records.some((item) => item.id === 'STAR0003'), false);
 
   const userBDetail = await getJsonWithCookie('/api/user/records/STAR0003', userBCookie);
   assert.equal(userBDetail.status, 404);
@@ -2329,6 +2389,7 @@ test('miniapp sms fallback should reuse safe binding conflict rules', async () =
     image_url: '/uploads/sms-web-old.jpg',
     image_object_key: null,
     phone: webPhone,
+    account_id: smsWebUser.account_id,
     activated_at: '2026-07-25T00:00:00.000Z',
     blockchain_hash: null,
     co_creation_enabled: false,
@@ -2435,6 +2496,7 @@ test('miniapp bind phone should be idempotent and protect canonical web accounts
     image_url: '/uploads/web-old.jpg',
     image_object_key: null,
     phone: webPhone,
+    account_id: safeWebUser.account_id,
     activated_at: '2026-07-25T00:00:00.000Z',
     blockchain_hash: null,
     co_creation_enabled: false,
@@ -3477,6 +3539,91 @@ test('miniapp sticker orders should create, mock pay, list, and allow admin ship
   assert.equal(createdOrder.openid, mockOpenidForCode('mini-order-bound'));
   assert.equal(createdOrder.account_id, orderUser.account_id);
   assert.notEqual(createdOrder.account_id, 'FORGED_ACCOUNT');
+  const currentOrderOpenid = createdOrder.openid;
+  createdOrder.openid = 'mock-openid-legacy-order-owner';
+  const legacyCancelableOrder = {
+    ...createdOrder,
+    id: 'ORDER_ACCOUNT_LEGACY_CANCEL',
+    order_no: 'JS_ACCOUNT_LEGACY_CANCEL',
+    openid: 'mock-openid-legacy-cancel-owner',
+    status: 'pending_payment',
+    payment_status: 'unpaid',
+    payment_method: '',
+    payment_mock: false,
+    wechat_transaction_id: '',
+    paid_at: null,
+    created_at: '2026-07-27T05:00:00.000Z',
+    updated_at: '2026-07-27T05:00:00.000Z'
+  };
+  const foreignOrderUser = {
+    id: 'TEST_FOREIGN_ORDER_USER',
+    phone: '',
+    openid: 'mock-openid-foreign-order-owner',
+    unionid: null,
+    source: 'miniapp',
+    created_at: '2026-07-27T04:00:00.000Z',
+    updated_at: '2026-07-27T04:00:00.000Z'
+  };
+  const foreignAccountId = attachTestAccount(dbAfterOrder, foreignOrderUser, 'miniapp_openid');
+  dbAfterOrder.users.push(foreignOrderUser);
+  dbAfterOrder.orders.push(legacyCancelableOrder, {
+    ...createdOrder,
+    id: 'ORDER_ACCOUNT_FOREIGN',
+    order_no: 'JS_ACCOUNT_FOREIGN',
+    openid: currentOrderOpenid,
+    account_id: foreignAccountId,
+    status: 'pending_payment',
+    payment_status: 'unpaid',
+    payment_method: '',
+    payment_mock: false,
+    wechat_transaction_id: '',
+    paid_at: null,
+    created_at: '2026-07-27T04:00:00.000Z',
+    updated_at: '2026-07-27T04:00:00.000Z'
+  }, {
+    ...createdOrder,
+    id: 'ORDER_ACCOUNT_MISSING',
+    order_no: 'JS_ACCOUNT_MISSING',
+    openid: currentOrderOpenid,
+    account_id: null,
+    status: 'pending_payment',
+    payment_status: 'unpaid',
+    payment_method: '',
+    payment_mock: false,
+    wechat_transaction_id: '',
+    paid_at: null,
+    created_at: '2026-07-27T04:30:00.000Z',
+    updated_at: '2026-07-27T04:30:00.000Z'
+  });
+  writeTestDbSnapshot(dbAfterOrder);
+
+  const listBeforePayRes = await getJson('/api/miniapp/orders', token);
+  assert.equal(listBeforePayRes.status, 200);
+  assert.equal(listBeforePayRes.body.data.orders.some((item) => item.id === orderId), true);
+  assert.equal(listBeforePayRes.body.data.orders.some((item) => item.id === legacyCancelableOrder.id), true);
+  assert.equal(listBeforePayRes.body.data.orders.some((item) => item.id === 'ORDER_ACCOUNT_FOREIGN'), false);
+  assert.equal(listBeforePayRes.body.data.orders.some((item) => item.id === 'ORDER_ACCOUNT_MISSING'), false);
+  assert.equal(listBeforePayRes.body.data.orders.some((item) => Object.prototype.hasOwnProperty.call(item, 'account_id')), false);
+
+  const foreignDetailRes = await getJson('/api/miniapp/orders/ORDER_ACCOUNT_FOREIGN', token);
+  assert.equal(foreignDetailRes.status, 404);
+  const foreignCancelRes = await postJson('/api/miniapp/orders/ORDER_ACCOUNT_FOREIGN/cancel', {}, token);
+  assert.equal(foreignCancelRes.status, 404);
+  const foreignPayRes = await postJson('/api/miniapp/orders/ORDER_ACCOUNT_FOREIGN/pay', {}, token);
+  assert.equal(foreignPayRes.status, 404);
+  const missingOrderDetailRes = await getJson('/api/miniapp/orders/ORDER_ACCOUNT_MISSING', token);
+  assert.equal(missingOrderDetailRes.status, 404);
+  const missingOrderCancelRes = await postJson('/api/miniapp/orders/ORDER_ACCOUNT_MISSING/cancel', {}, token);
+  assert.equal(missingOrderCancelRes.status, 404);
+  const missingOrderPayRes = await postJson('/api/miniapp/orders/ORDER_ACCOUNT_MISSING/pay', {}, token);
+  assert.equal(missingOrderPayRes.status, 404);
+
+  const cancelLegacyRes = await postJson(`/api/miniapp/orders/${legacyCancelableOrder.id}/cancel`, {}, token);
+  assert.equal(cancelLegacyRes.status, 200);
+  assert.equal(cancelLegacyRes.body.data.status, 'cancelled');
+  const dbAfterLegacyCancel = getTestDbSnapshot();
+  const cancelledLegacyOrder = dbAfterLegacyCancel.orders.find((item) => item.id === legacyCancelableOrder.id);
+  assert.equal(cancelledLegacyOrder.openid, legacyCancelableOrder.openid);
 
   const unconfiguredPayRes = await postJson(`/api/miniapp/orders/${orderId}/pay`, {}, token);
   assert.equal(unconfiguredPayRes.status, 503);
@@ -3489,6 +3636,9 @@ test('miniapp sticker orders should create, mock pay, list, and allow admin ship
     assert.equal(payRes.status, 200);
     assert.equal(payRes.body.data.payment_mock, true);
     assert.equal(payRes.body.data.order.status, 'paid');
+    const dbAfterMockPay = getTestDbSnapshot();
+    const paidOrder = dbAfterMockPay.orders.find((item) => item.id === orderId);
+    assert.equal(paidOrder.openid, 'mock-openid-legacy-order-owner');
   } finally {
     if (oldPayMock === undefined) delete process.env.WECHAT_PAY_MOCK;
     else process.env.WECHAT_PAY_MOCK = oldPayMock;
@@ -3556,6 +3706,12 @@ test('miniapp order pay should return WeChat JSAPI payment params when configure
       address: '支付测试路 1 号'
     }, token);
     assert.equal(orderRes.status, 200);
+    const currentPayerOpenid = mockOpenidForCode('mini-order-wechat-pay');
+    let paymentDb = getTestDbSnapshot();
+    const paymentOrder = paymentDb.orders.find((item) => item.id === orderRes.body.data.id);
+    const paymentOrderAccountId = paymentOrder.account_id;
+    paymentOrder.openid = 'mock-openid-legacy-wechat-pay';
+    writeTestDbSnapshot(paymentDb);
 
     const payRes = await postJson(`/api/miniapp/orders/${orderRes.body.data.id}/pay`, {}, token);
     assert.equal(payRes.status, 200);
@@ -3572,8 +3728,11 @@ test('miniapp order pay should return WeChat JSAPI payment params when configure
     assert.equal(requestBody.mchid, process.env.WECHAT_PAY_MCH_ID);
     assert.equal(requestBody.out_trade_no, orderRes.body.data.order_no);
     assert.equal(requestBody.amount.total, 990);
-    assert.equal(typeof requestBody.payer.openid, 'string');
-    assert.ok(requestBody.payer.openid.length > 8);
+    assert.equal(requestBody.payer.openid, currentPayerOpenid);
+    assert.equal(Object.prototype.hasOwnProperty.call(requestBody, 'account_id'), false);
+    assert.equal(JSON.stringify(requestBody).includes(paymentOrderAccountId), false);
+    paymentDb = getTestDbSnapshot();
+    assert.equal(paymentDb.orders.find((item) => item.id === orderRes.body.data.id).openid, 'mock-openid-legacy-wechat-pay');
   } finally {
     httpsMock.restore();
     restoreEnv(oldEnv);
@@ -3941,6 +4100,44 @@ test('miniapp upload and record flow should require bound phone and reject dupli
   assert.equal(miniRecord.account_id, miniRecordOwner.account_id);
   assert.notEqual(miniRecord.account_id, 'FORGED_ACCOUNT');
   assert.equal(Object.prototype.hasOwnProperty.call(miniRecord, 'owner_account_id'), false);
+  miniRecord.phone = '13877779999';
+  const foreignRecordUser = {
+    id: 'TEST_FOREIGN_RECORD_USER',
+    phone: '13877770001',
+    openid: 'mock-openid-foreign-record-owner',
+    unionid: null,
+    source: 'miniapp',
+    created_at: '2026-07-27T06:00:00.000Z',
+    updated_at: '2026-07-27T06:00:00.000Z'
+  };
+  const foreignRecordAccountId = attachTestAccount(dbAfterMiniRecord, foreignRecordUser, 'miniapp_openid');
+  dbAfterMiniRecord.users.push(foreignRecordUser);
+  dbAfterMiniRecord.qr_codes.push({
+    id: 'MQR_ACCOUNT_OTHER',
+    qr_access_token: 'mqr-account-other-token',
+    activation_status: 'activated',
+    issue_status: 'issued',
+    phone: '13877770001',
+    account_id: foreignRecordAccountId,
+    content: 'same phone snapshot but different miniapp account',
+    image_url: 'https://example.com/mini-other.jpg',
+    image_object_key: null,
+    activated_at: '2026-07-27T06:10:00.000Z',
+    created_at: '2026-07-27T06:00:00.000Z'
+  });
+  dbAfterMiniRecord.qr_codes.push({
+    id: 'MQR_ACCOUNT_MISSING',
+    qr_access_token: 'mqr-account-missing-token',
+    activation_status: 'activated',
+    issue_status: 'issued',
+    phone: '13877770001',
+    content: 'legacy miniapp record missing account',
+    image_url: 'https://example.com/mini-missing.jpg',
+    image_object_key: null,
+    activated_at: '2026-07-27T06:20:00.000Z',
+    created_at: '2026-07-27T06:00:00.000Z'
+  });
+  writeTestDbSnapshot(dbAfterMiniRecord);
 
   const activatedStatusRes = await getJson(`/api/miniapp/qr/${accessToken}`, token);
   assert.equal(activatedStatusRes.status, 200);
@@ -3950,6 +4147,7 @@ test('miniapp upload and record flow should require bound phone and reject dupli
 
   const detailRes = await getJson('/api/miniapp/user/records/MQR00001', token);
   assert.equal(detailRes.status, 200);
+  assert.equal(Object.prototype.hasOwnProperty.call(detailRes.body.data, 'account_id'), false);
   assert.ok(detailRes.body.data.image_url);
   assert.equal(detailRes.body.data.show_brand_disclosure, true);
   assert.equal(detailRes.body.data.brand_disclosure_text_snapshot, '品牌露出文案-MINI');
@@ -4014,6 +4212,13 @@ test('miniapp upload and record flow should require bound phone and reject dupli
   const recordsRes = await getJson('/api/miniapp/user/records', token);
   assert.equal(recordsRes.status, 200);
   assert.equal(recordsRes.body.data.records.some((item) => item.id === 'MQR00001'), true);
+  assert.equal(recordsRes.body.data.records.some((item) => item.id === 'MQR_ACCOUNT_OTHER'), false);
+  assert.equal(recordsRes.body.data.records.some((item) => item.id === 'MQR_ACCOUNT_MISSING'), false);
+  assert.equal(recordsRes.body.data.records.some((item) => Object.prototype.hasOwnProperty.call(item, 'account_id')), false);
+  const wrongAccountRecordRes = await getJson('/api/miniapp/user/records/MQR_ACCOUNT_OTHER', token);
+  assert.equal(wrongAccountRecordRes.status, 404);
+  const missingAccountRecordRes = await getJson('/api/miniapp/user/records/MQR_ACCOUNT_MISSING', token);
+  assert.equal(missingAccountRecordRes.status, 404);
 });
 
 test('miniapp record payload should use public cloud url for object-key-only images', async () => {

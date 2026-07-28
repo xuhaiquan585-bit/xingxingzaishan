@@ -1,8 +1,8 @@
 const express = require('express');
 const {
   createOrGetUser,
-  listActivatedRecordsByPhone,
-  getActivatedRecordByPhoneAndId,
+  listActivatedRecordsByAccountId,
+  getActivatedRecordByAccountIdAndId,
   listBatches
 } = require('../services/dbService');
 const { createSession, destroySession } = require('../services/userSessionService');
@@ -238,7 +238,7 @@ function visibleComments(record) {
 }
 
 function handleRecords(req, res) {
-  const records = listActivatedRecordsByPhone(req.user.phone).map((item) => ({
+  const records = listActivatedRecordsByAccountId(req.user.account_id).map((item) => ({
     id: item.id,
     content: item.content,
     activated_at: item.activated_at,
@@ -258,8 +258,8 @@ function handleRecords(req, res) {
 }
 
 function handleRecordDetail(req, res) {
-  const record = getActivatedRecordByPhoneAndId({
-    phone: req.user.phone,
+  const record = getActivatedRecordByAccountIdAndId({
+    account_id: req.user.account_id,
     id: req.params.id
   });
 

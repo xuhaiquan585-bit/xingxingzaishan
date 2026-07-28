@@ -15,17 +15,17 @@ const {
   addCoCreationCommentByKey,
   deleteCoCreationCommentByKey,
   finalizeCoCreationByKey,
-  listActivatedRecordsByMiniappOpenid,
-  getActivatedRecordByMiniappOpenidAndId,
+  listActivatedRecordsByAccountId,
+  getActivatedRecordByAccountIdAndId,
   listBatches,
   listProducts,
   getProduct,
   getMiniappContent,
   createMiniappOrder,
-  listMiniappOrders,
-  getMiniappOrder,
-  cancelMiniappOrder,
-  payMiniappOrderMock
+  listMiniappOrdersByAccountId,
+  getMiniappOrderByAccountId,
+  cancelMiniappOrderByAccountId,
+  payMiniappOrderMockByAccountId
 } = require('../services/dbService');
 const {
   saveImage,
@@ -615,7 +615,7 @@ router.post('/orders', requireMiniappAuth, requireMiniappPhone, (req, res) => {
 });
 
 router.get('/orders', requireMiniappAuth, requireMiniappPhone, (req, res) => {
-  const orders = listMiniappOrders(req.miniappUser.openid);
+  const orders = listMiniappOrdersByAccountId(req.miniappUser.account_id);
   return res.json({
     status: 'success',
     code: 'OK',
@@ -627,7 +627,7 @@ router.get('/orders', requireMiniappAuth, requireMiniappPhone, (req, res) => {
 });
 
 router.get('/orders/:orderId', requireMiniappAuth, requireMiniappPhone, (req, res) => {
-  const order = getMiniappOrder({ openid: req.miniappUser.openid, orderId: req.params.orderId });
+  const order = getMiniappOrderByAccountId({ account_id: req.miniappUser.account_id, orderId: req.params.orderId });
   if (!order) {
     return res.status(404).json({ status: 'error', code: 'ORDER_NOT_FOUND', message: '未找到该订单。' });
   }
@@ -635,7 +635,7 @@ router.get('/orders/:orderId', requireMiniappAuth, requireMiniappPhone, (req, re
 });
 
 router.post('/orders/:orderId/cancel', requireMiniappAuth, requireMiniappPhone, (req, res) => {
-  const result = cancelMiniappOrder({ openid: req.miniappUser.openid, orderId: req.params.orderId });
+  const result = cancelMiniappOrderByAccountId({ account_id: req.miniappUser.account_id, orderId: req.params.orderId });
   if (result.error === 'ORDER_NOT_FOUND') {
     return res.status(404).json({ status: 'error', code: 'ORDER_NOT_FOUND', message: '未找到该订单。' });
   }
@@ -646,7 +646,7 @@ router.post('/orders/:orderId/cancel', requireMiniappAuth, requireMiniappPhone, 
 });
 
 router.post('/orders/:orderId/pay', requireMiniappAuth, requireMiniappPhone, async (req, res) => {
-  const order = getMiniappOrder({ openid: req.miniappUser.openid, orderId: req.params.orderId });
+  const order = getMiniappOrderByAccountId({ account_id: req.miniappUser.account_id, orderId: req.params.orderId });
   if (!order) {
     return res.status(404).json({ status: 'error', code: 'ORDER_NOT_FOUND', message: '未找到该订单。' });
   }
@@ -682,7 +682,7 @@ router.post('/orders/:orderId/pay', requireMiniappAuth, requireMiniappPhone, asy
       message: '微信支付尚未配置完成，请稍后再试。'
     });
   }
-  const result = payMiniappOrderMock({ openid: req.miniappUser.openid, orderId: req.params.orderId });
+  const result = payMiniappOrderMockByAccountId({ account_id: req.miniappUser.account_id, orderId: req.params.orderId });
   if (result.error === 'ORDER_NOT_FOUND') {
     return res.status(404).json({ status: 'error', code: 'ORDER_NOT_FOUND', message: '未找到该订单。' });
   }
@@ -964,7 +964,7 @@ router.post('/qr/:key/finalize', requireMiniappAuth, requireMiniappPhone, async 
 });
 
 router.get('/user/records', requireMiniappAuth, requireMiniappPhone, (req, res) => {
-  const records = listActivatedRecordsByMiniappOpenid(req.miniappUser.openid).map((item) => ({
+  const records = listActivatedRecordsByAccountId(req.miniappUser.account_id).map((item) => ({
     id: item.id,
     content: item.content,
     activated_at: item.activated_at,
@@ -983,8 +983,8 @@ router.get('/user/records', requireMiniappAuth, requireMiniappPhone, (req, res) 
 });
 
 router.get('/user/records/:id', requireMiniappAuth, requireMiniappPhone, (req, res) => {
-  const record = getActivatedRecordByMiniappOpenidAndId({
-    openid: req.miniappUser.openid,
+  const record = getActivatedRecordByAccountIdAndId({
+    account_id: req.miniappUser.account_id,
     id: req.params.id
   });
   if (!record) {
