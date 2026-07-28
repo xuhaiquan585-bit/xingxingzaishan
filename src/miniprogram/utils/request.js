@@ -57,7 +57,7 @@ function request(options) {
         }
         const error = new Error(body.message || '请求失败，请稍后重试');
         error.code = body.code || 'REQUEST_FAILED';
-        if (error.code === 'UNAUTHORIZED') {
+        if (error.code === 'UNAUTHORIZED' || error.code === 'MINIAPP_LOGIN_STALE') {
           clearAuthState();
         }
         reject(error);
@@ -96,7 +96,7 @@ function uploadImage({ filePath, qrId }) {
         }
         const error = new Error(body.message || '上传失败，请重新选择图片');
         error.code = body.code || 'UPLOAD_FAILED';
-        if (error.code === 'UNAUTHORIZED') {
+        if (error.code === 'UNAUTHORIZED' || error.code === 'MINIAPP_LOGIN_STALE') {
           clearAuthState();
         }
         reject(error);

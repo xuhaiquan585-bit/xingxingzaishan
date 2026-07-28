@@ -1,5 +1,5 @@
 const { login, redirectToBindPhone } = require('../../utils/auth');
-const { request, uploadImage, resolveAssetUrl, isPhoneBound, getToken } = require('../../utils/request');
+const { request, uploadImage, resolveAssetUrl, isPhoneBound, getToken, clearAuthState } = require('../../utils/request');
 const { extractQrKey } = require('../../utils/qr');
 
 const PREVIEW_WIDTH_RPX = 638;
@@ -469,6 +469,21 @@ Page({
         this.saveRecordDraft('submit');
         this.markVerificationPending('submit');
         redirectToBindPhone(this.recordRedirectUrl(), 'submit');
+        return;
+      }
+      if (error.code === 'MINIAPP_LOGIN_STALE') {
+        const staleMessage = '登录状态已失效，请重新进入小程序后继续。';
+        this.saveRecordDraft('submit');
+        clearAuthState();
+        this.setData({
+          submitting: false,
+          previewMessage: staleMessage,
+          message: staleMessage
+        });
+        wx.showToast({
+          title: staleMessage,
+          icon: 'none'
+        });
         return;
       }
       this.setData({

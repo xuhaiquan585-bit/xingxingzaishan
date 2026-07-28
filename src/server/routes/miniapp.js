@@ -268,6 +268,13 @@ function shouldUseMockPay() {
 }
 
 function handleContentSafetyError(error, res) {
+  if (error.code === 'MINIAPP_LOGIN_STALE') {
+    return res.status(401).json({
+      status: 'error',
+      code: 'MINIAPP_LOGIN_STALE',
+      message: '登录状态已失效，请重新进入小程序后继续。'
+    });
+  }
   if (['CONTENT_REJECTED', 'IMAGE_REJECTED', 'CONTENT_SAFETY_UNAVAILABLE'].includes(error.code)) {
     const status = error.code === 'CONTENT_SAFETY_UNAVAILABLE' ? 503 : 400;
     return res.status(status).json({

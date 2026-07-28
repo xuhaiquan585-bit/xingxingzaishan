@@ -532,6 +532,41 @@ function mockWechatPayHttps(responseBody, statusCode = 200) {
   };
 }
 
+function mockWechatHttpsByUrl(handler) {
+  const originalRequest = https.request;
+  const calls = [];
+  https.request = (url, options, callback) => {
+    const req = new EventEmitter();
+    let requestBody = '';
+    req.write = (chunk) => {
+      requestBody += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+    };
+    req.setTimeout = () => req;
+    req.destroy = (error) => {
+      if (error) req.emit('error', error);
+    };
+    req.end = () => {
+      const urlText = String(url);
+      const responseBody = handler({ url: urlText, options, body: requestBody });
+      calls.push({ url: urlText, options, body: requestBody, responseBody });
+      const res = new EventEmitter();
+      res.statusCode = 200;
+      process.nextTick(() => {
+        callback(res);
+        res.emit('data', Buffer.from(JSON.stringify(responseBody)));
+        res.emit('end');
+      });
+    };
+    return req;
+  };
+  return {
+    calls,
+    restore: () => {
+      https.request = originalRequest;
+    }
+  };
+}
+
 function encryptWechatPayResource(payload, apiKey) {
   const nonce = 'notify-nonce';
   const associatedData = 'transaction';
@@ -1175,6 +1210,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const appWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'app.wxss'), 'utf8');
   const miniappAppJson = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'app.json'), 'utf8');
   const miniappAuthJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'utils', 'auth.js'), 'utf8');
+  const miniappRequestJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'utils', 'request.js'), 'utf8');
   const bindPhoneWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.wxml'), 'utf8');
   const bindPhoneCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.wxss'), 'utf8');
   const bindPhoneJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.js'), 'utf8');
@@ -1484,6 +1520,11 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordJs.includes('页面尚未加载完成，请稍后重试。'), true);
   assert.equal(recordJs.includes('请通过星贴二维码进入'), true);
   assert.equal(recordJs.includes('没有找到这张星贴'), true);
+  assert.equal(recordJs.includes("error.code === 'MINIAPP_LOGIN_STALE'"), true);
+  assert.equal(recordJs.includes("this.saveRecordDraft('submit')"), true);
+  assert.equal(recordJs.includes('clearAuthState()'), true);
+  assert.equal(recordJs.includes('登录状态已失效，请重新进入小程序后继续。'), true);
+  assert.equal(miniappRequestJs.includes("error.code === 'UNAUTHORIZED' || error.code === 'MINIAPP_LOGIN_STALE'"), true);
   assert.equal(miniappQrUtil.includes('function safeDecode(value)'), true);
   assert.equal(miniappQrUtil.includes('function normalizeDirectKey(value)'), true);
   assert.equal(miniappQrUtil.includes('const QR_ACCESS_TOKEN_PATTERN = /^[a-f0-9]{32}$/i'), true);
@@ -4415,6 +4456,58 @@ test('miniapp content safety mock should reject unsafe text and image', async ()
   }, token);
   assert.equal(rejectImage.status, 400);
   assert.equal(rejectImage.body.code, 'IMAGE_REJECTED');
+});
+
+test('miniapp content safety invalid openid should expire stale login without leaking WeChat rid', async () => {
+  const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const adminToken = adminLogin.body.data.token;
+  const genRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'MSL',
+    count: 1
+  }, adminToken);
+  assert.equal(genRes.status, 200);
+  const accessToken = genRes.body.data.records[0].qr_access_token;
+  const token = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-stale-openid',
+    phone: '13877770012'
+  });
+  const beforeDb = getTestDbSnapshot();
+  const oldMiniappAppid = process.env.WECHAT_MINIAPP_APPID;
+  const oldMiniappSecret = process.env.WECHAT_MINIAPP_SECRET;
+  const httpsMock = mockWechatHttpsByUrl(({ url }) => {
+    if (url.includes('/cgi-bin/token')) {
+      return { access_token: 'wechat-access-token-for-stale-openid', expires_in: 7200 };
+    }
+    if (url.includes('/wxa/msg_sec_check')) {
+      return {
+        errcode: 40003,
+        errmsg: 'invalid openid rid: 6a68df35-1f548341-2b898a08'
+      };
+    }
+    return {};
+  });
+
+  try {
+    process.env.WECHAT_MINIAPP_APPID = 'wx-test-appid';
+    process.env.WECHAT_MINIAPP_SECRET = 'wechat-miniapp-test-secret';
+    const staleRes = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
+      content: '这条记录应该被登录态失效拦截',
+      image_object_key: 'stale-login.jpg'
+    }, token);
+    assert.equal(staleRes.status, 401);
+    assert.equal(staleRes.body.code, 'MINIAPP_LOGIN_STALE');
+    assert.equal(staleRes.body.message, '登录状态已失效，请重新进入小程序后继续。');
+    assert.equal(staleRes.raw.includes('invalid openid'), false);
+    assert.equal(staleRes.raw.includes('rid:'), false);
+    assert.equal(httpsMock.calls.some((item) => item.url.includes('/wxa/msg_sec_check')), true);
+    assert.deepEqual(getTestDbSnapshot(), beforeDb);
+  } finally {
+    httpsMock.restore();
+    if (oldMiniappAppid === undefined) delete process.env.WECHAT_MINIAPP_APPID;
+    else process.env.WECHAT_MINIAPP_APPID = oldMiniappAppid;
+    if (oldMiniappSecret === undefined) delete process.env.WECHAT_MINIAPP_SECRET;
+    else process.env.WECHAT_MINIAPP_SECRET = oldMiniappSecret;
+  }
 });
 
 test('miniapp co-creation flow should collect comments and finalize', async () => {

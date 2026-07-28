@@ -100,6 +100,12 @@ function rejectFromWechatResponse(response, fallbackCode) {
     return;
   }
 
+  if (Number(response.errcode) === 40003 || /invalid\s+openid/i.test(String(response.errmsg || ''))) {
+    const error = new Error('登录状态已失效，请重新进入小程序后继续。');
+    error.code = 'MINIAPP_LOGIN_STALE';
+    throw error;
+  }
+
   if (Number(response.errcode) === 87014) {
     const error = new Error('内容未通过安全检测，请修改后再提交。');
     error.code = fallbackCode;
