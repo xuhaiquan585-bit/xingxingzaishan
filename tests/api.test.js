@@ -432,6 +432,15 @@ function mockOpenidForCode(code) {
   return `mock-openid-${code}`;
 }
 
+function assertPublicRecordPayloadHidesAccountIds(payload) {
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'account_id'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'co_creation_owner_account_id'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'user_account_id'), false);
+  if (Array.isArray(payload.co_creation_comments)) {
+    assert.equal(payload.co_creation_comments.some((item) => Object.prototype.hasOwnProperty.call(item, 'account_id')), false);
+  }
+}
+
 const WECHAT_PAY_ENV_KEYS = [
   'WECHAT_PAY_MCH_ID',
   'WECHAT_PAY_APPID',
@@ -5053,6 +5062,207 @@ test('co-creation account ownership should not fall back to phone snapshots', as
   assert.equal(JSON.stringify(getTestDbSnapshot()), beforeMiniForbidden);
 
   assert.notEqual(miniOwnerPayload.account_id, miniForeignPayload.account_id);
+});
+
+test('public co-creation identity flags should use account ids without changing visibility', async () => {
+  const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const adminToken = adminLogin.body.data.token;
+  const genRes = await postJson('/api/admin/qr/generate', {
+    prefix: 'PCO',
+    count: 2
+  }, adminToken);
+  assert.equal(genRes.status, 200);
+  const [h5Key, miniKey] = genRes.body.data.records.map((item) => item.qr_access_token);
+
+  const h5OwnerCookie = await loginUserAndGetCookie('13833330001');
+  const h5ParticipantCookie = await loginUserAndGetCookie('13833330002');
+  const h5ForeignCookie = await loginUserAndGetCookie('13833330003');
+  const h5MissingAccountCommentCookie = await loginUserAndGetCookie('13833330004');
+  const h5Start = await postJsonWithCookie(`/api/qr/${h5Key}/record`, {
+    mode: 'co_create',
+    content: '公开标记 H5',
+    image_object_key: 'h5-public-flags.jpg'
+  }, h5OwnerCookie);
+  assert.equal(h5Start.status, 200);
+  const h5Comment = await postJsonWithCookie(`/api/qr/${h5Key}/comments`, {
+    author_name: '参与者',
+    content: '账号标记'
+  }, h5ParticipantCookie);
+  assert.equal(h5Comment.status, 200);
+
+  let db = getTestDbSnapshot();
+  const h5Owner = findTestUserByPhone(db, '13833330001');
+  const h5Participant = findTestUserByPhone(db, '13833330002');
+  const h5Foreign = findTestUserByPhone(db, '13833330003');
+  let qr = db.qr_codes.find((item) => item.qr_access_token === h5Key);
+  const phoneSnapshotSharedWithForeign = h5Foreign.phone;
+  qr.co_creation_owner_phone = phoneSnapshotSharedWithForeign;
+  qr.co_creation_owner_account_id = h5Owner.account_id;
+  qr.co_creation_comments = [
+    {
+      ...qr.co_creation_comments.find((item) => item.id === h5Comment.body.data.id),
+      phone: phoneSnapshotSharedWithForeign,
+      account_id: h5Participant.account_id
+    },
+    {
+      id: 98,
+      phone: '13833330004',
+      author_name: '历史评论',
+      content: '缺少 account',
+      status: 'kept',
+      created_at: '2026-07-27T00:03:00.000Z'
+    },
+    {
+      id: 99,
+      phone: '13833330004',
+      account_id: h5MissingAccountCommentCookie,
+      author_name: '已删除',
+      content: '不计入',
+      status: 'deleted',
+      created_at: '2026-07-27T00:04:00.000Z'
+    }
+  ];
+  writeTestDbSnapshot(db);
+
+  const h5Anonymous = await getJson(`/api/qr/${h5Key}`);
+  assert.equal(h5Anonymous.status, 200);
+  assert.notEqual(h5Anonymous.body.data.is_co_creation_owner, true);
+  assert.notEqual(h5Anonymous.body.data.has_my_co_creation_comment, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(h5Anonymous.body.data, 'content'), false);
+  assertPublicRecordPayloadHidesAccountIds(h5Anonymous.body.data);
+
+  const h5OwnerStatus = await getJsonWithCookie(`/api/qr/${h5Key}`, h5OwnerCookie);
+  assert.equal(h5OwnerStatus.status, 200);
+  assert.equal(h5OwnerStatus.body.data.is_co_creation_owner, true);
+  assert.equal(h5OwnerStatus.body.data.has_my_co_creation_comment, false);
+  assertPublicRecordPayloadHidesAccountIds(h5OwnerStatus.body.data);
+
+  const h5ParticipantStatus = await getJsonWithCookie(`/api/qr/${h5Key}`, h5ParticipantCookie);
+  assert.equal(h5ParticipantStatus.status, 200);
+  assert.equal(h5ParticipantStatus.body.data.is_co_creation_owner, false);
+  assert.equal(h5ParticipantStatus.body.data.has_my_co_creation_comment, true);
+  assertPublicRecordPayloadHidesAccountIds(h5ParticipantStatus.body.data);
+
+  const h5ForgedForeign = await getJsonWithCookie(`/api/qr/${h5Key}?account_id=${h5Owner.account_id}`, h5ForeignCookie);
+  assert.equal(h5ForgedForeign.status, 200);
+  assert.equal(h5ForgedForeign.body.data.is_co_creation_owner, false);
+  assert.equal(h5ForgedForeign.body.data.has_my_co_creation_comment, false);
+
+  const h5MissingAccountCommentStatus = await getJsonWithCookie(`/api/qr/${h5Key}`, h5MissingAccountCommentCookie);
+  assert.equal(h5MissingAccountCommentStatus.status, 200);
+  assert.equal(h5MissingAccountCommentStatus.body.data.has_my_co_creation_comment, false);
+
+  db = getTestDbSnapshot();
+  qr = db.qr_codes.find((item) => item.qr_access_token === h5Key);
+  qr.co_creation_owner_account_id = null;
+  writeTestDbSnapshot(db);
+  const h5MissingOwnerAccount = await getJsonWithCookie(`/api/qr/${h5Key}`, h5OwnerCookie);
+  assert.equal(h5MissingOwnerAccount.status, 200);
+  assert.equal(h5MissingOwnerAccount.body.data.is_co_creation_owner, false);
+
+  const miniOwnerToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-public-owner',
+    phone: '13833330005'
+  });
+  const miniParticipantToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-public-participant',
+    phone: '13833330006'
+  });
+  const miniForeignToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-public-foreign',
+    phone: '13833330007'
+  });
+  const miniUnboundToken = await loginMiniappAndGetToken('mini-public-unbound');
+  const miniOwnerPayload = decodeJwtPayload(miniOwnerToken);
+  const miniParticipantPayload = decodeJwtPayload(miniParticipantToken);
+  const miniStart = await postJson(`/api/miniapp/qr/${miniKey}/record`, {
+    mode: 'co_create',
+    content: '公开标记小程序',
+    image_object_key: 'mini-public-flags.jpg'
+  }, miniOwnerToken);
+  assert.equal(miniStart.status, 200);
+  const miniComment = await postJson(`/api/miniapp/qr/${miniKey}/comments`, {
+    author_name: '参与者',
+    content: '账号标记'
+  }, miniParticipantToken);
+  assert.equal(miniComment.status, 200);
+
+  db = getTestDbSnapshot();
+  const miniForeign = findTestUserByOpenid(db, mockOpenidForCode('mini-public-foreign'));
+  qr = db.qr_codes.find((item) => item.qr_access_token === miniKey);
+  qr.co_creation_owner_phone = miniForeign.phone;
+  qr.co_creation_owner_account_id = miniOwnerPayload.account_id;
+  qr.co_creation_comments = [
+    {
+      ...qr.co_creation_comments.find((item) => item.id === miniComment.body.data.id),
+      phone: miniForeign.phone,
+      account_id: miniParticipantPayload.account_id
+    },
+    {
+      id: 98,
+      phone: '13833330008',
+      author_name: '历史评论',
+      content: '缺少 account',
+      status: 'kept',
+      created_at: '2026-07-27T00:05:00.000Z'
+    },
+    {
+      id: 99,
+      phone: '13833330008',
+      account_id: miniParticipantPayload.account_id,
+      author_name: '已删除',
+      content: '不计入',
+      status: 'deleted',
+      created_at: '2026-07-27T00:06:00.000Z'
+    }
+  ];
+  writeTestDbSnapshot(db);
+
+  const miniAnonymous = await getJson(`/api/miniapp/qr/${miniKey}`);
+  assert.equal(miniAnonymous.status, 200);
+  assert.equal(miniAnonymous.body.data.phone_bound, false);
+  assert.notEqual(miniAnonymous.body.data.is_co_creation_owner, true);
+  assert.notEqual(miniAnonymous.body.data.has_my_co_creation_comment, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(miniAnonymous.body.data, 'content'), false);
+  assertPublicRecordPayloadHidesAccountIds(miniAnonymous.body.data);
+
+  const miniInvalidToken = await getJson(`/api/miniapp/qr/${miniKey}`, 'not-a-valid-token');
+  assert.equal(miniInvalidToken.status, 200);
+  assert.equal(miniInvalidToken.body.data.phone_bound, false);
+  assert.notEqual(miniInvalidToken.body.data.is_co_creation_owner, true);
+  assert.notEqual(miniInvalidToken.body.data.has_my_co_creation_comment, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(miniInvalidToken.body.data, 'content'), false);
+
+  const miniUnbound = await getJson(`/api/miniapp/qr/${miniKey}`, miniUnboundToken);
+  assert.equal(miniUnbound.status, 200);
+  assert.equal(miniUnbound.body.data.phone_bound, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(miniUnbound.body.data, 'content'), false);
+  assert.notEqual(miniUnbound.body.data.is_co_creation_owner, true);
+
+  const miniOwnerStatus = await getJson(`/api/miniapp/qr/${miniKey}`, miniOwnerToken);
+  assert.equal(miniOwnerStatus.status, 200);
+  assert.equal(miniOwnerStatus.body.data.is_co_creation_owner, true);
+  assert.equal(miniOwnerStatus.body.data.has_my_co_creation_comment, false);
+  assertPublicRecordPayloadHidesAccountIds(miniOwnerStatus.body.data);
+
+  const miniParticipantStatus = await getJson(`/api/miniapp/qr/${miniKey}`, miniParticipantToken);
+  assert.equal(miniParticipantStatus.status, 200);
+  assert.equal(miniParticipantStatus.body.data.is_co_creation_owner, false);
+  assert.equal(miniParticipantStatus.body.data.has_my_co_creation_comment, true);
+  assertPublicRecordPayloadHidesAccountIds(miniParticipantStatus.body.data);
+
+  const miniForgedForeign = await getJson(`/api/miniapp/qr/${miniKey}?account_id=${miniOwnerPayload.account_id}`, miniForeignToken);
+  assert.equal(miniForgedForeign.status, 200);
+  assert.equal(miniForgedForeign.body.data.is_co_creation_owner, false);
+  assert.equal(miniForgedForeign.body.data.has_my_co_creation_comment, false);
+
+  db = getTestDbSnapshot();
+  qr = db.qr_codes.find((item) => item.qr_access_token === miniKey);
+  qr.co_creation_owner_account_id = null;
+  writeTestDbSnapshot(db);
+  const miniMissingOwnerAccount = await getJson(`/api/miniapp/qr/${miniKey}`, miniOwnerToken);
+  assert.equal(miniMissingOwnerAccount.status, 200);
+  assert.equal(miniMissingOwnerAccount.body.data.is_co_creation_owner, false);
 });
 
 test('co-creation comments should be limited to 12 active comments', async () => {

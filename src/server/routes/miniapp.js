@@ -76,6 +76,22 @@ function getMiniappAccountId(user) {
   return user && user.account_id ? String(user.account_id) : '';
 }
 
+function isCoCreationOwnerByAccount(qr, user) {
+  const accountId = getMiniappAccountId(user);
+  const ownerAccountId = qr && qr.co_creation_owner_account_id ? String(qr.co_creation_owner_account_id) : '';
+  return !!accountId && !!ownerAccountId && accountId === ownerAccountId;
+}
+
+function hasMyCoCreationCommentByAccount(qr, user) {
+  const accountId = getMiniappAccountId(user);
+  if (!accountId) {
+    return false;
+  }
+  return activeCoCreationComments(qr).some((comment) => (
+    !!comment.account_id && String(comment.account_id) === accountId
+  ));
+}
+
 function respondMiniappAccountContextRequired(res) {
   return res.status(401).json({
     status: 'error',
@@ -127,9 +143,8 @@ function activeCoCreationComments(qr) {
 
 function coCreationMeta(qr, user) {
   const activeComments = activeCoCreationComments(qr);
-  const phone = user && user.phone ? user.phone : '';
   return {
-    has_my_co_creation_comment: !!phone && activeComments.some((comment) => comment.phone === phone),
+    has_my_co_creation_comment: hasMyCoCreationCommentByAccount(qr, user),
     co_creation_comment_count: activeComments.length,
     co_creation_comment_limit: CO_CREATION_COMMENT_LIMIT
   };
@@ -180,7 +195,7 @@ function formatQRPayload(qr, user) {
       ...chainPublicPayload(qr),
       activated_at: qr.activated_at,
       co_creation_enabled: qr.co_creation_enabled === true,
-      is_co_creation_owner: !!(user && user.phone && qr.co_creation_owner_phone === user.phone),
+      is_co_creation_owner: isCoCreationOwnerByAccount(qr, user),
       co_creation_comments: visibleComments(qr),
       ...coCreationMeta(qr, user),
       show_brand_disclosure: qr.show_brand_disclosure === true,
@@ -200,7 +215,7 @@ function formatQRPayload(qr, user) {
       image_url: resolveImageUrl(qr),
       image_object_key: qr.image_object_key || null,
       co_creation_enabled: true,
-      is_co_creation_owner: qr.co_creation_owner_phone === user.phone,
+      is_co_creation_owner: isCoCreationOwnerByAccount(qr, user),
       co_creation_comments: visibleComments(qr),
       ...coCreationMeta(qr, user),
       show_brand_disclosure: qr.show_brand_disclosure === true,
