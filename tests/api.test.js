@@ -1410,6 +1410,9 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordWxml.includes('mode="widthFix"'), true);
   assert.equal(recordWxml.includes('style="height: {{previewHeight}}rpx;"'), false);
   assert.equal(recordWxml.includes('mode="aspectFill"'), false);
+  assert.equal(recordWxss.includes('.photo-frame .preview'), true);
+  assert.equal(recordWxss.includes('flex: 0 0 100%'), true);
+  assert.equal(recordWxss.includes('max-width: 100%'), true);
   assert.equal(recordWxml.includes('class="mode-row"'), false);
   assert.equal(recordWxml.includes('class="record-state-card"'), true);
   assert.equal(recordWxml.includes('class="preview-mask"'), true);

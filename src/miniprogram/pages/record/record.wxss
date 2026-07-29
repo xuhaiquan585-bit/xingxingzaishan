@@ -277,6 +277,13 @@ page {
   box-shadow: 0 10rpx 30rpx rgba(66, 79, 91, .08);
 }
 
+.photo-frame .preview {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  flex: 0 0 100%;
+}
+
 .field-block {
   margin: 34rpx 0 26rpx;
 }
@@ -580,8 +587,10 @@ page {
 }
 
 .preview-image {
+  box-sizing: border-box;
   display: block;
   width: 100%;
+  max-width: 100%;
   margin: 26rpx 0;
   border-radius: 16rpx;
   background: rgba(255, 255, 255, .72);
