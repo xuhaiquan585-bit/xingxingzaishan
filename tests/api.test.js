@@ -1303,9 +1303,10 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(h5MeJs.includes('record-content record-summary'), true);
   assert.equal(bindPhoneWxml.includes('<view class="hero-title">{{title}}</view>'), true);
   assert.equal(bindPhoneWxml.includes('<view class="subtitle bind-subtitle">{{subtitle}}</view>'), true);
-  assert.equal(bindPhoneWxml.includes('微信手机号验证'), true);
-  assert.equal(bindPhoneWxml.includes('<text class="wechat-mark">微信</text>'), true);
-  assert.equal(bindPhoneWxml.includes('<text class="wechat-login-text">使用微信手机号继续</text>'), true);
+  assert.equal(bindPhoneWxml.includes('手机号验证'), true);
+  assert.equal(bindPhoneWxml.includes('wechat-mark'), false);
+  assert.equal(bindPhoneWxml.includes('<text class="wechat-login-text">手机号快捷登录</text>'), true);
+  assert.equal(bindPhoneWxml.includes('微信'), false);
   assert.equal(bindPhoneWxml.includes('使用其他手机号'), true);
   assert.equal(bindPhoneWxml.includes('bindtap="onUseOtherPhone"'), true);
   assert.equal(bindPhoneWxml.includes('open-type="getPhoneNumber"'), true);
@@ -1322,10 +1323,10 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(bindPhoneJs.includes('event.detail && event.detail.code'), true);
   assert.equal(bindPhoneJs.includes('normalizeBindPhoneSource'), true);
   assert.equal(bindPhoneJs.includes('/pages/bind-phone-sms/bind-phone-sms'), true);
-  assert.equal(bindPhoneJs.includes('未获取到微信手机号，请再次尝试。'), true);
-  assert.equal(bindPhoneJs.includes('暂时无法获取微信手机号，请稍后重试。'), true);
-  assert.equal(bindPhoneJs.includes('这个手机号已关联其他微信账号，暂时无法绑定。'), true);
-  assert.equal(bindPhoneJs.includes('当前微信账号已绑定手机号，更换手机号功能暂未开放。'), true);
+  assert.equal(bindPhoneJs.includes('未获取到手机号，请再次尝试。'), true);
+  assert.equal(bindPhoneJs.includes('暂时无法获取手机号，请稍后重试。'), true);
+  assert.equal(bindPhoneJs.includes('这个手机号已关联其他账号，暂时无法绑定。'), true);
+  assert.equal(bindPhoneJs.includes('当前账号已绑定手机号，更换手机号功能暂未开放。'), true);
   assert.equal(bindPhoneJs.includes('errMsg'), false);
   assert.equal(bindPhoneJs.includes('验证手机号，继续添加照片'), true);
   assert.equal(bindPhoneJs.includes('验证手机号，继续保存记录'), true);
@@ -1347,7 +1348,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(bindPhoneSmsJs.includes('bindPhoneBySms'), true);
   assert.equal(bindPhoneSmsJs.includes('normalizeBindPhoneSource'), true);
   assert.equal(bindPhoneSmsJs.includes("sendCodeText: '获取验证码'"), true);
-  assert.equal(bindPhoneSmsJs.includes('当前微信账号已绑定手机号，更换手机号功能暂未开放。'), true);
+  assert.equal(bindPhoneSmsJs.includes('当前账号已绑定手机号，更换手机号功能暂未开放。'), true);
   assert.equal(bindPhoneSmsJs.includes('验证码不正确或已过期，请重新获取。'), true);
   assert.equal(bindPhoneSmsJs.includes('wx.chooseMedia'), false);
   assert.equal(bindPhoneSmsJs.includes('wx.chooseImage'), false);

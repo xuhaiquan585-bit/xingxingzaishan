@@ -15,14 +15,14 @@ const TAB_PAGES = new Set([
 
 const PHONE_PATTERN = /^1\d{10}$/;
 const VERIFY_CODE_PATTERN = /^\d{6}$/;
-const BOUND_MESSAGE = '当前微信账号已绑定手机号，更换手机号功能暂未开放。';
+const BOUND_MESSAGE = '当前账号已绑定手机号，更换手机号功能暂未开放。';
 
 const SMS_ERROR_MESSAGES = {
   INVALID_PHONE: '请输入正确的手机号。',
   SMS_SEND_TOO_FREQUENT: '操作太频繁，请稍后再试。',
   INVALID_VERIFY_CODE: '验证码不正确或已过期，请重新获取。',
   SMS_SERVICE_UNAVAILABLE: '暂时无法完成手机号验证，请稍后重试。',
-  PHONE_ALREADY_BOUND_TO_OTHER_WECHAT: '这个手机号已关联其他微信账号，暂时无法绑定。',
+  PHONE_ALREADY_BOUND_TO_OTHER_WECHAT: '这个手机号已关联其他账号，暂时无法绑定。',
   MINIAPP_PHONE_REPLACE_REQUIRED: BOUND_MESSAGE,
   MINIAPP_ACCOUNT_CONFLICT: '账号状态异常，暂时无法绑定手机号，请联系客服处理。',
   MINIAPP_SMS_BIND_FAILED: '暂时无法完成手机号验证，请稍后重试。',

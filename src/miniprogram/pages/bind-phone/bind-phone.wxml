@@ -6,11 +6,10 @@
   </view>
 
   <view class="card bind-login-card">
-    <view class="list-title">微信手机号验证</view>
+    <view class="list-title">手机号验证</view>
     <view class="hint">授权后用于找回你留下的照片、文字和共创记录。</view>
     <button class="btn wechat-login-btn" open-type="getPhoneNumber" bindgetphonenumber="onGetPhoneNumber" disabled="{{binding}}">
-      <text class="wechat-mark">微信</text>
-      <text class="wechat-login-text">使用微信手机号继续</text>
+      <text class="wechat-login-text">手机号快捷登录</text>
     </button>
     <button class="sms-fallback-btn" bindtap="onUseOtherPhone" disabled="{{binding}}">使用其他手机号</button>
     <view wx:if="{{message}}" class="meta">{{message}}</view>

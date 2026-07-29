@@ -116,14 +116,6 @@
   opacity: 1;
 }
 
-.wechat-mark {
-  flex: 0 0 auto;
-  margin-right: 14rpx;
-  color: #162230;
-  font-weight: 750;
-  white-space: nowrap;
-}
-
 .wechat-login-text {
   flex: 0 0 auto;
   color: #162230;
