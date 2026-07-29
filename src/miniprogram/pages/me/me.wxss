@@ -55,7 +55,7 @@
   font-weight: 600;
 }
 
-.me-order-entry {
+.me-page .me-order-entry {
   width: 100%;
   margin-top: 8rpx;
   border: 1px solid rgba(52, 72, 91, .16);
@@ -83,7 +83,8 @@
 
 .record-cover {
   display: block;
-  max-height: 340rpx;
+  width: 100%;
+  height: 300rpx;
   margin-bottom: 18rpx;
   border-radius: 14rpx;
   background: rgba(255, 255, 255, .72);

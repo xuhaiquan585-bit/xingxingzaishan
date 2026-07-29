@@ -1597,6 +1597,10 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(meWxml.includes('查看你留在酒里的照片和留言'), true);
   assert.equal(meWxml.includes('{{currentPhoneText}}'), true);
   assert.equal(meWxml.includes('星贴 {{item.display_qr_id}}'), true);
+  assert.equal(meWxml.includes('class="cover record-cover" mode="aspectFill"'), true);
+  assert.equal(meWxml.includes('class="cover record-cover" mode="aspectFit"'), false);
+  assert.equal(meWxss.includes('.me-page .me-order-entry'), true);
+  assert.equal(meWxss.includes('height: 300rpx'), true);
   assert.equal(coCreateWxml.includes('这瓶酒正在共创中'), true);
   assert.equal(coCreateWxml.includes('bindtap="submitComment"'), true);
   assert.equal(coCreateWxml.includes('bindtap="finalize"'), true);

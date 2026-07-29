@@ -13,7 +13,7 @@
   <view class="record-list">
     <block wx:for="{{records}}" wx:key="id">
       <view class="card record-card" data-id="{{item.id}}" bindtap="openRecord">
-        <image wx:if="{{item.image_url}}" class="cover record-cover" mode="aspectFit" lazy-load src="{{item.image_url}}" />
+        <image wx:if="{{item.image_url}}" class="cover record-cover" mode="aspectFill" lazy-load src="{{item.image_url}}" />
         <view class="record-summary">{{item.display_content}}</view>
         <view class="record-meta-group">
           <view class="meta">{{item.display_date}}</view>
