@@ -1186,9 +1186,29 @@ test('miniapp QR parser should normalize only confirmed scan key formats', () =>
     token
   );
   assert.equal(
+    extractQrKey({ q: 'https%3A%2F%2Fxingxingzaishan.top%2Frecord.html%3Fkey%3DMQR00002%26ui%3Ddawn' }),
+    'MQR00002'
+  );
+  assert.equal(
+    extractQrKey({ q: `https://xingxingzaishan.top/record.html?t=${token}&ui=dawn` }),
+    token
+  );
+  assert.equal(
+    extractQrKey({ q: 'https%EA%A4%A%2F%2Fxingxingzaishan.top%2Frecord.html%3Ft%3DSSS00019' }),
+    ''
+  );
+  assert.equal(
+    extractQrKey({ q: 'https%3A%2F%2Fxingxingzaishan.top%2Frecord.html%3Fui%3Ddawn' }),
+    ''
+  );
+  assert.equal(extractQrKey({ q: 'SSS00020' }), '');
+  assert.equal(
     extractQrKey({ key: 'https://xingxingzaishan.top/record.html?key=MQR00001&ui=dawn' }),
     'MQR00001'
   );
+  assert.equal(extractQrKey({ path: `/pages/record/record?key=SSS00018` }), 'SSS00018');
+  assert.equal(extractQrKey({ path: `/pages/record/record?t=${token}` }), token);
+  assert.equal(extractQrKey({ path: `/pages/result/result?key=SSS00018` }), '');
   assert.equal(parseTokenFromUrl(`https://xingxingzaishan.top/not-record.html?t=${token}`), '');
   assert.equal(extractQrKey({ scene: 'preview' }), '');
   assert.equal(extractQrKey({ scene: 'foo=bar' }), '');
@@ -1623,6 +1643,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(homeWxml.includes('lazy-load'), true);
   assert.equal(homeJs.includes('onShareTimeline'), true);
   assert.equal(homeJs.includes('handleSlideAction'), true);
+  assert.equal(homeJs.includes('extractQrKey({ path: res.path })'), true);
   assert.equal(homeJs.includes('this.goProducts();'), true);
   assert.equal(homeJs.includes('normalizeSceneCards'), true);
   assert.equal(homeJs.includes('goProject()'), false);

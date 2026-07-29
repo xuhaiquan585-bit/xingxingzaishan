@@ -138,7 +138,9 @@ Page({
   scanCode() {
     wx.scanCode({
       success: (res) => {
-        const key = parseTokenFromUrl(res.result) || extractQrKey({ key: res.result });
+        const key = extractQrKey({ path: res.path })
+          || parseTokenFromUrl(res.result)
+          || extractQrKey({ key: res.result });
         if (!key) {
           wx.showToast({ title: '未识别到二维码', icon: 'none' });
           return;

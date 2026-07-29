@@ -16,6 +16,13 @@ function parseTokenFromUrl(rawUrl) {
   return matched ? normalizeDirectKey(matched[1]) : '';
 }
 
+function parseKeyFromMiniappPath(rawPath) {
+  const decoded = safeDecode(rawPath).trim();
+  if (!/(^|\/)pages\/record\/record([?#]|$)/.test(decoded)) return '';
+  const matched = decoded.match(/[?&](?:key|t)=([^&#]+)/);
+  return matched ? parseQrKeyValue(matched[1]) : '';
+}
+
 function normalizeDirectKey(value) {
   const decoded = safeDecode(value).trim();
   if (!decoded) return '';
@@ -36,6 +43,10 @@ function parseQrKeyValue(value) {
 function extractQrKey(options = {}) {
   if (options.key) return parseQrKeyValue(options.key);
   if (options.t) return parseQrKeyValue(options.t);
+  if (options.path) {
+    const fromPath = parseKeyFromMiniappPath(options.path);
+    if (fromPath) return fromPath;
+  }
   if (options.q) {
     const fromUrl = parseTokenFromUrl(options.q);
     if (fromUrl) return fromUrl;
