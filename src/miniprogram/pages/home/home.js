@@ -2,6 +2,27 @@ const { extractQrKey, parseTokenFromUrl } = require('../../utils/qr');
 const { request, resolveAssetUrl } = require('../../utils/request');
 
 const LOCAL_HERO_IMAGE = '/assets/home/memory-hero-v2.jpg';
+const DEFAULT_HOME_TITLE = '这一刻\n值得记住';
+const DEFAULT_HOME_SUBTITLE = '选一张照片，写一句话。\n以后重新扫码，还能看见。';
+const LEGACY_HOME_TITLES = new Set([
+  '那一刻，值得记住。',
+  '这一刻，值得记住。',
+  '把这一刻，记在这瓶酒里'
+]);
+const LEGACY_HOME_SUBTITLES = new Set([
+  '让故事与时间一同酝酿，区块链存证，不可篡改。',
+  '让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。'
+]);
+
+function normalizeHomeContent(content = {}) {
+  const homeTitle = String(content.home_title || '').trim();
+  const homeSubtitle = String(content.home_subtitle || '').trim();
+  return {
+    ...content,
+    home_title: !homeTitle || LEGACY_HOME_TITLES.has(homeTitle) ? DEFAULT_HOME_TITLE : homeTitle,
+    home_subtitle: !homeSubtitle || LEGACY_HOME_SUBTITLES.has(homeSubtitle) ? DEFAULT_HOME_SUBTITLE : homeSubtitle
+  };
+}
 
 const SCENE_OPTIONS = [
   { key: 'lover', label: '恋人', title: '恋人', description: '把说不出口的话，贴在这一瓶酒上。', image: '', button_text: '查看恋人星贴' },
@@ -33,8 +54,8 @@ const DEFAULT_SLIDES = [
 Page({
   data: {
     content: {
-      home_title: '把这一刻，记在这瓶酒里',
-      home_subtitle: '选一张照片，写一句话。\n以后重新扫码，还能看见。',
+      home_title: DEFAULT_HOME_TITLE,
+      home_subtitle: DEFAULT_HOME_SUBTITLE,
       project_title: '星星在闪',
       project_body: '把值得记住的时刻，存在这瓶酒里。',
       consult_label: '咨询购买',
@@ -82,7 +103,7 @@ Page({
       const slides = this.normalizeSlides(data.home_slides);
       const sceneCards = this.normalizeSceneCards(data.scene_cards);
       this.setData({
-        content: data,
+        content: normalizeHomeContent(data),
         logoImage,
         hasLogo: !!logoImage,
         bannerImage: bannerImage || LOCAL_HERO_IMAGE,

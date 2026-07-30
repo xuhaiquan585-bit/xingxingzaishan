@@ -127,15 +127,15 @@
       <view class="home-trust-item">
         <view class="home-trust-icon">存</view>
         <view class="home-trust-copy">
-          <view class="home-trust-label">内容安全保存</view>
-          <view class="home-trust-desc">照片和文字妥善留存</view>
+          <view class="home-trust-label">照片与文字妥善保存</view>
+          <view class="home-trust-desc">留住这一刻，也方便以后再看</view>
         </view>
       </view>
       <view class="home-trust-item">
         <view class="home-trust-icon">验</view>
         <view class="home-trust-copy">
-          <view class="home-trust-label">保存结果可以验证</view>
-          <view class="home-trust-desc">需要时可查看区块链存证凭证</view>
+          <view class="home-trust-label">保存凭证需要时可查看</view>
+          <view class="home-trust-desc">相关验证信息会保留在记录中</view>
         </view>
       </view>
     </view>
