@@ -1,6 +1,8 @@
 const { extractQrKey, parseTokenFromUrl } = require('../../utils/qr');
 const { request, resolveAssetUrl } = require('../../utils/request');
 
+const LOCAL_HERO_IMAGE = '/assets/home/memory-hero.jpg';
+
 const SCENE_OPTIONS = [
   { key: 'lover', label: '恋人', title: '恋人', description: '把说不出口的话，贴在这一瓶酒上。', image: '', button_text: '查看恋人星贴' },
   { key: 'elder', label: '长辈', title: '长辈', description: '把感谢和祝福，认真留给重要的人。', image: '', button_text: '查看长辈星贴' },
@@ -31,8 +33,8 @@ const DEFAULT_SLIDES = [
 Page({
   data: {
     content: {
-      home_title: '给这瓶酒，贴上一颗星',
-      home_subtitle: '贴上酒瓶星贴，上传一张照片，写下一句话。',
+      home_title: '把这一刻，记在这瓶酒里',
+      home_subtitle: '选一张照片，写一句话。\n以后重新扫码，还能看见。',
       project_title: '星星在闪',
       project_body: '把值得记住的时刻，存在这瓶酒里。',
       consult_label: '咨询购买',
@@ -42,6 +44,8 @@ Page({
     },
     logoImage: '',
     hasLogo: false,
+    bannerImage: LOCAL_HERO_IMAGE,
+    hasBanner: true,
     slides: DEFAULT_SLIDES,
     sceneCards: SCENE_OPTIONS
   },
@@ -75,12 +79,14 @@ Page({
     }).then((data) => {
       const bannerImage = resolveAssetUrl(data.home_banner_image);
       const logoImage = resolveAssetUrl(data.logo_image);
-      const slides = this.normalizeSlides(data.home_slides, bannerImage);
+      const slides = this.normalizeSlides(data.home_slides);
       const sceneCards = this.normalizeSceneCards(data.scene_cards);
       this.setData({
         content: data,
         logoImage,
         hasLogo: !!logoImage,
+        bannerImage: bannerImage || LOCAL_HERO_IMAGE,
+        hasBanner: true,
         slides,
         sceneCards
       });
@@ -94,10 +100,24 @@ Page({
     });
   },
 
-  normalizeSlides(slides, bannerImage) {
+  onBannerError() {
+    if (this.data.bannerImage !== LOCAL_HERO_IMAGE) {
+      this.setData({
+        bannerImage: LOCAL_HERO_IMAGE,
+        hasBanner: true
+      });
+      return;
+    }
+    this.setData({
+      bannerImage: '',
+      hasBanner: false
+    });
+  },
+
+  normalizeSlides(slides) {
     const source = Array.isArray(slides) && slides.length ? slides : DEFAULT_SLIDES;
     return source.slice(0, 5).map((item, index) => ({
-      image: resolveAssetUrl(item.image) || (index === 0 ? bannerImage : ''),
+      image: resolveAssetUrl(item.image),
       title: item.title || DEFAULT_SLIDES[index % DEFAULT_SLIDES.length].title,
       subtitle: item.subtitle || DEFAULT_SLIDES[index % DEFAULT_SLIDES.length].subtitle,
       button_text: item.button_text || DEFAULT_SLIDES[index % DEFAULT_SLIDES.length].button_text,

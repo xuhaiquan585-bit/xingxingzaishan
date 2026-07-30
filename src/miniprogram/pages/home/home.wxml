@@ -1,49 +1,37 @@
 <view class="page home-page">
   <view class="home-hero">
-    <view class="home-brand-row">
-      <view class="home-brand-wrap">
-        <image wx:if="{{hasLogo}}" class="home-logo" mode="aspectFit" lazy-load src="{{logoImage}}" binderror="onLogoError" />
-        <view wx:else class="home-brand-mark">
-          <view class="home-brand-star">✦</view>
+    <image
+      wx:if="{{hasBanner}}"
+      class="home-hero-image"
+      mode="aspectFill"
+      src="{{bannerImage}}"
+      binderror="onBannerError"
+    />
+    <view wx:else class="home-hero-fallback"></view>
+    <view class="home-hero-overlay"></view>
+
+    <view class="home-hero-content">
+      <view class="home-brand-row">
+        <view class="home-brand-wrap">
+          <image wx:if="{{hasLogo}}" class="home-logo" mode="aspectFit" src="{{logoImage}}" binderror="onLogoError" />
+          <view wx:else class="home-brand-mark">
+            <view class="home-brand-star">✦</view>
+          </view>
+        </view>
+        <view class="home-brand-copy">
+          <view class="home-brand-name">记在星上</view>
+          <view class="home-brand-subtitle">星星在闪</view>
         </view>
       </view>
-      <view class="home-brand-copy">
-        <view class="home-brand-name">记在星上</view>
-        <view class="home-brand-subtitle">星星在闪</view>
-      </view>
-    </view>
 
-    <view class="home-hero-layout">
       <view class="home-hero-copy">
         <view class="hero-title">{{content.home_title}}</view>
-        <view class="subtitle home-hero-subtitle">
-          <text>选一张照片，写一句话。</text>
-          <text>以后重新扫码，还能看见。</text>
-        </view>
+        <view class="subtitle home-hero-subtitle">{{content.home_subtitle}}</view>
         <view class="home-hero-actions">
           <button class="btn home-primary-cta" bindtap="goProducts">选择一颗星贴</button>
           <button class="btn secondary home-scan-link" bindtap="scanCode">已有星贴？扫码记录</button>
         </view>
         <view class="home-hero-note">星贴贴在酒瓶或礼盒上，不含酒水</view>
-      </view>
-
-      <view class="home-memory-scene" aria-label="私人记忆场景">
-        <view class="home-scene-light"></view>
-        <view class="home-scene-photo">
-          <view class="home-scene-photo-sky"></view>
-          <view class="home-scene-photo-people"></view>
-        </view>
-        <view class="home-scene-note">
-          <view class="home-note-line">把此刻留在酒里</view>
-          <view class="home-note-small">以后再扫码，还能回来。</view>
-          <view class="home-note-star">✦</view>
-        </view>
-        <view class="home-scene-bottle">
-          <view class="home-bottle-neck"></view>
-          <view class="home-bottle-body">
-            <view class="home-bottle-label">记在星上</view>
-          </view>
-        </view>
       </view>
     </view>
   </view>
@@ -55,7 +43,7 @@
         <view class="home-step-index">01</view>
         <view class="home-step-icon">贴</view>
         <view class="home-step-title">贴上星贴</view>
-        <view class="home-step-desc">贴在酒瓶、礼盒或想留下记忆的物品上</view>
+        <view class="home-step-desc">贴在酒瓶、礼盒或想留住记忆的物品上</view>
       </view>
       <view class="home-step-connector"></view>
       <view class="home-step">
@@ -75,10 +63,7 @@
   </view>
 
   <view class="home-section home-scene-section">
-    <view class="home-section-header">
-      <view class="home-section-title">这些时刻，适合留下一个星</view>
-      <view class="home-section-more">全部场景</view>
-    </view>
+    <view class="home-section-title">这些时刻，适合留下一颗星</view>
     <scroll-view class="home-scene-scroll" scroll-x="true" enable-flex="true" show-scrollbar="false">
       <view class="home-scene-list">
         <view
@@ -93,7 +78,6 @@
             <view class="home-scene-symbol">✦</view>
           </view>
           <view class="home-scene-copy">
-            <view class="home-scene-label">{{item.label}}</view>
             <view class="home-scene-title">{{item.title}}</view>
             <view class="home-scene-desc">{{item.description}}</view>
             <view class="home-scene-action">{{item.button_text}}</view>
@@ -104,7 +88,8 @@
   </view>
 
   <view class="home-section home-memory-section">
-    <view class="home-section-title">记忆，可以有很多种样子</view>
+    <view class="home-section-title">一张照片，一句话，就能留下</view>
+    <view class="home-section-caption">以下内容为产品使用示意</view>
     <scroll-view class="home-memory-scroll" scroll-x="true" enable-flex="true" show-scrollbar="false">
       <view class="home-memory-list">
         <view
@@ -131,21 +116,27 @@
 
   <view class="home-section home-trust-section">
     <view class="home-section-title">安静保存，也经得起验证</view>
-    <view class="home-trust-grid">
+    <view class="home-trust-list">
       <view class="home-trust-item">
         <view class="home-trust-icon">号</view>
-        <view class="home-trust-label">专属星贴编号</view>
-        <view class="home-trust-desc">一贴一号，专属记录</view>
+        <view class="home-trust-copy">
+          <view class="home-trust-label">专属星贴编号</view>
+          <view class="home-trust-desc">每颗星贴都有自己的记录编号</view>
+        </view>
       </view>
       <view class="home-trust-item">
         <view class="home-trust-icon">存</view>
-        <view class="home-trust-label">内容安全保存</view>
-        <view class="home-trust-desc">照片和文字妥善留存</view>
+        <view class="home-trust-copy">
+          <view class="home-trust-label">内容安全保存</view>
+          <view class="home-trust-desc">照片和文字妥善留存</view>
+        </view>
       </view>
       <view class="home-trust-item">
-        <view class="home-trust-icon">链</view>
-        <view class="home-trust-label">区块链存证可验证</view>
-        <view class="home-trust-desc">需要时可查看凭证</view>
+        <view class="home-trust-icon">验</view>
+        <view class="home-trust-copy">
+          <view class="home-trust-label">保存结果可以验证</view>
+          <view class="home-trust-desc">需要时可查看区块链存证凭证</view>
+        </view>
       </view>
     </view>
   </view>
