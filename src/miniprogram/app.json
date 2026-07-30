@@ -36,7 +36,7 @@
       },
       {
         "pagePath": "pages/products/products",
-        "text": "封存",
+        "text": "选星贴",
         "iconPath": "assets/tab/seal-normal.png",
         "selectedIconPath": "assets/tab/seal-active.png"
       },

@@ -46,6 +46,7 @@ Page({
       const products = (data.products || []).map((item) => ({
         ...item,
         cover_image: resolveAssetUrl(item.cover_image),
+        image_failed: false,
         scene_tags: Array.isArray(item.scene_tags) ? item.scene_tags : []
       }));
       this.setData({
@@ -80,6 +81,21 @@ Page({
 
   changeScene(event) {
     this.setActiveScene(event.currentTarget.dataset.scene || 'free');
+  },
+
+  showAllProducts() {
+    this.setActiveScene('free');
+  },
+
+  onProductImageError(event) {
+    const id = event.currentTarget.dataset.id;
+    const markFailed = (items) => items.map((item) => (
+      item.id === id ? { ...item, image_failed: true } : item
+    ));
+    this.setData({
+      allProducts: markFailed(this.data.allProducts),
+      products: markFailed(this.data.products)
+    });
   },
 
   openProduct(event) {

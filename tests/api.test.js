@@ -1164,7 +1164,7 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(appJson.includes('pages/project/project'), true);
   assert.equal(appJson.includes('"navigationBarTitleText": "记在星上"'), true);
   assert.equal(appJson.includes('"tabBar"'), true);
-  assert.equal(appJson.includes('"text": "封存"'), true);
+  assert.equal(appJson.includes('"text": "选星贴"'), true);
   assert.equal(appJson.includes('pages/order-confirm/order-confirm'), true);
   assert.equal(appJson.includes('pages/orders/orders'), true);
   assert.equal(appJson.includes('pages/order-detail/order-detail'), true);
@@ -1710,8 +1710,8 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
     assert.equal(fs.statSync(normalIcon).size > 200, true);
     assert.equal(fs.statSync(activeIcon).size > 200, true);
   }
-  assert.equal(productsWxml.includes('封存'), true);
-  assert.equal(productsWxml.includes('酒瓶星贴'), true);
+  assert.equal(productsWxml.includes('选择一颗适合这一刻的星贴'), true);
+  assert.equal(productsWxml.includes('星贴是记录入口'), true);
   assert.equal(productsWxml.includes('不含酒水'), true);
   assert.equal(productsJs.includes("label: '恋人'"), true);
   assert.equal(productsJs.includes("label: '长辈'"), true);
@@ -1722,12 +1722,14 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(productsWxml.includes('bindtap="changeScene"'), true);
   assert.equal(productsWxml.includes('bindtap="openProduct"'), true);
   assert.equal(productsWxml.includes('class="product-list"'), true);
-  assert.equal(productsWxml.includes('class="meta state-card"'), true);
+  assert.equal(productsWxml.includes('class="dawn-state products-state"'), true);
   assert.equal(productsWxml.includes('lazy-load'), true);
   assert.equal(productsJs.includes('onShareAppMessage'), true);
   assert.equal(productsWxml.includes('购物车'), false);
   assert.equal(productsWxss.includes('.products-hero'), true);
-  assert.equal(productsWxss.includes('box-shadow: 0 16rpx 36rpx'), true);
+  assert.equal(productsWxss.includes('@import "../../styles/dawn.wxss"'), true);
+  assert.equal(productsWxss.includes('grid-template-columns: repeat(2'), true);
+  assert.equal(productsWxml.includes('binderror="onProductImageError"'), true);
   assert.equal(productDetailWxml.includes('立即购买'), true);
   assert.equal(productDetailWxml.includes('不含酒水'), true);
   assert.equal(productDetailWxml.includes('bindtap="buyNow"'), true);
@@ -1735,7 +1737,9 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(productDetailJs.includes('onShareAppMessage'), true);
   assert.equal(productDetailJs.includes('onShareTimeline'), true);
   assert.equal(productDetailWxml.includes('lazy-load'), true);
-  assert.equal(productDetailWxml.includes('class="card product-detail-panel"'), true);
+  assert.equal(productDetailWxml.includes('class="product-purchase-bar"'), true);
+  assert.equal(productDetailWxml.includes('使用很简单'), true);
+  assert.equal(productDetailWxml.includes('binderror="onCoverError"'), true);
   assert.equal(productDetailWxml.includes('购物车'), false);
   assert.equal(orderConfirmWxml.includes('确认订单'), true);
   assert.equal(orderConfirmWxml.includes('立即支付'), true);
@@ -1760,7 +1764,8 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordDetailWxml.includes('lazy-load'), true);
   assert.equal(coCreateWxml.includes('lazy-load'), true);
   assert.equal(meWxml.includes('lazy-load'), true);
-  assert.equal(productDetailWxss.includes('height: 480rpx'), true);
+  assert.equal(productDetailWxss.includes('height: 720rpx'), true);
+  assert.equal(productDetailWxss.includes('@import "../../styles/dawn.wxss"'), true);
   assert.equal(projectWxml.includes('{{content.project_title}}'), true);
   assert.equal(projectWxml.includes('class="card project-card project-card-primary"'), true);
   assert.equal(projectWxml.includes('class="card project-card project-card-secondary"'), true);

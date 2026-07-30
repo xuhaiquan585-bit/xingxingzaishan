@@ -1,24 +1,71 @@
-<view class="page product-detail-page">
+<view class="page dawn-page product-detail-page">
   <block wx:if="{{product}}">
-    <view class="product-detail-hero">
-      <image wx:if="{{product.cover_image}}" class="cover hero-cover" mode="aspectFill" lazy-load src="{{product.cover_image}}" />
-      <view class="hero-title">{{product.title}}</view>
-      <view class="subtitle">{{product.subtitle}}</view>
+    <view class="product-media">
+      <image wx:if="{{product.cover_image && !coverFailed}}" class="product-hero-image" mode="aspectFill" src="{{product.cover_image}}" binderror="onCoverError" />
+      <view wx:else class="product-hero-image product-hero-fallback">
+        <view class="product-fallback-mark">星</view>
+        <view>星贴实物图</view>
+      </view>
     </view>
 
-    <view class="card product-detail-panel">
-      <view class="price">{{product.price_text}}</view>
-      <view class="meta">酒瓶星贴 · {{product.sticker_count}} 枚 · 不含酒水</view>
-      <view class="hint">{{product.description}}</view>
-      <view class="hint">{{product.shipping_note}}</view>
-      <view class="hint">{{product.after_sale_note}}</view>
-      <block wx:for="{{product.images}}" wx:key="*this">
-        <image class="cover detail-image" mode="widthFix" lazy-load src="{{item}}" />
+    <view class="product-header">
+      <view class="dawn-eyebrow">留给这一刻的专属入口</view>
+      <view class="dawn-title product-title">{{product.title}}</view>
+      <view class="dawn-subtitle product-subtitle">{{product.subtitle}}</view>
+      <view class="product-price-row">
+        <view class="product-price">{{product.price_text}}</view>
+        <view class="product-count">星贴 {{product.sticker_count}} 枚</view>
+      </view>
+      <view class="product-disclosure">购买的是印刷星贴，不含酒水</view>
+    </view>
+
+    <view class="product-section">
+      <view class="dawn-section-title">这颗星贴</view>
+      <view class="product-copy">{{product.description || '贴在酒瓶、礼盒或想留下记忆的物品上，扫码保存一张照片和一句话。'}}</view>
+    </view>
+
+    <view class="product-section product-steps">
+      <view class="dawn-section-title">使用很简单</view>
+      <view class="product-step-row">
+        <view class="product-step-index">01</view>
+        <view><view class="product-step-title">贴上星贴</view><view class="product-step-copy">贴在想留下记忆的物品上</view></view>
+      </view>
+      <view class="product-step-row">
+        <view class="product-step-index">02</view>
+        <view><view class="product-step-title">扫码记录</view><view class="product-step-copy">选一张照片，写一句话</view></view>
+      </view>
+      <view class="product-step-row">
+        <view class="product-step-index">03</view>
+        <view><view class="product-step-title">重新看见</view><view class="product-step-copy">以后再次扫码，回到这一刻</view></view>
+      </view>
+    </view>
+
+    <view wx:if="{{detailImages.length}}" class="product-gallery">
+      <view class="dawn-section-title">更多细节</view>
+      <block wx:for="{{detailImages}}" wx:key="id">
+        <image wx:if="{{!item.failed}}" class="product-detail-image" mode="widthFix" lazy-load src="{{item.url}}" binderror="onDetailImageError" data-index="{{index}}" />
       </block>
-      <button class="btn" bindtap="buyNow">立即购买</button>
-      <view class="meta">购买的是酒瓶星贴/印刷贴纸，不含酒水。</view>
+    </view>
+
+    <view class="product-section product-service">
+      <view class="product-service-row">
+        <view class="product-service-label">发货说明</view>
+        <view class="product-service-copy">{{product.shipping_note}}</view>
+      </view>
+      <view class="product-service-row">
+        <view class="product-service-label">售后说明</view>
+        <view class="product-service-copy">{{product.after_sale_note}}</view>
+      </view>
+    </view>
+
+    <view class="product-purchase-bar">
+      <view>
+        <view class="product-purchase-price">{{product.price_text}}</view>
+        <view class="product-purchase-note">星贴 {{product.sticker_count}} 枚 · 不含酒水</view>
+      </view>
+      <button class="btn product-buy-button" bindtap="buyNow">立即购买</button>
     </view>
   </block>
 
-  <view wx:if="{{message}}" class="meta state-card">{{message}}</view>
+  <view wx:if="{{message}}" class="dawn-state product-state">{{message}}</view>
 </view>

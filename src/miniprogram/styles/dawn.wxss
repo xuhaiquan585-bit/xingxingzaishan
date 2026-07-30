@@ -1,0 +1,116 @@
+.dawn-page {
+  min-height: 100vh;
+  padding: 36rpx 28rpx calc(128rpx + env(safe-area-inset-bottom));
+  overflow: hidden;
+  background: #f6f5f1;
+  color: #142844;
+  box-sizing: border-box;
+}
+
+.dawn-page::before,
+.dawn-page::after {
+  display: none;
+}
+
+.dawn-eyebrow {
+  color: #a77d37;
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.dawn-title {
+  margin-top: 12rpx;
+  color: #142844;
+  font-family: "Songti SC", STSong, serif;
+  font-size: 46rpx;
+  font-weight: 700;
+  line-height: 1.32;
+  letter-spacing: 0;
+}
+
+.dawn-subtitle {
+  margin-top: 14rpx;
+  color: #68788c;
+  font-size: 26rpx;
+  line-height: 1.62;
+}
+
+.dawn-section-title {
+  color: #142844;
+  font-family: "Songti SC", STSong, serif;
+  font-size: 32rpx;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.dawn-card {
+  box-sizing: border-box;
+  border: 1rpx solid #e1e4e3;
+  border-radius: 16rpx;
+  background: #fff;
+  box-shadow: none;
+}
+
+.dawn-page .btn,
+.dawn-primary-button,
+.dawn-secondary-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 88rpx;
+  margin: 0;
+  padding: 0 28rpx;
+  border-radius: 14rpx;
+  font-size: 28rpx;
+  font-weight: 700;
+  line-height: 1.2;
+  box-shadow: none;
+}
+
+.dawn-page .btn::after,
+.dawn-primary-button::after,
+.dawn-secondary-button::after {
+  border: 0;
+}
+
+.dawn-page .btn,
+.dawn-primary-button {
+  border: 1rpx solid rgba(180, 134, 56, .32);
+  background: #d6a649;
+  color: #142844;
+}
+
+.dawn-page .btn.secondary,
+.dawn-secondary-button {
+  border: 1rpx solid rgba(20, 40, 68, .16);
+  background: #fff;
+  color: #263445;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.dawn-state {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 34rpx 28rpx;
+  border: 1rpx solid #e1e4e3;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, .74);
+  color: #68788c;
+  font-size: 25rpx;
+  line-height: 1.6;
+  text-align: center;
+}
+
+@media (max-width: 340px) {
+  .dawn-page {
+    padding-left: 22rpx;
+    padding-right: 22rpx;
+  }
+
+  .dawn-title {
+    font-size: 42rpx;
+  }
+}
