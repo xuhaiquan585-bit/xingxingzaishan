@@ -234,6 +234,35 @@
   font-size: 25rpx;
 }
 
+.me-support {
+  overflow: hidden;
+  margin-top: 34rpx;
+  border: 1rpx solid #e1e3e1;
+  border-radius: 16rpx;
+  background: #fff;
+}
+
+.me-support-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 90rpx;
+  margin: 0;
+  padding: 0 24rpx;
+  border-radius: 0;
+  border-bottom: 1rpx solid #ecece8;
+  background: #fff;
+  color: #26394f;
+  font-size: 25rpx;
+  text-align: left;
+}
+
+.me-support-item:last-child { border-bottom: 0; }
+.me-support-item::after { border: 0; }
+.me-support-item text:last-child { color: #a7afb6; font-size: 31rpx; }
+
 @media (max-width: 340px) {
   .record-meta-group {
     flex-direction: column;

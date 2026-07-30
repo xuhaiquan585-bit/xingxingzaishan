@@ -1,18 +1,48 @@
-<view class="page project-page">
+<view class="dawn-page project-page">
   <view class="project-hero">
-    <view class="hero-title">{{content.project_title}}</view>
-    <view class="subtitle">{{content.share_description}}</view>
+    <view class="dawn-eyebrow">关于记在星上</view>
+    <view class="dawn-title">{{content.project_title}}</view>
+    <view class="dawn-subtitle">{{content.share_description}}</view>
   </view>
 
-  <view class="card project-card project-card-primary">
-    <view class="list-title">{{content.project_title}}</view>
-    <view class="project-text">{{content.project_body}}</view>
+  <view class="project-manifesto">
+    <view class="project-manifesto-mark">星</view>
+    <view class="project-manifesto-text">{{content.project_body}}</view>
   </view>
 
-  <view class="card project-card project-card-secondary">
-    <view class="list-title">{{content.brand_story_title}}</view>
+  <view class="project-section">
+    <view class="dawn-section-title">它是什么</view>
+    <view class="project-text">一颗贴在酒瓶、礼盒或纪念物上的星贴。扫码后，可以留下一张照片和一句话；以后再扫回来，重新看见这一刻。</view>
+  </view>
+
+  <view class="project-section">
+    <view class="dawn-section-title">如何使用</view>
+    <view class="project-steps">
+      <view class="project-step"><text>01</text><view><text class="project-step-title">贴上星贴</text><text class="project-step-copy">贴在想留下记忆的物品上</text></view></view>
+      <view class="project-step"><text>02</text><view><text class="project-step-title">扫码记录</text><text class="project-step-copy">选择一张照片，写下一句话</text></view></view>
+      <view class="project-step"><text>03</text><view><text class="project-step-title">重新看见</text><text class="project-step-copy">以后再次扫码，回到这一刻</text></view></view>
+    </view>
+  </view>
+
+  <view class="project-section">
+    <view class="dawn-section-title">{{content.brand_story_title}}</view>
     <view class="project-text">{{content.brand_story_body}}</view>
   </view>
 
-  <view wx:if="{{message}}" class="meta state-card">{{message}}</view>
+  <view class="project-section project-principles">
+    <view class="dawn-section-title">保存与验证原则</view>
+    <view class="project-principle"><text>专属</text><view><text class="project-step-title">一贴一号</text><text class="project-step-copy">每颗星贴都有自己的记录编号</text></view></view>
+    <view class="project-principle"><text>安静</text><view><text class="project-step-title">照片和文字妥善保存</text><text class="project-step-copy">技术信息不会盖过记忆本身</text></view></view>
+    <view class="project-principle"><text>可验</text><view><text class="project-step-title">保存结果可查看凭证</text><text class="project-step-copy">需要时再了解存证状态</text></view></view>
+  </view>
+
+  <view class="project-disclosure">星贴是用于记录的贴纸，不含酒水。</view>
+
+  <view class="project-support">
+    <button class="project-support-item" bindtap="goHelp"><text>使用帮助</text><text>›</text></button>
+    <button class="project-support-item" bindtap="openPrivacy"><text>隐私保护指引</text><text>›</text></button>
+    <button class="project-support-item" open-type="contact"><text>联系客服</text><text>›</text></button>
+  </view>
+
+  <view wx:if="{{message}}" class="dawn-state project-state">{{message}}</view>
 </view>

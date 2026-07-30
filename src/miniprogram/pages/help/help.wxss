@@ -1,0 +1,63 @@
+@import "../../styles/dawn.wxss";
+
+.help-hero { padding: 8rpx 0 38rpx; }
+
+.help-section {
+  display: flex;
+  gap: 22rpx;
+  padding: 28rpx 0;
+  border-top: 1rpx solid #e0e1de;
+}
+
+.help-number {
+  flex: 0 0 52rpx;
+  color: #b18135;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.help-copy { flex: 1; min-width: 0; }
+.help-copy view { color: #20354d; font-size: 27rpx; font-weight: 700; line-height: 1.5; }
+.help-copy text { display: block; margin-top: 10rpx; color: #6f7e8e; font-size: 24rpx; line-height: 1.68; }
+
+.help-actions {
+  overflow: hidden;
+  margin-top: 32rpx;
+  border: 1rpx solid #e0e2df;
+  border-radius: 16rpx;
+  background: #fff;
+}
+
+.help-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 94rpx;
+  margin: 0;
+  padding: 0 26rpx;
+  border-radius: 0;
+  border-bottom: 1rpx solid #ecece8;
+  background: #fff;
+  color: #26394f;
+  font-size: 25rpx;
+}
+
+.help-action:last-child { border-bottom: 0; }
+.help-action::after { border: 0; }
+.help-action text:last-child { color: #a7afb6; font-size: 31rpx; }
+
+.help-footer-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18rpx;
+  margin-top: 28rpx;
+}
+
+.help-footer-actions button { width: 100%; }
+
+@media (max-width: 340px) {
+  .help-footer-actions { grid-template-columns: 1fr; }
+}

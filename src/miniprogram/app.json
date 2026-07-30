@@ -10,6 +10,7 @@
     "pages/order-confirm/order-confirm",
     "pages/orders/orders",
     "pages/order-detail/order-detail",
+    "pages/help/help",
     "pages/record/record",
     "pages/co-create/co-create",
     "pages/result/result",

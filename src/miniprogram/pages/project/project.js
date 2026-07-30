@@ -29,12 +29,23 @@ Page({
       url: '/api/miniapp/content',
       auth: false
     }).then((data) => {
-      this.setData({
-        content: data,
-        message: ''
-      });
+      this.setData({ content: data, message: '' });
     }).catch((error) => {
       this.setData({ message: error.message || '加载失败，请稍后重试' });
+    });
+  },
+
+  goHelp() {
+    wx.navigateTo({ url: '/pages/help/help' });
+  },
+
+  openPrivacy() {
+    if (!wx.openPrivacyContract) {
+      wx.showToast({ title: '请在微信中查看隐私保护指引', icon: 'none' });
+      return;
+    }
+    wx.openPrivacyContract({
+      fail: () => wx.showToast({ title: '暂时无法打开，请稍后重试', icon: 'none' })
     });
   }
 });

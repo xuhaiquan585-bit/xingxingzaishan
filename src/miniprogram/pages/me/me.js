@@ -133,6 +133,20 @@ Page({
     wx.navigateTo({ url: '/pages/orders/orders' });
   },
 
+  goHelp() {
+    wx.navigateTo({ url: '/pages/help/help' });
+  },
+
+  openPrivacy() {
+    if (!wx.openPrivacyContract) {
+      wx.showToast({ title: '请在微信中查看隐私保护指引', icon: 'none' });
+      return;
+    }
+    wx.openPrivacyContract({
+      fail: () => wx.showToast({ title: '暂时无法打开，请稍后重试', icon: 'none' })
+    });
+  },
+
   goHome() {
     wx.switchTab({ url: '/pages/home/home' });
   }

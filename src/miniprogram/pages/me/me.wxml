@@ -74,4 +74,10 @@
   </view>
 
   <view wx:if="{{message}}" class="dawn-state me-state">{{message}}</view>
+
+  <view class="me-support">
+    <button class="me-support-item" bindtap="goHelp"><text>使用帮助</text><text>›</text></button>
+    <button class="me-support-item" bindtap="openPrivacy"><text>隐私保护指引</text><text>›</text></button>
+    <button class="me-support-item" open-type="contact"><text>联系客服</text><text>›</text></button>
+  </view>
 </view>

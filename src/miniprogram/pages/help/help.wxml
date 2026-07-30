@@ -1,0 +1,25 @@
+<view class="dawn-page help-page">
+  <view class="help-hero">
+    <view class="dawn-eyebrow">使用帮助</view>
+    <view class="dawn-title">有疑问，就从这里找答案</view>
+    <view class="dawn-subtitle">星贴、记录、共创和订单的常见问题，都整理在下面。</view>
+  </view>
+
+  <view class="help-section"><view class="help-number">01</view><view class="help-copy"><view>拿到星贴后怎么用？</view><text>把星贴贴在酒瓶、礼盒或纪念物上，用微信扫码进入记录页，选择一张照片并写下一句话。</text></view></view>
+  <view class="help-section"><view class="help-number">02</view><view class="help-copy"><view>为什么需要验证手机号？</view><text>手机号用于找回你留下的记录。验证后，在“我的星星”里可以继续查看自己的照片、文字和共创。</text></view></view>
+  <view class="help-section"><view class="help-number">03</view><view class="help-copy"><view>别人扫码能看到什么？</view><text>公开扫码仍按记录当前的可见规则展示。账号归属和编辑权限不会因为手机号相同而自动转移。</text></view></view>
+  <view class="help-section"><view class="help-number">04</view><view class="help-copy"><view>怎样邀请朋友共创？</view><text>在记录时选择共创方式，邀请朋友扫码留言。发起者完成共创后，内容会成为这颗星贴的正式记录。</text></view></view>
+  <view class="help-section"><view class="help-number">05</view><view class="help-copy"><view>如何查看订单和发货？</view><text>进入“我的星星”并打开“我的订单”，可以查看支付、发货状态和物流单号。</text></view></view>
+  <view class="help-section"><view class="help-number">06</view><view class="help-copy"><view>保存凭证在哪里？</view><text>已保存记录的详情页会显示存证状态。凭证用于需要时验证保存结果，不影响平时查看照片和留言。</text></view></view>
+  <view class="help-section"><view class="help-number">07</view><view class="help-copy"><view>登录失效或保存失败怎么办？</view><text>先重新进入小程序，再回到记录页继续。文字草稿会尽量保留；不要连续重复提交同一条记录。</text></view></view>
+
+  <view class="help-actions">
+    <button class="help-action" bindtap="openPrivacy"><text>隐私保护指引</text><text>›</text></button>
+    <button class="help-action" open-type="contact"><text>联系微信客服</text><text>›</text></button>
+  </view>
+
+  <view class="help-footer-actions">
+    <button class="dawn-secondary-button" bindtap="goHome">返回首页</button>
+    <button class="dawn-primary-button" bindtap="goProducts">去选星贴</button>
+  </view>
+</view>
