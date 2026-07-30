@@ -1250,7 +1250,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const homeWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'home', 'home.wxml'), 'utf8');
   const homeWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'home', 'home.wxss'), 'utf8');
   const homeJson = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'home', 'home.json'), 'utf8');
-  const homeHeroAsset = path.join(__dirname, '..', 'src', 'miniprogram', 'assets', 'home', 'memory-hero.jpg');
+  const homeHeroAsset = path.join(__dirname, '..', 'src', 'miniprogram', 'assets', 'home', 'memory-hero-v2.jpg');
   const productsJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'products', 'products.js'), 'utf8');
   const productsWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'products', 'products.wxml'), 'utf8');
   const productsWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'products', 'products.wxss'), 'utf8');
@@ -1671,7 +1671,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(homeJs.includes('extractQrKey({ path: res.path })'), true);
   assert.equal(homeJs.includes('this.goProducts();'), true);
   assert.equal(homeJs.includes('normalizeSceneCards'), true);
-  assert.equal(homeJs.includes("const LOCAL_HERO_IMAGE = '/assets/home/memory-hero.jpg'"), true);
+  assert.equal(homeJs.includes("const LOCAL_HERO_IMAGE = '/assets/home/memory-hero-v2.jpg'"), true);
   assert.equal(homeJs.includes("home_title: '把这一刻，记在这瓶酒里'"), true);
   assert.equal(homeJs.includes('bannerImage: bannerImage || LOCAL_HERO_IMAGE'), true);
   assert.equal(homeJs.includes('onBannerError()'), true);

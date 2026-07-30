@@ -187,7 +187,7 @@
 
 .home-hero-note {
   margin-top: 18rpx;
-  color: #68788c;
+  color: #526576;
   font-size: 21rpx;
   line-height: 1.45;
 }
@@ -207,9 +207,9 @@
 }
 
 .home-section-caption {
-  margin: -12rpx 28rpx 20rpx;
-  color: #8493a1;
-  font-size: 21rpx;
+  margin: -12rpx 28rpx 18rpx;
+  color: #8b969f;
+  font-size: 20rpx;
   line-height: 1.4;
 }
 
@@ -303,8 +303,8 @@
 
 .home-scene-card {
   display: inline-flex;
-  flex: 0 0 284rpx;
-  width: 284rpx;
+  flex: 0 0 266rpx;
+  width: 266rpx;
   flex-direction: column;
   overflow: hidden;
   border: 1rpx solid #e1e4e3;
@@ -315,8 +315,8 @@
 
 .home-scene-image,
 .home-scene-fallback {
-  width: 284rpx;
-  height: 160rpx;
+  width: 266rpx;
+  height: 150rpx;
 }
 
 .home-scene-fallback {

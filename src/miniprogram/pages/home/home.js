@@ -1,7 +1,7 @@
 const { extractQrKey, parseTokenFromUrl } = require('../../utils/qr');
 const { request, resolveAssetUrl } = require('../../utils/request');
 
-const LOCAL_HERO_IMAGE = '/assets/home/memory-hero.jpg';
+const LOCAL_HERO_IMAGE = '/assets/home/memory-hero-v2.jpg';
 
 const SCENE_OPTIONS = [
   { key: 'lover', label: '恋人', title: '恋人', description: '把说不出口的话，贴在这一瓶酒上。', image: '', button_text: '查看恋人星贴' },

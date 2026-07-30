@@ -43,21 +43,21 @@
         <view class="home-step-index">01</view>
         <view class="home-step-icon">贴</view>
         <view class="home-step-title">贴上星贴</view>
-        <view class="home-step-desc">贴在酒瓶、礼盒或想留住记忆的物品上</view>
+        <view class="home-step-desc">贴在想留下记忆的物品上</view>
       </view>
       <view class="home-step-connector"></view>
       <view class="home-step">
         <view class="home-step-index">02</view>
         <view class="home-step-icon">扫</view>
         <view class="home-step-title">扫码记录</view>
-        <view class="home-step-desc">选一张照片，写下一句话</view>
+        <view class="home-step-desc">选照片，写句话</view>
       </view>
       <view class="home-step-connector"></view>
       <view class="home-step">
         <view class="home-step-index">03</view>
         <view class="home-step-icon">见</view>
         <view class="home-step-title">重新看见</view>
-        <view class="home-step-desc">以后再次扫码，回到这一刻</view>
+        <view class="home-step-desc">再次扫码，回到这一刻</view>
       </view>
     </view>
   </view>
