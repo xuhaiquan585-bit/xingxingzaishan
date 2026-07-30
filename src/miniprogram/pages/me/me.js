@@ -41,7 +41,15 @@ function formatRecordDate(value) {
 Page({
   data: {
     records: [],
+    visibleRecords: [],
+    activeFilter: 'all',
+    recordCounts: {
+      all: 0,
+      saved: 0,
+      coCreating: 0
+    },
     currentPhoneText: '',
+    loading: true,
     message: '加载中...'
   },
 
@@ -50,7 +58,7 @@ Page({
       this.setData({ currentPhoneText: maskPhone(data.phone) || getPhoneFromToken() });
       return this.loadRecords();
     }).catch((error) => {
-      this.setData({ message: error.message || '登录失败，请稍后重试' });
+      this.setData({ loading: false, message: error.message || '登录失败，请稍后重试' });
     });
   },
 
@@ -69,15 +77,39 @@ Page({
       }));
       this.setData({
         records,
-        message: records.length ? '' : '还没有留下记录'
-      });
+        recordCounts: {
+          all: records.length,
+          saved: records.filter((item) => item.activation_status !== 'co_creating').length,
+          coCreating: records.filter((item) => item.activation_status === 'co_creating').length
+        },
+        loading: false,
+        message: ''
+      }, () => this.applyRecordFilter());
     }).catch((error) => {
       if (error.code === 'PHONE_NOT_BOUND') {
         redirectToBindPhone('/pages/me/me');
         return;
       }
-      this.setData({ message: error.message || '加载失败，请稍后重试' });
+      this.setData({ loading: false, message: error.message || '加载失败，请稍后重试' });
     });
+  },
+
+  applyRecordFilter() {
+    const { activeFilter, records } = this.data;
+    const visibleRecords = activeFilter === 'all'
+      ? records
+      : records.filter((item) => (
+        activeFilter === 'co_creating'
+          ? item.activation_status === 'co_creating'
+          : item.activation_status !== 'co_creating'
+      ));
+    this.setData({ visibleRecords });
+  },
+
+  changeRecordFilter(event) {
+    const filter = event.currentTarget.dataset.filter || 'all';
+    if (!['all', 'saved', 'co_creating'].includes(filter)) return;
+    this.setData({ activeFilter: filter }, () => this.applyRecordFilter());
   },
 
   openRecord(event) {
@@ -99,5 +131,9 @@ Page({
 
   goOrders() {
     wx.navigateTo({ url: '/pages/orders/orders' });
+  },
+
+  goHome() {
+    wx.switchTab({ url: '/pages/home/home' });
   }
 });

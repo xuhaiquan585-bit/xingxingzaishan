@@ -1,59 +1,58 @@
-<view class="page record-detail-page">
+<view class="page dawn-page record-detail-page">
   <view class="detail-hero">
-    <view class="hero-title">记录详情</view>
-    <view class="subtitle">查看这张星贴里的完整记录</view>
-    <view wx:if="{{record}}" class="detail-meta-line">
-      <view class="detail-sticker">
-        <text>星贴</text>
-        <text class="mono">{{record.display_qr_id}}</text>
-      </view>
-      <view wx:if="{{currentPhoneText}}" class="detail-phone">
-        <text>{{currentPhoneText}}</text>
-        <text class="detail-dot">·</text>
-        <text class="detail-phone-change" bindtap="changePhone">更换手机号</text>
-      </view>
-    </view>
+    <view class="dawn-eyebrow">私人记忆档案</view>
+    <view class="dawn-title">这瓶酒里的记录</view>
+    <view class="dawn-subtitle">照片和那句话，都替你安静留在这里。</view>
   </view>
 
   <view wx:if="{{record}}" class="detail-content">
-    <image class="cover detail-image" mode="widthFix" lazy-load src="{{record.image_url}}" />
+    <image class="detail-image" mode="widthFix" lazy-load src="{{record.image_url}}" />
     <view class="memory-content">{{record.display_content}}</view>
 
     <view class="detail-info-group">
+      <view class="detail-row">
+        <text class="detail-label">星贴编号</text>
+        <text class="detail-value mono">{{record.display_qr_id}}</text>
+      </view>
       <view class="detail-row">
         <text class="detail-label">保存时间</text>
         <text class="detail-value">{{record.display_date}}</text>
       </view>
       <view class="detail-row">
-        <text class="detail-label">存证状态</text>
+        <text class="detail-label">保存状态</text>
         <text class="detail-value">{{record.chain_status_text}}</text>
       </view>
     </view>
 
-    <view wx:if="{{record.has_hash}}" class="hash-card">
-      <view class="detail-label">存证哈希</view>
-      <view class="hash {{hashExpanded ? 'hash-expanded' : ''}}">{{record.hash_display}}</view>
-      <view class="hash-actions">
-        <button class="text-link hash-action" bindtap="copyHash">复制</button>
-        <button class="text-link hash-action" bindtap="toggleHash">{{hashButtonText}}</button>
+    <view wx:if="{{record.has_comments}}" class="detail-section">
+      <view class="dawn-section-title">一起留下的话</view>
+      <view wx:for="{{record.co_creation_comments}}" wx:key="id" class="comment-item">
+        <view class="comment-author">{{item.author_name}}</view>
+        <view class="comment-content">{{item.content}}</view>
       </view>
-      <view class="hash-note">存证哈希是这条记录的唯一校验信息，可用于核对存证记录是否一致。</view>
     </view>
-
-    <button wx:if="{{record.has_certificate_url}}" class="text-link certificate-link" bindtap="openCertificate">查看存证信息</button>
 
     <view wx:if="{{record.has_brand_disclosure}}" class="brand-disclosure-line">
       <view class="detail-label">品牌信息</view>
       <view>{{record.brand_disclosure_display}}</view>
     </view>
 
-    <view wx:if="{{record.has_comments}}" class="list-title">共创留言</view>
-    <block wx:for="{{record.co_creation_comments}}" wx:key="id">
-      <view class="comment-item">{{item.author_name}}：{{item.content}}</view>
-    </block>
+    <view wx:if="{{record.has_hash || record.has_certificate_url}}" class="verification-section">
+      <view class="verification-heading">保存凭证</view>
+      <view class="verification-copy">需要时可以核对这条记录的保存信息。</view>
+      <view wx:if="{{record.has_hash}}" class="hash-card">
+        <view class="detail-label">存证哈希</view>
+        <view class="hash {{hashExpanded ? 'hash-expanded' : ''}}">{{record.hash_display}}</view>
+        <view class="hash-actions">
+          <button class="text-link hash-action" bindtap="copyHash">复制</button>
+          <button class="text-link hash-action" bindtap="toggleHash">{{hashButtonText}}</button>
+        </view>
+      </view>
+      <button wx:if="{{record.has_certificate_url}}" class="text-link certificate-link" bindtap="openCertificate">查看存证信息</button>
+    </view>
 
-    <button class="btn secondary detail-back-btn" bindtap="goMe">返回我的记录</button>
+    <button class="dawn-secondary-button detail-back-btn" bindtap="goMe">返回我的星星</button>
   </view>
 
-  <view class="meta">{{message}}</view>
+  <view wx:if="{{message}}" class="dawn-state detail-state">{{message}}</view>
 </view>

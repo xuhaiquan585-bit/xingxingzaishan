@@ -1,28 +1,77 @@
-<view class="page me-page">
+<view class="page dawn-page me-page">
   <view class="me-hero">
-    <view class="hero-title">我的记录</view>
-    <view class="subtitle">查看你留在酒里的照片和留言</view>
-    <view wx:if="{{currentPhoneText}}" class="me-phone-line">
-      <text>{{currentPhoneText}}</text>
-      <text class="me-phone-dot">·</text>
-      <text class="me-phone-change" bindtap="changePhone">更换手机号</text>
-    </view>
-    <button class="btn secondary me-order-entry" bindtap="goOrders">我的订单</button>
+    <view class="dawn-eyebrow">你的私人记忆档案</view>
+    <view class="dawn-title">我的星星</view>
+    <view class="dawn-subtitle">你留下的照片、文字和共创，都在这里。</view>
   </view>
 
-  <view class="record-list">
-    <block wx:for="{{records}}" wx:key="id">
-      <view class="card record-card" data-id="{{item.id}}" bindtap="openRecord">
-        <image wx:if="{{item.image_url}}" class="cover record-cover" mode="aspectFill" lazy-load src="{{item.image_url}}" />
+  <view class="me-account-strip">
+    <view>
+      <view class="me-account-label">当前账号</view>
+      <view class="me-account-phone">{{currentPhoneText || '等待手机号验证'}}</view>
+    </view>
+    <text class="me-phone-change" bindtap="changePhone">{{currentPhoneText ? '更换手机号' : '验证手机号'}}</text>
+  </view>
+
+  <view class="me-stats">
+    <view class="me-stat">
+      <view class="me-stat-value">{{recordCounts.all}}</view>
+      <view class="me-stat-label">全部记录</view>
+    </view>
+    <view class="me-stat">
+      <view class="me-stat-value">{{recordCounts.saved}}</view>
+      <view class="me-stat-label">已保存</view>
+    </view>
+    <view class="me-stat">
+      <view class="me-stat-value">{{recordCounts.coCreating}}</view>
+      <view class="me-stat-label">共创中</view>
+    </view>
+  </view>
+
+  <button class="me-order-entry" bindtap="goOrders">
+    <view>
+      <view class="me-entry-title">我的订单</view>
+      <view class="me-entry-copy">查看星贴订单、支付和发货状态</view>
+    </view>
+    <view class="me-entry-arrow">›</view>
+  </button>
+
+  <view class="me-record-heading">
+    <view class="dawn-section-title">我的记录</view>
+    <view class="me-record-count">{{visibleRecords.length}} 条</view>
+  </view>
+
+  <view class="me-filters">
+    <view class="me-filter {{activeFilter === 'all' ? 'active' : ''}}" data-filter="all" bindtap="changeRecordFilter">全部</view>
+    <view class="me-filter {{activeFilter === 'saved' ? 'active' : ''}}" data-filter="saved" bindtap="changeRecordFilter">已保存</view>
+    <view class="me-filter {{activeFilter === 'co_creating' ? 'active' : ''}}" data-filter="co_creating" bindtap="changeRecordFilter">共创中</view>
+  </view>
+
+  <view class="record-list" wx:if="{{visibleRecords.length}}">
+    <view wx:for="{{visibleRecords}}" wx:key="id" class="dawn-card record-card" data-id="{{item.id}}" bindtap="openRecord">
+      <image wx:if="{{item.image_url}}" class="record-cover" mode="aspectFill" lazy-load src="{{item.image_url}}" />
+      <view wx:else class="record-cover record-cover-fallback">记忆照片</view>
+      <view class="record-copy">
+        <view class="record-status">{{item.status_label}}</view>
         <view class="record-summary">{{item.display_content}}</view>
         <view class="record-meta-group">
-          <view class="meta">{{item.display_date}}</view>
-          <view class="meta mono">星贴 {{item.display_qr_id}}</view>
+          <view>{{item.display_date}}</view>
+          <view class="mono">星贴 {{item.display_qr_id}}</view>
         </view>
-        <view class="record-action">{{item.action_text}} →</view>
+        <view class="record-action">{{item.action_text}} <text>›</text></view>
       </view>
-    </block>
+    </view>
   </view>
 
-  <view wx:if="{{message}}" class="meta state-card">{{message}}</view>
+  <view wx:if="{{!loading && !message && !records.length}}" class="dawn-state me-empty">
+    <view class="me-empty-title">还没有留下记录</view>
+    <view class="me-empty-copy">拿到星贴后，从首页扫码就能保存第一段记忆。</view>
+    <button class="dawn-secondary-button me-empty-action" bindtap="goHome">返回首页</button>
+  </view>
+
+  <view wx:if="{{!loading && !message && records.length && !visibleRecords.length}}" class="dawn-state me-empty">
+    当前分类还没有记录
+  </view>
+
+  <view wx:if="{{message}}" class="dawn-state me-state">{{message}}</view>
 </view>
