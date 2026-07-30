@@ -20,6 +20,17 @@
   background: #ecefe9;
 }
 
+.detail-image-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 460rpx;
+  color: #8a959f;
+  font-size: 24rpx;
+  text-align: center;
+}
+
 .memory-content {
   padding: 26rpx 2rpx 30rpx;
   border-bottom: 1rpx solid #e1e4e3;

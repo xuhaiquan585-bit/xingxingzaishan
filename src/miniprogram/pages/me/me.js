@@ -49,6 +49,7 @@ Page({
       coCreating: 0
     },
     currentPhoneText: '',
+    hasLoadedRecords: false,
     loading: true,
     message: '加载中...'
   },
@@ -62,7 +63,12 @@ Page({
     });
   },
 
+  onShow() {
+    if (this.data.hasLoadedRecords && !this.data.loading) this.loadRecords();
+  },
+
   loadRecords() {
+    this.setData({ loading: true });
     request({
       url: '/api/miniapp/user/records'
     }).then((data) => {
@@ -72,6 +78,7 @@ Page({
         display_content: item.content || '（未填写留言）',
         display_date: formatRecordDate(item.display_at || item.activated_at),
         display_qr_id: item.id,
+        image_failed: false,
         status_label: item.activation_status === 'co_creating' ? '共创中' : '已保存',
         action_text: item.activation_status === 'co_creating' ? '继续共创' : '查看详情'
       }));
@@ -82,11 +89,13 @@ Page({
           saved: records.filter((item) => item.activation_status !== 'co_creating').length,
           coCreating: records.filter((item) => item.activation_status === 'co_creating').length
         },
+        hasLoadedRecords: true,
         loading: false,
         message: ''
       }, () => this.applyRecordFilter());
     }).catch((error) => {
       if (error.code === 'PHONE_NOT_BOUND') {
+        this.setData({ loading: false });
         redirectToBindPhone('/pages/me/me');
         return;
       }
@@ -110,6 +119,12 @@ Page({
     const filter = event.currentTarget.dataset.filter || 'all';
     if (!['all', 'saved', 'co_creating'].includes(filter)) return;
     this.setData({ activeFilter: filter }, () => this.applyRecordFilter());
+  },
+
+  onRecordImageError(event) {
+    const id = event.currentTarget.dataset.id;
+    const records = this.data.records.map((item) => item.id === id ? { ...item, image_failed: true } : item);
+    this.setData({ records }, () => this.applyRecordFilter());
   },
 
   openRecord(event) {

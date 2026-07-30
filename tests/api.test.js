@@ -1615,11 +1615,15 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(meWxml.includes("{{currentPhoneText || '等待手机号验证'}}"), true);
   assert.equal(meWxml.includes('星贴 {{item.display_qr_id}}'), true);
   assert.equal(meWxml.includes('class="record-cover" mode="aspectFill"'), true);
+  assert.equal(meWxml.includes('binderror="onRecordImageError"'), true);
   assert.equal(meWxml.includes('class="cover record-cover" mode="aspectFit"'), false);
   assert.equal(meWxss.includes('@import "../../styles/dawn.wxss"'), true);
   assert.equal(meWxss.includes('.me-order-entry'), true);
   assert.equal(meWxss.includes('height: 360rpx'), true);
   assert.equal(meWxml.includes('bindtap="changeRecordFilter"'), true);
+  assert.equal(miniappMeJs.includes('hasLoadedRecords: false'), true);
+  assert.equal(miniappMeJs.includes('if (this.data.hasLoadedRecords && !this.data.loading) this.loadRecords()'), true);
+  assert.equal(miniappMeJs.includes('onRecordImageError(event)'), true);
   assert.equal(meWxml.includes('{{recordCounts.coCreating}}'), true);
   assert.equal(miniappMeJs.includes('applyRecordFilter()'), true);
   assert.equal(miniappMeJs.includes("wx.switchTab({ url: '/pages/home/home' })"), true);
@@ -1735,6 +1739,8 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(productsJs.includes("label: '婚礼'"), true);
   assert.equal(productsJs.includes("label: '聚会'"), true);
   assert.equal(productsJs.includes("label: '随心'"), true);
+  assert.equal(productsJs.includes('loading: true'), true);
+  assert.equal(productsJs.includes('if (loading) {'), true);
   assert.equal(productsWxml.includes('bindtap="changeScene"'), true);
   assert.equal(productsWxml.includes('bindtap="openProduct"'), true);
   assert.equal(productsWxml.includes('class="product-list"'), true);
@@ -1767,6 +1773,8 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(orderConfirmJs.includes('payMiniappOrder'), true);
   assert.equal(orderConfirmJs.includes('submitting: false'), true);
   assert.equal(orderConfirmJs.includes('if (!this.data.product || this.data.submitting) return'), true);
+  assert.equal(orderConfirmJs.includes('Math.round(Number(event.detail.value || 1))'), true);
+  assert.equal(orderConfirmJs.includes("if (createdOrder) {\n          this.openOrder(createdOrder.id);\n          return;\n        }\n        this.setData({ submitting: false });"), true);
   assert.equal(orderConfirmWxml.includes('bindtap="changeQuantity"'), true);
   assert.equal(orderConfirmWxml.includes('实付'), true);
   assert.equal(orderConfirmWxml.includes('loading="{{submitting}}"'), true);
@@ -1801,6 +1809,9 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(resultJs.includes('onShareTimeline'), true);
   assert.equal(resultWxml.includes('lazy-load'), true);
   assert.equal(recordDetailWxml.includes('lazy-load'), true);
+  assert.equal(recordDetailWxml.includes('binderror="onRecordImageError"'), true);
+  assert.equal(recordDetailWxml.includes('记忆照片暂时无法显示'), true);
+  assert.equal(miniappRecordDetailJs.includes('onRecordImageError()'), true);
   assert.equal(coCreateWxml.includes('lazy-load'), true);
   assert.equal(meWxml.includes('lazy-load'), true);
   assert.equal(productDetailWxss.includes('height: 720rpx'), true);

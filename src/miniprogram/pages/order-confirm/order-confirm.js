@@ -57,7 +57,7 @@ Page({
   },
 
   onQuantityInput(event) {
-    const value = Math.max(1, Math.min(99, Number(event.detail.value || 1)));
+    const value = Math.max(1, Math.min(99, Math.round(Number(event.detail.value || 1))));
     this.setData({ quantity: value }, () => this.updateTotal());
   },
 
@@ -126,13 +126,16 @@ Page({
         return;
       }
       if (isPaymentCancelled(error)) {
-        this.setData({ submitting: false });
         wx.showToast({ title: '已取消支付', icon: 'none' });
-        if (createdOrder) this.openOrder(createdOrder.id);
+        if (createdOrder) {
+          this.openOrder(createdOrder.id);
+          return;
+        }
+        this.setData({ submitting: false });
         return;
       }
       if (createdOrder) {
-        this.setData({ submitting: false, message: '订单已创建，支付未完成，可在订单详情继续支付。' });
+        this.setData({ message: '订单已创建，支付未完成，可在订单详情继续支付。' });
         this.openOrder(createdOrder.id);
         return;
       }

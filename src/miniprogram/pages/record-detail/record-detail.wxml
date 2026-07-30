@@ -6,7 +6,8 @@
   </view>
 
   <view wx:if="{{record}}" class="detail-content">
-    <image class="detail-image" mode="widthFix" lazy-load src="{{record.image_url}}" />
+    <image wx:if="{{record.image_url && !record.image_failed}}" class="detail-image" mode="widthFix" lazy-load src="{{record.image_url}}" binderror="onRecordImageError" />
+    <view wx:else class="detail-image detail-image-fallback">记忆照片暂时无法显示</view>
     <view class="memory-content">{{record.display_content}}</view>
 
     <view class="detail-info-group">

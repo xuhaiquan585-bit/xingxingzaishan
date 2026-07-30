@@ -49,7 +49,7 @@
 
   <view class="record-list" wx:if="{{visibleRecords.length}}">
     <view wx:for="{{visibleRecords}}" wx:key="id" class="dawn-card record-card" data-id="{{item.id}}" bindtap="openRecord">
-      <image wx:if="{{item.image_url}}" class="record-cover" mode="aspectFill" lazy-load src="{{item.image_url}}" />
+      <image wx:if="{{item.image_url && !item.image_failed}}" class="record-cover" mode="aspectFill" lazy-load src="{{item.image_url}}" data-id="{{item.id}}" binderror="onRecordImageError" />
       <view wx:else class="record-cover record-cover-fallback">记忆照片</view>
       <view class="record-copy">
         <view class="record-status">{{item.status_label}}</view>

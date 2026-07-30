@@ -16,6 +16,7 @@ Page({
     activeSceneLabel: '随心',
     allProducts: [],
     products: [],
+    loading: true,
     message: '加载中...'
   },
 
@@ -50,10 +51,11 @@ Page({
         scene_tags: Array.isArray(item.scene_tags) ? item.scene_tags : []
       }));
       this.setData({
-        allProducts: products
+        allProducts: products,
+        loading: false
       }, () => this.filterProducts());
     }).catch((error) => {
-      this.setData({ message: error.message || '加载失败，请稍后重试' });
+      this.setData({ loading: false, message: error.message || '加载失败，请稍后重试' });
     });
   },
 
@@ -69,7 +71,11 @@ Page({
   },
 
   filterProducts() {
-    const { activeScene, allProducts } = this.data;
+    const { activeScene, allProducts, loading } = this.data;
+    if (loading) {
+      this.setData({ products: [], message: '加载中...' });
+      return;
+    }
     const products = activeScene === 'free'
       ? allProducts
       : allProducts.filter((item) => Array.isArray(item.scene_tags) && item.scene_tags.includes(activeScene));

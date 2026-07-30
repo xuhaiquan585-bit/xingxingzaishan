@@ -84,6 +84,7 @@ Page({
         record: {
           ...data,
           image_url: resolveAssetUrl(data.image_url),
+          image_failed: false,
           display_content: data.content || '（未填写留言）',
           display_date: formatRecordDate(data.activated_at || data.display_at),
           display_qr_id: data.id,
@@ -117,6 +118,11 @@ Page({
         hash_display: hashExpanded ? this.data.record.full_hash : truncateHash(this.data.record.full_hash)
       }
     });
+  },
+
+  onRecordImageError() {
+    if (!this.data.record) return;
+    this.setData({ record: { ...this.data.record, image_failed: true } });
   },
 
   copyHash() {
