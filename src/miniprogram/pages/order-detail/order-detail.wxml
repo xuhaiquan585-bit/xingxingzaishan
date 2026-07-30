@@ -1,21 +1,49 @@
-<view class="page order-detail-page">
+<view class="dawn-page order-detail-page">
   <block wx:if="{{order}}">
-    <view class="order-hero">
-      <view class="hero-title">订单详情</view>
-      <view class="subtitle">{{order.status_text}}</view>
+    <view class="order-status-hero">
+      <view class="order-status-label">{{order.status_text}}</view>
+      <view class="dawn-title">{{order.status === 'pending_payment' ? '等待完成支付' : order.status === 'shipped' ? '星贴正在向你靠近' : order.status === 'completed' ? '这份订单已经完成' : '订单详情'}}</view>
+      <view class="dawn-subtitle">订单 {{order.order_no}}</view>
     </view>
 
-    <view class="card order-card">
-      <image wx:if="{{coverImage}}" class="cover order-cover" mode="aspectFill" lazy-load src="{{coverImage}}" />
-      <view class="list-title">{{order.product_snapshot.title}}</view>
-      <view class="hint">{{order.amount_text}} · {{order.quantity}} 件</view>
-      <view class="meta">订单号：{{order.order_no}}</view>
-      <view class="meta">收货人：{{order.receiver_name}} {{order.receiver_phone}}</view>
-      <view class="meta">地址：{{order.region}}{{order.address}}</view>
-      <view class="meta" wx:if="{{order.express_no}}">物流：{{order.express_company}} {{order.express_no}}</view>
-      <button wx:if="{{order.status === 'pending_payment'}}" class="btn secondary" bindtap="cancelOrder">取消订单</button>
+    <view class="detail-section detail-product">
+      <image wx:if="{{coverImage && !coverFailed}}" class="detail-cover" mode="aspectFill" lazy-load src="{{coverImage}}" binderror="onCoverError" />
+      <view wx:else class="detail-cover detail-cover-fallback">星贴</view>
+      <view class="detail-product-copy">
+        <view class="detail-product-title">{{order.product_snapshot.title}}</view>
+        <view class="detail-product-meta">{{order.quantity}} 件 · 不含酒水</view>
+        <view class="detail-product-amount">{{order.amount_text}}</view>
+      </view>
     </view>
+
+    <view class="detail-section">
+      <view class="detail-section-title">收货信息</view>
+      <view class="detail-info-primary">{{order.receiver_name}} · {{receiverPhoneText}}</view>
+      <view class="detail-info-secondary">{{order.region}}{{order.address}}</view>
+      <view wx:if="{{order.remark}}" class="detail-info-secondary">备注：{{order.remark}}</view>
+    </view>
+
+    <view wx:if="{{order.express_no}}" class="detail-section detail-logistics">
+      <view class="detail-section-title">物流信息</view>
+      <view class="detail-info-primary">{{order.express_company || '配送中'}}</view>
+      <view class="detail-express-row">
+        <text class="detail-info-secondary">{{order.express_no}}</text>
+        <button class="detail-copy" bindtap="copyExpress">复制单号</button>
+      </view>
+    </view>
+
+    <view class="detail-section detail-order-meta">
+      <view class="detail-meta-row"><text>下单时间</text><text>{{orderTimeText}}</text></view>
+      <view class="detail-meta-row"><text>订单编号</text><text>{{order.order_no}}</text></view>
+      <view class="detail-meta-row"><text>支付状态</text><text>{{order.payment_status === 'paid' ? '已支付' : '未支付'}}</text></view>
+    </view>
+
+    <view wx:if="{{order.status === 'pending_payment'}}" class="detail-actions">
+      <button class="dawn-secondary-button detail-cancel" bindtap="cancelOrder" loading="{{cancelling}}" disabled="{{paying || cancelling}}">取消订单</button>
+      <button class="dawn-primary-button detail-pay" bindtap="continuePayment" loading="{{paying}}" disabled="{{paying || cancelling}}">{{paying ? '处理中' : '继续支付'}}</button>
+    </view>
+    <button wx:else class="dawn-secondary-button detail-products" bindtap="goProducts">继续选星贴</button>
   </block>
 
-  <view wx:if="{{message}}" class="meta state-card">{{message}}</view>
+  <view wx:if="{{message}}" class="dawn-state detail-state">{{message}}</view>
 </view>

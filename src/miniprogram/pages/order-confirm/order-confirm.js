@@ -1,5 +1,6 @@
 const { login, redirectToBindPhone } = require('../../utils/auth');
 const { request, resolveAssetUrl } = require('../../utils/request');
+const { payMiniappOrder, isPaymentCancelled } = require('../../utils/payment');
 
 Page({
   data: {
@@ -12,7 +13,9 @@ Page({
     address: '',
     remark: '',
     totalText: '¥0.00',
-    message: '加载中...'
+    message: '加载中...',
+    submitting: false,
+    coverFailed: false
   },
 
   onLoad(options) {
@@ -36,7 +39,7 @@ Page({
         cover_image: resolveAssetUrl(data.cover_image),
         images: (data.images || []).map(resolveAssetUrl)
       };
-      this.setData({ product, message: '' }, () => this.updateTotal());
+      this.setData({ product, message: '', coverFailed: false }, () => this.updateTotal());
     }).catch((error) => {
       this.setData({ message: error.message || '加载失败，请稍后重试' });
     });
@@ -45,6 +48,12 @@ Page({
   updateTotal() {
     const cents = Number((this.data.product && this.data.product.price_cents) || 0) * Number(this.data.quantity || 1);
     this.setData({ totalText: `¥${(cents / 100).toFixed(2)}` });
+  },
+
+  changeQuantity(event) {
+    const delta = Number(event.currentTarget.dataset.delta || 0);
+    const quantity = Math.max(1, Math.min(99, Number(this.data.quantity || 1) + delta));
+    this.setData({ quantity }, () => this.updateTotal());
   },
 
   onQuantityInput(event) {
@@ -60,8 +69,18 @@ Page({
     this.setData({ [event.currentTarget.dataset.field]: event.detail.value });
   },
 
+  onCoverError() {
+    this.setData({ coverFailed: true });
+  },
+
+  openOrder(orderId) {
+    setTimeout(() => {
+      wx.redirectTo({ url: `/pages/order-detail/order-detail?id=${encodeURIComponent(orderId)}` });
+    }, 500);
+  },
+
   submitOrder() {
-    if (!this.data.product) return;
+    if (!this.data.product || this.data.submitting) return;
     if (!String(this.data.receiverName || '').trim()) {
       wx.showToast({ title: '请填写收货人', icon: 'none' });
       return;
@@ -78,11 +97,8 @@ Page({
       wx.showToast({ title: '请填写详细地址', icon: 'none' });
       return;
     }
-    if (!Number(this.data.quantity || 0)) {
-      wx.showToast({ title: '请选择购买数量', icon: 'none' });
-      return;
-    }
-    this.setData({ message: '' });
+
+    this.setData({ message: '', submitting: true });
     let createdOrder = null;
     request({
       url: '/api/miniapp/orders',
@@ -98,39 +114,29 @@ Page({
       }
     }).then((order) => {
       createdOrder = order;
-      return request({
-        url: `/api/miniapp/orders/${encodeURIComponent(order.id)}/pay`,
-        method: 'POST'
-      });
-    }).then((payResult) => {
-      if (payResult.payment) {
-        return new Promise((resolve, reject) => {
-          wx.requestPayment({
-            ...payResult.payment,
-            success: () => resolve(payResult.order || createdOrder),
-            fail: reject
-          });
-        });
-      }
-      if (payResult.payment_mock) {
-        return payResult.order || createdOrder;
-      }
-      return payResult.order || createdOrder;
-    }).then((order) => {
-      wx.showToast({ title: '支付成功', icon: 'success' });
-      setTimeout(() => {
-        wx.redirectTo({ url: `/pages/order-detail/order-detail?id=${encodeURIComponent((order || createdOrder).id)}` });
-      }, 1200);
+      return payMiniappOrder(order.id);
+    }).then((result) => {
+      const order = result.order || createdOrder;
+      wx.showToast({ title: '支付已完成', icon: 'success' });
+      this.openOrder(order.id);
     }).catch((error) => {
       if (error.code === 'PHONE_NOT_BOUND') {
+        this.setData({ submitting: false });
         redirectToBindPhone(`/pages/order-confirm/order-confirm?product_id=${encodeURIComponent(this.data.productId)}`);
         return;
       }
-      if (error.errMsg && error.errMsg.indexOf('cancel') !== -1) {
+      if (isPaymentCancelled(error)) {
+        this.setData({ submitting: false });
         wx.showToast({ title: '已取消支付', icon: 'none' });
+        if (createdOrder) this.openOrder(createdOrder.id);
         return;
       }
-      this.setData({ message: error.message || '下单失败，请稍后重试' });
+      if (createdOrder) {
+        this.setData({ submitting: false, message: '订单已创建，支付未完成，可在订单详情继续支付。' });
+        this.openOrder(createdOrder.id);
+        return;
+      }
+      this.setData({ submitting: false, message: error.message || '下单失败，请稍后重试' });
     });
   }
 });

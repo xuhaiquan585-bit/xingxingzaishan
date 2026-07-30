@@ -1,19 +1,38 @@
-<view class="page orders-page">
-  <view class="orders-hero">
-    <view class="hero-title">我的订单</view>
-    <view class="subtitle">查看酒瓶星贴订单和发货状态。</view>
+<view class="dawn-page orders-page">
+  <view class="orders-heading">
+    <view class="dawn-title">我的订单</view>
+    <view class="dawn-subtitle">星贴的支付、发货和收货进度都在这里。</view>
   </view>
+
+  <scroll-view class="order-filters" scroll-x enhanced show-scrollbar="{{false}}">
+    <view class="order-filter-row">
+      <button wx:for="{{filters}}" wx:key="value" class="order-filter {{activeFilter === item.value ? 'is-active' : ''}}" data-value="{{item.value}}" bindtap="changeOrderFilter">{{item.label}}</button>
+    </view>
+  </scroll-view>
 
   <view class="order-list">
-    <block wx:for="{{orders}}" wx:key="id">
-      <view class="card order-card" bindtap="openOrder" data-id="{{item.id}}">
-        <image wx:if="{{item.cover_image}}" class="cover order-cover" mode="aspectFill" lazy-load src="{{item.cover_image}}" />
-        <view class="list-title">{{item.product_snapshot.title}}</view>
-        <view class="hint">{{item.amount_text}} · {{item.status_text}}</view>
-        <view class="meta">订单号：{{item.order_no}}</view>
+    <view wx:for="{{visibleOrders}}" wx:key="id" class="order-card" bindtap="openOrder" data-id="{{item.id}}">
+      <image wx:if="{{item.cover_image && !item.image_failed}}" class="order-cover" mode="aspectFill" lazy-load src="{{item.cover_image}}" data-id="{{item.id}}" binderror="onOrderImageError" />
+      <view wx:else class="order-cover order-cover-fallback">星贴</view>
+      <view class="order-card-body">
+        <view class="order-card-head">
+          <view class="order-card-title">{{item.product_snapshot.title}}</view>
+          <view class="order-status order-status-{{item.status}}">{{item.status_text}}</view>
+        </view>
+        <view class="order-card-meta">{{item.quantity}} 件 · {{item.amount_text}}</view>
+        <view class="order-card-foot">
+          <text>{{item.created_text}}</text>
+          <text>订单 {{item.order_no}}</text>
+        </view>
       </view>
-    </block>
+    </view>
   </view>
 
-  <view wx:if="{{message}}" class="meta state-card">{{message}}</view>
+  <view wx:if="{{!loading && !visibleOrders.length}}" class="dawn-state orders-empty">
+    <view class="orders-empty-mark">星</view>
+    <view class="orders-empty-title">{{activeFilter === 'all' ? '还没有星贴订单' : '这个状态下还没有订单'}}</view>
+    <view class="orders-empty-copy">去选一颗适合此刻的星贴，把记忆留在真实生活里。</view>
+    <button class="dawn-secondary-button orders-empty-button" bindtap="goProducts">去选星贴</button>
+  </view>
+  <view wx:if="{{message}}" class="dawn-state orders-message">{{message}}</view>
 </view>

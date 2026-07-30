@@ -1,14 +1,185 @@
-.orders-hero,
+@import "../../styles/dawn.wxss";
+
+.orders-heading {
+  margin-bottom: 28rpx;
+}
+
+.order-filters {
+  width: calc(100% + 56rpx);
+  margin: 0 -28rpx 30rpx;
+  white-space: nowrap;
+}
+
+.order-filter-row {
+  display: inline-flex;
+  gap: 14rpx;
+  padding: 0 28rpx;
+}
+
+.order-filter {
+  min-width: 112rpx;
+  height: 66rpx;
+  margin: 0;
+  padding: 0 24rpx;
+  border: 1rpx solid #dfe2e0;
+  border-radius: 33rpx;
+  background: #fff;
+  color: #68788c;
+  font-size: 24rpx;
+  line-height: 64rpx;
+}
+
+.order-filter::after {
+  border: 0;
+}
+
+.order-filter.is-active {
+  border-color: #d1a14d;
+  background: #d6a649;
+  color: #142844;
+  font-weight: 700;
+}
+
 .order-list {
-  position: relative;
-  z-index: 1;
+  display: grid;
+  gap: 20rpx;
 }
 
 .order-card {
-  padding: 26rpx;
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 22rpx;
+  border: 1rpx solid #e1e3e1;
+  border-radius: 16rpx;
+  background: #fff;
 }
 
 .order-cover {
-  height: 240rpx;
-  margin-bottom: 18rpx;
+  flex: 0 0 180rpx;
+  width: 180rpx;
+  height: 180rpx;
+  border-radius: 12rpx;
+  background: #eef0ed;
+}
+
+.order-cover-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #b4873d;
+  font-family: "Songti SC", STSong, serif;
+  font-size: 30rpx;
+}
+
+.order-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  padding-left: 22rpx;
+}
+
+.order-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
+.order-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: #142844;
+  font-size: 28rpx;
+  font-weight: 700;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.order-status {
+  flex: 0 0 auto;
+  color: #9b712d;
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.order-status-cancelled,
+.order-status-refunded {
+  color: #8b949c;
+}
+
+.order-card-meta {
+  margin-top: 18rpx;
+  color: #526276;
+  font-size: 25rpx;
+}
+
+.order-card-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 5rpx;
+  margin-top: auto;
+  padding-top: 18rpx;
+  color: #9099a2;
+  font-size: 20rpx;
+  line-height: 1.35;
+}
+
+.orders-empty,
+.orders-message {
+  margin-top: 20rpx;
+}
+
+.orders-empty-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 70rpx;
+  height: 70rpx;
+  margin: 0 auto 20rpx;
+  border: 1rpx solid #dbc79d;
+  border-radius: 50%;
+  color: #b4873d;
+  font-family: "Songti SC", STSong, serif;
+  font-size: 30rpx;
+}
+
+.orders-empty-title {
+  color: #142844;
+  font-size: 29rpx;
+  font-weight: 700;
+}
+
+.orders-empty-copy {
+  max-width: 480rpx;
+  margin: 14rpx auto 24rpx;
+  color: #7c8997;
+  font-size: 24rpx;
+}
+
+.orders-empty-button {
+  width: 280rpx;
+  margin: 0 auto;
+}
+
+@media (max-width: 340px) {
+  .order-filters {
+    width: calc(100% + 44rpx);
+    margin-right: -22rpx;
+    margin-left: -22rpx;
+  }
+
+  .order-filter-row {
+    padding: 0 22rpx;
+  }
+
+  .order-cover {
+    flex-basis: 150rpx;
+    width: 150rpx;
+    height: 150rpx;
+  }
 }
