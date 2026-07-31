@@ -31,7 +31,7 @@ function enabledConfig(overrides = {}) {
 
 function event(overrides = {}) {
   return {
-    endpointTemplate: '/api/qr/:key',
+    endpointTemplate: '/api/qr/:qrId',
     channel: 'h5',
     key: 'memory-only-key',
     publicQrId: 'QR_PUBLIC_1',
@@ -92,6 +92,19 @@ test('disabled observer does not call candidate, comparator, or sink', async () 
   assert.deepEqual(calls, []);
 });
 
+test('closed observer rejects new work without calling candidate', async () => {
+  let candidateCalls = 0;
+  const observer = createPublicQrShadowObserver({
+    getConfig: () => enabledConfig(),
+    readCandidate: async () => { candidateCalls += 1; },
+    compareDtos: matchingComparator
+  });
+  observer.close();
+  assert.equal((await observer.observe(event())).outcome, 'CLOSED');
+  assert.equal(observer.getState().closed, true);
+  assert.equal(candidateCalls, 0);
+});
+
 test('allowlist miss and missing source version skip before candidate', async () => {
   let candidateCalls = 0;
   const observer = createPublicQrShadowObserver({
@@ -106,9 +119,14 @@ test('allowlist miss and missing source version skip before candidate', async ()
 
 test('observer protects the original baseline DTO from comparator mutation', async () => {
   const original = event();
+  const assetResolver = { resolveRecordImage: () => 'memoized' };
+  original.assetResolver = assetResolver;
   const observer = createPublicQrShadowObserver({
     getConfig: () => enabledConfig(),
-    readCandidate: async () => ({ eligibility: 'ELIGIBLE', dto: { ...original.baselineDto } }),
+    readCandidate: async (input) => {
+      assert.equal(input.assetResolver, assetResolver);
+      return { eligibility: 'ELIGIBLE', dto: { ...original.baselineDto } };
+    },
     compareDtos: ({ baseline }) => {
       baseline.content = 'changed';
       return { matches: true, mismatch_count: 0, mismatches: [] };
@@ -120,12 +138,22 @@ test('observer protects the original baseline DTO from comparator mutation', asy
 
 test('stale and ineligible candidate outcomes do not call comparator', async () => {
   let compareCalls = 0;
+  let eligibility = 'STALE_SOURCE';
   const observer = createPublicQrShadowObserver({
     getConfig: () => enabledConfig(),
-    readCandidate: async () => ({ eligibility: 'STALE_SOURCE' }),
+    readCandidate: async () => ({ eligibility }),
     compareDtos: () => { compareCalls += 1; }
   });
-  assert.equal((await observer.observe(event())).outcome, 'STALE_SOURCE');
+  for (const outcome of [
+    'STALE_SOURCE',
+    'INELIGIBLE_NO_IMPORT',
+    'INELIGIBLE_NO_VERSION',
+    'INELIGIBLE_VERSION',
+    'CANDIDATE_COMMENT_OVERFLOW'
+  ]) {
+    eligibility = outcome;
+    assert.equal((await observer.observe(event())).outcome, outcome);
+  }
   assert.equal(compareCalls, 0);
 });
 
@@ -159,6 +187,42 @@ test('candidate timeout aborts the signal and does not leak a late rejection', a
   assert.equal(signal.aborted, true);
   await new Promise((resolve) => setTimeout(resolve, 35));
   assert.equal(observer.getState().active, 0);
+});
+
+test('closing waits for active work and rejects newly scheduled observations', async () => {
+  let releaseCandidate;
+  const observer = createPublicQrShadowObserver({
+    getConfig: () => enabledConfig(),
+    readCandidate: () => new Promise((resolve) => { releaseCandidate = resolve; }),
+    compareDtos: matchingComparator
+  });
+  const activeObservation = observer.observe(event());
+  await new Promise((resolve) => setImmediate(resolve));
+  let closeCompleted = false;
+  const closing = observer.close().then(() => { closeCompleted = true; });
+  assert.equal(closeCompleted, false);
+  assert.equal((await observer.observe(event())).outcome, 'CLOSED');
+  releaseCandidate({ eligibility: 'ELIGIBLE', dto: event().baselineDto });
+  assert.equal((await activeObservation).outcome, 'MATCH');
+  await closing;
+  assert.equal(closeCompleted, true);
+});
+
+test('data contract errors do not count toward the infrastructure circuit', async () => {
+  const observer = createPublicQrShadowObserver({
+    getConfig: () => enabledConfig(),
+    readCandidate: async () => {
+      const error = new Error('candidate data differs');
+      error.code = 'QR_NOT_FOUND';
+      throw error;
+    },
+    compareDtos: matchingComparator
+  });
+  for (let index = 0; index < 6; index += 1) {
+    assert.equal((await observer.observe(event())).outcome, 'QR_NOT_FOUND');
+  }
+  assert.equal(observer.getState().recentInfrastructureFailures, 0);
+  assert.equal(observer.getState().circuitOpen, false);
 });
 
 test('five infrastructure failures open the circuit and one successful half-open probe closes it', async () => {

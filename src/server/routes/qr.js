@@ -3,8 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const {
   getQRCode,
-  findQRByKey,
   findQRByToken,
+  findPublicQrReadContextByKey,
   activateQRByKey,
   startCoCreationByKey,
   addCoCreationCommentByKey,
@@ -15,6 +15,10 @@ const {
 const { listBatches } = require('../services/dbService');
 const { getSignedUrl, getStorageMode } = require('../services/storageService');
 const { chainPublicPayload } = require('../services/chainViewService');
+const { createPublicQrAssetResolver } = require('../services/publicQrAssetResolver');
+const {
+  registerPublicQrShadowObservation
+} = require('../services/postgres/publicQrShadowRuntime');
 const {
   prepareRecordManifest,
   submitPreparedRecord
@@ -56,7 +60,10 @@ function respondAccountContextRequired(res) {
   });
 }
 
-function resolveImageUrl(qr) {
+function resolveImageUrl(qr, assetResolver = null) {
+  if (assetResolver && typeof assetResolver.resolveRecordImage === 'function') {
+    return assetResolver.resolveRecordImage({ record: qr, channel: 'h5' });
+  }
   if (qr.image_object_key) {
     try {
       return getSignedUrl(qr.image_object_key);
@@ -93,14 +100,12 @@ function coCreationMeta(qr, req) {
   };
 }
 
-function getBatchInfo(qr) {
+function getBatchInfo(qr, batch = null) {
   const batchInfo = {};
   if (!qr.batch_id) {
     return batchInfo;
   }
 
-  const batches = listBatches();
-  const batch = batches.find((b) => b.id === qr.batch_id);
   if (batch) {
     batchInfo.batch_brand_name = batch.brand_name || '';
     batchInfo.batch_brand_disclosure_text = batch.brand_disclosure_text || '';
@@ -109,10 +114,12 @@ function getBatchInfo(qr) {
   return batchInfo;
 }
 
-function getBrandName(qr) {
+function getBrandName(qr, batch = undefined) {
   if (!qr.batch_id) return '';
-  const batch = listBatches().find((item) => item.id === qr.batch_id);
-  return batch ? batch.brand_name || '' : '';
+  const resolvedBatch = batch === undefined
+    ? listBatches().find((item) => item.id === qr.batch_id)
+    : batch;
+  return resolvedBatch ? resolvedBatch.brand_name || '' : '';
 }
 
 function formatRecordPayload(qr, req) {
@@ -136,8 +143,8 @@ function formatRecordPayload(qr, req) {
   };
 }
 
-function formatQRStatusPayload(qr, req) {
-  const batchInfo = getBatchInfo(qr);
+function formatQRStatusPayload(qr, req, { batch = null, assetResolver = null } = {}) {
+  const batchInfo = getBatchInfo(qr, batch);
   const base = {
     id: qr.id,
     qr_id: qr.id,
@@ -152,10 +159,10 @@ function formatQRStatusPayload(qr, req) {
     return {
       ...base,
       content: qr.content || '',
-      image_url: resolveImageUrl(qr),
+      image_url: resolveImageUrl(qr, assetResolver),
       image_object_key: qr.image_object_key || null,
       blockchain_hash: qr.blockchain_hash || null,
-      ...chainPublicPayload(qr),
+      ...chainPublicPayload(qr, { channel: 'h5', assetResolver }),
       activated_at: qr.activated_at,
       co_creation_enabled: qr.co_creation_enabled === true,
       is_co_creation_owner: isCoCreationOwnerByAccount(qr, req.user),
@@ -175,7 +182,7 @@ function formatQRStatusPayload(qr, req) {
     return {
       ...base,
       content: qr.content || '',
-      image_url: resolveImageUrl(qr),
+      image_url: resolveImageUrl(qr, assetResolver),
       image_object_key: qr.image_object_key || null,
       co_creation_enabled: true,
       is_co_creation_owner: isCoCreationOwnerByAccount(qr, req.user),
@@ -215,7 +222,8 @@ router.get('/sample-unactivated', (_req, res) => {
 });
 
 router.get('/:qrId', (req, res) => {
-  const qr = findQRByKey(req.params.qrId);
+  const key = String(req.params.qrId || '').trim();
+  const { qr, batch, sourceHash } = findPublicQrReadContextByKey(key);
 
   if (!qr) {
     return res.status(404).json({
@@ -233,10 +241,28 @@ router.get('/:qrId', (req, res) => {
     });
   }
 
+  const assetResolver = createPublicQrAssetResolver();
+  const data = formatQRStatusPayload(qr, req, { batch, assetResolver });
+  registerPublicQrShadowObservation({
+    res,
+    event: {
+      channel: 'h5',
+      endpointTemplate: '/api/qr/:qrId',
+      key,
+      publicQrId: qr.id,
+      viewer: {
+        accountId: req.user && req.user.account_id ? String(req.user.account_id) : '',
+        phoneBound: Boolean(req.user && req.user.phone)
+      },
+      baselineDto: data,
+      sourceHash,
+      assetResolver
+    }
+  });
   return res.json({
     status: 'success',
     code: 'OK',
-    data: formatQRStatusPayload(qr, req)
+    data
   });
 });
 

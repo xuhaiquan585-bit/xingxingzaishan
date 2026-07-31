@@ -52,6 +52,7 @@ const {
   OrderRepository,
   PaymentRepository,
   ProofRepository,
+  PublicQrProvenanceRepository,
   QrBatchRepository,
   QrRepository,
   RecordRepository
@@ -1295,6 +1296,46 @@ test('co-creation repository exposes stable source position without UUID orderin
   assert.doesNotMatch(harness.calls[0].sql, /ORDER BY[^;]*\bid\b/i);
   assert.equal(comments[0].source_position, 4);
   assert.equal(Object.isFrozen(comments[0]), true);
+
+  const candidateHarness = createRepositoryContext([{ rows: [row], rowCount: 1 }]);
+  await new CoCreationRepository(candidateHarness.context)
+    .listPublicCommentsCandidate(row.co_creation_id, { limit: 13 });
+  assert.deepEqual(candidateHarness.calls[0].params, [row.co_creation_id, 13]);
+  assert.match(
+    candidateHarness.calls[0].sql,
+    /ORDER BY created_at DESC, source_position ASC\s+LIMIT \$2/
+  );
+});
+
+test('public QR provenance repository checks exact source hashes and canonical migrations', async () => {
+  const sourceHash = 'a'.repeat(64);
+  const harness = createRepositoryContext([
+    {
+      rows: [{ source_sha256: sourceHash, status: 'passed', completed_at: '2026-01-01T00:00:00Z' }],
+      rowCount: 1
+    },
+    { rows: [{ version: '001_init_schema.sql', checksum: 'b'.repeat(64) }], rowCount: 1 }
+  ]);
+  const repository = new PublicQrProvenanceRepository(harness.context);
+  const importRun = await repository.findPassedImportBySourceHash(sourceHash);
+  const migrations = await repository.listAppliedMigrations();
+  assert.equal(importRun.source_sha256, sourceHash);
+  assert.deepEqual(harness.calls[0].params, [sourceHash]);
+  assert.equal(harness.calls[0].sql.includes(sourceHash), false);
+  assert.deepEqual(migrations, [{ version: '001_init_schema.sql', checksum: 'b'.repeat(64) }]);
+  await assert.rejects(
+    repository.findPassedImportBySourceHash('not-a-hash'),
+    (error) => error.code === 'PUBLIC_QR_SOURCE_HASH_INVALID'
+  );
+});
+
+test('public QR repository key lookup gives access tokens precedence over legacy ids', async () => {
+  const harness = createRepositoryContext([{ rows: [], rowCount: 0 }]);
+  await new QrRepository(harness.context).findByKey('ambiguous-public-key');
+  assert.match(harness.calls[0].sql, /WHERE access_token = \$1/);
+  assert.match(harness.calls[0].sql, /NOT EXISTS/);
+  assert.match(harness.calls[0].sql, /token_match\.access_token = \$1/);
+  assert.deepEqual(harness.calls[0].params, ['ambiguous-public-key']);
 });
 
 test('unique identity lookups fail closed and do not select the first duplicate', async () => {

@@ -1165,6 +1165,22 @@ function findQRByKey(key) {
   return getQRCode(key);
 }
 
+function findPublicQrReadContextByKey(key) {
+  const normalizedKey = String(key || '').trim();
+  const { db, sourceHash } = readDBWithHash();
+  if (!normalizedKey) {
+    return { qr: null, batch: null, sourceHash };
+  }
+
+  const qr = db.qr_codes.find((item) => item.qr_access_token === normalizedKey)
+    || db.qr_codes.find((item) => item.id === normalizedKey)
+    || null;
+  const batch = qr && qr.batch_id
+    ? db.batches.find((item) => item.id === qr.batch_id) || null
+    : null;
+  return { qr, batch, sourceHash };
+}
+
 function getSampleUnactivated() {
   const db = readDB();
   // 优先返回有 token 的（新数据），旧数据无 token 跳过
@@ -2732,6 +2748,7 @@ module.exports = {
   updateRecordChainProof,
   findQRByToken,
   findQRByKey,
+  findPublicQrReadContextByKey,
   getSampleUnactivated,
   activateQRCodeOnce,
   activateQRByKey,

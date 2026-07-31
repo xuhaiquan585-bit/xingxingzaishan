@@ -26,8 +26,11 @@ class QrRepository {
     const result = await executeQuery(
       this.transactionContext,
       `SELECT ${COLUMNS} FROM app.qr_codes
-       WHERE id = $1 OR access_token = $1
-       ORDER BY id ASC LIMIT 2`,
+       WHERE access_token = $1
+          OR (id = $1 AND NOT EXISTS (
+            SELECT 1 FROM app.qr_codes token_match WHERE token_match.access_token = $1
+          ))
+       LIMIT 2`,
       [key]
     );
     return oneOrNull(result, mapQr, 'DUPLICATE_QR_KEY');
@@ -37,8 +40,11 @@ class QrRepository {
     const result = await executeQuery(
       this.transactionContext,
       `SELECT ${COLUMNS} FROM app.qr_codes
-       WHERE id = $1 OR access_token = $1
-       ORDER BY id ASC LIMIT 2 FOR UPDATE`,
+       WHERE access_token = $1
+          OR (id = $1 AND NOT EXISTS (
+            SELECT 1 FROM app.qr_codes token_match WHERE token_match.access_token = $1
+          ))
+       LIMIT 2 FOR UPDATE`,
       [key]
     );
     return oneOrNull(result, mapQr, 'DUPLICATE_QR_KEY');

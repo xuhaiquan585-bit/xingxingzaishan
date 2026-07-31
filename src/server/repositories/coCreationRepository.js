@@ -35,6 +35,24 @@ class CoCreationRepository {
     return many(result, mapComment);
   }
 
+  async listPublicCommentsCandidate(coCreationId, { limit = 13 } = {}) {
+    const safeLimit = Number(limit);
+    if (!Number.isSafeInteger(safeLimit) || safeLimit < 1 || safeLimit > 13) {
+      const error = new Error('PUBLIC_QR_COMMENT_LIMIT_INVALID');
+      error.code = 'PUBLIC_QR_COMMENT_LIMIT_INVALID';
+      throw error;
+    }
+    const result = await executeQuery(
+      this.transactionContext,
+      `SELECT ${COMMENT_COLUMNS} FROM app.co_creation_comments
+       WHERE co_creation_id = $1 AND status = 'kept'
+       ORDER BY created_at DESC, source_position ASC
+       LIMIT $2`,
+      [coCreationId, safeLimit]
+    );
+    return many(result, mapComment);
+  }
+
   async hasEffectiveComment(coCreationId, accountId) {
     const result = await executeQuery(
       this.transactionContext,

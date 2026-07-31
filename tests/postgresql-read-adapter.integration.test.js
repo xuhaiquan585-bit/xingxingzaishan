@@ -23,6 +23,11 @@ const {
 const {
   comparePublicQrDtos
 } = require('../src/server/services/postgres/publicQrDtoComparator');
+const { createPublicQrAssetResolver } = require('../src/server/services/publicQrAssetResolver');
+const {
+  closePublicQrShadowRuntime,
+  createPublicQrShadowRuntime
+} = require('../src/server/services/postgres/publicQrShadowRuntime');
 const { generateMiniappToken } = require('../src/server/services/miniappAuthService');
 const { executeStagingImport } = require('../scripts/database/import-staging');
 const { runMigrations } = require('../scripts/database/migrate');
@@ -301,7 +306,7 @@ function stopServer(server) {
 }
 
 async function readCandidate(pool, { key, channel, viewer }) {
-  return withTransaction(pool, async (transactionContext) => {
+  const loaded = await withTransaction(pool, async (transactionContext) => {
     const queries = [];
     const observedContext = Object.freeze({
       async query(...args) {
@@ -318,14 +323,25 @@ async function readCandidate(pool, { key, channel, viewer }) {
       assetResolver: null,
       publicRuntimeMetadata: { storage_mode: 'local' }
     });
-    const dto = await adapter.read({ key, channel, viewer });
-    return { dto, queries };
+    const snapshot = await adapter.loadSnapshot({ key, channel, viewer });
+    return { adapter, snapshot, queries };
   }, { isolationLevel: 'repeatable read', readOnly: true });
+  const dto = await loaded.adapter.present(loaded.snapshot);
+  return { dto, queries: loaded.queries };
 }
 
 function assertDtoMatch(label, baseline, candidate, channel) {
   const report = comparePublicQrDtos({ baseline, candidate, channel });
   assert.equal(report.matches, true, `${label}: ${JSON.stringify(report)}`);
+}
+
+async function waitForFile(filePath, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(filePath) && fs.statSync(filePath).size > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error('SHADOW_SINK_OUTPUT_TIMEOUT');
 }
 
 async function verifySourcePositionMigrationGuard(pool, directory) {
@@ -415,6 +431,7 @@ test('manual PostgreSQL public QR adapter integration', {
 
   const config = readPostgresConfig(process.env);
   const pool = createPostgresPool({ config });
+  let shadowRuntime;
   let server;
   let port;
   try {
@@ -433,6 +450,23 @@ test('manual PostgreSQL public QR adapter integration', {
       plan: analysis.plan
     });
     assert.equal(imported.status, 'PASSED');
+
+    const shadowDirectory = path.join(directory, 'direct-shadow');
+    shadowRuntime = createPublicQrShadowRuntime({
+      enabled: true,
+      allowlist: new Set([
+        'QR_UNACTIVATED',
+        'QR_CO_CREATING',
+        'QR_ACTIVATED_DIRECT',
+        'QR_ACTIVATED_COMMENTS'
+      ]),
+      logDirectory: shadowDirectory,
+      timeoutMs: 250,
+      maxConcurrency: 2,
+      maxLogBytes: 5 * 1024 * 1024,
+      retentionDays: 14,
+      queueLimit: 100
+    }, { env: process.env });
 
     const { createApp } = require('../src/server/app');
     ({ server, port } = await startServer(createApp()));
@@ -494,6 +528,7 @@ test('manual PostgreSQL public QR adapter integration', {
       }
     ];
 
+    let mismatchCount = 0;
     for (const current of exactCases) {
       const baselineResponse = await requestJson(port, current.path, current.token);
       assert.equal(baselineResponse.status, 200);
@@ -505,7 +540,57 @@ test('manual PostgreSQL public QR adapter integration', {
         candidate.dto,
         current.channel
       );
+      const observed = await shadowRuntime.observer.observe({
+        channel: current.channel,
+        endpointTemplate: current.channel === 'miniapp'
+          ? '/api/miniapp/qr/:key'
+          : '/api/qr/:qrId',
+        key: current.key,
+        publicQrId: baselineResponse.body.data.id,
+        viewer: current.viewer,
+        baselineDto: baselineResponse.body.data,
+        sourceHash: source.sourceHash,
+        assetResolver: createPublicQrAssetResolver()
+      });
+      assert.equal(observed.outcome, 'MATCH', `${current.label}: ${JSON.stringify(observed)}`);
+      mismatchCount += Number(observed.mismatchCount || 0);
     }
+    assert.equal(mismatchCount, 0);
+
+    const stale = await shadowRuntime.observer.observe({
+      channel: 'h5',
+      endpointTemplate: '/api/qr/:qrId',
+      key: 'token-qr_activated_direct',
+      publicQrId: 'QR_ACTIVATED_DIRECT',
+      viewer: null,
+      baselineDto: { id: 'QR_ACTIVATED_DIRECT' },
+      sourceHash: '0'.repeat(64),
+      assetResolver: createPublicQrAssetResolver()
+    });
+    assert.equal(stale.outcome, 'STALE_SOURCE');
+
+    process.env.PUBLIC_QR_SHADOW_READ_ENABLED = 'true';
+    process.env.PUBLIC_QR_SHADOW_READ_ALLOWLIST = 'QR_ACTIVATED_DIRECT';
+    process.env.PUBLIC_QR_SHADOW_READ_LOG_DIR = path.join(directory, 'route-shadow');
+    await pool.query(
+      'UPDATE app.records SET content = $2 WHERE qr_id = $1',
+      ['QR_ACTIVATED_DIRECT', 'candidate-only mismatch text']
+    );
+    const baselineAfterCandidateDrift = await requestJson(
+      port,
+      '/api/qr/token-qr_activated_direct'
+    );
+    assert.equal(baselineAfterCandidateDrift.status, 200);
+    assert.equal(baselineAfterCandidateDrift.body.data.content, 'Activated fixture');
+    const routeSinkFile = path.join(
+      process.env.PUBLIC_QR_SHADOW_READ_LOG_DIR,
+      'public-qr-shadow-current.jsonl'
+    );
+    await waitForFile(routeSinkFile);
+    const sinkOutput = fs.readFileSync(routeSinkFile, 'utf8');
+    assert.match(sinkOutput, /\$\.content/);
+    assert.doesNotMatch(sinkOutput, /Activated fixture|candidate-only mismatch text|token-qr/);
+    await closePublicQrShadowRuntime();
 
     const importedPositions = await pool.query(
       `SELECT comment.legacy_comment_id, comment.source_position, comment.status
@@ -539,6 +624,8 @@ test('manual PostgreSQL public QR adapter integration', {
       'record_proofs_record_provider_uq'
     ].forEach((name) => assert.equal(indexNames.has(name), true));
   } finally {
+    if (shadowRuntime) await shadowRuntime.close();
+    await closePublicQrShadowRuntime();
     if (server) await stopServer(server);
     await pool.query('DROP SCHEMA IF EXISTS app CASCADE');
     await closePostgresPool(pool);
@@ -546,5 +633,8 @@ test('manual PostgreSQL public QR adapter integration', {
     delete process.env.DB_FILE;
     delete process.env.AUTH_SECRET;
     delete process.env.STORAGE_MODE;
+    delete process.env.PUBLIC_QR_SHADOW_READ_ENABLED;
+    delete process.env.PUBLIC_QR_SHADOW_READ_ALLOWLIST;
+    delete process.env.PUBLIC_QR_SHADOW_READ_LOG_DIR;
   }
 });

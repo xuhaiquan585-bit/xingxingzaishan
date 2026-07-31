@@ -7,6 +7,7 @@ const { IdentityRepository } = require('./identityRepository');
 const { OrderRepository } = require('./orderRepository');
 const { PaymentRepository } = require('./paymentRepository');
 const { ProofRepository } = require('./proofRepository');
+const { PublicQrProvenanceRepository } = require('./publicQrProvenanceRepository');
 const { QrBatchRepository } = require('./qrBatchRepository');
 const { QrRepository } = require('./qrRepository');
 const { RecordRepository } = require('./recordRepository');
@@ -19,6 +20,7 @@ module.exports = {
   OrderRepository,
   PaymentRepository,
   ProofRepository,
+  PublicQrProvenanceRepository,
   QrBatchRepository,
   QrRepository,
   RecordRepository

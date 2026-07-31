@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const SAFE_ENDPOINTS = new Set(['/api/qr/:key', '/api/miniapp/qr/:key']);
+const SAFE_ENDPOINTS = new Set(['/api/qr/:qrId', '/api/miniapp/qr/:key']);
 const FILE_PREFIX = 'public-qr-shadow-';
 
 function boundedString(value, maxLength = 160) {
@@ -120,7 +120,7 @@ class PublicQrMismatchSink {
       if (!error || error.code !== 'ENOENT') throw error;
     }
     if (currentSize > 0 && currentSize + Buffer.byteLength(line) > this.maxBytes) {
-      const suffix = record.timestamp.replace(/[:.]/g, '-');
+      const suffix = `${record.timestamp.replace(/[:.]/g, '-')}-${record.observation_id}`;
       await this.fs.rename(activePath, path.join(this.directory, `${FILE_PREFIX}${suffix}.jsonl`));
     }
     await this.fs.appendFile(activePath, line, { encoding: 'utf8', mode: 0o600 });

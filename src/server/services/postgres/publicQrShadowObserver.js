@@ -10,6 +10,12 @@ const INFRASTRUCTURE_CODES = new Set([
   'PUBLIC_QR_SHADOW_SINK_QUEUE_FULL'
 ]);
 
+function isInfrastructureError(code) {
+  return code === 'CANDIDATE_ERROR'
+    || code.startsWith('POSTGRES_')
+    || INFRASTRUCTURE_CODES.has(code);
+}
+
 function cloneDto(value) {
   if (typeof structuredClone === 'function') return structuredClone(value);
   return JSON.parse(JSON.stringify(value));
@@ -45,6 +51,9 @@ function createPublicQrShadowObserver({
   let openUntil = 0;
   let halfOpenInFlight = false;
   let failureTimes = [];
+  let closed = false;
+  let closePromise = null;
+  let resolveClose = null;
 
   function recordInfrastructureFailure(at) {
     failureTimes = failureTimes.filter((value) => at - value < 60_000);
@@ -118,7 +127,7 @@ function createPublicQrShadowObserver({
         observer_version: observerVersion
       });
       if (!queued || queued.accepted !== true) accepted = false;
-      if (queued && queued.completion) {
+      if (queued && queued.accepted === true && queued.completion) {
         Promise.resolve(queued.completion).then(
           (written) => {
             if (written !== true) recordInfrastructureFailure(now());
@@ -131,6 +140,7 @@ function createPublicQrShadowObserver({
   }
 
   async function observe(event = {}) {
+    if (closed) return { outcome: 'CLOSED' };
     const config = getConfig();
     if (!config || config.enabled !== true) return { outcome: 'DISABLED' };
     if (!config.allowlist || !config.allowlist.has(String(event.publicQrId || ''))) {
@@ -157,6 +167,7 @@ function createPublicQrShadowObserver({
         publicQrId: event.publicQrId,
         viewer: event.viewer,
         sourceHash: event.sourceHash,
+        assetResolver: event.assetResolver,
         timeoutMs: config.timeoutMs,
         signal
       }), config.timeoutMs);
@@ -184,18 +195,30 @@ function createPublicQrShadowObserver({
       return { outcome: 'MISMATCH', mismatchCount: report ? report.mismatch_count : 0 };
     } catch (error) {
       const code = errorCode(error);
-      failed = true;
+      failed = isInfrastructureError(code);
       return { outcome: code };
     } finally {
       active -= 1;
       completeCircuit({ at: now(), probe: circuit.probe, failed });
+      if (closed && active === 0 && resolveClose) resolveClose();
     }
+  }
+
+  function close() {
+    closed = true;
+    if (active === 0) return Promise.resolve();
+    if (!closePromise) {
+      closePromise = new Promise((resolve) => { resolveClose = resolve; });
+    }
+    return closePromise;
   }
 
   return Object.freeze({
     observe,
+    close,
     getState: () => ({
       active,
+      closed,
       circuitOpen: openUntil > now(),
       openUntil,
       recentInfrastructureFailures: failureTimes.length
@@ -208,5 +231,6 @@ module.exports = {
   OBSERVER_VERSION,
   cloneDto,
   createPublicQrShadowObserver,
+  isInfrastructureError,
   latencyBucket
 };

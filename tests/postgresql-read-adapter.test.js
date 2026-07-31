@@ -44,8 +44,8 @@ function makeHarness({
         calls.push(['coCreation.findByQrId', qrId]);
         return coCreation;
       },
-      async listEffectiveComments(coCreationId) {
-        calls.push(['coCreation.listEffectiveComments', coCreationId]);
+      async listPublicCommentsCandidate(coCreationId, options) {
+        calls.push(['coCreation.listPublicCommentsCandidate', coCreationId, options.limit]);
         return comments;
       }
     },
@@ -359,7 +359,7 @@ test('activated projection preserves channel fields, proof fields, and resolver 
     ['batch.findById', 'BATCH_1'],
     ['record.findByQrId', 'QR_PUBLIC_1'],
     ['coCreation.findByQrId', 'QR_PUBLIC_1'],
-    ['coCreation.listEffectiveComments', '00000000-0000-0000-0000-000000000101'],
+    ['coCreation.listPublicCommentsCandidate', '00000000-0000-0000-0000-000000000101', 13],
     ['proof.findByRecordId', 'QR_PUBLIC_1'],
     ['asset.resolveRecordImage', 'QR_PUBLIC_1', 'h5'],
     ['asset.resolveCertificate', '00000000-0000-0000-0000-000000000301', 'h5']
@@ -388,6 +388,40 @@ test('object-key records require an injected resolver and never fall back silent
     harness.adapter.read({ key: 'QR_PUBLIC_1', channel: 'h5' }),
     (error) => error.code === 'PUBLIC_QR_IMAGE_RESOLVER_REQUIRED'
   );
+});
+
+test('adapter separates database snapshot loading from asset presentation', async () => {
+  const fixture = activatedFixture();
+  const harness = makeHarness(fixture);
+  const snapshot = await harness.adapter.loadSnapshot({
+    key: 'public-token',
+    channel: 'h5',
+    viewer: null
+  });
+  assert.equal(harness.calls.some((call) => call[0].startsWith('asset.')), false);
+  const payload = await harness.adapter.present(snapshot);
+  assert.equal(payload.image_url, 'resolved://h5/records/public.jpg');
+  assert.equal(harness.calls.some((call) => call[0] === 'asset.resolveRecordImage'), true);
+});
+
+test('candidate comment overflow stops before DTO presentation', async () => {
+  const fixture = activatedFixture({ qr: { lifecycle_status: 'co_creating' } });
+  const comments = Array.from({ length: 13 }, (_, index) => ({
+    id: `COMMENT_${index}`,
+    source_position: index,
+    status: 'kept',
+    created_at: '2026-07-01T10:00:00.000Z'
+  }));
+  const harness = makeHarness({ ...fixture, comments, proof: null });
+  await assert.rejects(
+    harness.adapter.loadSnapshot({
+      key: 'public-token',
+      channel: 'h5',
+      viewer: { phone_bound: true }
+    }),
+    (error) => error.code === 'CANDIDATE_COMMENT_OVERFLOW'
+  );
+  assert.equal(harness.calls.some((call) => call[0].startsWith('asset.')), false);
 });
 
 test('DTO comparator reports structure without including compared values', () => {

@@ -785,6 +785,38 @@ test('database reads should not rewrite files or reissue issued QR codes', () =>
   }
 });
 
+test('public QR read context resolves token-first QR and batch from one source snapshot', () => {
+  const {
+    findPublicQrReadContextByKey,
+    getDatabaseSnapshot
+  } = require('../src/server/services/dbService');
+  const dbFile = process.env.DB_FILE;
+  const db = getDatabaseSnapshot();
+  const qr = db.qr_codes.find((item) => item.qr_access_token) || db.qr_codes[0];
+  assert.ok(qr);
+  const key = qr.qr_access_token || qr.id;
+  const raw = fs.readFileSync(dbFile, 'utf8');
+  const originalReadFileSync = fs.readFileSync;
+  let databaseReads = 0;
+  try {
+    fs.readFileSync = function countedReadFileSync(target, ...args) {
+      if (path.resolve(String(target)) === path.resolve(dbFile)) databaseReads += 1;
+      return originalReadFileSync.call(this, target, ...args);
+    };
+    const context = findPublicQrReadContextByKey(key);
+    assert.equal(context.qr.id, qr.id);
+    assert.equal(databaseReads, 1);
+    assert.equal(context.sourceHash, crypto.createHash('sha256').update(raw).digest('hex'));
+    const expectedBatch = qr.batch_id
+      ? db.batches.find((item) => item.id === qr.batch_id) || null
+      : null;
+    assert.deepEqual(context.batch, expectedBatch);
+    assert.equal(Object.prototype.hasOwnProperty.call(context, 'db'), false);
+  } finally {
+    fs.readFileSync = originalReadFileSync;
+  }
+});
+
 test('database snapshot writes should replace atomically and clean up failed writes', () => {
   const {
     getDatabaseSnapshotWithHash,

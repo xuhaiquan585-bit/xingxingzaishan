@@ -1,5 +1,7 @@
 'use strict';
 
+const { chainStatusForCustomer } = require('../chainViewService');
+
 const CHANNELS = new Set(['h5', 'miniapp']);
 const CO_CREATION_COMMENT_LIMIT = 12;
 
@@ -22,9 +24,10 @@ function normalizeViewer(viewer) {
   if (!viewer || typeof viewer !== 'object') {
     return { accountId: '', phoneBound: false };
   }
+  const accountId = viewer.accountId || viewer.account_id;
   return {
-    accountId: viewer.account_id ? String(viewer.account_id) : '',
-    phoneBound: viewer.phone_bound === true
+    accountId: accountId ? String(accountId) : '',
+    phoneBound: viewer.phoneBound === true || viewer.phone_bound === true
   };
 }
 
@@ -66,12 +69,6 @@ function publicComments(comments) {
     }));
 }
 
-function chainStatusText(status) {
-  if (status === 'confirmed') return '已完成区块链存证';
-  if (status === 'failed') return '存证暂未完成，系统会继续处理';
-  return '存证生成中';
-}
-
 class PublicQrReadAdapter {
   constructor({
     qrRepository,
@@ -85,7 +82,10 @@ class PublicQrReadAdapter {
     this.findQrByKey = requireMethod(qrRepository, 'findByKey');
     this.findRecordByQrId = requireMethod(recordRepository, 'findByQrId');
     this.findCoCreationByQrId = requireMethod(coCreationRepository, 'findByQrId');
-    this.listEffectiveComments = requireMethod(coCreationRepository, 'listEffectiveComments');
+    this.listPublicCommentsCandidate = requireMethod(
+      coCreationRepository,
+      'listPublicCommentsCandidate'
+    );
     this.findProofByRecordId = requireMethod(proofRepository, 'findByRecordId');
     this.batchReader = batchReader;
     this.assetResolver = assetResolver;
@@ -102,6 +102,11 @@ class PublicQrReadAdapter {
   }
 
   async read({ key, channel, viewer = null } = {}) {
+    const snapshot = await this.loadSnapshot({ key, channel, viewer });
+    return this.present(snapshot);
+  }
+
+  async loadSnapshot({ key, channel, viewer = null } = {}) {
     const normalizedKey = String(key || '').trim();
     if (!normalizedKey) {
       throw new PublicQrReadError('PUBLIC_QR_KEY_REQUIRED', 'A normalized QR key is required.');
@@ -111,26 +116,14 @@ class PublicQrReadAdapter {
     }
 
     const qr = await this.findQrByKey(normalizedKey);
-    if (!qr) {
-      throw new PublicQrReadError('QR_NOT_FOUND', 'The QR code was not found.');
-    }
-    if (qr.hidden === true) {
-      throw new PublicQrReadError('QR_HIDDEN', 'The QR code is hidden.');
-    }
+    if (!qr) throw new PublicQrReadError('QR_NOT_FOUND', 'The QR code was not found.');
+    if (qr.hidden === true) throw new PublicQrReadError('QR_HIDDEN', 'The QR code is hidden.');
 
     const normalizedViewer = normalizeViewer(viewer);
     const batch = await this.#readBatch(qr.batch_id);
-    const base = this.#basePayload({ qr, batch, channel, normalizedViewer });
-
-    if (qr.lifecycle_status === 'unactivated') {
-      return channel === 'h5'
-        ? { ...base, show_brand_disclosure: false }
-        : base;
-    }
-
-    if (qr.lifecycle_status === 'co_creating' && !normalizedViewer.phoneBound) {
-      return base;
-    }
+    const baseSnapshot = { qr, batch, channel, normalizedViewer };
+    if (qr.lifecycle_status === 'unactivated') return baseSnapshot;
+    if (qr.lifecycle_status === 'co_creating' && !normalizedViewer.phoneBound) return baseSnapshot;
 
     const record = await this.findRecordByQrId(qr.id);
     if (!record) {
@@ -139,11 +132,54 @@ class PublicQrReadAdapter {
         'The QR lifecycle requires a record row.'
       );
     }
-
     const coCreation = await this.findCoCreationByQrId(qr.id);
     const effectiveComments = coCreation
-      ? await this.listEffectiveComments(coCreation.id)
+      ? await this.listPublicCommentsCandidate(coCreation.id, { limit: 13 })
       : [];
+    if (effectiveComments.length > CO_CREATION_COMMENT_LIMIT) {
+      throw new PublicQrReadError(
+        'CANDIDATE_COMMENT_OVERFLOW',
+        'The candidate exceeds the public comment contract.'
+      );
+    }
+    if (qr.lifecycle_status !== 'co_creating' && qr.lifecycle_status !== 'activated') {
+      throw new PublicQrReadError(
+        'PUBLIC_QR_LIFECYCLE_INVALID',
+        'The QR lifecycle is unsupported.'
+      );
+    }
+    const proof = qr.lifecycle_status === 'activated'
+      ? await this.findProofByRecordId(qr.id)
+      : null;
+    return { ...baseSnapshot, record, coCreation, effectiveComments, proof };
+  }
+
+  async present(snapshot, { assetResolver = this.assetResolver } = {}) {
+    if (!snapshot || !snapshot.qr || !CHANNELS.has(snapshot.channel)) {
+      throw new PublicQrReadError('PUBLIC_QR_SNAPSHOT_INVALID', 'The public QR snapshot is invalid.');
+    }
+    const {
+      qr,
+      batch,
+      channel,
+      normalizedViewer,
+      record = null,
+      coCreation = null,
+      effectiveComments = [],
+      proof = null
+    } = snapshot;
+    const base = this.#basePayload({ qr, batch, channel, normalizedViewer });
+
+    if (qr.lifecycle_status === 'unactivated') {
+      return channel === 'h5'
+        ? { ...base, show_brand_disclosure: false }
+        : base;
+    }
+    if (qr.lifecycle_status === 'co_creating' && !normalizedViewer.phoneBound) return base;
+    if (!record) {
+      throw new PublicQrReadError('PUBLIC_QR_RECORD_MISSING', 'The QR lifecycle requires a record row.');
+    }
+
     const comments = publicComments(effectiveComments);
     const coCreationFields = this.#coCreationFields({
       coCreation,
@@ -152,7 +188,7 @@ class PublicQrReadAdapter {
       normalizedViewer
     });
     if (qr.lifecycle_status === 'co_creating') {
-      const imageUrl = await this.#resolveRecordImage({ record, channel });
+      const imageUrl = await this.#resolveRecordImage({ record, channel, assetResolver });
       const payload = {
         ...base,
         content: record.content || '',
@@ -168,21 +204,16 @@ class PublicQrReadAdapter {
     }
 
     if (qr.lifecycle_status !== 'activated') {
-      throw new PublicQrReadError(
-        'PUBLIC_QR_LIFECYCLE_INVALID',
-        'The QR lifecycle is unsupported.'
-      );
+      throw new PublicQrReadError('PUBLIC_QR_LIFECYCLE_INVALID', 'The QR lifecycle is unsupported.');
     }
-
-    const proof = await this.findProofByRecordId(qr.id);
-    const imageUrl = await this.#resolveRecordImage({ record, channel });
+    const imageUrl = await this.#resolveRecordImage({ record, channel, assetResolver });
     const payload = {
       ...base,
       content: record.content || '',
       image_url: imageUrl,
       image_object_key: record.image_object_key || null,
       blockchain_hash: proof && proof.manifest_hash ? proof.manifest_hash : null,
-      ...await this.#chainPayload({ proof, channel }),
+      ...await this.#chainPayload({ proof, channel, assetResolver }),
       activated_at: publicTimestamp(record.sealed_at),
       co_creation_enabled: Boolean(coCreation),
       ...coCreationFields,
@@ -237,9 +268,9 @@ class PublicQrReadAdapter {
     return findBatchById(batchId);
   }
 
-  async #resolveRecordImage({ record, channel }) {
-    if (this.assetResolver && typeof this.assetResolver.resolveRecordImage === 'function') {
-      return this.assetResolver.resolveRecordImage({ record, channel });
+  async #resolveRecordImage({ record, channel, assetResolver }) {
+    if (assetResolver && typeof assetResolver.resolveRecordImage === 'function') {
+      return assetResolver.resolveRecordImage({ record, channel });
     }
     if (record.image_object_key) {
       throw new PublicQrReadError(
@@ -250,27 +281,27 @@ class PublicQrReadAdapter {
     return record.image_url_snapshot || '';
   }
 
-  async #chainPayload({ proof, channel }) {
+  async #chainPayload({ proof, channel, assetResolver }) {
     const status = proof && proof.status ? proof.status : 'not_started';
-    let certificateUrl = proof && proof.provider_certificate_url
+    let resolvedCertificateUrl = proof && proof.provider_certificate_url
       ? proof.provider_certificate_url
       : null;
     if (proof && proof.certificate_object_key) {
-      if (!this.assetResolver || typeof this.assetResolver.resolveCertificate !== 'function') {
+      if (!assetResolver || typeof assetResolver.resolveCertificate !== 'function') {
         throw new PublicQrReadError(
           'PUBLIC_QR_CERTIFICATE_RESOLVER_REQUIRED',
           'A certificate resolver is required for object-key proofs.'
         );
       }
-      certificateUrl = await this.assetResolver.resolveCertificate({ proof, channel });
+      resolvedCertificateUrl = await assetResolver.resolveCertificate({ proof, channel });
     }
     return {
       chain_provider: proof && proof.provider ? proof.provider : 'avata_wenchang',
       chain_status: status,
-      chain_status_text: chainStatusText(status),
+      chain_status_text: chainStatusForCustomer(status),
       manifest_hash: proof && proof.manifest_hash ? proof.manifest_hash : null,
       chain_tx_hash: status === 'confirmed' && proof ? proof.transaction_hash || null : null,
-      chain_certificate_url: status === 'confirmed' ? certificateUrl : null,
+      chain_certificate_url: status === 'confirmed' ? resolvedCertificateUrl : null,
       chain_confirmed_at: status === 'confirmed' && proof
         ? publicTimestamp(proof.confirmed_at)
         : null
@@ -282,6 +313,7 @@ module.exports = {
   CO_CREATION_COMMENT_LIMIT,
   PublicQrReadAdapter,
   PublicQrReadError,
+  normalizeViewer,
   publicComments,
   publicTimestamp
 };

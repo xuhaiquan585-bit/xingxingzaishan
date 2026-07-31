@@ -9,7 +9,7 @@ const {
 const {
   createOrGetMiniappUser,
   bindMiniappUserPhone,
-  findQRByKey,
+  findPublicQrReadContextByKey,
   activateQRByKey,
   startCoCreationByKey,
   addCoCreationCommentByKey,
@@ -35,6 +35,10 @@ const {
 } = require('../services/storageService');
 const { checkText, checkImageBuffer } = require('../services/contentSafetyService');
 const { chainPublicPayload } = require('../services/chainViewService');
+const { createPublicQrAssetResolver } = require('../services/publicQrAssetResolver');
+const {
+  registerPublicQrShadowObservation
+} = require('../services/postgres/publicQrShadowRuntime');
 const {
   prepareRecordManifest,
   submitPreparedRecord
@@ -104,7 +108,10 @@ function shouldExposeVerificationCode() {
   return process.env.NODE_ENV !== 'production';
 }
 
-function resolveImageUrl(record) {
+function resolveImageUrl(record, assetResolver = null) {
+  if (assetResolver && typeof assetResolver.resolveRecordImage === 'function') {
+    return assetResolver.resolveRecordImage({ record, channel: 'miniapp' });
+  }
   if (record.image_url) {
     return record.image_url;
   }
@@ -150,11 +157,15 @@ function coCreationMeta(qr, user) {
   };
 }
 
-function getBatchInfo(qr) {
+function findBatchForQr(qr) {
+  if (!qr.batch_id) return null;
+  return listBatches().find((item) => item.id === qr.batch_id) || null;
+}
+
+function getBatchInfo(qr, batch = null) {
   if (!qr.batch_id) {
     return {};
   }
-  const batch = listBatches().find((item) => item.id === qr.batch_id);
   if (!batch) {
     return {};
   }
@@ -165,15 +176,15 @@ function getBatchInfo(qr) {
   };
 }
 
-function getBrandName(qr) {
+function getBrandName(qr, batch = undefined) {
   if (!qr.batch_id) {
     return '';
   }
-  const batch = listBatches().find((item) => item.id === qr.batch_id);
-  return batch ? batch.brand_name || '' : '';
+  const resolvedBatch = batch === undefined ? findBatchForQr(qr) : batch;
+  return resolvedBatch ? resolvedBatch.brand_name || '' : '';
 }
 
-function formatQRPayload(qr, user) {
+function formatQRPayload(qr, user, { batch = null, assetResolver = null } = {}) {
   const base = {
     id: qr.id,
     qr_id: qr.id,
@@ -182,17 +193,17 @@ function formatQRPayload(qr, user) {
     active_storage_mode: getStorageMode(),
     phone_bound: !!(user && user.phone),
     batch_id: qr.batch_id || null,
-    ...getBatchInfo(qr)
+    ...getBatchInfo(qr, batch)
   };
 
   if (qr.activation_status === 'activated') {
     return {
       ...base,
       content: qr.content || '',
-      image_url: resolveImageUrl(qr),
+      image_url: resolveImageUrl(qr, assetResolver),
       image_object_key: qr.image_object_key || null,
       blockchain_hash: qr.blockchain_hash || null,
-      ...chainPublicPayload(qr),
+      ...chainPublicPayload(qr, { channel: 'miniapp', assetResolver }),
       activated_at: qr.activated_at,
       co_creation_enabled: qr.co_creation_enabled === true,
       is_co_creation_owner: isCoCreationOwnerByAccount(qr, user),
@@ -200,7 +211,7 @@ function formatQRPayload(qr, user) {
       ...coCreationMeta(qr, user),
       show_brand_disclosure: qr.show_brand_disclosure === true,
       brand_disclosure_text_snapshot: qr.brand_disclosure_text_snapshot || '',
-      brand_name: getBrandName(qr)
+      brand_name: getBrandName(qr, batch)
     };
   }
 
@@ -212,7 +223,7 @@ function formatQRPayload(qr, user) {
     return {
       ...base,
       content: qr.content || '',
-      image_url: resolveImageUrl(qr),
+      image_url: resolveImageUrl(qr, assetResolver),
       image_object_key: qr.image_object_key || null,
       co_creation_enabled: true,
       is_co_creation_owner: isCoCreationOwnerByAccount(qr, user),
@@ -220,7 +231,7 @@ function formatQRPayload(qr, user) {
       ...coCreationMeta(qr, user),
       show_brand_disclosure: qr.show_brand_disclosure === true,
       brand_disclosure_text_snapshot: qr.brand_disclosure_text_snapshot || '',
-      brand_name: getBrandName(qr)
+      brand_name: getBrandName(qr, batch)
     };
   }
 
@@ -228,8 +239,9 @@ function formatQRPayload(qr, user) {
 }
 
 function recordPayload(qr, user) {
+  const batch = findBatchForQr(qr);
   return {
-    ...formatQRPayload(qr, user),
+    ...formatQRPayload(qr, user, { batch }),
     content: qr.content || '',
     image_url: resolveImageUrl(qr),
     image_object_key: qr.image_object_key || null,
@@ -775,7 +787,8 @@ router.post('/upload', requireMiniappAuth, upload.single('image'), async (req, r
 });
 
 router.get('/qr/:key', optionalMiniappAuth, (req, res) => {
-  const qr = findQRByKey(req.params.key);
+  const key = String(req.params.key || '').trim();
+  const { qr, batch, sourceHash } = findPublicQrReadContextByKey(key);
   if (!qr) {
     return res.status(404).json({
       status: 'error',
@@ -790,10 +803,28 @@ router.get('/qr/:key', optionalMiniappAuth, (req, res) => {
       message: '这颗星暂不可见。'
     });
   }
+  const assetResolver = createPublicQrAssetResolver();
+  const data = formatQRPayload(qr, req.miniappUser, { batch, assetResolver });
+  registerPublicQrShadowObservation({
+    res,
+    event: {
+      channel: 'miniapp',
+      endpointTemplate: '/api/miniapp/qr/:key',
+      key,
+      publicQrId: qr.id,
+      viewer: {
+        accountId: getMiniappAccountId(req.miniappUser),
+        phoneBound: Boolean(req.miniappUser && req.miniappUser.phone)
+      },
+      baselineDto: data,
+      sourceHash,
+      assetResolver
+    }
+  });
   return res.json({
     status: 'success',
     code: 'OK',
-    data: formatQRPayload(qr, req.miniappUser)
+    data
   });
 });
 

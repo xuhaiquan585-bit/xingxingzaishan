@@ -6,11 +6,13 @@ function chainStatusForCustomer(status) {
   return '存证生成中';
 }
 
-function chainPublicPayload(record = {}) {
+function chainPublicPayload(record = {}, { channel = 'h5', assetResolver = null } = {}) {
   const status = record.chain_status || (record.blockchain_hash ? 'confirmed' : 'not_started');
-  const certificateUrl = record.chain_certificate_object_key
-    ? getSignedUrl(record.chain_certificate_object_key)
-    : record.chain_certificate_url || null;
+  const certificateUrl = assetResolver && typeof assetResolver.resolveCertificate === 'function'
+    ? assetResolver.resolveCertificate({ proof: record, channel })
+    : record.chain_certificate_object_key
+      ? getSignedUrl(record.chain_certificate_object_key)
+      : record.chain_certificate_url || null;
   return {
     chain_provider: record.chain_provider || 'avata_wenchang',
     chain_status: status,
