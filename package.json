@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/server/server.js",
     "dev": "node src/server/server.js",
-    "test": "node --test tests/api.test.js",
+    "test": "node --test tests/api.test.js tests/database-infrastructure.test.js",
     "db:migrate:dry": "node scripts/database/migrate.js --dry-run",
     "db:migrate": "node scripts/database/migrate.js --apply",
     "migrate:oss": "node scripts/migrate-local-to-oss.js",
