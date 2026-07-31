@@ -922,3 +922,46 @@ The audit evidence status remains `AUDIT_INPUT_INTEGRITY=PARTIAL`,
 `AUDIT_EVIDENCE_CONFIDENCE=PARTIAL`, and
 `AUDIT_COPY_CLEANUP=PENDING`. Group E validation does not upgrade those
 separate server-side evidence claims.
+
+### 11.11 Phase 2D-1 Shadow Read Design Review
+
+The reviewed design is recorded in
+[shadow-read-design-v1.md](shadow-read-design-v1.md).
+
+The real H5 and miniapp routes remain unchanged. A future observer belongs
+after the current presenter has created its final channel-specific `data` DTO.
+The existing JSON response must finish without awaiting Candidate work, and
+JSON remains authoritative for status, headers, and body.
+
+The design closes the architecture questions required to begin a separate,
+default-off implementation phase:
+
+- Candidate receives only the normalized lookup key, channel, and trusted
+  server-derived viewer context in memory; none may enter telemetry.
+- Full public DTO shape and values are compared after equivalent asset
+  resolution. Internal fields are absent rather than ignored.
+- A comparison is eligible only when source-version evidence captured with the
+  baseline JSON read exactly matches a passed PostgreSQL import source hash.
+- PostgreSQL row reads use a short read-only transaction; URL resolution occurs
+  only after release.
+- effective comments use the frozen public order and a future 13-row SQL probe
+  to enforce the legal maximum of 12 without silent truncation.
+- runtime protection is default-off, bounded, low-concurrency, sampled, and
+  protected by a circuit breaker and a dedicated value-free sink.
+
+The current code does not yet provide atomic JSON source-version evidence, a
+two-phase Candidate query/resolver boundary, the SQL overflow probe, runtime
+controls, or the dedicated sink. Those are implementation and execution gates,
+not reasons to weaken comparison.
+
+Result:
+
+- `SHADOW_READ_DESIGN_STATUS=COMPLETE`
+- `SHADOW_READ_DESIGN_READY=YES`
+- `SHADOW_READ_GO_NO_GO=GO`
+- `SHADOW_READ_GO_SCOPE=DEFAULT_OFF_IMPLEMENTATION_ONLY`
+- `SHADOW_READ_EXECUTION_READY=NO`
+- `RUNTIME_READINESS=NOT_READY`
+
+This result does not authorize Shadow Read execution, PostgreSQL request
+traffic, a production database connection, or deployment.

@@ -381,3 +381,26 @@ the remaining documentation group contains no runtime code.
 This result closes the accumulated-worktree classification gate. It does not
 close the separate Shadow Read execution gates documented in
 [phase-2d-0-workspace-baseline.md](phase-2d-0-workspace-baseline.md).
+
+## Phase 2D-1 Public QR Shadow Read design
+
+- [shadow-read-design-v1.md](shadow-read-design-v1.md) freezes the baseline,
+  Candidate, freshness, resolver, comparator, sampling, telemetry, and rollback
+  boundaries for a future Public QR observer.
+- The real insertion point is after the existing H5 or miniapp JSON presenter
+  creates its final `data` DTO. Candidate work may start only from a no-throw,
+  bounded response-finish callback; JSON remains the only response source.
+- Initial eligibility requires the source hash captured with the JSON baseline
+  read to equal the source SHA-256 of a passed PostgreSQL import. Stale or
+  unversioned data is skipped and never counted as a mismatch.
+- Candidate database reads must finish before image or certificate resolution.
+  Production-equivalent channel resolvers remain an execution gate.
+- Public comments remain capped by the existing 12-comment business invariant;
+  the future SQL query must fetch at most 13 and fail the Candidate on overflow
+  rather than truncating silently.
+- `SHADOW_READ_DESIGN_STATUS=COMPLETE`, `SHADOW_READ_DESIGN_READY=YES`,
+  `SHADOW_READ_GO_NO_GO=GO`, and
+  `SHADOW_READ_GO_SCOPE=DEFAULT_OFF_IMPLEMENTATION_ONLY`.
+- `SHADOW_READ_EXECUTION_READY=NO` and `RUNTIME_READINESS=NOT_READY` remain
+  unchanged. No observer, runtime switch, PostgreSQL request traffic, dual
+  read, dual write, or deployment was added in this phase.
