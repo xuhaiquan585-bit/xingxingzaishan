@@ -10,7 +10,7 @@ const {
   hashManifest
 } = require('../src/server/services/manifestService');
 const {
-  getDatabaseSnapshot,
+  getDatabaseSnapshotWithHash,
   writeDatabaseSnapshot
 } = require('../src/server/services/dbService');
 
@@ -120,7 +120,7 @@ async function main() {
     }
   }
 
-  const currentDb = getDatabaseSnapshot();
+  const { snapshot: currentDb, sourceHash } = getDatabaseSnapshotWithHash();
   const byId = new Map((currentDb.qr_codes || []).map((item) => [item.id, item]));
   recoveredRecords.forEach((record) => {
     byId.set(record.id, {
@@ -134,7 +134,7 @@ async function main() {
   };
 
   if (writeMode) {
-    writeDatabaseSnapshot(nextDb);
+    writeDatabaseSnapshot(nextDb, { expectedSourceHash: sourceHash });
   } else {
     fs.mkdirSync(outputDir, { recursive: true });
     fs.writeFileSync(path.join(outputDir, 'recovered-db.json'), JSON.stringify(nextDb, null, 2));

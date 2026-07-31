@@ -724,13 +724,14 @@ test('H5 login should pass unknown account creation errors to internal error han
   const sendRes = await postJson('/api/user/sms/send-code', { phone: '13900139997' });
   assert.equal(sendRes.status, 200);
 
-  const originalWriteFileSync = fs.writeFileSync;
+  const dbFile = process.env.DB_FILE;
+  const originalRenameSync = fs.renameSync;
   try {
-    fs.writeFileSync = function patchedWriteFileSync(filePath, ...args) {
-      if (String(filePath).endsWith(`${path.sep}db.json`)) {
+    fs.renameSync = function patchedRenameSync(from, to) {
+      if (path.resolve(to) === path.resolve(dbFile)) {
         throw new Error('SIMULATED_DB_WRITE_FAILURE');
       }
-      return originalWriteFileSync.call(this, filePath, ...args);
+      return originalRenameSync.call(this, from, to);
     };
 
     const loginRes = await postJson('/api/user/login', { phone: '13900139996' });
@@ -748,7 +749,243 @@ test('H5 login should pass unknown account creation errors to internal error han
     assert.notEqual(verifyRes.status, 409);
     assert.equal(verifyRes.headers['set-cookie'], undefined);
   } finally {
+    fs.renameSync = originalRenameSync;
+  }
+});
+
+test('database reads should not rewrite files or reissue issued QR codes', () => {
+  const {
+    initializeDB,
+    getDatabaseSnapshot
+  } = require('../src/server/services/dbService');
+  const dbFile = process.env.DB_FILE;
+  const originalRaw = fs.readFileSync(dbFile, 'utf8');
+  const fixture = JSON.parse(originalRaw);
+  fixture.qr_codes = fixture.qr_codes.map((item) => ({
+    ...item,
+    issue_status: 'issued'
+  }));
+  const fixtureRaw = JSON.stringify(fixture, null, 2);
+
+  fs.writeFileSync(dbFile, fixtureRaw, 'utf8');
+  const beforeStat = fs.statSync(dbFile);
+
+  try {
+    initializeDB();
+    const firstRead = getDatabaseSnapshot();
+    const secondRead = getDatabaseSnapshot();
+
+    assert.equal(firstRead.qr_codes.every((item) => item.issue_status === 'issued'), true);
+    assert.equal(secondRead.qr_codes.every((item) => item.issue_status === 'issued'), true);
+    assert.equal(fs.readFileSync(dbFile, 'utf8'), fixtureRaw);
+    assert.equal(fs.statSync(dbFile).size, beforeStat.size);
+    assert.equal(fs.statSync(dbFile).mtimeMs, beforeStat.mtimeMs);
+  } finally {
+    fs.writeFileSync(dbFile, originalRaw, 'utf8');
+  }
+});
+
+test('database snapshot writes should replace atomically and clean up failed writes', () => {
+  const {
+    getDatabaseSnapshotWithHash,
+    writeDatabaseSnapshot
+  } = require('../src/server/services/dbService');
+  const dbFile = process.env.DB_FILE;
+  const dbDir = path.dirname(dbFile);
+  const dbBase = path.basename(dbFile);
+  const listTempFiles = () => fs.readdirSync(dbDir)
+    .filter((name) => name.startsWith(`.${dbBase}.`) && name.endsWith('.tmp'));
+  const originalRaw = fs.readFileSync(dbFile, 'utf8');
+  const originalMode = fs.statSync(dbFile).mode & 0o777;
+  const beforeTempFiles = listTempFiles();
+  const { snapshot: sourceSnapshot, sourceHash } = getDatabaseSnapshotWithHash();
+  const nextSnapshot = {
+    ...sourceSnapshot,
+    atomic_write_test_marker: 'must-not-persist'
+  };
+
+  assert.throws(
+    () => writeDatabaseSnapshot(JSON.parse(JSON.stringify(nextSnapshot))),
+    (error) => error && error.code === 'DB_SNAPSHOT_SOURCE_HASH_REQUIRED'
+  );
+
+  const originalWriteFileSync = fs.writeFileSync;
+  try {
+    fs.writeFileSync = function patchedWriteFileSync(target, ...args) {
+      if (typeof target === 'number') {
+        throw new Error('SIMULATED_TEMP_WRITE_FAILURE');
+      }
+      return originalWriteFileSync.call(this, target, ...args);
+    };
+    assert.throws(
+      () => writeDatabaseSnapshot(nextSnapshot, { expectedSourceHash: sourceHash }),
+      /SIMULATED_TEMP_WRITE_FAILURE/
+    );
+  } finally {
     fs.writeFileSync = originalWriteFileSync;
+  }
+
+  assert.equal(fs.readFileSync(dbFile, 'utf8'), originalRaw);
+  assert.deepEqual(listTempFiles(), beforeTempFiles);
+
+  const originalRenameSync = fs.renameSync;
+  try {
+    fs.renameSync = function patchedRenameSync(from, to) {
+      if (path.resolve(to) === path.resolve(dbFile)) {
+        throw new Error('SIMULATED_DB_RENAME_FAILURE');
+      }
+      return originalRenameSync.call(this, from, to);
+    };
+    assert.throws(
+      () => writeDatabaseSnapshot(nextSnapshot, { expectedSourceHash: sourceHash }),
+      /SIMULATED_DB_RENAME_FAILURE/
+    );
+  } finally {
+    fs.renameSync = originalRenameSync;
+  }
+
+  assert.equal(fs.readFileSync(dbFile, 'utf8'), originalRaw);
+  assert.deepEqual(listTempFiles(), beforeTempFiles);
+
+  const successfulSnapshot = {
+    ...sourceSnapshot,
+    atomic_write_test_marker: 'persisted-on-success'
+  };
+  const written = writeDatabaseSnapshot(successfulSnapshot, { expectedSourceHash: sourceHash });
+  assert.equal(written.atomic_write_test_marker, 'persisted-on-success');
+  assert.equal(fs.statSync(dbFile).mode & 0o777, originalMode);
+  assert.deepEqual(listTempFiles(), beforeTempFiles);
+
+  const { sourceHash: restoreSourceHash } = getDatabaseSnapshotWithHash();
+  writeDatabaseSnapshot(JSON.parse(originalRaw), { expectedSourceHash: restoreSourceHash });
+  assert.equal(fs.readFileSync(dbFile, 'utf8'), originalRaw);
+  assert.deepEqual(listTempFiles(), beforeTempFiles);
+});
+
+test('database schema migration should be explicit, pure, and deterministic', () => {
+  const {
+    getDatabaseSnapshot,
+    migrateDatabaseSnapshot
+  } = require('../src/server/services/dbService');
+  const current = getDatabaseSnapshot();
+  const legacy = {
+    users: [{ id: 7, phone: '13800000007' }],
+    admins: current.admins,
+    products: [{ title: 'legacy product' }],
+    orders: [{ id: 'legacy-order' }]
+  };
+  const before = JSON.stringify(legacy);
+
+  const first = migrateDatabaseSnapshot(legacy);
+  const second = migrateDatabaseSnapshot(legacy);
+
+  assert.deepEqual(first, second);
+  assert.equal(JSON.stringify(legacy), before);
+  assert.equal(first.users[0].created_at, '1970-01-01T00:00:00.000Z');
+  assert.equal(first.products[0].created_at, '1970-01-01T00:00:00.000Z');
+  assert.equal(first.orders[0].order_no, 'LEGACY_ORDER_000001');
+  assert.equal(first.orders[0].created_at, '1970-01-01T00:00:00.000Z');
+  assert.equal(first.qr_codes.every((item) => item.created_at === '1970-01-01T00:00:00.000Z'), true);
+  assert.throws(
+    () => migrateDatabaseSnapshot({ admins: [{ username: 'legacy', password: 'plaintext' }] }),
+    (error) => error && error.code === 'DB_MIGRATION_PLAINTEXT_ADMIN_PASSWORD'
+  );
+});
+
+test('OSS recovery writes should carry the database hash captured with the snapshot', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'recover-from-oss.js'), 'utf8');
+  assert.match(source, /getDatabaseSnapshotWithHash\(\)/);
+  assert.match(source, /writeDatabaseSnapshot\(nextDb, \{ expectedSourceHash: sourceHash \}\)/);
+});
+
+test('database reads should reject legacy schema without rewriting it', () => {
+  const { getDatabaseSnapshot } = require('../src/server/services/dbService');
+  const dbFile = process.env.DB_FILE;
+  const originalRaw = fs.readFileSync(dbFile, 'utf8');
+  const legacyRaw = JSON.stringify({ users: [] }, null, 2);
+  fs.writeFileSync(dbFile, legacyRaw, 'utf8');
+  const beforeStat = fs.statSync(dbFile);
+
+  try {
+    assert.throws(
+      () => getDatabaseSnapshot(),
+      (error) => error && error.code === 'DB_SCHEMA_MIGRATION_REQUIRED'
+    );
+    assert.equal(fs.readFileSync(dbFile, 'utf8'), legacyRaw);
+    assert.equal(fs.statSync(dbFile).size, beforeStat.size);
+    assert.equal(fs.statSync(dbFile).mtimeMs, beforeStat.mtimeMs);
+  } finally {
+    fs.writeFileSync(dbFile, originalRaw, 'utf8');
+  }
+});
+
+test('database writes should reject a stale source snapshot', () => {
+  const {
+    getDatabaseSnapshotWithHash,
+    writeDatabaseSnapshot
+  } = require('../src/server/services/dbService');
+  const first = getDatabaseSnapshotWithHash();
+  const second = getDatabaseSnapshotWithHash();
+  first.snapshot.write_conflict_marker = 'first';
+  second.snapshot.write_conflict_marker = 'second';
+
+  writeDatabaseSnapshot(first.snapshot, { expectedSourceHash: first.sourceHash });
+  assert.throws(
+    () => writeDatabaseSnapshot(second.snapshot, { expectedSourceHash: second.sourceHash }),
+    (error) => error && error.code === 'DB_WRITE_CONFLICT'
+  );
+
+  const current = getDatabaseSnapshotWithHash();
+  assert.equal(current.snapshot.write_conflict_marker, 'first');
+  delete current.snapshot.write_conflict_marker;
+  writeDatabaseSnapshot(current.snapshot, { expectedSourceHash: current.sourceHash });
+});
+
+test('QR generation should reject a database change made during image rendering', async () => {
+  const QRCode = require('qrcode');
+  const {
+    generateQRCodes,
+    getDatabaseSnapshotWithHash,
+    writeDatabaseSnapshot
+  } = require('../src/server/services/dbService');
+  const originalToBuffer = QRCode.toBuffer;
+  let releaseRender;
+  let markRenderStarted;
+  const renderStarted = new Promise((resolve) => {
+    markRenderStarted = resolve;
+  });
+  const renderRelease = new Promise((resolve) => {
+    releaseRender = resolve;
+  });
+
+  QRCode.toBuffer = async function delayedToBuffer(...args) {
+    markRenderStarted();
+    await renderRelease;
+    return originalToBuffer.apply(this, args);
+  };
+
+  try {
+    const pendingGeneration = generateQRCodes({ prefix: 'HSH', count: 1, batchId: null });
+    await renderStarted;
+
+    const concurrent = getDatabaseSnapshotWithHash();
+    concurrent.snapshot.qr_generation_conflict_marker = 'preserved';
+    writeDatabaseSnapshot(concurrent.snapshot, { expectedSourceHash: concurrent.sourceHash });
+    releaseRender();
+
+    await assert.rejects(
+      pendingGeneration,
+      (error) => error && error.code === 'DB_WRITE_CONFLICT'
+    );
+
+    const afterConflict = getDatabaseSnapshotWithHash();
+    assert.equal(afterConflict.snapshot.qr_generation_conflict_marker, 'preserved');
+    assert.equal(afterConflict.snapshot.qr_codes.some((item) => String(item.id).startsWith('HSH')), false);
+    delete afterConflict.snapshot.qr_generation_conflict_marker;
+    writeDatabaseSnapshot(afterConflict.snapshot, { expectedSourceHash: afterConflict.sourceHash });
+  } finally {
+    releaseRender();
+    QRCode.toBuffer = originalToBuffer;
   }
 });
 
@@ -1260,6 +1497,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const miniappMeJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'me', 'me.js'), 'utf8');
   const orderConfirmWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'order-confirm', 'order-confirm.wxml'), 'utf8');
   const orderConfirmJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'order-confirm', 'order-confirm.js'), 'utf8');
+  const normalizedOrderConfirmJs = orderConfirmJs.replace(/\r\n?/g, '\n');
   const orderConfirmWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'order-confirm', 'order-confirm.wxss'), 'utf8');
   const ordersWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'orders', 'orders.wxml'), 'utf8');
   const ordersJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'orders', 'orders.js'), 'utf8');
@@ -1774,7 +2012,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(orderConfirmJs.includes('submitting: false'), true);
   assert.equal(orderConfirmJs.includes('if (!this.data.product || this.data.submitting) return'), true);
   assert.equal(orderConfirmJs.includes('Math.round(Number(event.detail.value || 1))'), true);
-  assert.equal(orderConfirmJs.includes("if (createdOrder) {\n          this.openOrder(createdOrder.id);\n          return;\n        }\n        this.setData({ submitting: false });"), true);
+  assert.equal(normalizedOrderConfirmJs.includes("if (createdOrder) {\n          this.openOrder(createdOrder.id);\n          return;\n        }\n        this.setData({ submitting: false });"), true);
   assert.equal(orderConfirmWxml.includes('bindtap="changeQuantity"'), true);
   assert.equal(orderConfirmWxml.includes('实付'), true);
   assert.equal(orderConfirmWxml.includes('loading="{{submitting}}"'), true);
@@ -4941,7 +5179,7 @@ test('business writes should fail closed when authenticated account mapping is m
 });
 
 
-test('createApp should fail fast in production when no admin bootstrap config and no existing admins', async () => {
+test('database initialization should fail fast in production without creating a missing database', () => {
   const oldNodeEnv = process.env.NODE_ENV;
   const oldDbFile = process.env.DB_FILE;
   const oldBootstrap = process.env.ADMIN_INIT_ACCOUNTS_JSON;
@@ -4951,24 +5189,30 @@ test('createApp should fail fast in production when no admin bootstrap config an
   process.env.DB_FILE = path.join(isolatedDir, 'db.json');
   delete process.env.ADMIN_INIT_ACCOUNTS_JSON;
 
-  delete require.cache[require.resolve('../src/server/app')];
-  delete require.cache[require.resolve('../src/server/services/dbService')];
-  const { createApp } = require('../src/server/app');
-  assert.throws(
-    () => createApp(),
-    (error) => error && error.code === 'CONFIG_VALIDATION_FAILED'
-  );
+  try {
+    delete require.cache[require.resolve('../src/server/services/dbService')];
+    const { initializeDB, getDatabaseSnapshot } = require('../src/server/services/dbService');
+    assert.throws(
+      () => getDatabaseSnapshot(),
+      (error) => error && error.code === 'DB_FILE_NOT_FOUND'
+    );
+    assert.equal(fs.existsSync(process.env.DB_FILE), false);
+    assert.throws(
+      () => initializeDB(),
+      (error) => error && error.code === 'DB_FILE_NOT_FOUND'
+    );
+    assert.equal(fs.existsSync(process.env.DB_FILE), false);
+  } finally {
+    if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = oldNodeEnv;
+    if (oldDbFile === undefined) delete process.env.DB_FILE;
+    else process.env.DB_FILE = oldDbFile;
+    if (oldBootstrap === undefined) delete process.env.ADMIN_INIT_ACCOUNTS_JSON;
+    else process.env.ADMIN_INIT_ACCOUNTS_JSON = oldBootstrap;
 
-  if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
-  else process.env.NODE_ENV = oldNodeEnv;
-  if (oldDbFile === undefined) delete process.env.DB_FILE;
-  else process.env.DB_FILE = oldDbFile;
-  if (oldBootstrap === undefined) delete process.env.ADMIN_INIT_ACCOUNTS_JSON;
-  else process.env.ADMIN_INIT_ACCOUNTS_JSON = oldBootstrap;
-
-  fs.rmSync(isolatedDir, { recursive: true, force: true });
-  delete require.cache[require.resolve('../src/server/app')];
-  delete require.cache[require.resolve('../src/server/services/dbService')];
+    fs.rmSync(isolatedDir, { recursive: true, force: true });
+    delete require.cache[require.resolve('../src/server/services/dbService')];
+  }
 });
 
 test('createApp should fail fast in cloud mode without OSS config', async () => {

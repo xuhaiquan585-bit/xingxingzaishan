@@ -71,6 +71,21 @@ const PRODUCT_TYPES = ['wine_sticker', 'sticker_set', 'custom_sticker', 'wine_gi
 const ORDER_STATUSES = ['pending_payment', 'paid', 'shipped', 'completed', 'cancelled', 'refunding', 'refunded'];
 const PAYMENT_STATUSES = ['unpaid', 'paid', 'failed', 'refunded'];
 const CHAIN_STATUSES = ['not_started', 'manifest_ready', 'submitting', 'submitted', 'confirmed', 'failed', 'retrying'];
+const DETERMINISTIC_MIGRATION_TIMESTAMP = '1970-01-01T00:00:00.000Z';
+const REQUIRED_DATABASE_ARRAYS = [
+  'users',
+  'accounts',
+  'qr_codes',
+  'admins',
+  'quality_check_logs',
+  'batches',
+  'products',
+  'content_pages',
+  'banners',
+  'orders',
+  'payment_logs'
+];
+const databaseSourceHashes = new WeakMap();
 
 function normalizeProductSceneTags(value, existing = []) {
   const hasValue = value !== undefined && value !== null;
@@ -235,7 +250,7 @@ function defaultChainFields(item = {}) {
   };
 }
 
-function seedQRCodes() {
+function seedQRCodes(createdAt = nowISO()) {
   const qrCodes = [];
   for (let i = 1; i <= 100; i += 1) {
     const id = `STAR${String(i).padStart(4, '0')}`;
@@ -267,7 +282,7 @@ function seedQRCodes() {
       brand_disclosure_text_snapshot: '',
       qr_image_url: null,
       qr_access_token: null,
-      created_at: nowISO()
+      created_at: createdAt
     });
   }
   return qrCodes;
@@ -350,7 +365,16 @@ function ensureAdminsInitialized(db) {
   }
 }
 
-function migrateSchema(db) {
+function databaseError(code, message = code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function migrateDatabaseSnapshot(input) {
+  const db = input && typeof input === 'object' && !Array.isArray(input)
+    ? JSON.parse(JSON.stringify(input))
+    : {};
   if (!Array.isArray(db.users)) {
     db.users = [];
   }
@@ -364,20 +388,26 @@ function migrateSchema(db) {
     openid: item.openid || null,
     unionid: item.unionid || null,
     source: item.source || (item.openid ? 'miniapp' : 'web'),
-    created_at: item.created_at || nowISO(),
+    created_at: item.created_at || DETERMINISTIC_MIGRATION_TIMESTAMP,
     ...(Object.prototype.hasOwnProperty.call(item, 'account_id') ? { account_id: item.account_id || null } : {})
   }));
 
   if (!Array.isArray(db.qr_codes)) {
-    db.qr_codes = seedQRCodes();
+    db.qr_codes = seedQRCodes(DETERMINISTIC_MIGRATION_TIMESTAMP);
   }
-
-  ensureAdminsInitialized(db);
 
   db.admins = db.admins.map((item, idx) => ({
     id: item.id || idx + 1,
     username: item.username,
-    password: isPasswordHashed(item.password) ? item.password : hashPassword(item.password),
+    password: (() => {
+      if (!isPasswordHashed(item.password)) {
+        throw databaseError(
+          'DB_MIGRATION_PLAINTEXT_ADMIN_PASSWORD',
+          'Admin passwords must be hashed before schema migration.'
+        );
+      }
+      return item.password;
+    })(),
     role: item.role || 'qc',
     name: item.name || item.username,
     enabled: item.enabled !== false
@@ -436,13 +466,13 @@ function migrateSchema(db) {
     buy_url: item.buy_url || '',
     scene_tags: normalizeProductSceneTags(item.scene_tags),
     sort_order: Number.isFinite(Number(item.sort_order)) ? Number(item.sort_order) : idx + 1,
-    created_at: item.created_at || nowISO(),
-    updated_at: item.updated_at || item.created_at || nowISO()
+    created_at: item.created_at || DETERMINISTIC_MIGRATION_TIMESTAMP,
+    updated_at: item.updated_at || item.created_at || DETERMINISTIC_MIGRATION_TIMESTAMP
   }));
 
   db.orders = db.orders.map((item, idx) => ({
     id: item.id || `ORDER_${String(idx + 1).padStart(6, '0')}`,
-    order_no: item.order_no || `JS${Date.now()}${String(idx + 1).padStart(4, '0')}`,
+    order_no: item.order_no || `LEGACY_ORDER_${String(idx + 1).padStart(6, '0')}`,
     openid: item.openid || '',
     phone: item.phone || '',
     ...(Object.prototype.hasOwnProperty.call(item, 'account_id') ? { account_id: item.account_id || null } : {}),
@@ -467,8 +497,8 @@ function migrateSchema(db) {
     shipped_at: item.shipped_at || null,
     refund_status: item.refund_status || '',
     admin_note: item.admin_note || '',
-    created_at: item.created_at || nowISO(),
-    updated_at: item.updated_at || item.created_at || nowISO()
+    created_at: item.created_at || DETERMINISTIC_MIGRATION_TIMESTAMP,
+    updated_at: item.updated_at || item.created_at || DETERMINISTIC_MIGRATION_TIMESTAMP
   }));
 
   db.qr_codes = db.qr_codes.map((item) => ({
@@ -496,65 +526,225 @@ function migrateSchema(db) {
     }
   }));
 
-  const hasUnissued = db.qr_codes.some((item) => item.issue_status === 'unissued');
-  if (!hasUnissued) {
-    db.qr_codes = db.qr_codes.map((item, index) => ({
-      ...item,
-      issue_status: index < 10 ? 'unissued' : 'issued'
-    }));
+  if (!db.meta || typeof db.meta !== 'object' || Array.isArray(db.meta)) {
+    db.meta = {};
   }
 
   return db;
 }
 
-function initializeDB() {
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
+function assertRuntimeDatabaseSchema(db) {
+  if (!db || typeof db !== 'object' || Array.isArray(db)) {
+    throw databaseError('DB_SCHEMA_MIGRATION_REQUIRED', 'Database root must be an object.');
   }
 
+  const missingCollections = REQUIRED_DATABASE_ARRAYS.filter((key) => !Array.isArray(db[key]));
+  if (missingCollections.length > 0) {
+    throw databaseError(
+      'DB_SCHEMA_MIGRATION_REQUIRED',
+      `Database schema migration required for: ${missingCollections.join(', ')}`
+    );
+  }
+
+  if (!db.miniapp_content || typeof db.miniapp_content !== 'object' || Array.isArray(db.miniapp_content)) {
+    throw databaseError('DB_SCHEMA_MIGRATION_REQUIRED', 'Database miniapp_content schema is missing.');
+  }
+
+  if (db.admins.some((item) => !item || !isPasswordHashed(item.password))) {
+    throw databaseError('DB_SCHEMA_MIGRATION_REQUIRED', 'Database contains an unhashed admin password.');
+  }
+
+  if (process.env.NODE_ENV === 'production' && db.admins.length === 0) {
+    throw databaseError(
+      'CONFIG_VALIDATION_FAILED',
+      'Production database must contain at least one initialized admin account.'
+    );
+  }
+
+  return db;
+}
+
+function createInitialDatabaseSnapshot() {
+  const initialData = {
+    meta: {},
+    users: [],
+    accounts: [],
+    qr_codes: seedQRCodes(),
+    admins: [],
+    quality_check_logs: [],
+    batches: [],
+    products: [],
+    content_pages: [],
+    banners: [],
+    orders: [],
+    payment_logs: [],
+    miniapp_content: normalizeMiniappContent(DEFAULT_MINIAPP_CONTENT)
+  };
+  ensureAdminsInitialized(initialData);
+  return assertRuntimeDatabaseSchema(initialData);
+}
+
+function buildDatabaseTempFile() {
+  const basename = path.basename(dataFile);
+  const nonce = crypto.randomBytes(6).toString('hex');
+  return path.join(path.dirname(dataFile), `.${basename}.${process.pid}.${Date.now()}.${nonce}.tmp`);
+}
+
+function buildSiblingTempFile(targetFile) {
+  const nonce = crypto.randomBytes(6).toString('hex');
+  return path.join(
+    path.dirname(targetFile),
+    `.${path.basename(targetFile)}.${process.pid}.${Date.now()}.${nonce}.tmp`
+  );
+}
+
+function stageFileReplacement(targetFile, content) {
+  const tempFile = buildSiblingTempFile(targetFile);
+  const backupFile = buildSiblingTempFile(targetFile);
+  let descriptor = null;
+  let hasBackup = false;
+  try {
+    descriptor = fs.openSync(tempFile, 'wx', 0o600);
+    fs.writeFileSync(descriptor, content);
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor);
+    descriptor = null;
+    if (fs.existsSync(targetFile)) {
+      fs.renameSync(targetFile, backupFile);
+      hasBackup = true;
+    }
+    fs.renameSync(tempFile, targetFile);
+    return {
+      commit() {
+        if (hasBackup) unlinkTempFile(backupFile);
+      },
+      rollback() {
+        unlinkTempFile(targetFile);
+        if (hasBackup && fs.existsSync(backupFile)) {
+          fs.renameSync(backupFile, targetFile);
+        }
+      }
+    };
+  } catch (error) {
+    if (descriptor !== null) {
+      try {
+        fs.closeSync(descriptor);
+      } catch (_closeError) {
+        // Preserve the original image write error.
+      }
+    }
+    unlinkTempFile(tempFile);
+    if (hasBackup && fs.existsSync(backupFile) && !fs.existsSync(targetFile)) {
+      fs.renameSync(backupFile, targetFile);
+    }
+    throw error;
+  }
+}
+
+function writeSerializedDatabaseAtomically(serialized, { beforeRename } = {}) {
+  const tempFile = buildDatabaseTempFile();
+  const stat = fs.existsSync(dataFile) ? fs.statSync(dataFile) : null;
+  let descriptor = null;
+
+  try {
+    descriptor = fs.openSync(tempFile, 'wx', stat ? stat.mode & 0o777 : 0o600);
+    fs.writeFileSync(descriptor, serialized, { encoding: 'utf-8' });
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor);
+    descriptor = null;
+
+    if (typeof beforeRename === 'function') {
+      beforeRename();
+    }
+
+    fs.renameSync(tempFile, dataFile);
+    fsyncDatabaseDirectory();
+  } catch (error) {
+    if (descriptor !== null) {
+      try {
+        fs.closeSync(descriptor);
+      } catch (_closeError) {
+        // Preserve the original write error.
+      }
+    }
+    unlinkTempFile(tempFile);
+    throw error;
+  }
+}
+
+function fsyncDatabaseDirectory() {
+  if (process.platform === 'win32') return false;
+  let descriptor = null;
+  try {
+    descriptor = fs.openSync(path.dirname(dataFile), 'r');
+    fs.fsyncSync(descriptor);
+    return true;
+  } catch (_error) {
+    // The database was already atomically replaced. Do not report a false rollback.
+    return false;
+  } finally {
+    if (descriptor !== null) {
+      try {
+        fs.closeSync(descriptor);
+      } catch (_closeError) {
+        // Best-effort directory durability only.
+      }
+    }
+  }
+}
+
+function initializeDB() {
   if (!fs.existsSync(dataFile)) {
-    const initialData = migrateSchema({
-      users: [],
-      accounts: [],
-      qr_codes: seedQRCodes(),
-      admins: [],
-      quality_check_logs: [],
-      batches: [],
-      products: [],
-      content_pages: [],
-      banners: [],
-      orders: [],
-      payment_logs: [],
-      miniapp_content: DEFAULT_MINIAPP_CONTENT
-    });
-    fs.writeFileSync(dataFile, JSON.stringify(initialData, null, 2), 'utf-8');
+    if (process.env.NODE_ENV === 'production') {
+      throw databaseError('DB_FILE_NOT_FOUND', `Production database file does not exist: ${dataFile}`);
+    }
+    const databaseDir = path.dirname(dataFile);
+    if (!fs.existsSync(databaseDir)) {
+      fs.mkdirSync(databaseDir, { recursive: true });
+    }
+    const initialData = createInitialDatabaseSnapshot();
+    writeSerializedDatabaseAtomically(JSON.stringify(initialData, null, 2));
     return;
   }
 
-  const db = migrateSchema(JSON.parse(fs.readFileSync(dataFile, 'utf-8')));
-  fs.writeFileSync(dataFile, JSON.stringify(db, null, 2), 'utf-8');
+  const raw = fs.readFileSync(dataFile, 'utf-8');
+  assertRuntimeDatabaseSchema(JSON.parse(raw));
 }
 
 function readDB() {
-  initializeDB();
-  return migrateSchema(JSON.parse(fs.readFileSync(dataFile, 'utf-8')));
+  return readDBWithHash().db;
 }
 
 function writeDB(db) {
-  fs.writeFileSync(dataFile, JSON.stringify(db, null, 2), 'utf-8');
+  const expectedSourceHash = databaseSourceHashes.get(db);
+  if (!expectedSourceHash) {
+    throw databaseError('DB_WRITE_SOURCE_REQUIRED', 'Database writes require a snapshot read from the current source file.');
+  }
+  writeDBAtomicallyIfUnchanged(db, expectedSourceHash);
 }
 
 function sha256Content(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+function assertDatabaseSourceHash(expectedSourceHash, conflictCode = 'DB_WRITE_CONFLICT') {
+  const currentHash = fs.existsSync(dataFile)
+    ? sha256Content(fs.readFileSync(dataFile, 'utf-8'))
+    : null;
+  if (currentHash !== expectedSourceHash) {
+    throw databaseError(conflictCode, conflictCode);
+  }
+}
+
 function readDBWithHash() {
-  initializeDB();
+  if (!fs.existsSync(dataFile)) {
+    throw databaseError('DB_FILE_NOT_FOUND', `Database file does not exist: ${dataFile}`);
+  }
   const raw = fs.readFileSync(dataFile, 'utf-8');
-  return {
-    db: migrateSchema(JSON.parse(raw)),
-    sourceHash: sha256Content(raw)
-  };
+  const db = assertRuntimeDatabaseSchema(JSON.parse(raw));
+  const sourceHash = sha256Content(raw);
+  databaseSourceHashes.set(db, sourceHash);
+  return { db, sourceHash };
 }
 
 function unlinkTempFile(tempFile) {
@@ -567,34 +757,16 @@ function unlinkTempFile(tempFile) {
   }
 }
 
-function writeDBAtomicallyIfUnchanged(db, expectedSourceHash) {
-  const dir = path.dirname(dataFile);
-  const basename = path.basename(dataFile);
-  const tempFile = path.join(dir, `.${basename}.${process.pid}.${Date.now()}.tmp`);
-  const stat = fs.existsSync(dataFile) ? fs.statSync(dataFile) : null;
+function writeDBAtomicallyIfUnchanged(db, expectedSourceHash, conflictCode = 'DB_WRITE_CONFLICT') {
+  assertRuntimeDatabaseSchema(db);
   const serialized = JSON.stringify(db, null, 2);
-  try {
-    const currentHash = sha256Content(fs.readFileSync(dataFile, 'utf-8'));
-    if (currentHash !== expectedSourceHash) {
-      const error = new Error('DB_CHANGED_DURING_BIND');
-      error.code = 'DB_CHANGED_DURING_BIND';
-      throw error;
-    }
-    fs.writeFileSync(tempFile, serialized, {
-      encoding: 'utf-8',
-      mode: stat ? stat.mode : 0o600
-    });
-    const hashBeforeRename = sha256Content(fs.readFileSync(dataFile, 'utf-8'));
-    if (hashBeforeRename !== expectedSourceHash) {
-      const error = new Error('DB_CHANGED_DURING_BIND');
-      error.code = 'DB_CHANGED_DURING_BIND';
-      throw error;
-    }
-    fs.renameSync(tempFile, dataFile);
-  } catch (error) {
-    unlinkTempFile(tempFile);
-    throw error;
-  }
+  const assertSourceUnchanged = () => assertDatabaseSourceHash(expectedSourceHash, conflictCode);
+
+  assertSourceUnchanged();
+  writeSerializedDatabaseAtomically(serialized, {
+    beforeRename: assertSourceUnchanged
+  });
+  databaseSourceHashes.set(db, sha256Content(serialized));
 }
 
 function createOrGetUser(phone) {
@@ -914,7 +1086,7 @@ function bindMiniappUserPhone({ openid, phone, unionid = null }) {
 
   if (changed) {
     try {
-      writeDBAtomicallyIfUnchanged(db, sourceHash);
+      writeDBAtomicallyIfUnchanged(db, sourceHash, 'DB_CHANGED_DURING_BIND');
     } catch (error) {
       logMiniappBindConflict(error.code || 'atomic_write_failed', { userIds: [miniUser.id] });
       return { error: 'MINIAPP_ACCOUNT_CONFLICT' };
@@ -957,11 +1129,28 @@ function updateRecordChainProof(qrId, patch = {}) {
 }
 
 function getDatabaseSnapshot() {
-  return JSON.parse(JSON.stringify(readDB()));
+  const { db, sourceHash } = readDBWithHash();
+  const snapshot = JSON.parse(JSON.stringify(db));
+  databaseSourceHashes.set(snapshot, sourceHash);
+  return snapshot;
 }
 
-function writeDatabaseSnapshot(snapshot) {
-  writeDB(snapshot);
+function getDatabaseSnapshotWithHash() {
+  const { db, sourceHash } = readDBWithHash();
+  const snapshot = JSON.parse(JSON.stringify(db));
+  databaseSourceHashes.set(snapshot, sourceHash);
+  return { snapshot, sourceHash };
+}
+
+function writeDatabaseSnapshot(snapshot, { expectedSourceHash } = {}) {
+  const sourceHash = expectedSourceHash || databaseSourceHashes.get(snapshot);
+  if (!sourceHash) {
+    throw databaseError(
+      'DB_SNAPSHOT_SOURCE_HASH_REQUIRED',
+      'Snapshot writes require the source hash captured when the database was read.'
+    );
+  }
+  writeDBAtomicallyIfUnchanged(snapshot, sourceHash, 'DB_WRITE_CONFLICT');
   return readDB();
 }
 
@@ -2174,7 +2363,7 @@ function updateMiniappContent(input, updatedBy = 'admin') {
 }
 
 async function generateQRCodes({ prefix, count, batchId }) {
-  const db = readDB();
+  const { db, sourceHash } = readDBWithHash();
   const normalizedPrefix = String(prefix).toUpperCase();
   const regex = new RegExp(`^${normalizedPrefix}(\\d{5})$`);
 
@@ -2249,15 +2438,12 @@ async function generateQRCodes({ prefix, count, batchId }) {
   // 生成二维码 PNG 图片
   const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
   const qrImageDir = path.join(__dirname, '..', '..', '..', 'public', 'qrcodes');
-  if (!fs.existsSync(qrImageDir)) {
-    fs.mkdirSync(qrImageDir, { recursive: true });
-  }
+  const imageArtifacts = [];
 
   for (let i = 0; i < ids.length; i += 1) {
     const qrId = ids[i];
     const token = records[i].qr_access_token;
     const qrContent = `${baseUrl}/record.html?t=${encodeURIComponent(token)}`;
-    const pngPath = path.join(qrImageDir, `${qrId}.png`);
 
     try {
       const rawPngBuffer = await QRCode.toBuffer(qrContent, {
@@ -2268,15 +2454,36 @@ async function generateQRCodes({ prefix, count, batchId }) {
       });
       // 在二维码下方拼接序号标签（如 OSSC00001），一次成型
       const labeledPngBuffer = addLabelToQR(rawPngBuffer, qrId, { scale: 3 });
-      fs.writeFileSync(pngPath, labeledPngBuffer);
-      records[i].qr_image_url = `/api/qr/image/${token}`;
+      imageArtifacts.push({
+        recordIndex: i,
+        finalPath: path.join(qrImageDir, `${qrId}.png`),
+        content: labeledPngBuffer
+      });
     } catch (_err) {
       // 图片生成失败不阻断流程，qr_image_url 保持 null
     }
   }
 
-  db.qr_codes.push(...records);
-  writeDB(db);
+  assertDatabaseSourceHash(sourceHash);
+  if (!fs.existsSync(qrImageDir)) {
+    fs.mkdirSync(qrImageDir, { recursive: true });
+  }
+
+  const stagedImages = [];
+  try {
+    imageArtifacts.forEach((artifact) => {
+      assertDatabaseSourceHash(sourceHash);
+      stagedImages.push(stageFileReplacement(artifact.finalPath, artifact.content));
+      records[artifact.recordIndex].qr_image_url = `/api/qr/image/${records[artifact.recordIndex].qr_access_token}`;
+    });
+
+    db.qr_codes.push(...records);
+    writeDBAtomicallyIfUnchanged(db, sourceHash);
+    stagedImages.forEach((stagedImage) => stagedImage.commit());
+  } catch (error) {
+    stagedImages.reverse().forEach((stagedImage) => stagedImage.rollback());
+    throw error;
+  }
 
   return {
     data: {
@@ -2509,7 +2716,9 @@ function getQualityCheckStats() {
 
 module.exports = {
   initializeDB,
+  migrateDatabaseSnapshot,
   getDatabaseSnapshot,
+  getDatabaseSnapshotWithHash,
   writeDatabaseSnapshot,
   createOrGetUser,
   findUserById,
