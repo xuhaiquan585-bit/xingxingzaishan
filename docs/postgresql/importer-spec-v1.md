@@ -221,6 +221,12 @@ compatibility decisions. Their aggregate advisory counts must match the
 reviewed snapshot audit; any different shape, ambiguity, or conflict remains
 NO-GO.
 
+The audited historical product `buy_type=copy_link` is preserved as a public
+compatibility value. Migration `004_allow_legacy_product_buy_type.sql` extends
+the database CHECK without changing current product writes, which remain
+`miniapp_order`. The importer blocks any buy type outside these two explicit
+values.
+
 ## 14. Rollback
 
 - Before the first accepted PostgreSQL write, configuration can return to the verified final JSON backup.

@@ -23,6 +23,7 @@ const PROOF_STATUSES = new Set(['not_started', 'manifest_ready', 'submitting', '
 const ARCHIVE_STATUSES = new Set(['not_started', 'pending', 'ready', 'failed']);
 const PRODUCT_STATUSES = new Set(['draft', 'published', 'hidden']);
 const PRODUCT_TYPES = new Set(['wine_sticker', 'sticker_set', 'custom_sticker', 'wine_gift', 'custom_wine']);
+const PRODUCT_BUY_TYPES = new Set(['miniapp_order', 'copy_link']);
 const SCENE_KEYS = new Set(['lover', 'elder', 'birthday', 'wedding', 'party', 'free', 'coming_of_age']);
 
 function array(value) {
@@ -355,6 +356,7 @@ function validateCommerce(source, collector) {
     validateInteger(collector, item && item.stock, 'products', reference, 'stock');
     if (item && !PRODUCT_STATUSES.has(item.status)) collector.add('INVALID_STATUS', 'products', reference, 'status');
     if (item && !PRODUCT_TYPES.has(item.product_type)) collector.add('INVALID_STATUS', 'products', reference, 'product_type');
+    if (item && !PRODUCT_BUY_TYPES.has(item.buy_type)) collector.add('INVALID_STATUS', 'products', reference, 'buy_type');
     array(item && item.scene_tags).forEach((sceneKey) => {
       if (!SCENE_KEYS.has(sceneKey)) collector.add('INVALID_STATUS', 'products', reference, 'scene_tags');
     });

@@ -420,7 +420,7 @@ test('initial schema and importer agree on full SHA-256 audit reference hashes',
   assert.match(plan.audit_events[0].entity_reference_hash, /^[0-9a-f]{64}$/);
 });
 
-test('comment compatibility migrations are additive and leave migration 001 unchanged', () => {
+test('compatibility migrations are additive and leave migration 001 unchanged', () => {
   const migrationsDirectory = path.join(__dirname, '..', 'database', 'migrations');
   const initialBytes = fs.readFileSync(
     path.join(migrationsDirectory, '001_init_schema.sql')
@@ -431,6 +431,10 @@ test('comment compatibility migrations are additive and leave migration 001 unch
   );
   const legacyEvidenceMigration = fs.readFileSync(
     path.join(migrationsDirectory, '003_preserve_legacy_import_evidence.sql'),
+    'utf8'
+  );
+  const legacyProductBuyTypeMigration = fs.readFileSync(
+    path.join(migrationsDirectory, '004_allow_legacy_product_buy_type.sql'),
     'utf8'
   );
   assert.equal(
@@ -457,6 +461,11 @@ test('comment compatibility migrations are additive and leave migration 001 unch
     legacyEvidenceMigration,
     /CHECK \(manifest_hash IS NULL OR legacy_hash_snapshot IS NULL\)/
   );
+  assert.match(legacyProductBuyTypeMigration, /DROP CONSTRAINT products_buy_type_chk/);
+  assert.match(
+    legacyProductBuyTypeMigration,
+    /CHECK \(buy_type IN \('miniapp_order', 'copy_link'\)\)/
+  );
 
   const migrations = loadMigrations({ migrationsDirectory });
   assert.deepEqual(
@@ -464,7 +473,8 @@ test('comment compatibility migrations are additive and leave migration 001 unch
     [
       '001_init_schema.sql',
       '002_add_comment_source_position.sql',
-      '003_preserve_legacy_import_evidence.sql'
+      '003_preserve_legacy_import_evidence.sql',
+      '004_allow_legacy_product_buy_type.sql'
     ]
   );
 });
@@ -725,6 +735,35 @@ test('importer preserves audited legacy proof, account, and duplicate-comment ev
   [legacyProofHash, '13800000001', 'second historical comment'].forEach((value) => {
     assert.equal(serializedReport.includes(value), false);
   });
+});
+
+test('importer preserves the audited legacy product buy type and blocks unknown values', () => {
+  const legacyFixture = makeImporterFixture();
+  const createdAt = legacyFixture.accounts[0].created_at;
+  legacyFixture.products.push({
+    id: 'PROD_LEGACY_BUY', title: 'fixture', subtitle: '', cover_image: '', images: [],
+    price_text: '1.00', price_cents: 100, description: '', status: 'published',
+    product_type: 'wine_sticker', sticker_count: 1, stock: 1, is_customizable: false,
+    shipping_note: '', after_sale_note: '', buy_type: 'copy_link', buy_url: '',
+    scene_tags: ['free'], sort_order: 0, created_at: createdAt, updated_at: createdAt
+  });
+
+  const legacyAnalysis = analyzeImporterFixture(legacyFixture);
+  assert.equal(legacyAnalysis.report.status, 'READY');
+  assert.equal(legacyAnalysis.plan.products[0].buy_type, 'copy_link');
+
+  const invalidFixture = structuredClone(legacyFixture);
+  invalidFixture.products[0].buy_type = 'unreviewed_mode';
+  const invalidAnalysis = analyzeImporterFixture(invalidFixture);
+  assert.equal(invalidAnalysis.report.status, 'BLOCKED');
+  assert.equal(
+    invalidAnalysis.report.anomalies.some((item) => (
+      item.category === 'INVALID_STATUS'
+        && item.entity_type === 'products'
+        && item.field === 'buy_type'
+    )),
+    true
+  );
 });
 
 test('importer blocks unknown source fields, duplicate identities, broken references, and invalid QR lifecycle', () => {

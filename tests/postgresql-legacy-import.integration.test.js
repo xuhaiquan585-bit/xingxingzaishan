@@ -82,7 +82,14 @@ function buildSource() {
       updated_at: LATER_AT
     }],
     quality_check_logs: [],
-    products: [],
+    products: [{
+      id: 'PROD_LEGACY_BUY', title: 'Legacy buy mode fixture', subtitle: '',
+      cover_image: '', images: [], price_text: '1.00', price_cents: 100,
+      description: '', status: 'published', product_type: 'wine_sticker',
+      sticker_count: 1, stock: 1, is_customizable: false, shipping_note: '',
+      after_sale_note: '', buy_type: 'copy_link', buy_url: '', scene_tags: ['free'],
+      sort_order: 0, created_at: CREATED_AT, updated_at: CREATED_AT
+    }],
     content_pages: [],
     banners: [],
     orders: [],
@@ -123,7 +130,8 @@ test('manual PostgreSQL legacy import compatibility', {
     assert.deepEqual(migration.applied.map((item) => item.version), [
       '001_init_schema.sql',
       '002_add_comment_source_position.sql',
-      '003_preserve_legacy_import_evidence.sql'
+      '003_preserve_legacy_import_evidence.sql',
+      '004_allow_legacy_product_buy_type.sql'
     ]);
     const imported = await executeStagingImport({
       pool,
@@ -157,6 +165,8 @@ test('manual PostgreSQL legacy import compatibility', {
     }]);
     const record = await pool.query('SELECT account_id FROM app.records');
     assert.deepEqual(record.rows, [{ account_id: 'ACC000001' }]);
+    const product = await pool.query('SELECT buy_type, buy_url FROM app.products');
+    assert.deepEqual(product.rows, [{ buy_type: 'copy_link', buy_url: '' }]);
 
     await assert.rejects(
       pool.query(

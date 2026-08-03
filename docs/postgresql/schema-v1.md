@@ -183,7 +183,7 @@ Identity PK; legacy_id text; qr_id FK; nullable operator_id FK; checked_by_snaps
 
 ### `products`, `product_images`, `product_scene_tags`
 
-Products preserve text ID and contain scalar catalog fields, integer-cent price, stock, product status/type CHECKs, shipping/after-sale text, sort order, and timestamps. Product images use identity PK, product FK, URL/object key, sort order. Scene tags use composite PK product_id + scene_key. Product child configuration may use ON DELETE CASCADE; orders retain immutable product snapshots.
+Products preserve text ID and contain scalar catalog fields, integer-cent price, stock, product status/type CHECKs, shipping/after-sale text, sort order, and timestamps. `buy_type` accepts the current `miniapp_order` mode and the audited historical `copy_link` compatibility value; new runtime writes remain `miniapp_order`. Product images use identity PK, product FK, URL/object key, sort order. Scene tags use composite PK product_id + scene_key. Product child configuration may use ON DELETE CASCADE; orders retain immutable product snapshots.
 
 ### `orders`
 

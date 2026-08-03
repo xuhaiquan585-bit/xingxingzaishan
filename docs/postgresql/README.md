@@ -423,10 +423,25 @@ close the separate Shadow Read execution gates documented in
 - Migration `003` has canonical checksum
   `75d6f26c353f30ef9ca10f215d0d8fc7855866ee60bcf8ab4f0b5579693ad757`;
   migrations `001` and `002` remain unchanged.
-- Local tests passed: the normal suite, a focused PostgreSQL 15.18 legacy
-  import test, and the full Public QR/Shadow integration test. Both disposable
-  databases were stopped and removed. The server must deploy this exact code,
-  apply `003`, and repeat dry-run/import/DTO validation against the unchanged
-  audited snapshot before staging is accepted.
+- Local validation passed for the focused PostgreSQL 15.18 legacy import and
+  full Public QR/Shadow integration paths. Both disposable databases were
+  stopped and removed. The server deployed that revision, applied `003`, and
+  repeated the dry-run against the unchanged audited snapshot before its first
+  staging write.
 - `SHADOW_READ_EXECUTION_READY=NO`, `RUNTIME_READINESS=NOT_READY`, and
   `JSON_RESPONSE_SOURCE=JSON` remain unchanged.
+
+### Staging product compatibility follow-up
+
+- The first server-side staging write rolled back in full when the audited
+  historical product value `buy_type=copy_link` met the narrower original
+  PostgreSQL CHECK. No business rows remained; the importer retained only its
+  redacted failed-run record.
+- Migration `004_allow_legacy_product_buy_type.sql` preserves `copy_link`
+  alongside the current `miniapp_order` value. Runtime product writes remain
+  unchanged and continue to use `miniapp_order`.
+- Migration `004` has canonical checksum
+  `defd92ba59fbcda677d81781eb2ac97b788ddf13e87b93163d03eb42916d60f2`;
+  migrations `001` through `003` remain unchanged.
+- Import validation now blocks every product buy type outside those two
+  explicit values, closing the dry-run versus database-constraint gap.
