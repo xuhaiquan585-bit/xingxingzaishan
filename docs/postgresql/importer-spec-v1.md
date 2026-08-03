@@ -95,11 +95,26 @@ For the current small-data profile, a staging import should use one transaction.
 - `co_creating` QR: exactly one unsealed record and one active co-creation.
 - `activated` QR: exactly one sealed record; co-creation may be absent or finalized.
 - Record ownership comes from `account_id`; co-creation ownership comes from `co_creation_owner_account_id`.
-- Phone fields are snapshots only.
+- For a missing historical record/comment `account_id` only, the importer may
+  recover the link when the exact normalized phone resolves through `users` to
+  exactly one existing account. The report records a redacted, non-blocking
+  `LEGACY_ACCOUNT_LINK_RECOVERED` anomaly. Missing, ambiguous, or explicitly
+  invalid account references remain blocking. Runtime authorization and new
+  writes never fall back to phone.
+- Phone fields remain snapshots outside that narrowly scoped import recovery.
 - Deleted comments are imported with deleted status, timestamps, and their
   original source position. Positions are not compacted after deletion.
+- If historical JSON contains multiple distinct kept comments from one
+  account, all comments are preserved. The first keeps
+  `legacy_duplicate=false`; later source-array entries use true and produce a
+  redacted advisory anomaly. New writes keep the default false value and remain
+  subject to the effective-comment unique index.
 - Embedded QC summary is reconciled with QC logs. An unmatched summary may become one synthetic legacy event with explicit provenance.
-- `manifest_hash` is canonical. A lone `blockchain_hash` can seed it; unequal non-empty values block import.
+- `manifest_hash` is canonical. A lone valid SHA-256 `blockchain_hash` can seed
+  it; unequal non-empty values block import. Matching non-empty historical
+  aliases that are not lowercase SHA-256 are preserved in
+  `record_proofs.legacy_hash_snapshot`, leave canonical `manifest_hash` null,
+  and produce a redacted advisory anomaly.
 
 ## 8. Idempotency and import records
 
@@ -200,6 +215,12 @@ GO requires all of the following:
 
 Failure of any core condition is NO-GO. Advisory anomalies require an explicit signed decision and cannot include ownership, money, identity, proof, or unknown-field issues.
 
+The narrowly defined legacy account recovery, matching non-SHA proof snapshot,
+and historical duplicate-comment preservation rules above are explicit import
+compatibility decisions. Their aggregate advisory counts must match the
+reviewed snapshot audit; any different shape, ambiguity, or conflict remains
+NO-GO.
+
 ## 14. Rollback
 
 - Before the first accepted PostgreSQL write, configuration can return to the verified final JSON backup.
@@ -269,4 +290,7 @@ Verification contract:
 - QR lifecycle relationships, order totals, payment amounts, and proof operation uniqueness are checked before commit.
 - Identity sequences are reset above imported/generated values before the transaction is accepted.
 
-Implementation and transaction-fake tests are complete. Real execution against PostgreSQL 15+ remains a mandatory NO-GO gate because this workstation has no disposable PostgreSQL runtime. Until real migration, rollback, constraint, count, value, and sequence checks pass, Phase 2C repository work must not begin.
+Implementation, transaction-fake tests, and disposable PostgreSQL 15.18
+integration tests are complete for the current migration set. Applying the
+same migrations and importing the fixed server snapshot remains a mandatory
+staging gate before any runtime read or cutover decision.

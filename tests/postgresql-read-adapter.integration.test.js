@@ -182,6 +182,9 @@ function buildFixture() {
         phone: '13800000001',
         account_id: 'ACC000001',
         activated_at: LATER_AT,
+        blockchain_hash: 'legacy-proof-marker-1',
+        manifest_hash: 'legacy-proof-marker-1',
+        chain_status: 'confirmed',
         co_creation_enabled: true,
         co_creation_owner_phone: '13800000001',
         co_creation_owner_account_id: 'ACC000001',
@@ -213,6 +216,15 @@ function buildFixture() {
             status: 'deleted',
             created_at: LATER_AT,
             deleted_at: LATER_AT
+          },
+          {
+            id: 'COMMENT_ALPHA_LEGACY_DUPLICATE',
+            phone: '13800000002',
+            account_id: 'ACC000002',
+            author_name: 'Later historical source comment',
+            content: 'Distinct historical content',
+            status: 'kept',
+            created_at: CREATED_AT
           }
         ],
         co_creation_started_at: CREATED_AT,
@@ -439,7 +451,11 @@ test('manual PostgreSQL public QR adapter integration', {
     const migration = await runMigrations({ pool, apply: true, target: 'test' });
     assert.deepEqual(
       migration.applied.map((item) => item.version),
-      ['001_init_schema.sql', '002_add_comment_source_position.sql']
+      [
+        '001_init_schema.sql',
+        '002_add_comment_source_position.sql',
+        '003_preserve_legacy_import_evidence.sql'
+      ]
     );
     const repeatedMigration = await runMigrations({ pool, apply: true, target: 'test' });
     assert.deepEqual(repeatedMigration.applied, []);
@@ -593,17 +609,41 @@ test('manual PostgreSQL public QR adapter integration', {
     await closePublicQrShadowRuntime();
 
     const importedPositions = await pool.query(
-      `SELECT comment.legacy_comment_id, comment.source_position, comment.status
+      `SELECT comment.legacy_comment_id, comment.source_position,
+              comment.legacy_duplicate, comment.status
        FROM app.co_creation_comments comment
        JOIN app.co_creations creation ON creation.id = comment.co_creation_id
        WHERE creation.qr_id = 'QR_ACTIVATED_COMMENTS'
        ORDER BY comment.source_position`
     );
     assert.deepEqual(importedPositions.rows, [
-      { legacy_comment_id: 'COMMENT_ALPHA', source_position: 0, status: 'kept' },
-      { legacy_comment_id: 'COMMENT_BETA', source_position: 1, status: 'kept' },
-      { legacy_comment_id: 'COMMENT_DELETED', source_position: 2, status: 'deleted' }
+      {
+        legacy_comment_id: 'COMMENT_ALPHA', source_position: 0,
+        legacy_duplicate: false, status: 'kept'
+      },
+      {
+        legacy_comment_id: 'COMMENT_BETA', source_position: 1,
+        legacy_duplicate: false, status: 'kept'
+      },
+      {
+        legacy_comment_id: 'COMMENT_DELETED', source_position: 2,
+        legacy_duplicate: false, status: 'deleted'
+      },
+      {
+        legacy_comment_id: 'COMMENT_ALPHA_LEGACY_DUPLICATE', source_position: 3,
+        legacy_duplicate: true, status: 'kept'
+      }
     ]);
+
+    const legacyProof = await pool.query(
+      `SELECT proof.manifest_hash, proof.legacy_hash_snapshot
+       FROM app.record_proofs proof
+       WHERE proof.record_qr_id = 'QR_ACTIVATED_COMMENTS'`
+    );
+    assert.deepEqual(legacyProof.rows, [{
+      manifest_hash: null,
+      legacy_hash_snapshot: 'legacy-proof-marker-1'
+    }]);
 
     const indexes = await pool.query(
       `SELECT indexname FROM pg_indexes
@@ -621,6 +661,7 @@ test('manual PostgreSQL public QR adapter integration', {
       'records_pkey',
       'co_creations_qr_uq',
       'co_creation_comments_public_source_order_idx',
+      'co_creation_comments_effective_account_uq',
       'record_proofs_record_provider_uq'
     ].forEach((name) => assert.equal(indexNames.has(name), true));
   } finally {

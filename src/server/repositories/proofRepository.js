@@ -50,7 +50,7 @@ class ProofRepository {
       this.transactionContext,
       `INSERT INTO app.record_proofs (${PROOF_COLUMNS})
        VALUES (${placeholders}) RETURNING ${PROOF_COLUMNS}`,
-      PROOF_FIELDS.map((field) => proof[field])
+      PROOF_FIELDS.map((field) => (field === 'legacy_hash_snapshot' ? null : proof[field]))
     );
     return oneOrNull(result, mapProof, 'REPOSITORY_INSERT_RESULT_INVALID');
   }

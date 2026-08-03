@@ -212,7 +212,9 @@ class PublicQrReadAdapter {
       content: record.content || '',
       image_url: imageUrl,
       image_object_key: record.image_object_key || null,
-      blockchain_hash: proof && proof.manifest_hash ? proof.manifest_hash : null,
+      blockchain_hash: proof
+        ? (proof.manifest_hash || proof.legacy_hash_snapshot || null)
+        : null,
       ...await this.#chainPayload({ proof, channel, assetResolver }),
       activated_at: publicTimestamp(record.sealed_at),
       co_creation_enabled: Boolean(coCreation),
@@ -299,7 +301,9 @@ class PublicQrReadAdapter {
       chain_provider: proof && proof.provider ? proof.provider : 'avata_wenchang',
       chain_status: status,
       chain_status_text: chainStatusForCustomer(status),
-      manifest_hash: proof && proof.manifest_hash ? proof.manifest_hash : null,
+      manifest_hash: proof
+        ? (proof.manifest_hash || proof.legacy_hash_snapshot || null)
+        : null,
       chain_tx_hash: status === 'confirmed' && proof ? proof.transaction_hash || null : null,
       chain_certificate_url: status === 'confirmed' ? resolvedCertificateUrl : null,
       chain_confirmed_at: status === 'confirmed' && proof

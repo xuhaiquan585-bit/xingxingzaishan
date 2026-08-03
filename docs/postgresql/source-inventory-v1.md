@@ -42,8 +42,8 @@ Unknown top-level or entity fields are blocking. `content_pages` and `banners` a
 | `co_creation_owner_phone` | `co_creations.owner_phone_snapshot` | Never ownership |
 | `co_creation_owner_account_id` | `co_creations.owner_account_id` | Owner authority FK |
 | `co_creation_started_at` | `co_creations.started_at` | Stable start time |
-| `co_creation_comments[]` | `co_creation_comments` | Preserve local legacy comment ID, deleted rows, and zero-based array index as `source_position` |
-| chain/proof fields | `record_proofs` | `manifest_hash` is canonical; conflicts block |
+| `co_creation_comments[]` | `co_creation_comments` | Preserve local legacy comment ID, deleted rows, zero-based `source_position`, and audited later same-account comments as internal legacy duplicates |
+| chain/proof fields | `record_proofs` | `manifest_hash` is canonical; matching non-SHA historical aliases use `legacy_hash_snapshot`; conflicts block |
 | `chain_retry_count` | `record_proofs.retry_count` | Aggregate only; no invented attempt history |
 | archive fields | `record_archives` | Archive state stays independent of QR lifecycle |
 | embedded `quality_check` | reconciliation input | An equivalent root log wins; synthetic history is deferred |

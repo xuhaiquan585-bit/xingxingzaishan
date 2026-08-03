@@ -70,6 +70,58 @@ function textOrNull(value) {
   return valueText || null;
 }
 
+function isSha256(value) {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+}
+
+function createLegacyAccountResolver(source) {
+  const accountIds = new Set(array(source && source.accounts)
+    .map((item) => item && item.id)
+    .filter(Boolean));
+  const accountIdsByPhone = new Map();
+
+  array(source && source.users).forEach((user) => {
+    const phone = String((user && user.phone) || '').trim();
+    const accountId = user && user.account_id;
+    if (!phone || !accountId || !accountIds.has(accountId)) return;
+    const candidates = accountIdsByPhone.get(phone) || new Set();
+    candidates.add(accountId);
+    accountIdsByPhone.set(phone, candidates);
+  });
+
+  return (accountIdValue, phoneValue) => {
+    const explicitAccountId = textOrNull(accountIdValue);
+    if (explicitAccountId) {
+      const valid = accountIds.has(explicitAccountId);
+      return {
+        accountId: explicitAccountId,
+        valid,
+        recovered: false,
+        resolution: valid ? 'explicit' : 'invalid_explicit'
+      };
+    }
+
+    const phone = String(phoneValue || '').trim();
+    const candidates = phone ? accountIdsByPhone.get(phone) : null;
+    if (candidates && candidates.size === 1) {
+      return {
+        accountId: [...candidates][0],
+        valid: true,
+        recovered: true,
+        resolution: 'unique_legacy_phone'
+      };
+    }
+    return {
+      accountId: null,
+      valid: false,
+      recovered: false,
+      resolution: candidates && candidates.size > 1
+        ? 'ambiguous_legacy_phone'
+        : (phone ? 'unresolved_legacy_phone' : 'missing')
+    };
+  };
+}
+
 function hasAny(item, fields) {
   return fields.some((field) => item[field] !== undefined && item[field] !== null && item[field] !== '' && item[field] !== false);
 }
@@ -83,6 +135,7 @@ function mapSourceToPlan(source) {
     miniapp_content: [], audit_events: [], archived_legacy: []
   };
   const qrSplits = [];
+  const resolveLegacyAccount = createLegacyAccountResolver(source);
 
   array(source.accounts).forEach((item) => {
     plan.accounts.push({
@@ -161,6 +214,7 @@ function mapSourceToPlan(source) {
     ]) || (item.chain_status && item.chain_status !== 'not_started') || Number(item.chain_retry_count || 0) > 0;
     const archivePresent = hasAny(item, ['legacy_manifest_object_key', 'archive_index_object_key', 'archive_last_error', 'archive_updated_at'])
       || (item.archive_status && item.archive_status !== 'not_started');
+    const recordAccount = resolveLegacyAccount(item.account_id, item.phone);
 
     plan.qr_codes.push({
       id: item.id,
@@ -193,7 +247,7 @@ function mapSourceToPlan(source) {
     if (recordPresent) {
       plan.records.push({
         qr_id: item.id,
-        account_id: item.account_id,
+        account_id: recordAccount.accountId,
         content: item.content || '',
         image_url_snapshot: item.image_url || '',
         image_object_key: textOrNull(item.image_object_key),
@@ -222,18 +276,28 @@ function mapSourceToPlan(source) {
         created_at: startedAt,
         updated_at: updatedAt
       });
+      const effectiveCommentAccounts = new Set();
       array(item.co_creation_comments).forEach((comment, commentIndex) => {
         const commentCreatedAt = timestamp(comment.created_at, startedAt);
+        const commentAccount = resolveLegacyAccount(comment.account_id, comment.phone);
+        const status = comment.status === 'deleted' ? 'deleted' : 'kept';
+        const legacyDuplicate = status === 'kept'
+          && commentAccount.accountId
+          && effectiveCommentAccounts.has(commentAccount.accountId);
+        if (status === 'kept' && commentAccount.accountId) {
+          effectiveCommentAccounts.add(commentAccount.accountId);
+        }
         plan.co_creation_comments.push({
           id: deterministicUuid(`co-comment:${item.id}:${String(comment.id ?? commentIndex)}`),
           co_creation_id: coCreationId,
-          account_id: comment.account_id,
+          account_id: commentAccount.accountId,
           legacy_comment_id: String(comment.id ?? commentIndex),
           source_position: commentIndex,
+          legacy_duplicate: legacyDuplicate,
           phone_snapshot: comment.phone || '',
           author_name: comment.author_name || '',
           content: comment.content || '',
-          status: comment.status === 'deleted' ? 'deleted' : 'kept',
+          status,
           created_at: commentCreatedAt,
           deleted_at: comment.status === 'deleted' ? timestamp(comment.deleted_at, commentCreatedAt) : null
         });
@@ -242,6 +306,7 @@ function mapSourceToPlan(source) {
 
     if (proofPresent) {
       const proofId = deterministicUuid(`proof:${item.id}:${item.chain_provider || 'avata_wenchang'}`);
+      const proofHash = item.manifest_hash || item.blockchain_hash || null;
       plan.record_proofs.push({
         id: proofId,
         record_qr_id: item.id,
@@ -249,7 +314,8 @@ function mapSourceToPlan(source) {
         status: item.chain_status || (item.manifest_hash || item.blockchain_hash ? 'confirmed' : 'not_started'),
         operation_id: textOrNull(item.chain_operation_id),
         manifest_object_key: textOrNull(item.manifest_object_key),
-        manifest_hash: textOrNull(item.manifest_hash || item.blockchain_hash),
+        manifest_hash: isSha256(proofHash) ? proofHash : null,
+        legacy_hash_snapshot: proofHash && !isSha256(proofHash) ? String(proofHash) : null,
         transaction_hash: textOrNull(item.chain_tx_hash),
         block_height: item.chain_block_height === null || item.chain_block_height === undefined ? null : Number(item.chain_block_height),
         provider_record_id: textOrNull(item.chain_record_id),
@@ -442,7 +508,9 @@ function mapSourceToPlan(source) {
 }
 
 module.exports = {
+  createLegacyAccountResolver,
   ENTITY_FIELDS,
+  isSha256,
   LEGACY_TIMESTAMP,
   ROOT_FIELDS,
   deterministicUuid,

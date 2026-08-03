@@ -156,14 +156,20 @@ UUID PK; qr_id unique FK; owner_account_id FK; owner_phone_snapshot; status CHEC
 ### `co_creation_comments`
 
 UUID PK; co_creation_id FK; account_id FK; `legacy_comment_id text`;
-`source_position integer NOT NULL`; phone snapshot; author_name; content; status
-CHECK kept/deleted; created_at/deleted_at. Constraints: unique co-creation +
-legacy ID, unique co-creation + source position, non-negative source position,
-and partial unique co-creation + account for effective comments. Deleted
+`source_position integer NOT NULL`; `legacy_duplicate boolean NOT NULL DEFAULT
+false`; phone snapshot; author_name; content; status CHECK kept/deleted;
+created_at/deleted_at. Constraints: unique co-creation + legacy ID, unique
+co-creation + source position, non-negative source position, and partial unique
+co-creation + account for effective comments whose `legacy_duplicate=false`.
+The importer marks only the second and later kept historical comments for the
+same account as legacy duplicates. They remain real, visible comments and keep
+their source positions. New runtime writes must use the default false value;
+the Repository forces false and this flag is not a general bypass for the
+one-effective-comment rule. Deleted
 comments remain auditable, retain their original source positions, are never
 renumbered, and are not cascaded with account deletion. Public reads exclude
-deleted comments and order visible comments by
-`created_at DESC, source_position ASC`.
+deleted comments and order visible comments by `created_at DESC,
+source_position ASC`; `legacy_duplicate` is never exposed in the DTO.
 
 Migration `002_add_comment_source_position.sql` adds this field without a
 default. It intentionally refuses to run when PostgreSQL already contains
@@ -189,7 +195,18 @@ Transactions use UUID PK, order FK, provider, merchant order number, provider tr
 
 ### `record_proofs`, `proof_attempts`, `record_archives`
 
-Proofs use UUID PK, record QR FK, provider, status CHECK, unique operation ID, manifest key/hash, transaction result, certificate metadata, confirmed/callback timestamps, retry count, last error, timestamps. Attempts use identity PK, proof FK, attempt number, requested/result state, sanitized error, timestamps, and unique proof + attempt number. Archives use record QR PK/FK, current/legacy manifest keys, index key, status CHECK, last error, and timestamps.
+Proofs use UUID PK, record QR FK, provider, status CHECK, unique operation ID,
+manifest key/hash, `legacy_hash_snapshot`, transaction result, certificate
+metadata, confirmed/callback timestamps, retry count, last error, and
+timestamps. `manifest_hash` remains a strict lowercase SHA-256. A non-empty
+historical value that was stored in both JSON hash aliases is preserved only
+in `legacy_hash_snapshot`; the two columns are mutually exclusive. Candidate
+reads may use that snapshot to reproduce the legacy public DTO, but new proof
+writes must populate the canonical hash field and the Repository forces the
+legacy snapshot column to null. Attempts use identity PK, proof
+FK, attempt number, requested/result state, sanitized error, timestamps, and
+unique proof + attempt number. Archives use record QR PK/FK, current/legacy
+manifest keys, index key, status CHECK, last error, and timestamps.
 
 ### `miniapp_content`
 

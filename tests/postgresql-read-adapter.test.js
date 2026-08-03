@@ -366,6 +366,25 @@ test('activated projection preserves channel fields, proof fields, and resolver 
   ]);
 });
 
+test('activated projection preserves a legacy proof marker without exposing its internal column', async () => {
+  const legacyHash = 'legacy-proof-marker-1';
+  const fixture = activatedFixture();
+  fixture.proof = {
+    ...fixture.proof,
+    manifest_hash: null,
+    legacy_hash_snapshot: legacyHash
+  };
+  const payload = await makeHarness(fixture).adapter.read({
+    key: 'public-token',
+    channel: 'h5',
+    viewer: { account_id: 'ACC_OTHER', phone_bound: true }
+  });
+
+  assert.equal(payload.blockchain_hash, legacyHash);
+  assert.equal(payload.manifest_hash, legacyHash);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'legacy_hash_snapshot'), false);
+});
+
 test('missing required read dependencies fail closed instead of broadening the adapter', async () => {
   const fixture = activatedFixture();
   const noBatchReader = makeHarness({ ...fixture, batchReader: null });

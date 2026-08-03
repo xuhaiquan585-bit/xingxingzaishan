@@ -75,7 +75,8 @@ const TABLE_SPECS = Object.freeze({
   ], { timestamps: ['started_at', 'finalized_at', 'created_at', 'updated_at'] }),
   co_creation_comments: tableSpec([
     'id', 'co_creation_id', 'account_id', 'legacy_comment_id', 'source_position',
-    'phone_snapshot', 'author_name', 'content', 'status', 'created_at', 'deleted_at'
+    'legacy_duplicate', 'phone_snapshot', 'author_name', 'content', 'status', 'created_at',
+    'deleted_at'
   ], { numbers: ['source_position'], timestamps: ['created_at', 'deleted_at'] }),
   quality_check_logs: tableSpec([
     'id', 'legacy_id', 'qr_id', 'operator_id', 'checked_by_snapshot', 'result', 'checked_at'
@@ -113,7 +114,7 @@ const TABLE_SPECS = Object.freeze({
   }),
   record_proofs: tableSpec([
     'id', 'record_qr_id', 'provider', 'status', 'operation_id', 'manifest_object_key',
-    'manifest_hash', 'transaction_hash', 'block_height', 'provider_record_id',
+    'manifest_hash', 'legacy_hash_snapshot', 'transaction_hash', 'block_height', 'provider_record_id',
     'provider_certificate_url', 'certificate_object_key', 'certificate_object_url_snapshot',
     'confirmed_at', 'callback_received_at', 'retry_count', 'last_error', 'created_at', 'updated_at'
   ], {

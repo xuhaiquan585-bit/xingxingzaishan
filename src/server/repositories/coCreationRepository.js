@@ -82,7 +82,7 @@ class CoCreationRepository {
       this.transactionContext,
       `INSERT INTO app.co_creation_comments (${COMMENT_COLUMNS})
        VALUES (${placeholders}) RETURNING ${COMMENT_COLUMNS}`,
-      COMMENT_FIELDS.map((field) => comment[field])
+      COMMENT_FIELDS.map((field) => (field === 'legacy_duplicate' ? false : comment[field]))
     );
     return oneOrNull(result, mapComment, 'REPOSITORY_INSERT_RESULT_INVALID');
   }

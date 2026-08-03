@@ -24,7 +24,8 @@ const CO_CREATION_FIELDS = [
 ];
 const COMMENT_FIELDS = [
   'id', 'co_creation_id', 'account_id', 'legacy_comment_id', 'source_position',
-  'phone_snapshot', 'author_name', 'content', 'status', 'created_at', 'deleted_at'
+  'legacy_duplicate', 'phone_snapshot', 'author_name', 'content', 'status', 'created_at',
+  'deleted_at'
 ];
 const ORDER_FIELDS = [
   'id', 'order_no', 'account_id', 'product_id', 'openid_snapshot', 'phone_snapshot',
@@ -44,7 +45,7 @@ const PAYMENT_EVENT_FIELDS = [
 ];
 const PROOF_FIELDS = [
   'id', 'record_qr_id', 'provider', 'status', 'operation_id', 'manifest_object_key',
-  'manifest_hash', 'transaction_hash', 'block_height', 'provider_record_id',
+  'manifest_hash', 'legacy_hash_snapshot', 'transaction_hash', 'block_height', 'provider_record_id',
   'provider_certificate_url', 'certificate_object_key', 'certificate_object_url_snapshot',
   'confirmed_at', 'callback_received_at', 'retry_count', 'last_error', 'created_at', 'updated_at'
 ];

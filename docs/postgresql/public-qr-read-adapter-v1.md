@@ -827,6 +827,22 @@ Implementation:
 - `PublicQrReadAdapter` applies the frozen public order and fails closed when a
   kept PostgreSQL comment has no valid position.
 
+Production-snapshot compatibility extension:
+
+- Migration `003_preserve_legacy_import_evidence.sql` adds internal
+  `legacy_duplicate` and `legacy_hash_snapshot` fields without changing the
+  public DTO.
+- Distinct historical comments from the same account remain visible in their
+  normal timestamp/source-position order. The internal exception flag is
+  never serialized.
+- A historical non-SHA value stored identically in the two JSON proof aliases
+  is preserved internally and projected back to the existing
+  `blockchain_hash`/`manifest_hash` DTO fields. Canonical PostgreSQL proof
+  hashes remain strict SHA-256.
+- Missing historical record/comment account links may be recovered only by the
+  importer's unique exact phone-to-account mapping. Adapter ownership checks
+  continue to use account IDs only.
+
 Disposable PostgreSQL 15.18 validation:
 
 - existing-comment `002` execution failed as designed and the migration
@@ -839,6 +855,12 @@ Disposable PostgreSQL 15.18 validation:
   comment DTO comparisons produced `mismatch_count=0`;
 - no route, runtime selector, JSON write path, or production database was
   involved.
+
+Migration `003` revalidation used a fresh disposable PostgreSQL 15.18 database.
+The focused legacy fixture and the complete Public QR/Shadow integration both
+passed with `mismatch_count=0`; the test instances and data directories were
+removed afterward. Server-side staging validation against the fixed audited
+snapshot remains required before Shadow Read can be enabled.
 
 Resulting status:
 

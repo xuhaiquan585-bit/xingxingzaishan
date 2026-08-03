@@ -1,7 +1,13 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { deterministicUuid, ENTITY_FIELDS, ROOT_FIELDS } = require('./mapping');
+const {
+  createLegacyAccountResolver,
+  deterministicUuid,
+  ENTITY_FIELDS,
+  isSha256,
+  ROOT_FIELDS
+} = require('./mapping');
 
 const REQUIRED_ARRAYS = [
   'accounts', 'users', 'qr_codes', 'admins', 'quality_check_logs', 'batches', 'products',
@@ -201,6 +207,7 @@ function validateQrData(source, collector) {
   const accounts = new Set(array(source.accounts).map((item) => item && item.id).filter(Boolean));
   const batches = new Set(array(source.batches).map((item) => item && item.id).filter(Boolean));
   const qrs = array(source.qr_codes);
+  const resolveLegacyAccount = createLegacyAccountResolver(source);
   detectDuplicates(collector, qrs, 'id', 'qr_codes', 'DUPLICATE_BUSINESS_ID');
   detectDuplicates(collector, qrs, 'qr_access_token', 'qr_codes', 'DUPLICATE_BUSINESS_ID');
   detectDuplicates(collector, qrs, 'chain_operation_id', 'record_proofs', 'DUPLICATE_BUSINESS_ID');
@@ -216,10 +223,18 @@ function validateQrData(source, collector) {
       validateTimestamp(collector, qr && qr[field], 'qr_codes', reference, field);
     });
     validateHash(collector, qr && qr.image_sha256, 'qr_codes', reference, 'image_sha256');
-    validateHash(collector, qr && qr.blockchain_hash, 'qr_codes', reference, 'blockchain_hash');
-    validateHash(collector, qr && qr.manifest_hash, 'qr_codes', reference, 'manifest_hash');
     if (qr && qr.blockchain_hash && qr.manifest_hash && qr.blockchain_hash !== qr.manifest_hash) {
       collector.add('MANIFEST_HASH_CONFLICT', 'qr_codes', reference, 'manifest_hash');
+    }
+    const proofHash = qr && (qr.manifest_hash || qr.blockchain_hash);
+    if (proofHash && !isSha256(proofHash)) {
+      collector.add(
+        'LEGACY_NON_SHA_HASH_PRESERVED',
+        'record_proofs',
+        reference,
+        'legacy_hash_snapshot',
+        { blocking: false }
+      );
     }
     if (qr && qr.chain_status && !PROOF_STATUSES.has(qr.chain_status)) collector.add('INVALID_STATUS', 'record_proofs', reference, 'chain_status');
     if (qr && qr.archive_status && !ARCHIVE_STATUSES.has(qr.archive_status)) collector.add('INVALID_STATUS', 'record_archives', reference, 'archive_status');
@@ -245,7 +260,18 @@ function validateQrData(source, collector) {
       collector.add('INVALID_QR_LIFECYCLE', 'qr_codes', reference, 'activation_status');
     }
     if (qr && ['co_creating', 'activated'].includes(qr.activation_status)) {
-      if (!qr.account_id || !accounts.has(qr.account_id)) collector.add('MISSING_REFERENCE', 'records', reference, 'account_id');
+      const recordAccount = resolveLegacyAccount(qr.account_id, qr.phone);
+      if (!recordAccount.valid) {
+        collector.add('MISSING_REFERENCE', 'records', reference, 'account_id');
+      } else if (recordAccount.recovered) {
+        collector.add(
+          'LEGACY_ACCOUNT_LINK_RECOVERED',
+          'records',
+          reference,
+          'account_id',
+          { blocking: false }
+        );
+      }
     }
     if (qr && qr.activation_status === 'activated' && !qr.activated_at) {
       collector.add('MISSING_REQUIRED_FIELD', 'records', reference, 'activated_at');
@@ -267,15 +293,41 @@ function validateQrData(source, collector) {
     const effectiveAccounts = new Set();
     array(qr && qr.co_creation_comments).forEach((comment, commentIndex) => {
       const commentReference = `${reference}:${comment && comment.id !== undefined ? comment.id : commentIndex}`;
-      validateRequiredFields(collector, comment, ['id', 'account_id', 'content', 'status', 'created_at'], 'co_creation_comments', commentReference);
-      if (comment && comment.account_id && !accounts.has(comment.account_id)) collector.add('MISSING_REFERENCE', 'co_creation_comments', commentReference, 'account_id');
+      validateRequiredFields(collector, comment, ['id', 'content', 'status', 'created_at'], 'co_creation_comments', commentReference);
+      const commentAccount = resolveLegacyAccount(
+        comment && comment.account_id,
+        comment && comment.phone
+      );
+      if (!commentAccount.valid) {
+        if (comment && comment.account_id) {
+          collector.add('MISSING_REFERENCE', 'co_creation_comments', commentReference, 'account_id');
+        } else {
+          collector.add('MISSING_REQUIRED_FIELD', 'co_creation_comments', commentReference, 'account_id');
+        }
+      } else if (commentAccount.recovered) {
+        collector.add(
+          'LEGACY_ACCOUNT_LINK_RECOVERED',
+          'co_creation_comments',
+          commentReference,
+          'account_id',
+          { blocking: false }
+        );
+      }
       if (comment && !['kept', 'deleted'].includes(comment.status)) collector.add('INVALID_STATUS', 'co_creation_comments', commentReference, 'status');
       validateTimestamp(collector, comment && comment.created_at, 'co_creation_comments', commentReference, 'created_at', { required: true });
       validateTimestamp(collector, comment && comment.deleted_at, 'co_creation_comments', commentReference, 'deleted_at');
       if (comment && comment.status === 'deleted' && !comment.deleted_at) collector.add('MISSING_REQUIRED_FIELD', 'co_creation_comments', commentReference, 'deleted_at');
-      if (comment && comment.status !== 'deleted' && comment.account_id) {
-        if (effectiveAccounts.has(comment.account_id)) collector.add('DUPLICATE_IDENTITY', 'co_creation_comments', comment.account_id, 'account_id');
-        effectiveAccounts.add(comment.account_id);
+      if (comment && comment.status !== 'deleted' && commentAccount.accountId) {
+        if (effectiveAccounts.has(commentAccount.accountId)) {
+          collector.add(
+            'LEGACY_DUPLICATE_COMMENT_ACCOUNT_PRESERVED',
+            'co_creation_comments',
+            commentAccount.accountId,
+            'account_id',
+            { blocking: false }
+          );
+        }
+        effectiveAccounts.add(commentAccount.accountId);
       }
     });
   });

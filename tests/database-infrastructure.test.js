@@ -58,6 +58,10 @@ const {
   RecordRepository
 } = require('../src/server/repositories');
 const { executeQuery } = require('../src/server/repositories/query');
+const {
+  COMMENT_FIELDS,
+  PROOF_FIELDS
+} = require('../src/server/repositories/mappers');
 
 function makeConfig(overrides = {}) {
   return {
@@ -416,13 +420,17 @@ test('initial schema and importer agree on full SHA-256 audit reference hashes',
   assert.match(plan.audit_events[0].entity_reference_hash, /^[0-9a-f]{64}$/);
 });
 
-test('comment source-position migration is additive and leaves migration 001 unchanged', () => {
+test('comment compatibility migrations are additive and leave migration 001 unchanged', () => {
   const migrationsDirectory = path.join(__dirname, '..', 'database', 'migrations');
   const initialBytes = fs.readFileSync(
     path.join(migrationsDirectory, '001_init_schema.sql')
   );
   const sourcePositionMigration = fs.readFileSync(
     path.join(migrationsDirectory, '002_add_comment_source_position.sql'),
+    'utf8'
+  );
+  const legacyEvidenceMigration = fs.readFileSync(
+    path.join(migrationsDirectory, '003_preserve_legacy_import_evidence.sql'),
     'utf8'
   );
   assert.equal(
@@ -438,11 +446,26 @@ test('comment source-position migration is additive and leaves migration 001 unc
   );
   assert.match(sourcePositionMigration, /WHERE status = 'kept'/);
   assert.doesNotMatch(sourcePositionMigration, /\bDEFAULT\b/i);
+  assert.match(legacyEvidenceMigration, /ADD COLUMN legacy_hash_snapshot text/);
+  assert.match(legacyEvidenceMigration, /ADD COLUMN legacy_duplicate boolean NOT NULL DEFAULT false/);
+  assert.match(legacyEvidenceMigration, /DROP INDEX app\.co_creation_comments_effective_account_uq/);
+  assert.match(
+    legacyEvidenceMigration,
+    /WHERE status = 'kept' AND legacy_duplicate = false/
+  );
+  assert.match(
+    legacyEvidenceMigration,
+    /CHECK \(manifest_hash IS NULL OR legacy_hash_snapshot IS NULL\)/
+  );
 
   const migrations = loadMigrations({ migrationsDirectory });
   assert.deepEqual(
-    migrations.map((item) => item.version).slice(0, 2),
-    ['001_init_schema.sql', '002_add_comment_source_position.sql']
+    migrations.map((item) => item.version),
+    [
+      '001_init_schema.sql',
+      '002_add_comment_source_position.sql',
+      '003_preserve_legacy_import_evidence.sql'
+    ]
   );
 });
 
@@ -657,6 +680,51 @@ test('importer preserves kept and deleted JSON comment positions and blocks inva
     validation.anomalies.some((item) => item.category === 'SOURCE_POSITION_MISMATCH'),
     true
   );
+});
+
+test('importer preserves audited legacy proof, account, and duplicate-comment evidence', () => {
+  const fixture = makeImporterFixture();
+  const legacyProofHash = 'legacy-proof-marker-1';
+  fixture.qr_codes[0].account_id = null;
+  fixture.qr_codes[0].blockchain_hash = legacyProofHash;
+  fixture.qr_codes[0].manifest_hash = legacyProofHash;
+  fixture.qr_codes[0].chain_status = 'confirmed';
+  fixture.qr_codes[1].co_creation_comments[0].account_id = null;
+  fixture.qr_codes[1].co_creation_comments.push({
+    id: 2,
+    phone: '13800000001',
+    account_id: 'ACC000001',
+    author_name: 'second historical author',
+    content: 'second historical comment',
+    status: 'kept',
+    created_at: '2026-01-02T03:06:05.000Z'
+  });
+
+  const { report, plan } = analyzeImporterFixture(fixture);
+  assert.equal(report.status, 'READY');
+  assert.equal(report.can_import, true);
+  assert.deepEqual(report.blocked_reasons, []);
+  assert.equal(report.anomaly_counts.LEGACY_NON_SHA_HASH_PRESERVED, 1);
+  assert.equal(report.anomaly_counts.LEGACY_ACCOUNT_LINK_RECOVERED, 2);
+  assert.equal(report.anomaly_counts.LEGACY_DUPLICATE_COMMENT_ACCOUNT_PRESERVED, 1);
+  assert.equal(plan.records[0].account_id, 'ACC000001');
+  assert.equal(plan.record_proofs[0].manifest_hash, null);
+  assert.equal(plan.record_proofs[0].legacy_hash_snapshot, legacyProofHash);
+  assert.deepEqual(
+    plan.co_creation_comments.map((comment) => ({
+      account_id: comment.account_id,
+      source_position: comment.source_position,
+      legacy_duplicate: comment.legacy_duplicate
+    })),
+    [
+      { account_id: 'ACC000001', source_position: 0, legacy_duplicate: false },
+      { account_id: 'ACC000001', source_position: 1, legacy_duplicate: true }
+    ]
+  );
+  const serializedReport = JSON.stringify(report);
+  [legacyProofHash, '13800000001', 'second historical comment'].forEach((value) => {
+    assert.equal(serializedReport.includes(value), false);
+  });
 });
 
 test('importer blocks unknown source fields, duplicate identities, broken references, and invalid QR lifecycle', () => {
@@ -1304,6 +1372,26 @@ test('co-creation repository exposes stable source position without UUID orderin
   assert.match(
     candidateHarness.calls[0].sql,
     /ORDER BY created_at DESC, source_position ASC\s+LIMIT \$2/
+  );
+});
+
+test('repository writes cannot create importer-only legacy exceptions', async () => {
+  const commentHarness = createRepositoryContext();
+  await new CoCreationRepository(commentHarness.context).insertComment({
+    legacy_duplicate: true
+  });
+  assert.equal(
+    commentHarness.calls[0].params[COMMENT_FIELDS.indexOf('legacy_duplicate')],
+    false
+  );
+
+  const proofHarness = createRepositoryContext();
+  await new ProofRepository(proofHarness.context).insertPending({
+    legacy_hash_snapshot: 'must-not-enter-runtime-write'
+  });
+  assert.equal(
+    proofHarness.calls[0].params[PROOF_FIELDS.indexOf('legacy_hash_snapshot')],
+    null
   );
 });
 

@@ -404,3 +404,29 @@ close the separate Shadow Read execution gates documented in
 - `SHADOW_READ_EXECUTION_READY=NO` and `RUNTIME_READINESS=NOT_READY` remain
   unchanged. No observer, runtime switch, PostgreSQL request traffic, dual
   read, dual write, or deployment was added in this phase.
+
+## Production snapshot compatibility gate
+
+- The first server-side dry run against a fixed, hash-verified JSON snapshot
+  remained read-only and correctly blocked import. Aggregate audit identified
+  40 matching legacy proof aliases that are not SHA-256, two uniquely
+  recoverable missing account links, and one pair of distinct kept comments
+  belonging to the same account.
+- Migration `003_preserve_legacy_import_evidence.sql` preserves the non-SHA
+  proof value separately and records later historical same-account comments as
+  internal legacy exceptions. It does not modify migrations `001` or `002`.
+- Account recovery is importer-only and requires one exact phone-to-account
+  match through the existing identity data. Runtime authorization never uses
+  this fallback.
+- The original JSON bytes and source SHA-256 remain unchanged. Importer reports
+  expose only redacted aggregate anomalies.
+- Migration `003` has canonical checksum
+  `75d6f26c353f30ef9ca10f215d0d8fc7855866ee60bcf8ab4f0b5579693ad757`;
+  migrations `001` and `002` remain unchanged.
+- Local tests passed: the normal suite, a focused PostgreSQL 15.18 legacy
+  import test, and the full Public QR/Shadow integration test. Both disposable
+  databases were stopped and removed. The server must deploy this exact code,
+  apply `003`, and repeat dry-run/import/DTO validation against the unchanged
+  audited snapshot before staging is accepted.
+- `SHADOW_READ_EXECUTION_READY=NO`, `RUNTIME_READINESS=NOT_READY`, and
+  `JSON_RESPONSE_SOURCE=JSON` remain unchanged.
