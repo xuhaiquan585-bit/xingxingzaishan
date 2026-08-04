@@ -1777,7 +1777,8 @@ function findPersonalRecordListContextByAccountId(accountIdValue) {
     .sort((a, b) => {
       const aTime = a.activated_at || a.co_creation_started_at || a.created_at;
       const bTime = b.activated_at || b.co_creation_started_at || b.created_at;
-      return new Date(bTime) - new Date(aTime);
+      const timeDifference = new Date(bTime) - new Date(aTime);
+      return timeDifference || String(a.id).localeCompare(String(b.id));
     })
     .map(mapPersonalRecord);
   return { records, sourceHash };
