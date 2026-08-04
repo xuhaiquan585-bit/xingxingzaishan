@@ -1728,12 +1728,48 @@ function listActivatedRecordsByPhone(phone) {
     }));
 }
 
-function listActivatedRecordsByAccountId(accountIdValue) {
-  const db = readDB();
-  const target = normalizeAccountId(accountIdValue);
-  if (!target) return [];
+function mapPersonalRecord(item) {
+  return {
+    id: item.id,
+    content: item.content || '',
+    image_url: item.image_url || null,
+    image_object_key: item.image_object_key || null,
+    activated_at: item.activated_at || null,
+    display_at: item.activated_at || item.co_creation_started_at || item.created_at,
+    activation_status: item.activation_status,
+    blockchain_hash: item.blockchain_hash || null,
+    ...chainPayload(item),
+    co_creation_enabled: item.co_creation_enabled === true,
+    co_creation_comments: Array.isArray(item.co_creation_comments) ? item.co_creation_comments : [],
+    show_brand_disclosure: item.show_brand_disclosure === true,
+    brand_disclosure_text_snapshot: item.brand_disclosure_text_snapshot || '',
+    batch_id: item.batch_id || null
+  };
+}
 
-  return db.qr_codes
+function mapActivatedRecordDetail(item) {
+  return {
+    id: item.id,
+    content: item.content || '',
+    image_url: item.image_url || null,
+    image_object_key: item.image_object_key || null,
+    activated_at: item.activated_at,
+    blockchain_hash: item.blockchain_hash || null,
+    ...chainPayload(item),
+    co_creation_enabled: item.co_creation_enabled === true,
+    co_creation_comments: Array.isArray(item.co_creation_comments) ? item.co_creation_comments : [],
+    show_brand_disclosure: item.show_brand_disclosure === true,
+    brand_disclosure_text_snapshot: item.brand_disclosure_text_snapshot || '',
+    batch_id: item.batch_id || null
+  };
+}
+
+function findPersonalRecordListContextByAccountId(accountIdValue) {
+  const { db, sourceHash } = readDBWithHash();
+  const target = normalizeAccountId(accountIdValue);
+  if (!target) return { records: [], sourceHash };
+
+  const records = db.qr_codes
     .filter((item) => (
       (item.activation_status === 'activated' && normalizeAccountId(item.account_id) === target)
       || (item.activation_status === 'co_creating' && normalizeAccountId(item.co_creation_owner_account_id) === target)
@@ -1743,19 +1779,12 @@ function listActivatedRecordsByAccountId(accountIdValue) {
       const bTime = b.activated_at || b.co_creation_started_at || b.created_at;
       return new Date(bTime) - new Date(aTime);
     })
-    .map((item) => ({
-      id: item.id,
-      content: item.content || '',
-      image_url: item.image_url || null,
-      image_object_key: item.image_object_key || null,
-      activated_at: item.activated_at || null,
-      display_at: item.activated_at || item.co_creation_started_at || item.created_at,
-      activation_status: item.activation_status,
-      blockchain_hash: item.blockchain_hash || null,
-      ...chainPayload(item),
-      co_creation_enabled: item.co_creation_enabled === true,
-      co_creation_comments: Array.isArray(item.co_creation_comments) ? item.co_creation_comments : []
-    }));
+    .map(mapPersonalRecord);
+  return { records, sourceHash };
+}
+
+function listActivatedRecordsByAccountId(accountIdValue) {
+  return findPersonalRecordListContextByAccountId(accountIdValue).records;
 }
 
 function listActivatedRecordsByMiniappOpenid(openid) {
@@ -1796,11 +1825,13 @@ function getActivatedRecordByPhoneAndId({ phone, id }) {
   };
 }
 
-function getActivatedRecordByAccountIdAndId({ account_id: accountIdValue, id }) {
-  const db = readDB();
+function findPersonalRecordDetailContext({ account_id: accountIdValue, id }) {
+  const { db, sourceHash } = readDBWithHash();
   const targetAccountId = normalizeAccountId(accountIdValue);
   const targetId = String(id || '').trim();
-  if (!targetAccountId || !targetId) return null;
+  if (!targetAccountId || !targetId) {
+    return { record: null, batch: null, sourceHash };
+  }
 
   const matched = db.qr_codes.find((item) =>
     item.activation_status === 'activated'
@@ -1808,22 +1839,17 @@ function getActivatedRecordByAccountIdAndId({ account_id: accountIdValue, id }) 
     && item.id === targetId
   );
 
-  if (!matched) return null;
+  if (!matched) return { record: null, batch: null, sourceHash };
 
-  return {
-    id: matched.id,
-    content: matched.content || '',
-    image_url: matched.image_url || null,
-    image_object_key: matched.image_object_key || null,
-    activated_at: matched.activated_at,
-    blockchain_hash: matched.blockchain_hash || null,
-    ...chainPayload(matched),
-    co_creation_enabled: matched.co_creation_enabled === true,
-    co_creation_comments: Array.isArray(matched.co_creation_comments) ? matched.co_creation_comments : [],
-    show_brand_disclosure: matched.show_brand_disclosure === true,
-    brand_disclosure_text_snapshot: matched.brand_disclosure_text_snapshot || '',
-    batch_id: matched.batch_id || null
-  };
+  const record = mapActivatedRecordDetail(matched);
+  const batch = record.batch_id
+    ? db.batches.find((item) => item.id === record.batch_id) || null
+    : null;
+  return { record, batch, sourceHash };
+}
+
+function getActivatedRecordByAccountIdAndId(input) {
+  return findPersonalRecordDetailContext(input).record;
 }
 
 function getActivatedRecordByMiniappOpenidAndId({ openid, id }) {
@@ -2749,6 +2775,8 @@ module.exports = {
   findQRByToken,
   findQRByKey,
   findPublicQrReadContextByKey,
+  findPersonalRecordListContextByAccountId,
+  findPersonalRecordDetailContext,
   getSampleUnactivated,
   activateQRCodeOnce,
   activateQRByKey,

@@ -1,9 +1,8 @@
 const express = require('express');
 const {
   createOrGetUser,
-  listActivatedRecordsByAccountId,
-  getActivatedRecordByAccountIdAndId,
-  listBatches
+  findPersonalRecordListContextByAccountId,
+  findPersonalRecordDetailContext
 } = require('../services/dbService');
 const { createSession, destroySession } = require('../services/userSessionService');
 const { sendCode, verifyCode } = require('../services/smsCodeService');
@@ -15,6 +14,10 @@ const {
 } = require('../middlewares/userSession');
 const { getSignedUrl } = require('../services/storageService');
 const { chainPublicPayload } = require('../services/chainViewService');
+const { createPublicQrAssetResolver } = require('../services/publicQrAssetResolver');
+const {
+  registerPersonalRecordShadowObservation
+} = require('../services/postgres/personalRecordShadowRuntime');
 
 const router = express.Router();
 
@@ -214,7 +217,10 @@ function handleLogout(req, res) {
   });
 }
 
-function resolveImageUrl(record) {
+function resolveImageUrl(record, assetResolver = null) {
+  if (assetResolver && typeof assetResolver.resolveRecordImage === 'function') {
+    return assetResolver.resolveRecordImage({ record, channel: 'h5' });
+  }
   if (record.image_object_key) {
     try {
       return getSignedUrl(record.image_object_key);
@@ -238,27 +244,45 @@ function visibleComments(record) {
 }
 
 function handleRecords(req, res) {
-  const records = listActivatedRecordsByAccountId(req.user.account_id).map((item) => ({
+  const accountId = String(req.user.account_id || '');
+  const { records: sourceRecords, sourceHash } = findPersonalRecordListContextByAccountId(
+    accountId
+  );
+  const assetResolver = createPublicQrAssetResolver();
+  const records = sourceRecords.map((item) => ({
     id: item.id,
     content: item.content,
     activated_at: item.activated_at,
     display_at: item.display_at,
     activation_status: item.activation_status,
-    image_url: resolveImageUrl(item)
+    image_url: resolveImageUrl(item, assetResolver)
   }));
-
+  const data = {
+    total: records.length,
+    records
+  };
+  registerPersonalRecordShadowObservation({
+    res,
+    event: {
+      channel: 'h5',
+      endpointTemplate: '/api/user/records',
+      readKind: 'list',
+      accountId,
+      baselineDto: data,
+      sourceHash,
+      assetResolver
+    }
+  });
   return res.json({
     status: 'success',
     code: 'OK',
-    data: {
-      total: records.length,
-      records
-    }
+    data
   });
 }
 
 function handleRecordDetail(req, res) {
-  const record = getActivatedRecordByAccountIdAndId({
+  const accountId = String(req.user.account_id || '');
+  const { record, batch, sourceHash } = findPersonalRecordDetailContext({
     account_id: req.user.account_id,
     id: req.params.id
   });
@@ -271,31 +295,34 @@ function handleRecordDetail(req, res) {
     });
   }
 
-  let brandName = '';
-  if (record.batch_id) {
-    const batch = listBatches().find((item) => item.id === record.batch_id);
-    if (batch) {
-      brandName = batch.brand_name || '';
-    }
-  }
-
-  return res.json({
-    status: 'success',
-    code: 'OK',
-    data: {
-      id: record.id,
-      content: record.content,
-      activated_at: record.activated_at,
-      blockchain_hash: record.blockchain_hash,
-      ...chainPublicPayload(record),
-      co_creation_enabled: record.co_creation_enabled === true,
-      co_creation_comments: visibleComments(record),
-      image_url: resolveImageUrl(record),
-      show_brand_disclosure: record.show_brand_disclosure,
-      brand_disclosure_text_snapshot: record.brand_disclosure_text_snapshot,
-      brand_name: brandName
+  const assetResolver = createPublicQrAssetResolver();
+  const data = {
+    id: record.id,
+    content: record.content,
+    activated_at: record.activated_at,
+    blockchain_hash: record.blockchain_hash,
+    ...chainPublicPayload(record, { channel: 'h5', assetResolver }),
+    co_creation_enabled: record.co_creation_enabled === true,
+    co_creation_comments: visibleComments(record),
+    image_url: resolveImageUrl(record, assetResolver),
+    show_brand_disclosure: record.show_brand_disclosure,
+    brand_disclosure_text_snapshot: record.brand_disclosure_text_snapshot,
+    brand_name: batch ? batch.brand_name || '' : ''
+  };
+  registerPersonalRecordShadowObservation({
+    res,
+    event: {
+      channel: 'h5',
+      endpointTemplate: '/api/user/records/:id',
+      readKind: 'detail',
+      accountId,
+      recordId: record.id,
+      baselineDto: data,
+      sourceHash,
+      assetResolver
     }
   });
+  return res.json({ status: 'success', code: 'OK', data });
 }
 
 router.post('/login', handleLogin);

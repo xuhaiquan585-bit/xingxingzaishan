@@ -15,8 +15,8 @@ const {
   addCoCreationCommentByKey,
   deleteCoCreationCommentByKey,
   finalizeCoCreationByKey,
-  listActivatedRecordsByAccountId,
-  getActivatedRecordByAccountIdAndId,
+  findPersonalRecordListContextByAccountId,
+  findPersonalRecordDetailContext,
   listBatches,
   listProducts,
   getProduct,
@@ -39,6 +39,9 @@ const { createPublicQrAssetResolver } = require('../services/publicQrAssetResolv
 const {
   registerPublicQrShadowObservation
 } = require('../services/postgres/publicQrShadowRuntime');
+const {
+  registerPersonalRecordShadowObservation
+} = require('../services/postgres/personalRecordShadowRuntime');
 const {
   prepareRecordManifest,
   submitPreparedRecord
@@ -1024,26 +1027,42 @@ router.post('/qr/:key/finalize', requireMiniappAuth, requireMiniappPhone, async 
 });
 
 router.get('/user/records', requireMiniappAuth, requireMiniappPhone, (req, res) => {
-  const records = listActivatedRecordsByAccountId(req.miniappUser.account_id).map((item) => ({
+  const accountId = getMiniappAccountId(req.miniappUser);
+  const { records: sourceRecords, sourceHash } = findPersonalRecordListContextByAccountId(
+    accountId
+  );
+  const assetResolver = createPublicQrAssetResolver();
+  const records = sourceRecords.map((item) => ({
     id: item.id,
     content: item.content,
     activated_at: item.activated_at,
     display_at: item.display_at,
     activation_status: item.activation_status,
-    image_url: resolveImageUrl(item)
+    image_url: resolveImageUrl(item, assetResolver)
   }));
+  const data = { total: records.length, records };
+  registerPersonalRecordShadowObservation({
+    res,
+    event: {
+      channel: 'miniapp',
+      endpointTemplate: '/api/miniapp/user/records',
+      readKind: 'list',
+      accountId,
+      baselineDto: data,
+      sourceHash,
+      assetResolver
+    }
+  });
   return res.json({
     status: 'success',
     code: 'OK',
-    data: {
-      total: records.length,
-      records
-    }
+    data
   });
 });
 
 router.get('/user/records/:id', requireMiniappAuth, requireMiniappPhone, (req, res) => {
-  const record = getActivatedRecordByAccountIdAndId({
+  const accountId = getMiniappAccountId(req.miniappUser);
+  const { record, batch, sourceHash } = findPersonalRecordDetailContext({
     account_id: req.miniappUser.account_id,
     id: req.params.id
   });
@@ -1054,24 +1073,33 @@ router.get('/user/records/:id', requireMiniappAuth, requireMiniappPhone, (req, r
       message: '未找到该记录，或你无权查看。'
     });
   }
-  return res.json({
-    status: 'success',
-    code: 'OK',
-    data: {
-      id: record.id,
-      content: record.content || '',
-      activated_at: record.activated_at,
-      display_at: record.display_at,
-      activation_status: record.activation_status,
-      blockchain_hash: record.blockchain_hash || null,
-      image_url: resolveImageUrl(record),
-      co_creation_comments: visibleComments(record),
-      show_brand_disclosure: record.show_brand_disclosure === true,
-      brand_disclosure_text_snapshot: record.brand_disclosure_text_snapshot || '',
-      brand_name: getBrandName(record),
-      ...chainPublicPayload(record)
+  const assetResolver = createPublicQrAssetResolver();
+  const data = {
+    id: record.id,
+    content: record.content || '',
+    activated_at: record.activated_at,
+    blockchain_hash: record.blockchain_hash || null,
+    image_url: resolveImageUrl(record, assetResolver),
+    co_creation_comments: visibleComments(record),
+    show_brand_disclosure: record.show_brand_disclosure === true,
+    brand_disclosure_text_snapshot: record.brand_disclosure_text_snapshot || '',
+    brand_name: getBrandName(record, batch),
+    ...chainPublicPayload(record, { channel: 'miniapp', assetResolver })
+  };
+  registerPersonalRecordShadowObservation({
+    res,
+    event: {
+      channel: 'miniapp',
+      endpointTemplate: '/api/miniapp/user/records/:id',
+      readKind: 'detail',
+      accountId,
+      recordId: record.id,
+      baselineDto: data,
+      sourceHash,
+      assetResolver
     }
   });
+  return res.json({ status: 'success', code: 'OK', data });
 });
 
 router.use((err, _req, res, _next) => {

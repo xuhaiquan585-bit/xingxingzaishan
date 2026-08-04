@@ -21,6 +21,9 @@ const {
   PublicQrReadAdapter
 } = require('../src/server/services/postgres/publicQrReadAdapter');
 const {
+  PersonalRecordReadAdapter
+} = require('../src/server/services/postgres/personalRecordReadAdapter');
+const {
   comparePublicQrDtos
 } = require('../src/server/services/postgres/publicQrDtoComparator');
 const { createPublicQrAssetResolver } = require('../src/server/services/publicQrAssetResolver');
@@ -29,6 +32,10 @@ const {
   createPublicQrShadowRuntime
 } = require('../src/server/services/postgres/publicQrShadowRuntime');
 const { generateMiniappToken } = require('../src/server/services/miniappAuthService');
+const {
+  createSession,
+  getCookieName
+} = require('../src/server/services/userSessionService');
 const { executeStagingImport } = require('../scripts/database/import-staging');
 const { runMigrations } = require('../scripts/database/migrate');
 const { analyzeSourceSnapshot } = require('../scripts/database/importer');
@@ -279,14 +286,17 @@ function analyzeFixture(inputPath, sourceHash) {
   };
 }
 
-function requestJson(port, requestPath, token = '') {
+function requestJson(port, requestPath, token = '', headers = {}) {
   return new Promise((resolve, reject) => {
     const req = http.request({
       hostname: '127.0.0.1',
       port,
       path: requestPath,
       method: 'GET',
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
+      headers: {
+        ...headers,
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
     }, (res) => {
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
@@ -340,6 +350,32 @@ async function readCandidate(pool, { key, channel, viewer }) {
   }, { isolationLevel: 'repeatable read', readOnly: true });
   const dto = await loaded.adapter.present(loaded.snapshot);
   return { dto, queries: loaded.queries };
+}
+
+async function readPersonalCandidate(pool, {
+  readKind,
+  accountId,
+  recordId = null,
+  channel
+}) {
+  const loaded = await withTransaction(pool, async (transactionContext) => {
+    const adapter = new PersonalRecordReadAdapter({
+      qrRepository: new QrRepository(transactionContext),
+      recordRepository: new RecordRepository(transactionContext),
+      coCreationRepository: new CoCreationRepository(transactionContext),
+      proofRepository: new ProofRepository(transactionContext),
+      batchReader: new QrBatchRepository(transactionContext),
+      publicRuntimeMetadata: { storage_mode: 'local' }
+    });
+    const snapshot = await adapter.loadSnapshot({
+      readKind,
+      accountId,
+      recordId,
+      channel
+    });
+    return { adapter, snapshot };
+  }, { isolationLevel: 'repeatable read', readOnly: true });
+  return loaded.adapter.present(loaded.snapshot);
 }
 
 function assertDtoMatch(label, baseline, candidate, channel) {
@@ -491,6 +527,14 @@ test('manual PostgreSQL public QR adapter integration', {
     const participant = fixture.users[1];
     const ownerToken = generateMiniappToken(owner);
     const participantToken = generateMiniappToken(participant);
+    const personalOwner = fixture.users[0];
+    const personalOwnerToken = generateMiniappToken(personalOwner);
+    const personalOwnerSession = createSession({
+      userId: personalOwner.id,
+      phone: personalOwner.phone,
+      accountId: personalOwner.account_id
+    });
+    const personalOwnerCookie = `${getCookieName()}=${personalOwnerSession.sid}`;
 
     const exactCases = [
       {
@@ -573,6 +617,92 @@ test('manual PostgreSQL public QR adapter integration', {
       mismatchCount += Number(observed.mismatchCount || 0);
     }
     assert.equal(mismatchCount, 0);
+
+    const personalListBaseline = await requestJson(
+      port,
+      '/api/miniapp/user/records',
+      personalOwnerToken
+    );
+    assert.equal(personalListBaseline.status, 200);
+    const personalListCandidate = await readPersonalCandidate(pool, {
+      readKind: 'list',
+      accountId: personalOwner.account_id,
+      channel: 'miniapp'
+    });
+    assertDtoMatch(
+      'miniapp personal record list',
+      personalListBaseline.body.data,
+      personalListCandidate,
+      'miniapp'
+    );
+
+    const personalDetailBaseline = await requestJson(
+      port,
+      '/api/miniapp/user/records/QR_ACTIVATED_COMMENTS',
+      personalOwnerToken
+    );
+    assert.equal(personalDetailBaseline.status, 200);
+    const personalDetailCandidate = await readPersonalCandidate(pool, {
+      readKind: 'detail',
+      accountId: personalOwner.account_id,
+      recordId: 'QR_ACTIVATED_COMMENTS',
+      channel: 'miniapp'
+    });
+    assertDtoMatch(
+      'miniapp personal record detail',
+      personalDetailBaseline.body.data,
+      personalDetailCandidate,
+      'miniapp'
+    );
+
+    const h5PersonalListBaseline = await requestJson(
+      port,
+      '/api/user/records',
+      '',
+      { Cookie: personalOwnerCookie }
+    );
+    assert.equal(h5PersonalListBaseline.status, 200);
+    const h5PersonalListCandidate = await readPersonalCandidate(pool, {
+      readKind: 'list',
+      accountId: personalOwner.account_id,
+      channel: 'h5'
+    });
+    assertDtoMatch(
+      'h5 personal record list',
+      h5PersonalListBaseline.body.data,
+      h5PersonalListCandidate,
+      'h5'
+    );
+
+    const h5PersonalDetailBaseline = await requestJson(
+      port,
+      '/api/user/records/QR_ACTIVATED_COMMENTS',
+      '',
+      { Cookie: personalOwnerCookie }
+    );
+    assert.equal(h5PersonalDetailBaseline.status, 200);
+    const h5PersonalDetailCandidate = await readPersonalCandidate(pool, {
+      readKind: 'detail',
+      accountId: personalOwner.account_id,
+      recordId: 'QR_ACTIVATED_COMMENTS',
+      channel: 'h5'
+    });
+    assertDtoMatch(
+      'h5 personal record detail',
+      h5PersonalDetailBaseline.body.data,
+      h5PersonalDetailCandidate,
+      'h5'
+    );
+
+    await assert.rejects(
+      readPersonalCandidate(pool, {
+        readKind: 'detail',
+        accountId: 'ACC000002',
+        recordId: 'QR_ACTIVATED_COMMENTS',
+        channel: 'miniapp'
+      }),
+      (error) => error.code === 'PERSONAL_RECORD_NOT_FOUND'
+    );
 
     const stale = await shadowRuntime.observer.observe({
       channel: 'h5',

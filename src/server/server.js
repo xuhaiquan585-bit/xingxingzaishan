@@ -4,9 +4,19 @@ require('dotenv').config();
 
 const { createApp } = require('./app');
 const { closePublicQrShadowRuntime } = require('./services/postgres/publicQrShadowRuntime');
+const {
+  closePersonalRecordShadowRuntime
+} = require('./services/postgres/personalRecordShadowRuntime');
 
 const PORT = process.env.PORT || 3000;
 const SHUTDOWN_TIMEOUT_MS = 10_000;
+
+function closeShadowRuntimes() {
+  return Promise.all([
+    closePublicQrShadowRuntime(),
+    closePersonalRecordShadowRuntime()
+  ]);
+}
 
 function closeHttpServer(server) {
   return new Promise((resolve, reject) => {
@@ -19,7 +29,7 @@ function closeHttpServer(server) {
 
 function createShutdownHandler({
   server,
-  closeShadowRuntime = closePublicQrShadowRuntime,
+  closeShadowRuntime = closeShadowRuntimes,
   processObject = process,
   setTimer = setTimeout,
   clearTimer = clearTimeout,
@@ -57,7 +67,7 @@ function startServer({
   app = createApp(),
   port = PORT,
   processObject = process,
-  closeShadowRuntime = closePublicQrShadowRuntime
+  closeShadowRuntime = closeShadowRuntimes
 } = {}) {
   const server = app.listen(port, () => {
     // eslint-disable-next-line no-console
@@ -73,6 +83,7 @@ if (require.main === module) startServer();
 
 module.exports = {
   SHUTDOWN_TIMEOUT_MS,
+  closeShadowRuntimes,
   createShutdownHandler,
   startServer
 };

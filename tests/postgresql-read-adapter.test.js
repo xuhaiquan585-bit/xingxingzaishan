@@ -14,6 +14,9 @@ const {
 const {
   comparePublicQrDtos
 } = require('../src/server/services/postgres/publicQrDtoComparator');
+const {
+  PersonalRecordReadAdapter
+} = require('../src/server/services/postgres/personalRecordReadAdapter');
 
 function makeHarness({
   qr = null,
@@ -500,4 +503,127 @@ test('DTO comparator accepts equal DTOs without producing mismatch details', () 
     truncated: false,
     mismatches: []
   });
+});
+
+test('personal record adapter lists only repository-scoped rows in the existing DTO shape', async () => {
+  const adapter = new PersonalRecordReadAdapter({
+    qrRepository: { findById: async () => null, findByKey: async () => null },
+    recordRepository: {
+      findByQrId: async () => null,
+      findOwnedByAccountId: async () => null,
+      listPersonalByAccountId: async (accountId, options) => {
+        assert.equal(accountId, 'ACC_OWNER');
+        assert.deepEqual(options, { limit: 1001 });
+        return [{
+          qr_id: 'QR_LIST_1',
+          lifecycle_status: 'co_creating',
+          content: 'Memory',
+          image_url_snapshot: null,
+          image_object_key: 'records/list.jpg',
+          sealed_at: null,
+          co_creation_started_at: new Date('2026-08-04T01:02:03.000Z'),
+          created_at: new Date('2026-08-04T01:00:00.000Z')
+        }];
+      }
+    },
+    coCreationRepository: {
+      findByQrId: async () => null,
+      listPublicCommentsCandidate: async () => []
+    },
+    proofRepository: { findByRecordId: async () => null },
+    batchReader: { findById: async () => null },
+    publicRuntimeMetadata: { storage_mode: 'oss' }
+  });
+  const snapshot = await adapter.loadSnapshot({
+    readKind: 'list',
+    accountId: 'ACC_OWNER',
+    channel: 'h5'
+  });
+  const dto = await adapter.present(snapshot, {
+    assetResolver: {
+      resolveRecordImage: ({ record, channel }) => `${channel}://${record.image_object_key}`
+    }
+  });
+  assert.deepEqual(dto, {
+    total: 1,
+    records: [{
+      id: 'QR_LIST_1',
+      content: 'Memory',
+      activated_at: null,
+      display_at: '2026-08-04T01:02:03.000Z',
+      activation_status: 'co_creating',
+      image_url: 'h5://records/list.jpg'
+    }]
+  });
+  assert.doesNotMatch(JSON.stringify(dto), /ACC_OWNER/);
+});
+
+test('personal record detail enforces account ownership and projects channel-specific DTOs', async () => {
+  const fixture = activatedFixture();
+  const dependencies = {
+    qrRepository: {
+      findById: async () => fixture.qr,
+      findByKey: async () => fixture.qr
+    },
+    recordRepository: {
+      findByQrId: async () => fixture.record,
+      findOwnedByAccountId: async (accountId) => (
+        accountId === 'ACC_INTERNAL_OWNER' ? fixture.record : null
+      ),
+      listPersonalByAccountId: async () => []
+    },
+    coCreationRepository: {
+      findByQrId: async () => fixture.coCreation,
+      listPublicCommentsCandidate: async () => fixture.comments
+    },
+    proofRepository: { findByRecordId: async () => fixture.proof },
+    batchReader: { findById: async () => fixture.batch },
+    publicRuntimeMetadata: { storage_mode: 'oss' }
+  };
+  const adapter = new PersonalRecordReadAdapter(dependencies);
+  await assert.rejects(
+    adapter.loadSnapshot({
+      readKind: 'detail',
+      accountId: 'ACC_OTHER',
+      recordId: fixture.qr.id,
+      channel: 'h5'
+    }),
+    (error) => error.code === 'PERSONAL_RECORD_NOT_FOUND'
+  );
+
+  const snapshot = await adapter.loadSnapshot({
+    readKind: 'detail',
+    accountId: 'ACC_INTERNAL_OWNER',
+    recordId: fixture.qr.id,
+    channel: 'miniapp'
+  });
+  const dto = await adapter.present(snapshot, {
+    assetResolver: {
+      resolveRecordImage: () => 'https://public.example/record.jpg',
+      resolveCertificate: () => 'https://public.example/certificate'
+    }
+  });
+  assert.equal(dto.id, fixture.qr.id);
+  assert.equal(dto.image_url, 'https://public.example/record.jpg');
+  assert.equal(dto.brand_name, fixture.batch.brand_name);
+  assert.equal(Object.hasOwn(dto, 'activation_status'), false);
+  assert.equal(Object.hasOwn(dto, 'display_at'), false);
+  assert.doesNotMatch(JSON.stringify(dto), /ACC_INTERNAL_OWNER|phone_snapshot/);
+
+  const h5Snapshot = await adapter.loadSnapshot({
+    readKind: 'detail',
+    accountId: 'ACC_INTERNAL_OWNER',
+    recordId: fixture.qr.id,
+    channel: 'h5'
+  });
+  const h5Dto = await adapter.present(h5Snapshot, {
+    assetResolver: {
+      resolveRecordImage: () => 'https://public.example/record.jpg',
+      resolveCertificate: () => 'https://public.example/certificate'
+    }
+  });
+  assert.equal(h5Dto.id, fixture.qr.id);
+  assert.equal(h5Dto.brand_name, fixture.batch.brand_name);
+  assert.equal(h5Dto.co_creation_enabled, true);
+  assert.doesNotMatch(JSON.stringify(h5Dto), /ACC_INTERNAL_OWNER|phone_snapshot/);
 });

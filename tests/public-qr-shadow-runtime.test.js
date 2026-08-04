@@ -12,6 +12,9 @@ const {
   createPublicQrShadowScheduler,
   migrationSetMatches
 } = require('../src/server/services/postgres/publicQrShadowRuntime');
+const {
+  createPersonalRecordShadowScheduler
+} = require('../src/server/services/postgres/personalRecordShadowRuntime');
 
 function enabledConfig() {
   return {
@@ -102,6 +105,39 @@ test('scheduler stays inert while disabled and starts only after response finish
   assert.equal(observeCalls, 1);
   await scheduler.close();
   assert.equal(scheduler.register({ res: new EventEmitter(), event: { publicQrId: 'QR_PUBLIC_1' } }), false);
+});
+
+test('personal record scheduler gates by account and starts only after response finish', async () => {
+  let runtimeCalls = 0;
+  const observed = [];
+  const scheduler = createPersonalRecordShadowScheduler({
+    readConfig: () => ({ enabled: true, allowlist: new Set(['ACC_OWNER']) }),
+    runtimeFactory: () => {
+      runtimeCalls += 1;
+      return {
+        observer: { observe: async (event) => observed.push(event) },
+        close: async () => {}
+      };
+    }
+  });
+  const denied = new EventEmitter();
+  assert.equal(scheduler.register({
+    res: denied,
+    event: { accountId: 'ACC_OTHER' }
+  }), false);
+
+  const response = new EventEmitter();
+  assert.equal(scheduler.register({
+    res: response,
+    event: { accountId: 'ACC_OWNER', readKind: 'list' }
+  }), true);
+  assert.equal(runtimeCalls, 0);
+  response.emit('finish');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(runtimeCalls, 1);
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0].allowlistKey, 'ACC_OWNER');
+  await scheduler.close();
 });
 
 test('scheduler does not create a runtime when shutdown starts before response finish', async () => {

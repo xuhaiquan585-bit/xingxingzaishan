@@ -4,7 +4,14 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const SAFE_ENDPOINTS = new Set(['/api/qr/:qrId', '/api/miniapp/qr/:key']);
+const SAFE_ENDPOINTS = new Set([
+  '/api/qr/:qrId',
+  '/api/miniapp/qr/:key',
+  '/api/user/records',
+  '/api/user/records/:id',
+  '/api/miniapp/user/records',
+  '/api/miniapp/user/records/:id'
+]);
 const FILE_PREFIX = 'public-qr-shadow-';
 
 function boundedString(value, maxLength = 160) {
@@ -47,6 +54,7 @@ class PublicQrMismatchSink {
     maxBytes = 5 * 1024 * 1024,
     retentionDays = 14,
     queueLimit = 100,
+    filePrefix = FILE_PREFIX,
     now = () => new Date(),
     fsPromises = fs.promises,
     onError = () => {}
@@ -58,6 +66,8 @@ class PublicQrMismatchSink {
     this.maxBytes = maxBytes;
     this.retentionDays = retentionDays;
     this.queueLimit = queueLimit;
+    this.filePrefix = String(filePrefix || FILE_PREFIX).replace(/[^A-Za-z0-9_-]/g, '');
+    if (!this.filePrefix) this.filePrefix = FILE_PREFIX;
     this.now = now;
     this.fs = fsPromises;
     this.onError = onError;
@@ -111,7 +121,7 @@ class PublicQrMismatchSink {
   async #write(record) {
     await this.fs.mkdir(this.directory, { recursive: true, mode: 0o700 });
     await this.#cleanupExpired(record.timestamp.slice(0, 10));
-    const activePath = path.join(this.directory, `${FILE_PREFIX}current.jsonl`);
+    const activePath = path.join(this.directory, `${this.filePrefix}current.jsonl`);
     const line = `${JSON.stringify(record)}\n`;
     let currentSize = 0;
     try {
@@ -121,7 +131,7 @@ class PublicQrMismatchSink {
     }
     if (currentSize > 0 && currentSize + Buffer.byteLength(line) > this.maxBytes) {
       const suffix = `${record.timestamp.replace(/[:.]/g, '-')}-${record.observation_id}`;
-      await this.fs.rename(activePath, path.join(this.directory, `${FILE_PREFIX}${suffix}.jsonl`));
+      await this.fs.rename(activePath, path.join(this.directory, `${this.filePrefix}${suffix}.jsonl`));
     }
     await this.fs.appendFile(activePath, line, { encoding: 'utf8', mode: 0o600 });
   }
@@ -132,7 +142,7 @@ class PublicQrMismatchSink {
     const threshold = this.now().getTime() - (this.retentionDays * 24 * 60 * 60 * 1000);
     const entries = await this.fs.readdir(this.directory, { withFileTypes: true });
     await Promise.all(entries.map(async (entry) => {
-      if (!entry.isFile() || !entry.name.startsWith(FILE_PREFIX)) return;
+      if (!entry.isFile() || !entry.name.startsWith(this.filePrefix)) return;
       const filePath = path.join(this.directory, entry.name);
       const stat = await this.fs.stat(filePath);
       if (stat.mtimeMs < threshold) await this.fs.unlink(filePath);

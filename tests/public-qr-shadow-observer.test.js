@@ -18,6 +18,9 @@ const {
 const {
   createPublicQrShadowObserver
 } = require('../src/server/services/postgres/publicQrShadowObserver');
+const {
+  readPersonalRecordShadowConfig
+} = require('../src/server/services/postgres/personalRecordShadowConfig');
 
 function enabledConfig(overrides = {}) {
   return {
@@ -78,6 +81,17 @@ test('shadow config accepts an explicit allowlist and external absolute log dire
   });
   assert.equal(config.enabled, true);
   assert.deepEqual([...config.allowlist], ['QR_PUBLIC_1', 'QR_PUBLIC_2']);
+});
+
+test('personal record shadow config is independently default-off and account allowlisted', () => {
+  assert.equal(readPersonalRecordShadowConfig({}).reason, 'DISABLED_BY_DEFAULT');
+  const config = readPersonalRecordShadowConfig({
+    PERSONAL_RECORD_SHADOW_READ_ENABLED: 'true',
+    PERSONAL_RECORD_SHADOW_READ_ALLOWLIST: 'ACC000002',
+    PERSONAL_RECORD_SHADOW_READ_LOG_DIR: path.join(os.tmpdir(), 'personal-record-shadow-test')
+  });
+  assert.equal(config.enabled, true);
+  assert.deepEqual([...config.allowlist], ['ACC000002']);
 });
 
 test('disabled observer does not call candidate, comparator, or sink', async () => {

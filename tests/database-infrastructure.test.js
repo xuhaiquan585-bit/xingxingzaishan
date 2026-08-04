@@ -1507,11 +1507,17 @@ test('repository locking methods are explicit and never issue transaction contro
 });
 
 test('ownership repositories use account IDs only and enforce bounded parameterized limits', async () => {
-  const harness = createRepositoryContext([{ rows: [] }, { rows: [] }, { rows: [] }]);
+  const harness = createRepositoryContext([
+    { rows: [] },
+    { rows: [] },
+    { rows: [] },
+    { rows: [] }
+  ]);
   const records = new RecordRepository(harness.context);
   const orders = new OrderRepository(harness.context);
   await records.findOwnedByAccountId('ACC_TEST', 'QR_TEST');
   await records.listByAccountId('ACC_TEST', { limit: 5000 });
+  await records.listPersonalByAccountId('ACC_TEST', { limit: 5000 });
   await orders.listByAccountId('ACC_TEST', { limit: 5000 });
 
   harness.calls.forEach(({ sql }) => {
@@ -1519,7 +1525,8 @@ test('ownership repositories use account IDs only and enforce bounded parameteri
   });
   assert.deepEqual(harness.calls[0].params, ['ACC_TEST', 'QR_TEST']);
   assert.deepEqual(harness.calls[1].params, ['ACC_TEST', 100]);
-  assert.deepEqual(harness.calls[2].params, ['ACC_TEST', 100]);
+  assert.deepEqual(harness.calls[2].params, ['ACC_TEST', 1001]);
+  assert.deepEqual(harness.calls[3].params, ['ACC_TEST', 100]);
   await assert.rejects(
     records.listByAccountId('ACC_TEST', { limit: 0 }),
     (error) => error.code === 'REPOSITORY_LIMIT_INVALID'

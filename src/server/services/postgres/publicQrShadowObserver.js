@@ -167,7 +167,8 @@ function createPublicQrShadowObserver({
     if (closed) return { outcome: 'CLOSED' };
     const config = getConfig();
     if (!config || config.enabled !== true) return { outcome: 'DISABLED' };
-    if (!config.allowlist || !config.allowlist.has(String(event.publicQrId || ''))) {
+    const allowlistKey = String(event.allowlistKey || event.publicQrId || '');
+    if (!config.allowlist || !config.allowlist.has(allowlistKey)) {
       return { outcome: 'SKIPPED_NOT_ALLOWLISTED' };
     }
 
@@ -206,6 +207,9 @@ function createPublicQrShadowObserver({
         endpointTemplate: event.endpointTemplate,
         key: event.key,
         publicQrId: event.publicQrId,
+        accountId: event.accountId,
+        recordId: event.recordId,
+        readKind: event.readKind,
         viewer: event.viewer,
         sourceHash: event.sourceHash,
         assetResolver: event.assetResolver,
