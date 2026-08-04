@@ -106,11 +106,43 @@ function createPublicQrShadowObserver({
     }
   }
 
-  function emitMismatch({ event, candidate, report, durationMs }) {
+  function queueSinkRecord(record) {
     if (!sink || typeof sink.enqueue !== 'function') return true;
+    let queued;
+    try {
+      queued = sink.enqueue(record);
+    } catch (_error) {
+      return false;
+    }
+    if (queued && queued.accepted === true && queued.completion) {
+      Promise.resolve(queued.completion).then(
+        (written) => {
+          if (written !== true) recordInfrastructureFailure(now());
+        },
+        () => recordInfrastructureFailure(now())
+      );
+    }
+    return Boolean(queued && queued.accepted === true);
+  }
+
+  function emitOutcome({ event, candidate = null, outcome, durationMs, mismatchCount }) {
+    return queueSinkRecord({
+      endpoint_template: event.endpointTemplate,
+      channel: event.channel,
+      lifecycle: (candidate && candidate.lifecycle)
+        || (event.baselineDto && event.baselineDto.activation_status)
+        || '',
+      outcome,
+      latency_bucket: latencyBucket(durationMs),
+      observer_version: observerVersion,
+      mismatch_count: mismatchCount
+    });
+  }
+
+  function emitMismatch({ event, candidate, report, durationMs }) {
     let accepted = true;
     for (const mismatch of report.mismatches || []) {
-      const queued = sink.enqueue({
+      const queued = queueSinkRecord({
         endpoint_template: event.endpointTemplate,
         channel: event.channel,
         lifecycle: candidate.lifecycle || event.baselineDto.activation_status || '',
@@ -126,15 +158,7 @@ function createPublicQrShadowObserver({
         latency_bucket: latencyBucket(durationMs),
         observer_version: observerVersion
       });
-      if (!queued || queued.accepted !== true) accepted = false;
-      if (queued && queued.accepted === true && queued.completion) {
-        Promise.resolve(queued.completion).then(
-          (written) => {
-            if (written !== true) recordInfrastructureFailure(now());
-          },
-          () => recordInfrastructureFailure(now())
-        );
-      }
+      if (!queued) accepted = false;
     }
     return accepted;
   }
@@ -146,14 +170,31 @@ function createPublicQrShadowObserver({
     if (!config.allowlist || !config.allowlist.has(String(event.publicQrId || ''))) {
       return { outcome: 'SKIPPED_NOT_ALLOWLISTED' };
     }
-    if (!event.sourceHash) return { outcome: 'INELIGIBLE_NO_VERSION' };
 
     const startedAt = now();
+    if (!event.sourceHash) {
+      const outcome = 'INELIGIBLE_NO_VERSION';
+      if (!emitOutcome({ event, outcome, durationMs: now() - startedAt })) {
+        recordInfrastructureFailure(now());
+      }
+      return { outcome };
+    }
+
     const circuit = enterCircuit(startedAt);
-    if (!circuit.allowed) return { outcome: 'SKIPPED_CIRCUIT_OPEN' };
+    if (!circuit.allowed) {
+      const outcome = 'SKIPPED_CIRCUIT_OPEN';
+      if (!emitOutcome({ event, outcome, durationMs: now() - startedAt })) {
+        recordInfrastructureFailure(now());
+      }
+      return { outcome };
+    }
     if (active >= config.maxConcurrency) {
       if (circuit.probe) halfOpenInFlight = false;
-      return { outcome: 'SKIPPED_CAPACITY' };
+      const outcome = 'SKIPPED_CAPACITY';
+      if (!emitOutcome({ event, outcome, durationMs: now() - startedAt })) {
+        recordInfrastructureFailure(now());
+      }
+      return { outcome };
     }
 
     active += 1;
@@ -173,9 +214,13 @@ function createPublicQrShadowObserver({
       }), config.timeoutMs);
 
       if (!candidate || candidate.eligibility !== 'ELIGIBLE') {
-        return { outcome: candidate && candidate.eligibility
+        const outcome = candidate && candidate.eligibility
           ? candidate.eligibility
-          : 'INELIGIBLE_NO_IMPORT' };
+          : 'INELIGIBLE_NO_IMPORT';
+        if (!emitOutcome({ event, candidate, outcome, durationMs: now() - startedAt })) {
+          recordInfrastructureFailure(now());
+        }
+        return { outcome };
       }
 
       const report = compareDtos({
@@ -183,19 +228,37 @@ function createPublicQrShadowObserver({
         candidate: candidate.dto,
         channel: event.channel
       });
-      if (report && report.matches === true) return { outcome: 'MATCH' };
+      if (report && report.matches === true) {
+        const outcome = 'MATCH';
+        if (!emitOutcome({ event, candidate, outcome, durationMs: now() - startedAt, mismatchCount: 0 })) {
+          recordInfrastructureFailure(now());
+        }
+        return { outcome };
+      }
 
-      const accepted = emitMismatch({
+      const mismatchCount = report ? report.mismatch_count : 0;
+      let accepted = emitOutcome({
+        event,
+        candidate,
+        outcome: 'MISMATCH',
+        durationMs: now() - startedAt,
+        mismatchCount
+      });
+
+      accepted = emitMismatch({
         event: { ...event, baselineDto },
         candidate,
         report: report || { mismatches: [], mismatch_count: 0 },
         durationMs: now() - startedAt
-      });
+      }) && accepted;
       if (!accepted) recordInfrastructureFailure(now());
-      return { outcome: 'MISMATCH', mismatchCount: report ? report.mismatch_count : 0 };
+      return { outcome: 'MISMATCH', mismatchCount };
     } catch (error) {
       const code = errorCode(error);
       failed = isInfrastructureError(code);
+      if (!emitOutcome({ event, outcome: code, durationMs: now() - startedAt })) {
+        recordInfrastructureFailure(now());
+      }
       return { outcome: code };
     } finally {
       active -= 1;

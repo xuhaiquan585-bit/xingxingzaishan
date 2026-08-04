@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const test = require('node:test');
 
+const { createShutdownHandler } = require('../src/server/server');
 const { createPublicQrAssetResolver } = require('../src/server/services/publicQrAssetResolver');
 const {
   checkCandidateFreshness,
@@ -101,6 +102,27 @@ test('scheduler stays inert while disabled and starts only after response finish
   assert.equal(observeCalls, 1);
   await scheduler.close();
   assert.equal(scheduler.register({ res: new EventEmitter(), event: { publicQrId: 'QR_PUBLIC_1' } }), false);
+});
+
+test('scheduler does not create a runtime when shutdown starts before response finish', async () => {
+  let runtimeCalls = 0;
+  const scheduler = createPublicQrShadowScheduler({
+    readConfig: () => enabledConfig(),
+    runtimeFactory: () => {
+      runtimeCalls += 1;
+      return { observer: { observe: async () => {} }, close: async () => {} };
+    }
+  });
+  const response = new EventEmitter();
+  assert.equal(scheduler.register({
+    res: response,
+    event: { publicQrId: 'QR_PUBLIC_1' }
+  }), true);
+
+  await scheduler.close();
+  response.emit('finish');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(runtimeCalls, 0);
 });
 
 test('freshness requires exact passed source and canonical migration set', async () => {
@@ -232,4 +254,47 @@ test('runtime releases the read-only transaction before resolving candidate asse
   });
   await runtime.close();
   assert.equal(poolClosed, true);
+});
+
+test('server shutdown closes HTTP and shadow runtime once before exiting', async () => {
+  const calls = [];
+  let finishHttpClose;
+  let finishShadowClose;
+  const server = {
+    close: (callback) => {
+      calls.push('http-close');
+      finishHttpClose = callback;
+    }
+  };
+  const closeShadowRuntime = () => new Promise((resolve) => {
+    calls.push('shadow-close');
+    finishShadowClose = resolve;
+  });
+  const processObject = { exit: (code) => calls.push(`exit-${code}`) };
+  const timers = [];
+  const shutdown = createShutdownHandler({
+    server,
+    closeShadowRuntime,
+    processObject,
+    setTimer: (callback) => {
+      const timer = { callback, unref: () => calls.push('timer-unref') };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimer: () => calls.push('timer-clear')
+  });
+
+  const first = shutdown();
+  const second = shutdown();
+  assert.equal(first, second);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(timers.length, 1);
+  assert.deepEqual(calls.slice(0, 3), ['timer-unref', 'http-close', 'shadow-close']);
+
+  finishHttpClose();
+  finishShadowClose();
+  await first;
+  assert.equal(calls.filter((call) => call === 'http-close').length, 1);
+  assert.equal(calls.filter((call) => call === 'shadow-close').length, 1);
+  assert.deepEqual(calls.slice(-2), ['timer-clear', 'exit-0']);
 });

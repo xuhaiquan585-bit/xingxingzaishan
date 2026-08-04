@@ -276,9 +276,48 @@ test('mismatch sink receives metadata only and never receives compared values or
     }
   });
   assert.equal((await observer.observe(event())).outcome, 'MISMATCH');
+  assert.equal(records[0].outcome, 'MISMATCH');
+  assert.equal(records[0].mismatch_count, 1);
+  assert.equal(records[1].outcome, 'DTO_MISMATCH');
   const serialized = JSON.stringify(records);
   assert.match(serialized, /\$\.content/);
   assert.doesNotMatch(serialized, /private|memory-only|QR_PUBLIC_1/);
+});
+
+test('match and ineligible outcomes emit value-free observation summaries', async () => {
+  const records = [];
+  let eligibility = 'ELIGIBLE';
+  const observer = createPublicQrShadowObserver({
+    getConfig: () => enabledConfig(),
+    readCandidate: async () => ({ eligibility, lifecycle: 'activated', dto: event().baselineDto }),
+    compareDtos: matchingComparator,
+    sink: {
+      enqueue: (record) => {
+        records.push(record);
+        return { accepted: true, completion: Promise.resolve(true) };
+      }
+    }
+  });
+
+  assert.equal((await observer.observe(event())).outcome, 'MATCH');
+  eligibility = 'STALE_SOURCE';
+  assert.equal((await observer.observe(event())).outcome, 'STALE_SOURCE');
+  assert.deepEqual(records.map((record) => record.outcome), ['MATCH', 'STALE_SOURCE']);
+  assert.equal(records[0].mismatch_count, 0);
+  const serialized = JSON.stringify(records);
+  assert.doesNotMatch(serialized, /private|memory-only|QR_PUBLIC_1|aaaa/);
+});
+
+test('synchronous sink failures never replace the candidate outcome', async () => {
+  const observer = createPublicQrShadowObserver({
+    getConfig: () => enabledConfig(),
+    readCandidate: async () => ({ eligibility: 'ELIGIBLE', dto: event().baselineDto }),
+    compareDtos: matchingComparator,
+    sink: { enqueue: () => { throw new Error('sink unavailable'); } }
+  });
+
+  assert.equal((await observer.observe(event())).outcome, 'MATCH');
+  assert.equal(observer.getState().recentInfrastructureFailures, 1);
 });
 
 test('sanitizeMismatchRecord uses a strict value-free field allowlist', () => {

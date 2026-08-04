@@ -178,6 +178,7 @@ function createPublicQrShadowScheduler({
 
     res.once('finish', () => {
       Promise.resolve().then(async () => {
+        if (closed) return;
         let runtime = null;
         if (!runtimePromise) {
           runtimePromise = Promise.resolve().then(() => runtimeFactory(config, { env }));
