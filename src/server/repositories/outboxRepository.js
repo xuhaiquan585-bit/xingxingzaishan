@@ -10,6 +10,7 @@ const {
 } = require('./query');
 
 const COLUMNS = OUTBOX_FIELDS.join(', ');
+const JOB_COLUMNS = OUTBOX_FIELDS.map((field) => `job.${field}`).join(', ');
 
 class OutboxRepository {
   constructor(transactionContext) {
@@ -56,7 +57,7 @@ class OutboxRepository {
            updated_at = $2
        FROM candidates
        WHERE job.id = candidates.id
-       RETURNING ${COLUMNS}`,
+       RETURNING ${JOB_COLUMNS}`,
       [workerId, claimedAt, boundedLimit]
     );
     return many(result, mapOutboxJob);
@@ -79,7 +80,7 @@ class OutboxRepository {
            last_error = 'OUTBOX_STALE_LOCK_RECOVERED', updated_at = $2
        FROM stale
        WHERE job.id = stale.id
-       RETURNING ${COLUMNS}`,
+       RETURNING ${JOB_COLUMNS}`,
       [staleBefore, recoveredAt, boundedLimit]
     );
     return many(result, mapOutboxJob);

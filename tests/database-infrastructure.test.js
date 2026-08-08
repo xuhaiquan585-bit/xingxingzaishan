@@ -1618,6 +1618,7 @@ test('outbox repository recovers stale work, claims with skip-locked, and enforc
 
   assert.match(harness.calls[0].sql, /status = 'processing' AND locked_at <= \$1/);
   assert.match(harness.calls[0].sql, /FOR UPDATE SKIP LOCKED/);
+  assert.match(harness.calls[0].sql, /RETURNING job\.id, job\.job_type/);
   assert.match(harness.calls[0].sql, /OUTBOX_STALE_LOCK_RECOVERED/);
   assert.deepEqual(harness.calls[0].params, [
     '2026-08-09T08:55:00.000Z',
@@ -1626,6 +1627,7 @@ test('outbox repository recovers stale work, claims with skip-locked, and enforc
   ]);
   assert.match(harness.calls[1].sql, /FOR UPDATE SKIP LOCKED/);
   assert.match(harness.calls[1].sql, /status = 'pending'/);
+  assert.match(harness.calls[1].sql, /RETURNING job\.id, job\.job_type/);
   assert.deepEqual(harness.calls[1].params, [
     'worker-test',
     '2026-08-09T09:00:00.000Z',
