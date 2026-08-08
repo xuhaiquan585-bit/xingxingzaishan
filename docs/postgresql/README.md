@@ -445,3 +445,15 @@ close the separate Shadow Read execution gates documented in
   migrations `001` through `003` remain unchanged.
 - Import validation now blocks every product buy type outside those two
   explicit values, closing the dry-run versus database-constraint gap.
+
+### Runtime account ID allocation
+
+- Migration `005_add_account_id_sequence.sql` adds `app.account_id_seq` for
+  concurrency-safe runtime allocation of `ACC` identifiers.
+- The migration rejects nonconforming historical account IDs and initializes
+  the next sequence value above the largest imported numeric suffix. It does
+  not rewrite imported accounts or modify migrations `001` through `004`.
+- Migration `005` has canonical checksum
+  `6917cdec3f167230d5d31802c3ad171d1cbbb757dcf70a64ccba60fc296856e2`.
+- `AccountRepository.allocateId()` formats the sequence value with the existing
+  six-digit minimum width and fails closed when the database result is invalid.

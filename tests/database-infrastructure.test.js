@@ -437,6 +437,10 @@ test('compatibility migrations are additive and leave migration 001 unchanged', 
     path.join(migrationsDirectory, '004_allow_legacy_product_buy_type.sql'),
     'utf8'
   );
+  const accountIdSequenceMigration = fs.readFileSync(
+    path.join(migrationsDirectory, '005_add_account_id_sequence.sql'),
+    'utf8'
+  );
   assert.equal(
     crypto.createHash('sha256').update(initialBytes).digest('hex'),
     'c827cd85e9552805690d6837383fb6d23c043d32be359ce61b99f743ba477d18'
@@ -466,6 +470,10 @@ test('compatibility migrations are additive and leave migration 001 unchanged', 
     legacyProductBuyTypeMigration,
     /CHECK \(buy_type IN \('miniapp_order', 'copy_link'\)\)/
   );
+  assert.match(accountIdSequenceMigration, /CREATE SEQUENCE app\.account_id_seq/);
+  assert.match(accountIdSequenceMigration, /WHERE id !~ '\^ACC\[0-9\]\+\$'/);
+  assert.match(accountIdSequenceMigration, /max\(substring\(id FROM 4\)::bigint\) \+ 1/);
+  assert.match(accountIdSequenceMigration, /false\s*\n\);/);
 
   const migrations = loadMigrations({ migrationsDirectory });
   assert.deepEqual(
@@ -474,7 +482,8 @@ test('compatibility migrations are additive and leave migration 001 unchanged', 
       '001_init_schema.sql',
       '002_add_comment_source_position.sql',
       '003_preserve_legacy_import_evidence.sql',
-      '004_allow_legacy_product_buy_type.sql'
+      '004_allow_legacy_product_buy_type.sql',
+      '005_add_account_id_sequence.sql'
     ]
   );
 });
@@ -1351,6 +1360,25 @@ test('repository queries parameterize input and explicitly map rows to domain re
   assert.equal(result.ignored_database_column, undefined);
   assert.notEqual(result, accountRow);
   assert.equal(Object.isFrozen(result), true);
+});
+
+test('account repository allocates canonical IDs from the database sequence', async () => {
+  const harness = createRepositoryContext([
+    { rows: [{ account_number: '29' }], rowCount: 1 }
+  ]);
+  const accountId = await new AccountRepository(harness.context).allocateId();
+
+  assert.equal(accountId, 'ACC000029');
+  assert.match(harness.calls[0].sql, /nextval\('app\.account_id_seq'\)/);
+  assert.deepEqual(harness.calls[0].params, []);
+
+  const invalidHarness = createRepositoryContext([
+    { rows: [{ account_number: '0' }], rowCount: 1 }
+  ]);
+  await assert.rejects(
+    new AccountRepository(invalidHarness.context).allocateId(),
+    (error) => error.code === 'REPOSITORY_ACCOUNT_ID_SEQUENCE_INVALID'
+  );
 });
 
 test('public QR batch repository exposes only the fields required by the public adapter', async () => {

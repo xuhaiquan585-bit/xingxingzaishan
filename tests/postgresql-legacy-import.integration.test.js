@@ -131,7 +131,8 @@ test('manual PostgreSQL legacy import compatibility', {
       '001_init_schema.sql',
       '002_add_comment_source_position.sql',
       '003_preserve_legacy_import_evidence.sql',
-      '004_allow_legacy_product_buy_type.sql'
+      '004_allow_legacy_product_buy_type.sql',
+      '005_add_account_id_sequence.sql'
     ]);
     const imported = await executeStagingImport({
       pool,
