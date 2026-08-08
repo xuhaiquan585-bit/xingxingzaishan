@@ -28,6 +28,11 @@ const {
   sourceWithMiniapp
 } = require('../src/server/services/postgres/identityWriteService');
 const {
+  QrLifecycleWriteError,
+  QrLifecycleWriteTransaction,
+  createQrLifecycleWriteService
+} = require('../src/server/services/postgres/qrLifecycleWriteService');
+const {
   PersonalRecordReadAdapter
 } = require('../src/server/services/postgres/personalRecordReadAdapter');
 
@@ -583,6 +588,271 @@ test('identity write service converts bind errors only after transaction rejecti
     { error: 'MINIAPP_ACCOUNT_CONFLICT' }
   );
   assert.equal(transactionCalls.length, 1);
+});
+
+function makeQrLifecycleWriteHarness({
+  lifecycleStatus = 'unactivated',
+  ownerAccountId = 'ACC_OWNER',
+  comments = []
+} = {}) {
+  const state = {
+    qr: {
+      id: 'QR_WRITE', issue_status: 'issued', lifecycle_status: lifecycleStatus,
+      hidden: false, batch_id: 'BATCH_WRITE', print_batch_id: null,
+      qr_image_url_snapshot: '', access_token: 'token-write',
+      created_at: '2026-08-09T00:00:00.000Z',
+      updated_at: '2026-08-09T00:00:00.000Z'
+    },
+    record: lifecycleStatus === 'unactivated' ? null : {
+      qr_id: 'QR_WRITE', account_id: ownerAccountId, content: 'co content',
+      image_url_snapshot: '', image_object_key: 'records/co.jpg', image_sha256: null,
+      phone_snapshot: '13800000001', sealed_at: null,
+      show_brand_disclosure: true,
+      brand_disclosure_text_snapshot: 'Write disclosure',
+      created_at: '2026-08-09T00:00:00.000Z',
+      updated_at: '2026-08-09T00:00:00.000Z'
+    },
+    coCreation: lifecycleStatus === 'co_creating' ? {
+      id: '00000000-0000-0000-0000-000000000101', qr_id: 'QR_WRITE',
+      owner_account_id: ownerAccountId, owner_phone_snapshot: '13800000001',
+      status: 'active', started_at: '2026-08-09T00:00:00.000Z', finalized_at: null,
+      created_at: '2026-08-09T00:00:00.000Z',
+      updated_at: '2026-08-09T00:00:00.000Z'
+    } : null,
+    comments: comments.map((comment, index) => ({
+      id: `00000000-0000-0000-0000-${String(200 + index).padStart(12, '0')}`,
+      co_creation_id: '00000000-0000-0000-0000-000000000101',
+      account_id: `ACC_COMMENT_${index}`, legacy_comment_id: String(index + 1),
+      source_position: index, legacy_duplicate: false, phone_snapshot: '',
+      author_name: 'Witness', content: 'Comment', status: 'kept',
+      created_at: '2026-08-09T00:00:00.000Z', deleted_at: null,
+      ...comment
+    }))
+  };
+  const qrRepository = {
+    async findByKeyForUpdate(key) {
+      return key === 'token-write' || key === 'QR_WRITE' ? state.qr : null;
+    },
+    async updateLifecycle({ expected_status: expectedStatus, next_status: nextStatus, updated_at: at }) {
+      if (state.qr.lifecycle_status !== expectedStatus) return null;
+      state.qr = { ...state.qr, lifecycle_status: nextStatus, updated_at: at };
+      return state.qr;
+    }
+  };
+  const batchRepository = {
+    async findById(batchId) {
+      return batchId === 'BATCH_WRITE'
+        ? { id: batchId, disclosure_text: 'Write disclosure' }
+        : null;
+    }
+  };
+  const recordRepository = {
+    async findByQrIdForUpdate() { return state.record; },
+    async insert(record) { state.record = record; return record; },
+    async seal({ sealed_at: sealedAt, updated_at: updatedAt }) {
+      if (!state.record || state.record.sealed_at) return null;
+      state.record = { ...state.record, sealed_at: sealedAt, updated_at: updatedAt };
+      return state.record;
+    }
+  };
+  const coCreationRepository = {
+    async findByQrIdForUpdate() { return state.coCreation; },
+    async listEffectiveComments() {
+      return state.comments.filter((comment) => comment.status === 'kept');
+    },
+    async nextCommentSourcePosition() {
+      return state.comments.reduce(
+        (maximum, comment) => Math.max(maximum, comment.source_position),
+        -1
+      ) + 1;
+    },
+    async findEffectiveCommentByPublicIdForUpdate(_creationId, publicId) {
+      return state.comments.find((comment) => (
+        comment.status === 'kept'
+        && (comment.legacy_comment_id === publicId
+          || (!comment.legacy_comment_id && comment.id === publicId))
+      )) || null;
+    },
+    async insert(coCreation) { state.coCreation = coCreation; return coCreation; },
+    async insertComment(comment) { state.comments.push(comment); return comment; },
+    async deleteEffectiveComment({ id, deleted_at: deletedAt }) {
+      const index = state.comments.findIndex(
+        (comment) => comment.id === id && comment.status === 'kept'
+      );
+      if (index === -1) return null;
+      state.comments[index] = { ...state.comments[index], status: 'deleted', deleted_at: deletedAt };
+      return state.comments[index];
+    },
+    async finalize({ finalized_at: finalizedAt, updated_at: updatedAt }) {
+      if (!state.coCreation || state.coCreation.status !== 'active') return null;
+      state.coCreation = {
+        ...state.coCreation,
+        status: 'finalized',
+        finalized_at: finalizedAt,
+        updated_at: updatedAt
+      };
+      return state.coCreation;
+    }
+  };
+  return {
+    batchRepository,
+    coCreationRepository,
+    qrRepository,
+    recordRepository,
+    state
+  };
+}
+
+function makeQrLifecycleWriteTransaction(harness, uuids = []) {
+  let uuidIndex = 0;
+  return new QrLifecycleWriteTransaction({
+    ...harness,
+    clock: () => new Date('2026-08-09T08:30:00.000Z'),
+    randomUUID: () => uuids[uuidIndex++] || '00000000-0000-0000-0000-000000000999'
+  });
+}
+
+test('QR lifecycle write transaction requires narrow transaction-scoped dependencies', () => {
+  assert.throws(
+    () => new QrLifecycleWriteTransaction(),
+    (error) => error instanceof QrLifecycleWriteError
+      && error.code === 'QR_LIFECYCLE_WRITE_DEPENDENCY_REQUIRED'
+  );
+});
+
+test('QR lifecycle direct activation creates one sealed record and advances the locked QR', async () => {
+  const harness = makeQrLifecycleWriteHarness();
+  const result = await makeQrLifecycleWriteTransaction(harness).activateByKey({
+    key: 'token-write',
+    payload: {
+      account_id: 'ACC_OWNER', phone: '13800000001', content: 'Direct record',
+      image_object_key: 'records/direct.jpg', show_brand_disclosure: true
+    }
+  });
+
+  assert.equal(result.qr.lifecycle_status, 'activated');
+  assert.equal(result.record.sealed_at, '2026-08-09T08:30:00.000Z');
+  assert.equal(result.record.brand_disclosure_text_snapshot, 'Write disclosure');
+  assert.equal(result.co_creation, null);
+  await assert.rejects(
+    makeQrLifecycleWriteTransaction(harness).activateByKey({
+      key: 'token-write', payload: { account_id: 'ACC_OWNER' }
+    }),
+    (error) => error.code === 'QR_ALREADY_ACTIVATED'
+  );
+});
+
+test('QR lifecycle co-creation serializes comments, deletion, and final sealing', async () => {
+  const harness = makeQrLifecycleWriteHarness();
+  const transaction = makeQrLifecycleWriteTransaction(harness, [
+    '00000000-0000-0000-0000-000000000101',
+    '00000000-0000-0000-0000-000000000201',
+    '00000000-0000-0000-0000-000000000202'
+  ]);
+
+  const started = await transaction.startCoCreationByKey({
+    key: 'QR_WRITE',
+    payload: {
+      account_id: 'ACC_OWNER', phone: '13800000001', content: 'Co record',
+      image_url: 'https://fixture.invalid/co.jpg', show_brand_disclosure: true
+    }
+  });
+  assert.equal(started.qr.lifecycle_status, 'co_creating');
+  assert.equal(started.record.sealed_at, null);
+  assert.equal(started.co_creation.status, 'active');
+
+  const first = await transaction.addCommentByKey({
+    key: 'token-write',
+    payload: {
+      account_id: 'ACC_PARTICIPANT', phone: '13800000002',
+      authorName: 'Participant', content: 'First witness'
+    }
+  });
+  assert.equal(first.comment.source_position, 0);
+  assert.equal(first.comment.legacy_comment_id, null);
+  await assert.rejects(
+    transaction.addCommentByKey({
+      key: 'token-write',
+      payload: { account_id: 'ACC_PARTICIPANT', content: 'Duplicate' }
+    }),
+    (error) => error.code === 'CO_CREATION_COMMENT_EXISTS'
+  );
+  await assert.rejects(
+    transaction.deleteCommentByKey({
+      key: 'token-write', commentId: first.comment.id, account_id: 'ACC_PARTICIPANT'
+    }),
+    (error) => error.code === 'FORBIDDEN'
+  );
+
+  const deleted = await transaction.deleteCommentByKey({
+    key: 'token-write', commentId: first.comment.id, account_id: 'ACC_OWNER'
+  });
+  assert.equal(deleted.comment.status, 'deleted');
+  const replacement = await transaction.addCommentByKey({
+    key: 'token-write',
+    payload: { account_id: 'ACC_PARTICIPANT', authorName: 'Again', content: 'Replacement' }
+  });
+  assert.equal(replacement.comment.source_position, 1);
+
+  const finalized = await transaction.finalizeByKey({
+    key: 'token-write', account_id: 'ACC_OWNER'
+  });
+  assert.equal(finalized.qr.lifecycle_status, 'activated');
+  assert.equal(finalized.record.sealed_at, '2026-08-09T08:30:00.000Z');
+  assert.equal(finalized.co_creation.status, 'finalized');
+});
+
+test('QR lifecycle write enforces the effective comment limit before insertion', async () => {
+  const comments = Array.from({ length: 12 }, (_, index) => ({
+    account_id: `ACC_LIMIT_${index}`
+  }));
+  const harness = makeQrLifecycleWriteHarness({ lifecycleStatus: 'co_creating', comments });
+  await assert.rejects(
+    makeQrLifecycleWriteTransaction(harness).addCommentByKey({
+      key: 'QR_WRITE', payload: { account_id: 'ACC_LIMIT_NEW', content: 'Overflow' }
+    }),
+    (error) => error.code === 'CO_CREATION_COMMENT_LIMIT_REACHED'
+  );
+  assert.equal(harness.state.comments.length, 12);
+});
+
+test('QR lifecycle write service owns one transaction and translates route business errors', async () => {
+  const harness = makeQrLifecycleWriteHarness();
+  const calls = [];
+  const pool = { connect() {} };
+  const repositoryTypes = {
+    QrRepository: class { constructor() { return harness.qrRepository; } },
+    QrBatchRepository: class { constructor() { return harness.batchRepository; } },
+    RecordRepository: class { constructor() { return harness.recordRepository; } },
+    CoCreationRepository: class { constructor() { return harness.coCreationRepository; } }
+  };
+  const service = createQrLifecycleWriteService({
+    pool,
+    repositoryTypes,
+    clock: () => new Date('2026-08-09T08:30:00.000Z'),
+    async transactionRunner(currentPool, callback, options) {
+      calls.push({ currentPool, options });
+      return callback({ query() {} });
+    }
+  });
+
+  assert.deepEqual(
+    await service.activateQRByKey('missing', { account_id: 'ACC_OWNER' }),
+    { error: 'QR_NOT_FOUND' }
+  );
+  assert.deepEqual(calls, [{
+    currentPool: pool,
+    options: { isolationLevel: 'read committed' }
+  }]);
+});
+
+test('QR lifecycle write service is isolated from JSON, SQL, and runtime environment state', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../src/server/services/postgres/qrLifecycleWriteService.js'),
+    'utf8'
+  );
+  assert.doesNotMatch(source, /dbService|readDB|writeDB|process\.env/);
+  assert.doesNotMatch(source, /\b(?:SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\b/);
 });
 
 test('public QR adapter is isolated from JSON, SQL, connections, and transaction control', () => {

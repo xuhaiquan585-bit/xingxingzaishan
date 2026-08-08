@@ -29,6 +29,9 @@ const {
   createIdentityWriteService
 } = require('../src/server/services/postgres/identityWriteService');
 const {
+  createQrLifecycleWriteService
+} = require('../src/server/services/postgres/qrLifecycleWriteService');
+const {
   PersonalRecordReadAdapter
 } = require('../src/server/services/postgres/personalRecordReadAdapter');
 const {
@@ -625,6 +628,116 @@ test('manual PostgreSQL public QR adapter integration', {
       concurrent_phone_count: 1,
       merged_temp_account_count: 0,
       referenced_identity_count: 1
+    }]);
+
+    await pool.query(
+      `INSERT INTO app.qr_codes
+         (id, issue_status, lifecycle_status, access_token, created_at, updated_at)
+       VALUES
+         ('QR_WRITE_DIRECT', 'issued', 'unactivated', 'token-write-direct', $1, $1),
+         ('QR_WRITE_CO', 'issued', 'unactivated', 'token-write-co', $1, $1)`,
+      [CREATED_AT]
+    );
+    const qrWriteService = createQrLifecycleWriteService({
+      pool,
+      clock: () => new Date('2026-07-01T12:30:00.000Z')
+    });
+    const directWrite = await qrWriteService.activateQRByKey('token-write-direct', {
+      account_id: fixture.accounts[0].id,
+      phone: fixture.users[0].phone,
+      content: 'PostgreSQL direct write',
+      image_url: 'https://fixture.invalid/write-direct.jpg',
+      show_brand_disclosure: false
+    });
+    assert.equal(directWrite.data.qr.lifecycle_status, 'activated');
+    assert.equal(directWrite.data.record.sealed_at.toISOString(), '2026-07-01T12:30:00.000Z');
+    assert.deepEqual(
+      await qrWriteService.activateQRByKey('token-write-direct', {
+        account_id: fixture.accounts[0].id
+      }),
+      { error: 'QR_ALREADY_ACTIVATED' }
+    );
+
+    const coWrite = await qrWriteService.startCoCreationByKey('token-write-co', {
+      account_id: fixture.accounts[0].id,
+      phone: fixture.users[0].phone,
+      content: 'PostgreSQL co-creation write',
+      image_url: 'https://fixture.invalid/write-co.jpg',
+      show_brand_disclosure: false
+    });
+    assert.equal(coWrite.data.qr.lifecycle_status, 'co_creating');
+    const commentWrite = await qrWriteService.addCoCreationCommentByKey(
+      'token-write-co',
+      {
+        account_id: fixture.accounts[1].id,
+        phone: fixture.users[1].phone,
+        authorName: 'Integration witness',
+        content: 'PostgreSQL comment write'
+      }
+    );
+    assert.equal(commentWrite.data.comment.source_position, 0);
+    assert.deepEqual(
+      await qrWriteService.addCoCreationCommentByKey('token-write-co', {
+        account_id: fixture.accounts[1].id,
+        content: 'Duplicate comment'
+      }),
+      { error: 'CO_CREATION_COMMENT_EXISTS' }
+    );
+    assert.deepEqual(
+      await qrWriteService.deleteCoCreationCommentByKey('token-write-co', {
+        account_id: fixture.accounts[1].id,
+        commentId: commentWrite.data.comment.id
+      }),
+      { error: 'FORBIDDEN' }
+    );
+    const deletedWrite = await qrWriteService.deleteCoCreationCommentByKey(
+      'token-write-co',
+      {
+        account_id: fixture.accounts[0].id,
+        commentId: commentWrite.data.comment.id
+      }
+    );
+    assert.equal(deletedWrite.data.comment.status, 'deleted');
+    const replacementWrite = await qrWriteService.addCoCreationCommentByKey(
+      'token-write-co',
+      {
+        account_id: fixture.accounts[1].id,
+        authorName: 'Integration witness',
+        content: 'Replacement comment'
+      }
+    );
+    assert.equal(replacementWrite.data.comment.source_position, 1);
+    const finalizedWrite = await qrWriteService.finalizeCoCreationByKey(
+      'token-write-co',
+      { account_id: fixture.accounts[0].id }
+    );
+    assert.equal(finalizedWrite.data.qr.lifecycle_status, 'activated');
+    assert.equal(finalizedWrite.data.co_creation.status, 'finalized');
+
+    const lifecycleWriteState = await pool.query(
+      `SELECT
+         (SELECT count(*)::integer FROM app.qr_codes
+          WHERE id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')
+            AND lifecycle_status = 'activated') AS activated_qr_count,
+         (SELECT count(*)::integer FROM app.records
+          WHERE qr_id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')
+            AND sealed_at IS NOT NULL) AS sealed_record_count,
+         (SELECT count(*)::integer FROM app.co_creations
+          WHERE qr_id = 'QR_WRITE_CO' AND status = 'finalized') AS finalized_creation_count,
+         (SELECT count(*)::integer FROM app.co_creation_comments comment
+          JOIN app.co_creations creation ON creation.id = comment.co_creation_id
+          WHERE creation.qr_id = 'QR_WRITE_CO' AND comment.status = 'kept') AS kept_comment_count,
+         (SELECT max(comment.source_position)::integer
+          FROM app.co_creation_comments comment
+          JOIN app.co_creations creation ON creation.id = comment.co_creation_id
+          WHERE creation.qr_id = 'QR_WRITE_CO') AS maximum_comment_position`
+    );
+    assert.deepEqual(lifecycleWriteState.rows, [{
+      activated_qr_count: 2,
+      sealed_record_count: 2,
+      finalized_creation_count: 1,
+      kept_comment_count: 1,
+      maximum_comment_position: 1
     }]);
 
     const shadowDirectory = path.join(directory, 'direct-shadow');

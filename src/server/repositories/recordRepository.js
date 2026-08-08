@@ -82,6 +82,10 @@ class RecordRepository {
   }
 
   async insertSealed(record) {
+    return this.insert(record);
+  }
+
+  async insert(record) {
     const placeholders = RECORD_FIELDS.map((_, index) => `$${index + 1}`).join(', ');
     const result = await executeQuery(
       this.transactionContext,
@@ -89,6 +93,18 @@ class RecordRepository {
       RECORD_FIELDS.map((field) => record[field])
     );
     return oneOrNull(result, mapRecord, 'REPOSITORY_INSERT_RESULT_INVALID');
+  }
+
+  async seal({ qr_id, sealed_at, updated_at }) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `UPDATE app.records
+       SET sealed_at = $2, updated_at = $3
+       WHERE qr_id = $1 AND sealed_at IS NULL
+       RETURNING ${COLUMNS}`,
+      [qr_id, sealed_at, updated_at]
+    );
+    return oneOrNull(result, mapRecord);
   }
 
   async #findByQrId(qrId, forUpdate) {

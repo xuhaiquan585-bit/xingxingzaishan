@@ -87,6 +87,63 @@ class CoCreationRepository {
     return oneOrNull(result, mapComment, 'REPOSITORY_INSERT_RESULT_INVALID');
   }
 
+  async nextCommentSourcePosition(coCreationId) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `SELECT COALESCE(MAX(source_position), -1) + 1 AS source_position
+       FROM app.co_creation_comments
+       WHERE co_creation_id = $1`,
+      [coCreationId]
+    );
+    const value = Number(result.rows[0] && result.rows[0].source_position);
+    if (!Number.isSafeInteger(value) || value < 0) {
+      const error = new Error('CO_CREATION_COMMENT_POSITION_INVALID');
+      error.code = 'CO_CREATION_COMMENT_POSITION_INVALID';
+      throw error;
+    }
+    return value;
+  }
+
+  async findEffectiveCommentByPublicIdForUpdate(coCreationId, publicCommentId) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `SELECT ${COMMENT_COLUMNS} FROM app.co_creation_comments
+       WHERE co_creation_id = $1
+         AND status = 'kept'
+         AND (
+           legacy_comment_id = $2
+           OR (legacy_comment_id IS NULL AND id::text = $2)
+         )
+       FOR UPDATE`,
+      [coCreationId, publicCommentId]
+    );
+    return oneOrNull(result, mapComment);
+  }
+
+  async deleteEffectiveComment({ id, deleted_at }) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `UPDATE app.co_creation_comments
+       SET status = 'deleted', deleted_at = $2
+       WHERE id = $1 AND status = 'kept'
+       RETURNING ${COMMENT_COLUMNS}`,
+      [id, deleted_at]
+    );
+    return oneOrNull(result, mapComment);
+  }
+
+  async finalize({ id, finalized_at, updated_at }) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `UPDATE app.co_creations
+       SET status = 'finalized', finalized_at = $2, updated_at = $3
+       WHERE id = $1 AND status = 'active'
+       RETURNING ${CREATION_COLUMNS}`,
+      [id, finalized_at, updated_at]
+    );
+    return oneOrNull(result, mapCoCreation);
+  }
+
   async #findByQrId(qrId, forUpdate) {
     const result = await executeQuery(
       this.transactionContext,

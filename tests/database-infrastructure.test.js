@@ -61,7 +61,8 @@ const {
 const { executeQuery } = require('../src/server/repositories/query');
 const {
   COMMENT_FIELDS,
-  PROOF_FIELDS
+  PROOF_FIELDS,
+  RECORD_FIELDS
 } = require('../src/server/repositories/mappers');
 
 function makeConfig(overrides = {}) {
@@ -1529,6 +1530,64 @@ test('repository writes cannot create importer-only legacy exceptions', async ()
     proofHarness.calls[0].params[PROOF_FIELDS.indexOf('legacy_hash_snapshot')],
     null
   );
+});
+
+test('QR lifecycle repositories expose only transaction-scoped state transitions', async () => {
+  const record = Object.fromEntries(RECORD_FIELDS.map((field) => [field, null]));
+  record.qr_id = 'QR_WRITE';
+  const comment = Object.fromEntries(COMMENT_FIELDS.map((field) => [field, null]));
+  comment.id = '00000000-0000-0000-0000-000000000201';
+  comment.co_creation_id = '00000000-0000-0000-0000-000000000101';
+  comment.status = 'kept';
+  const creation = {
+    id: '00000000-0000-0000-0000-000000000101',
+    qr_id: 'QR_WRITE', owner_account_id: 'ACC_OWNER', owner_phone_snapshot: '',
+    status: 'active', started_at: '2026-08-09T00:00:00.000Z', finalized_at: null,
+    created_at: '2026-08-09T00:00:00.000Z', updated_at: '2026-08-09T00:00:00.000Z'
+  };
+  const harness = createRepositoryContext([
+    { rows: [record], rowCount: 1 },
+    { rows: [{ source_position: 4 }], rowCount: 1 },
+    { rows: [comment], rowCount: 1 },
+    { rows: [{ ...comment, status: 'deleted' }], rowCount: 1 },
+    { rows: [{ ...creation, status: 'finalized' }], rowCount: 1 }
+  ]);
+  const records = new RecordRepository(harness.context);
+  const creations = new CoCreationRepository(harness.context);
+
+  await records.seal({
+    qr_id: 'QR_WRITE',
+    sealed_at: '2026-08-09T01:00:00.000Z',
+    updated_at: '2026-08-09T01:00:00.000Z'
+  });
+  assert.equal(await creations.nextCommentSourcePosition(creation.id), 4);
+  await creations.findEffectiveCommentByPublicIdForUpdate(creation.id, 'legacy-comment');
+  await creations.deleteEffectiveComment({
+    id: comment.id,
+    deleted_at: '2026-08-09T01:00:00.000Z'
+  });
+  await creations.finalize({
+    id: creation.id,
+    finalized_at: '2026-08-09T01:00:00.000Z',
+    updated_at: '2026-08-09T01:00:00.000Z'
+  });
+
+  assert.match(harness.calls[0].sql, /sealed_at IS NULL/);
+  assert.deepEqual(harness.calls[0].params, [
+    'QR_WRITE',
+    '2026-08-09T01:00:00.000Z',
+    '2026-08-09T01:00:00.000Z'
+  ]);
+  assert.match(harness.calls[1].sql, /MAX\(source_position\)/);
+  assert.deepEqual(harness.calls[1].params, [creation.id]);
+  assert.match(harness.calls[2].sql, /legacy_comment_id = \$2/);
+  assert.match(harness.calls[2].sql, /FOR UPDATE/);
+  assert.deepEqual(harness.calls[2].params, [creation.id, 'legacy-comment']);
+  assert.match(harness.calls[3].sql, /status = 'deleted'/);
+  assert.match(harness.calls[4].sql, /status = 'finalized'/);
+  harness.calls.forEach(({ sql }) => {
+    assert.doesNotMatch(sql, /\b(?:BEGIN|COMMIT|ROLLBACK)\b/);
+  });
 });
 
 test('public QR provenance repository checks exact source hashes and canonical migrations', async () => {
