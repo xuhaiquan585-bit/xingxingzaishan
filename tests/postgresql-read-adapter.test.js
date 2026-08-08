@@ -627,7 +627,8 @@ function makeQrLifecycleWriteHarness({
       author_name: 'Witness', content: 'Comment', status: 'kept',
       created_at: '2026-08-09T00:00:00.000Z', deleted_at: null,
       ...comment
-    }))
+    })),
+    outboxJobs: []
   };
   const qrRepository = {
     async findByKeyForUpdate(key) {
@@ -694,9 +695,24 @@ function makeQrLifecycleWriteHarness({
       return state.coCreation;
     }
   };
+  const outboxRepository = {
+    async insertPending(job) {
+      const saved = {
+        ...job,
+        status: 'pending',
+        attempt_count: 0,
+        locked_at: null,
+        locked_by: null,
+        last_error: ''
+      };
+      state.outboxJobs.push(saved);
+      return saved;
+    }
+  };
   return {
     batchRepository,
     coCreationRepository,
+    outboxRepository,
     qrRepository,
     recordRepository,
     state
@@ -734,6 +750,19 @@ test('QR lifecycle direct activation creates one sealed record and advances the 
   assert.equal(result.record.sealed_at, '2026-08-09T08:30:00.000Z');
   assert.equal(result.record.brand_disclosure_text_snapshot, 'Write disclosure');
   assert.equal(result.co_creation, null);
+  assert.deepEqual(harness.state.outboxJobs.map((job) => ({
+    id: job.id,
+    job_type: job.job_type,
+    idempotency_key: job.idempotency_key,
+    payload: job.payload,
+    status: job.status
+  })), [{
+    id: '00000000-0000-0000-0000-000000000999',
+    job_type: 'record_proof_prepare_submit',
+    idempotency_key: 'record-proof:QR_WRITE',
+    payload: { record_qr_id: 'QR_WRITE' },
+    status: 'pending'
+  }]);
   await assert.rejects(
     makeQrLifecycleWriteTransaction(harness).activateByKey({
       key: 'token-write', payload: { account_id: 'ACC_OWNER' }
@@ -760,6 +789,7 @@ test('QR lifecycle co-creation serializes comments, deletion, and final sealing'
   assert.equal(started.qr.lifecycle_status, 'co_creating');
   assert.equal(started.record.sealed_at, null);
   assert.equal(started.co_creation.status, 'active');
+  assert.equal(harness.state.outboxJobs.length, 0);
 
   const first = await transaction.addCommentByKey({
     key: 'token-write',
@@ -800,6 +830,8 @@ test('QR lifecycle co-creation serializes comments, deletion, and final sealing'
   assert.equal(finalized.qr.lifecycle_status, 'activated');
   assert.equal(finalized.record.sealed_at, '2026-08-09T08:30:00.000Z');
   assert.equal(finalized.co_creation.status, 'finalized');
+  assert.equal(harness.state.outboxJobs.length, 1);
+  assert.equal(harness.state.outboxJobs[0].idempotency_key, 'record-proof:QR_WRITE');
 });
 
 test('QR lifecycle write enforces the effective comment limit before insertion', async () => {
@@ -824,7 +856,8 @@ test('QR lifecycle write service owns one transaction and translates route busin
     QrRepository: class { constructor() { return harness.qrRepository; } },
     QrBatchRepository: class { constructor() { return harness.batchRepository; } },
     RecordRepository: class { constructor() { return harness.recordRepository; } },
-    CoCreationRepository: class { constructor() { return harness.coCreationRepository; } }
+    CoCreationRepository: class { constructor() { return harness.coCreationRepository; } },
+    OutboxRepository: class { constructor() { return harness.outboxRepository; } }
   };
   const service = createQrLifecycleWriteService({
     pool,
@@ -844,6 +877,33 @@ test('QR lifecycle write service owns one transaction and translates route busin
     currentPool: pool,
     options: { isolationLevel: 'read committed' }
   }]);
+});
+
+test('QR lifecycle write never reports success when durable proof work cannot be queued', async () => {
+  const harness = makeQrLifecycleWriteHarness();
+  harness.outboxRepository.insertPending = async () => {
+    const error = new Error('queue unavailable');
+    error.code = 'REPOSITORY_QUERY_FAILED';
+    throw error;
+  };
+  const service = createQrLifecycleWriteService({
+    pool: { connect() {} },
+    repositoryTypes: {
+      QrRepository: class { constructor() { return harness.qrRepository; } },
+      QrBatchRepository: class { constructor() { return harness.batchRepository; } },
+      RecordRepository: class { constructor() { return harness.recordRepository; } },
+      CoCreationRepository: class { constructor() { return harness.coCreationRepository; } },
+      OutboxRepository: class { constructor() { return harness.outboxRepository; } }
+    },
+    async transactionRunner(_pool, callback) {
+      return callback({ query() {} });
+    }
+  });
+
+  await assert.rejects(
+    service.activateQRByKey('token-write', { account_id: 'ACC_OWNER' }),
+    (error) => error.code === 'REPOSITORY_QUERY_FAILED'
+  );
 });
 
 test('QR lifecycle write service is isolated from JSON, SQL, and runtime environment state', () => {

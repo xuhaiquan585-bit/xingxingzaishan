@@ -6,6 +6,7 @@ const { CoCreationRepository } = require('./coCreationRepository');
 const { IdentityRepository } = require('./identityRepository');
 const { IdentityReferenceRepository } = require('./identityReferenceRepository');
 const { OrderRepository } = require('./orderRepository');
+const { OutboxRepository } = require('./outboxRepository');
 const { PaymentRepository } = require('./paymentRepository');
 const { ProofRepository } = require('./proofRepository');
 const { PublicQrProvenanceRepository } = require('./publicQrProvenanceRepository');
@@ -20,6 +21,7 @@ module.exports = {
   IdentityRepository,
   IdentityReferenceRepository,
   OrderRepository,
+  OutboxRepository,
   PaymentRepository,
   ProofRepository,
   PublicQrProvenanceRepository,

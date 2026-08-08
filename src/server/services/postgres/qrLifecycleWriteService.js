@@ -71,6 +71,7 @@ class QrLifecycleWriteTransaction {
     batchRepository,
     recordRepository,
     coCreationRepository,
+    outboxRepository,
     clock = () => new Date(),
     randomUUID = crypto.randomUUID
   } = {}) {
@@ -94,6 +95,7 @@ class QrLifecycleWriteTransaction {
     this.insertComment = requireMethod(coCreationRepository, 'insertComment');
     this.deleteComment = requireMethod(coCreationRepository, 'deleteEffectiveComment');
     this.finalizeCoCreation = requireMethod(coCreationRepository, 'finalize');
+    this.insertOutboxJob = requireMethod(outboxRepository, 'insertPending');
     if (typeof clock !== 'function' || typeof randomUUID !== 'function') {
       throw new QrLifecycleWriteError('QR_LIFECYCLE_WRITE_GENERATOR_REQUIRED');
     }
@@ -128,6 +130,7 @@ class QrLifecycleWriteTransaction {
       updated_at: timestamp
     });
     if (!record || !updatedQr) throw new QrLifecycleWriteError('QR_LIFECYCLE_WRITE_CONFLICT');
+    await this.#enqueueRecordProof(qr.id, timestamp);
     return Object.freeze({ qr: updatedQr, record, co_creation: null });
   }
 
@@ -250,7 +253,23 @@ class QrLifecycleWriteTransaction {
     if (!sealedRecord || !finalized || !updatedQr) {
       throw new QrLifecycleWriteError('QR_LIFECYCLE_WRITE_CONFLICT');
     }
+    await this.#enqueueRecordProof(qr.id, timestamp);
     return Object.freeze({ qr: updatedQr, record: sealedRecord, co_creation: finalized });
+  }
+
+  async #enqueueRecordProof(qrId, timestamp) {
+    const job = await this.insertOutboxJob({
+      id: operationUuid(this.randomUUID),
+      job_type: 'record_proof_prepare_submit',
+      aggregate_type: 'record',
+      aggregate_id: qrId,
+      idempotency_key: `record-proof:${qrId}`,
+      payload: { record_qr_id: qrId },
+      available_at: timestamp,
+      created_at: timestamp,
+      updated_at: timestamp
+    });
+    if (!job) throw new QrLifecycleWriteError('QR_LIFECYCLE_WRITE_CONFLICT');
   }
 
   async #requireUnactivatedQr(key) {
@@ -328,6 +347,7 @@ function createQrLifecycleWriteService({
           batchRepository: new repositories.QrBatchRepository(transactionContext),
           recordRepository: new repositories.RecordRepository(transactionContext),
           coCreationRepository: new repositories.CoCreationRepository(transactionContext),
+          outboxRepository: new repositories.OutboxRepository(transactionContext),
           clock,
           randomUUID
         });

@@ -58,6 +58,11 @@ const AUDIT_FIELDS = [
   'entity_id', 'entity_reference_hash', 'request_method', 'request_path', 'result_status',
   'ip_hash', 'user_agent_family', 'duration_ms', 'metadata', 'created_at'
 ];
+const OUTBOX_FIELDS = [
+  'id', 'job_type', 'aggregate_type', 'aggregate_id', 'idempotency_key', 'payload',
+  'status', 'attempt_count', 'available_at', 'locked_at', 'locked_by', 'last_error',
+  'created_at', 'updated_at'
+];
 
 function cloneJson(value) {
   if (value === null || value === undefined) return value;
@@ -86,6 +91,7 @@ const mapPaymentEvent = (row) => mapFields(row, PAYMENT_EVENT_FIELDS, ['sanitize
 const mapProof = (row) => mapFields(row, PROOF_FIELDS);
 const mapProofAttempt = (row) => mapFields(row, PROOF_ATTEMPT_FIELDS);
 const mapAudit = (row) => mapFields(row, AUDIT_FIELDS, ['metadata']);
+const mapOutboxJob = (row) => mapFields(row, OUTBOX_FIELDS, ['payload']);
 
 module.exports = {
   ACCOUNT_FIELDS,
@@ -94,6 +100,7 @@ module.exports = {
   CO_CREATION_FIELDS,
   IDENTITY_FIELDS,
   ORDER_FIELDS,
+  OUTBOX_FIELDS,
   PAYMENT_EVENT_FIELDS,
   PAYMENT_FIELDS,
   PROOF_ATTEMPT_FIELDS,
@@ -107,6 +114,7 @@ module.exports = {
   mapComment,
   mapIdentity,
   mapOrder,
+  mapOutboxJob,
   mapPayment,
   mapPaymentEvent,
   mapProof,

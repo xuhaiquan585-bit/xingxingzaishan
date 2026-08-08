@@ -730,14 +730,22 @@ test('manual PostgreSQL public QR adapter integration', {
          (SELECT max(comment.source_position)::integer
           FROM app.co_creation_comments comment
           JOIN app.co_creations creation ON creation.id = comment.co_creation_id
-          WHERE creation.qr_id = 'QR_WRITE_CO') AS maximum_comment_position`
+          WHERE creation.qr_id = 'QR_WRITE_CO') AS maximum_comment_position,
+         (SELECT count(*)::integer FROM app.outbox_jobs
+          WHERE job_type = 'record_proof_prepare_submit'
+            AND aggregate_id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')
+            AND status = 'pending') AS pending_proof_job_count,
+         (SELECT count(DISTINCT idempotency_key)::integer FROM app.outbox_jobs
+          WHERE aggregate_id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')) AS proof_job_key_count`
     );
     assert.deepEqual(lifecycleWriteState.rows, [{
       activated_qr_count: 2,
       sealed_record_count: 2,
       finalized_creation_count: 1,
       kept_comment_count: 1,
-      maximum_comment_position: 1
+      maximum_comment_position: 1,
+      pending_proof_job_count: 2,
+      proof_job_key_count: 2
     }]);
 
     const shadowDirectory = path.join(directory, 'direct-shadow');

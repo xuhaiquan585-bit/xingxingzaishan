@@ -51,6 +51,7 @@ const {
   IdentityRepository,
   IdentityReferenceRepository,
   OrderRepository,
+  OutboxRepository,
   PaymentRepository,
   ProofRepository,
   PublicQrProvenanceRepository,
@@ -61,6 +62,7 @@ const {
 const { executeQuery } = require('../src/server/repositories/query');
 const {
   COMMENT_FIELDS,
+  OUTBOX_FIELDS,
   PROOF_FIELDS,
   RECORD_FIELDS
 } = require('../src/server/repositories/mappers');
@@ -1532,6 +1534,43 @@ test('repository writes cannot create importer-only legacy exceptions', async ()
   );
 });
 
+test('outbox repository fixes lifecycle state and serializes only the supplied job payload', async () => {
+  const row = Object.fromEntries(OUTBOX_FIELDS.map((field) => [field, null]));
+  row.id = '00000000-0000-0000-0000-000000000901';
+  row.job_type = 'record_proof_prepare_submit';
+  row.aggregate_type = 'record';
+  row.aggregate_id = 'QR_WRITE';
+  row.idempotency_key = 'record-proof:QR_WRITE';
+  row.payload = { record_qr_id: 'QR_WRITE' };
+  row.status = 'pending';
+  row.attempt_count = 0;
+  row.last_error = '';
+  const harness = createRepositoryContext([{ rows: [row], rowCount: 1 }]);
+
+  const result = await new OutboxRepository(harness.context).insertPending({
+    ...row,
+    payload: row.payload,
+    status: 'succeeded',
+    attempt_count: 99,
+    locked_at: '2026-08-09T01:00:00.000Z',
+    locked_by: 'untrusted-worker',
+    last_error: 'untrusted-error'
+  });
+
+  const params = harness.calls[0].params;
+  assert.equal(params[OUTBOX_FIELDS.indexOf('status')], 'pending');
+  assert.equal(params[OUTBOX_FIELDS.indexOf('attempt_count')], 0);
+  assert.equal(params[OUTBOX_FIELDS.indexOf('locked_at')], null);
+  assert.equal(params[OUTBOX_FIELDS.indexOf('locked_by')], null);
+  assert.equal(params[OUTBOX_FIELDS.indexOf('last_error')], '');
+  assert.equal(
+    params[OUTBOX_FIELDS.indexOf('payload')],
+    JSON.stringify({ record_qr_id: 'QR_WRITE' })
+  );
+  assert.deepEqual(result.payload, { record_qr_id: 'QR_WRITE' });
+  assert.equal(Object.isFrozen(result), true);
+});
+
 test('QR lifecycle repositories expose only transaction-scoped state transitions', async () => {
   const record = Object.fromEntries(RECORD_FIELDS.map((field) => [field, null]));
   record.qr_id = 'QR_WRITE';
@@ -1706,7 +1745,7 @@ test('repository errors map constraints and unknown failures without leaking pro
 });
 
 test('all Phase 2C-1 repositories execute through the injected context with parameterized SQL', async () => {
-  const harness = createRepositoryContext(Array.from({ length: 10 }, () => ({ rows: [] })));
+  const harness = createRepositoryContext(Array.from({ length: 11 }, () => ({ rows: [] })));
   await new AccountRepository(harness.context).findById('ACC_TEST');
   await new IdentityRepository(harness.context).findById(1);
   await new QrRepository(harness.context).findByKey('QR_TEST');
@@ -1723,10 +1762,25 @@ test('all Phase 2C-1 repositories execute through the injected context with para
     result_status: 'success', ip_hash: null, user_agent_family: null,
     duration_ms: 0, metadata: {}, created_at: '2026-01-01T00:00:00.000Z'
   });
+  await new OutboxRepository(harness.context).insertPending({
+    id: '00000000-0000-0000-0000-000000000901',
+    job_type: 'record_proof_prepare_submit',
+    aggregate_type: 'record',
+    aggregate_id: 'QR_TEST',
+    idempotency_key: 'record-proof:QR_TEST',
+    payload: { record_qr_id: 'QR_TEST' },
+    available_at: '2026-01-01T00:00:00.000Z',
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z'
+  });
 
-  assert.equal(harness.calls.length, 10);
+  assert.equal(harness.calls.length, 11);
   harness.calls.forEach(({ sql }) => {
     assert.doesNotMatch(sql, /ON\s+CONFLICT/i);
   });
   assert.equal(harness.calls[9].params.includes('{}'), true);
+  assert.equal(
+    harness.calls[10].params.includes(JSON.stringify({ record_qr_id: 'QR_TEST' })),
+    true
+  );
 });
