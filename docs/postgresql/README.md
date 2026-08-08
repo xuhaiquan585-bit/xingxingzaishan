@@ -513,6 +513,13 @@ close the separate Shadow Read execution gates documented in
 - The record proof job handler persists manifest, archive, proof, and attempt
   state through short transactions. Preparation and provider submission are
   injected external operations and never run while database locks are held.
+- The isolated external adapter derives manifest `generated_at` from the
+  durable proof creation timestamp, so a retry before database persistence
+  produces the same manifest hash. It writes archive objects through the
+  existing storage boundary and normalizes only known provider outcomes.
+- Disabled-provider mock responses are rejected by default and cannot be
+  persisted as confirmed proofs. The adapter reads no database or environment
+  state and has no application-startup wiring.
 - Interrupted attempts are closed before idempotent resubmission. Existing
   submitted or confirmed proofs do not submit twice, and imported legacy proof
   evidence fails closed instead of being overwritten.

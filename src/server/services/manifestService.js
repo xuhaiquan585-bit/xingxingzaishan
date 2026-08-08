@@ -30,7 +30,22 @@ function activeComments(record) {
     }));
 }
 
-function buildRecordManifest(record) {
+function manifestGeneratedAt(value) {
+  if (value === null || value === '') {
+    const error = new Error('Record manifest generated_at is invalid.');
+    error.code = 'RECORD_MANIFEST_GENERATED_AT_INVALID';
+    throw error;
+  }
+  const candidate = value === undefined ? new Date() : new Date(value);
+  if (Number.isNaN(candidate.getTime())) {
+    const error = new Error('Record manifest generated_at is invalid.');
+    error.code = 'RECORD_MANIFEST_GENERATED_AT_INVALID';
+    throw error;
+  }
+  return candidate.toISOString();
+}
+
+function buildRecordManifest(record, { generatedAt } = {}) {
   return {
     version: 'record_manifest_v1',
     record: {
@@ -53,7 +68,7 @@ function buildRecordManifest(record) {
         batch_id: record.batch_id || null
       }
     },
-    generated_at: new Date().toISOString()
+    generated_at: manifestGeneratedAt(generatedAt)
   };
 }
 
