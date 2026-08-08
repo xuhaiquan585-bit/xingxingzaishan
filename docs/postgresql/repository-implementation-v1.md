@@ -34,14 +34,27 @@ Methods ending in `ForUpdate` issue `FOR UPDATE` and may only be called with a c
 | `IdentityRepository` | `users` | `findById`, `findByIdForUpdate`, unique phone/OpenID lookups and lock variants, `listByAccountId`, `countByAccountId`, `insert` |
 | `QrRepository` | `qr_codes` | ID/token/key lookups, ID/key lock variants, conditional `updateLifecycle` |
 | `QrBatchRepository` | `qr_batches` | public projection lookup by ID |
-| `RecordRepository` | `records` | QR lookup and lock variant, account list, account-owned lookup, `insertSealed` |
-| `CoCreationRepository` | `co_creations`, `co_creation_comments` | QR lookup and lock variant, effective comment list/check with internal `source_position`, `insert`, `insertComment` |
+| `RecordRepository` | `records` | QR lookup and lock variant, account list, account-owned lookup, insert/seal, guarded image hash update |
+| `CoCreationRepository` | `co_creations`, `co_creation_comments` | QR lookup and lock variant, effective comment list/check with internal `source_position`, insert/delete/finalize transitions |
 | `OrderRepository` | `orders` | ID/order-number lookups and lock variants, account list, `insert` |
 | `PaymentRepository` | `payment_transactions`, `payment_events` | provider transaction lookup, merchant order lookup, order event list, `insertTransaction`, `appendEvent` |
-| `ProofRepository` | `record_proofs`, `proof_attempts` | record/operation lookup, proof lock lookup, `insertPending`, `appendAttempt` |
+| `ProofRepository` | `record_proofs`, `proof_attempts` | record/operation lookup and locks, manifest/submission/failure transitions, attempt append/recovery/completion |
+| `ArchiveRepository` | `record_archives` | record lookup and lock, ready metadata upsert, sanitized preparation failure |
+| `OutboxRepository` | `outbox_jobs` | idempotent enqueue, bounded skip-locked claim, stale recovery, success/retry/failure transitions |
 | `AuditRepository` | `audit_events` | immutable `append` |
 
-The following contract areas are deliberately deferred: profile/status mutation, disposable identity/account deletion, QR batch creation/listing/locking/assignment/export operations, record draft/seal transitions, comment deletion, co-creation finalize, order state transitions, payment state transitions, proof state transitions and retry queries. `Operator`, `QualityCheck`, `Product`, `Archive`, `Content`, and `Outbox` repositories are also deferred. They must be implemented from confirmed service use cases rather than generated as generic CRUD.
+The following contract areas remain deliberately deferred: profile/status
+mutation, remaining QR batch commands, order and payment state transitions,
+proof callback/query transitions, certificate persistence, archive rebuild/version
+queries, and `Operator`, `QualityCheck`, `Product`, and `Content` repositories.
+They must be implemented from confirmed service use cases rather than generated
+as generic CRUD.
+
+`recordProofJobHandler.js` now owns the isolated PostgreSQL proof preparation
+and submission state machine. It uses short transactions for durable state and
+attempt history, executes injected storage/provider work outside transactions,
+preserves imported legacy proof evidence, and is not connected to application
+startup or a production worker loop.
 
 ## 5. Row mapping
 

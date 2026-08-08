@@ -1,6 +1,7 @@
 'use strict';
 
 const { AccountRepository } = require('./accountRepository');
+const { ArchiveRepository } = require('./archiveRepository');
 const { AuditRepository } = require('./auditRepository');
 const { CoCreationRepository } = require('./coCreationRepository');
 const { IdentityRepository } = require('./identityRepository');
@@ -16,6 +17,7 @@ const { RecordRepository } = require('./recordRepository');
 
 module.exports = {
   AccountRepository,
+  ArchiveRepository,
   AuditRepository,
   CoCreationRepository,
   IdentityRepository,

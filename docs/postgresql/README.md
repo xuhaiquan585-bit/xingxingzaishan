@@ -502,3 +502,20 @@ close the separate Shadow Read execution gates documented in
 - The implementation is deployed-capable but remains default-off. JSON is
   still the only response and write source; production PostgreSQL traffic,
   dual writes, and cutover are not authorized by this phase.
+
+### QR proof outbox and isolated worker foundation
+
+- PostgreSQL QR activation and co-creation finalization enqueue one idempotent
+  `record_proof_prepare_submit` job in the same business transaction.
+- The bounded worker claims with `FOR UPDATE SKIP LOCKED`, recovers stale
+  leases, runs handlers outside transactions, and records only stable error
+  codes before retrying or failing a job.
+- The record proof job handler persists manifest, archive, proof, and attempt
+  state through short transactions. Preparation and provider submission are
+  injected external operations and never run while database locks are held.
+- Interrupted attempts are closed before idempotent resubmission. Existing
+  submitted or confirmed proofs do not submit twice, and imported legacy proof
+  evidence fails closed instead of being overwritten.
+- The worker and proof handler are not connected to PM2, application startup,
+  OSS, AVATA, or production traffic. JSON remains the runtime authority until
+  the complete per-QR read/write/proof slice passes controlled validation.

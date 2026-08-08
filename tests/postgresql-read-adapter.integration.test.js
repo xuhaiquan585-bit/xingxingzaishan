@@ -35,6 +35,9 @@ const {
   createOutboxWorker
 } = require('../src/server/services/postgres/outboxWorkerService');
 const {
+  createRecordProofJobHandler
+} = require('../src/server/services/postgres/recordProofJobHandler');
+const {
   PersonalRecordReadAdapter
 } = require('../src/server/services/postgres/personalRecordReadAdapter');
 const {
@@ -752,14 +755,33 @@ test('manual PostgreSQL public QR adapter integration', {
     }]);
 
     const handledProofJobs = [];
+    const recordProofJobHandler = createRecordProofJobHandler({
+      pool,
+      clock: () => new Date('2026-07-01T12:31:30.000Z'),
+      async prepareRecord({ record }) {
+        handledProofJobs.push(record.id);
+        return {
+          manifest_hash: sha256(`manifest:${record.id}`),
+          manifest_object_key: `records/${record.id}/record_manifest.json`,
+          image_sha256: null,
+          index_object_key: `indexes/by-star/${record.id}.json`
+        };
+      },
+      async submitRecord(input) {
+        return {
+          status: 'confirmed',
+          transaction_hash: `tx-${input.record_qr_id}`,
+          block_height: input.record_qr_id === 'QR_WRITE_DIRECT' ? 101 : 102,
+          provider_record_id: `provider-${input.record_qr_id}`
+        };
+      }
+    });
     const outboxWorker = createOutboxWorker({
       pool,
       workerId: 'integration-outbox-worker',
       clock: () => new Date('2026-07-01T12:31:00.000Z'),
       handlers: {
-        async record_proof_prepare_submit(job) {
-          handledProofJobs.push(job.aggregate_id);
-        }
+        record_proof_prepare_submit: recordProofJobHandler
       }
     });
     assert.deepEqual(await outboxWorker.runOnce(), {
@@ -785,6 +807,28 @@ test('manual PostgreSQL public QR adapter integration', {
       locked_job_count: 0,
       minimum_attempt_count: 1,
       maximum_attempt_count: 1
+    }]);
+    const completedProofState = await pool.query(
+      `SELECT
+         (SELECT count(*)::integer FROM app.record_proofs
+          WHERE record_qr_id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')
+            AND status = 'confirmed' AND retry_count = 1) AS confirmed_proof_count,
+         (SELECT count(*)::integer FROM app.proof_attempts attempt
+          JOIN app.record_proofs proof ON proof.id = attempt.proof_id
+          WHERE proof.record_qr_id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')
+            AND attempt.request_state = 'sent'
+            AND attempt.result_status = 'succeeded') AS succeeded_attempt_count,
+         (SELECT count(*)::integer FROM app.record_archives
+          WHERE record_qr_id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')
+            AND status = 'ready') AS ready_archive_count,
+         (SELECT count(DISTINCT operation_id)::integer FROM app.record_proofs
+          WHERE record_qr_id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')) AS operation_count`
+    );
+    assert.deepEqual(completedProofState.rows, [{
+      confirmed_proof_count: 2,
+      succeeded_attempt_count: 2,
+      ready_archive_count: 2,
+      operation_count: 2
     }]);
 
     const shadowDirectory = path.join(directory, 'direct-shadow');

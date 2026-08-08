@@ -107,6 +107,19 @@ class RecordRepository {
     return oneOrNull(result, mapRecord);
   }
 
+  async setImageSha256({ qr_id, image_sha256, updated_at }) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `UPDATE app.records
+       SET image_sha256 = $2, updated_at = $3
+       WHERE qr_id = $1
+         AND (image_sha256 IS NULL OR image_sha256 = $2)
+       RETURNING ${COLUMNS}`,
+      [qr_id, image_sha256, updated_at]
+    );
+    return oneOrNull(result, mapRecord);
+  }
+
   async #findByQrId(qrId, forUpdate) {
     const result = await executeQuery(
       this.transactionContext,

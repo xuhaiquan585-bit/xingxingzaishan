@@ -46,6 +46,7 @@ const {
 } = require('../scripts/database/import-staging');
 const {
   AccountRepository,
+  ArchiveRepository,
   AuditRepository,
   CoCreationRepository,
   IdentityRepository,
@@ -61,8 +62,10 @@ const {
 } = require('../src/server/repositories');
 const { executeQuery } = require('../src/server/repositories/query');
 const {
+  ARCHIVE_FIELDS,
   COMMENT_FIELDS,
   OUTBOX_FIELDS,
+  PROOF_ATTEMPT_FIELDS,
   PROOF_FIELDS,
   RECORD_FIELDS
 } = require('../src/server/repositories/mappers');
@@ -1639,6 +1642,125 @@ test('outbox repository recovers stale work, claims with skip-locked, and enforc
   }
 });
 
+test('archive repository persists only ready metadata or a sanitized preparation failure', async () => {
+  const row = Object.fromEntries(ARCHIVE_FIELDS.map((field) => [field, null]));
+  Object.assign(row, {
+    record_qr_id: 'QR_PROOF',
+    manifest_object_key: 'records/QR_PROOF/record_manifest.json',
+    index_object_key: 'indexes/by-star/QR_PROOF.json',
+    status: 'ready',
+    last_error: '',
+    created_at: '2026-08-09T10:00:00.000Z',
+    updated_at: '2026-08-09T10:00:00.000Z'
+  });
+  const harness = createRepositoryContext([
+    { rows: [row], rowCount: 1 },
+    { rows: [{ ...row, status: 'failed', last_error: 'RECORD_PROOF_PREPARATION_FAILED' }], rowCount: 1 },
+    { rows: [row], rowCount: 1 }
+  ]);
+  const repository = new ArchiveRepository(harness.context);
+
+  await repository.upsertReady({
+    record_qr_id: row.record_qr_id,
+    manifest_object_key: row.manifest_object_key,
+    legacy_manifest_object_key: null,
+    index_object_key: row.index_object_key,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  });
+  await repository.markFailed({
+    record_qr_id: row.record_qr_id,
+    last_error: 'RECORD_PROOF_PREPARATION_FAILED',
+    updated_at: row.updated_at
+  });
+  await repository.findByRecordIdForUpdate(row.record_qr_id);
+
+  assert.match(harness.calls[0].sql, /ON CONFLICT \(record_qr_id\) DO UPDATE/);
+  assert.match(harness.calls[0].sql, /status = 'ready'/);
+  assert.match(harness.calls[1].sql, /status = 'failed'/);
+  assert.match(harness.calls[1].sql, /record_archives\.status <> 'ready'/);
+  assert.match(harness.calls[2].sql, /FOR UPDATE/);
+  assert.deepEqual(harness.calls[1].params, [
+    'QR_PROOF',
+    'RECORD_PROOF_PREPARATION_FAILED',
+    '2026-08-09T10:00:00.000Z'
+  ]);
+});
+
+test('proof repository enforces guarded progression and closes attempt history', async () => {
+  const proofRow = Object.fromEntries(PROOF_FIELDS.map((field) => [field, null]));
+  Object.assign(proofRow, {
+    id: '00000000-0000-0000-0000-000000000801',
+    record_qr_id: 'QR_PROOF',
+    provider: 'avata_wenchang',
+    status: 'submitting',
+    retry_count: 1,
+    last_error: ''
+  });
+  const attemptRow = Object.fromEntries(PROOF_ATTEMPT_FIELDS.map((field) => [field, null]));
+  Object.assign(attemptRow, {
+    id: 1,
+    proof_id: proofRow.id,
+    attempt_number: 1,
+    request_state: 'sent',
+    result_status: 'succeeded',
+    sanitized_error: ''
+  });
+  const harness = createRepositoryContext([
+    ...Array.from({ length: 5 }, () => ({ rows: [proofRow], rowCount: 1 })),
+    { rows: [], rowCount: 2 },
+    { rows: [attemptRow], rowCount: 1 }
+  ]);
+  const repository = new ProofRepository(harness.context);
+  const timestamp = '2026-08-09T10:00:00.000Z';
+
+  await repository.markManifestReady({
+    id: proofRow.id,
+    operation_id: 'record_QR_PROOF_aaaaaaaaaaaaaaaa',
+    manifest_object_key: 'records/QR_PROOF/record_manifest.json',
+    manifest_hash: 'a'.repeat(64),
+    updated_at: timestamp
+  });
+  await repository.markSubmitting({
+    id: proofRow.id,
+    retry_count: 1,
+    updated_at: timestamp
+  });
+  await repository.markSubmitted({ id: proofRow.id, updated_at: timestamp });
+  await repository.markConfirmed({
+    id: proofRow.id,
+    confirmed_at: timestamp,
+    updated_at: timestamp
+  });
+  await repository.markFailed({
+    id: proofRow.id,
+    last_error: 'RECORD_PROOF_SUBMISSION_FAILED',
+    updated_at: timestamp
+  });
+  assert.equal(await repository.failPendingAttempts({
+    proof_id: proofRow.id,
+    sanitized_error: 'RECORD_PROOF_ATTEMPT_INTERRUPTED',
+    completed_at: timestamp
+  }), 2);
+  await repository.completeAttempt({
+    proof_id: proofRow.id,
+    attempt_number: 1,
+    result_status: 'succeeded',
+    sanitized_error: '',
+    completed_at: timestamp
+  });
+
+  assert.match(harness.calls[0].sql, /status IN \('not_started', 'manifest_ready', 'failed', 'retrying'\)/);
+  assert.match(harness.calls[1].sql, /operation_id IS NOT NULL/);
+  assert.match(harness.calls[1].sql, /manifest_hash IS NOT NULL/);
+  assert.match(harness.calls[2].sql, /status IN \('submitting', 'submitted'\)/);
+  assert.match(harness.calls[3].sql, /status IN \('submitting', 'submitted'\)/);
+  assert.match(harness.calls[4].sql, /status IN \('not_started', 'manifest_ready', 'submitting', 'failed', 'retrying'\)/);
+  assert.match(harness.calls[5].sql, /result_status = 'pending'/);
+  assert.match(harness.calls[6].sql, /attempt_number = \$2/);
+  assert.match(harness.calls[6].sql, /result_status = 'pending'/);
+});
+
 test('QR lifecycle repositories expose only transaction-scoped state transitions', async () => {
   const record = Object.fromEntries(RECORD_FIELDS.map((field) => [field, null]));
   record.qr_id = 'QR_WRITE';
@@ -1813,7 +1935,7 @@ test('repository errors map constraints and unknown failures without leaking pro
 });
 
 test('all Phase 2C-1 repositories execute through the injected context with parameterized SQL', async () => {
-  const harness = createRepositoryContext(Array.from({ length: 11 }, () => ({ rows: [] })));
+  const harness = createRepositoryContext(Array.from({ length: 12 }, () => ({ rows: [] })));
   await new AccountRepository(harness.context).findById('ACC_TEST');
   await new IdentityRepository(harness.context).findById(1);
   await new QrRepository(harness.context).findByKey('QR_TEST');
@@ -1841,8 +1963,9 @@ test('all Phase 2C-1 repositories execute through the injected context with para
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z'
   });
+  await new ArchiveRepository(harness.context).findByRecordId('QR_TEST');
 
-  assert.equal(harness.calls.length, 11);
+  assert.equal(harness.calls.length, 12);
   harness.calls.forEach(({ sql }) => {
     assert.doesNotMatch(sql, /ON\s+CONFLICT/i);
   });
@@ -1851,4 +1974,5 @@ test('all Phase 2C-1 repositories execute through the injected context with para
     harness.calls[10].params.includes(JSON.stringify({ record_qr_id: 'QR_TEST' })),
     true
   );
+  assert.deepEqual(harness.calls[11].params, ['QR_TEST']);
 });

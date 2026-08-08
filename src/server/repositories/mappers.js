@@ -53,6 +53,10 @@ const PROOF_ATTEMPT_FIELDS = [
   'id', 'proof_id', 'attempt_number', 'request_state', 'result_status', 'sanitized_error',
   'requested_at', 'completed_at'
 ];
+const ARCHIVE_FIELDS = [
+  'record_qr_id', 'manifest_object_key', 'legacy_manifest_object_key', 'index_object_key',
+  'status', 'last_error', 'created_at', 'updated_at'
+];
 const AUDIT_FIELDS = [
   'id', 'actor_type', 'actor_reference', 'actor_reference_hash', 'action', 'entity_type',
   'entity_id', 'entity_reference_hash', 'request_method', 'request_path', 'result_status',
@@ -90,11 +94,13 @@ const mapPayment = (row) => mapFields(row, PAYMENT_FIELDS);
 const mapPaymentEvent = (row) => mapFields(row, PAYMENT_EVENT_FIELDS, ['sanitized_metadata']);
 const mapProof = (row) => mapFields(row, PROOF_FIELDS);
 const mapProofAttempt = (row) => mapFields(row, PROOF_ATTEMPT_FIELDS);
+const mapArchive = (row) => mapFields(row, ARCHIVE_FIELDS);
 const mapAudit = (row) => mapFields(row, AUDIT_FIELDS, ['metadata']);
 const mapOutboxJob = (row) => mapFields(row, OUTBOX_FIELDS, ['payload']);
 
 module.exports = {
   ACCOUNT_FIELDS,
+  ARCHIVE_FIELDS,
   AUDIT_FIELDS,
   COMMENT_FIELDS,
   CO_CREATION_FIELDS,
@@ -109,6 +115,7 @@ module.exports = {
   QR_FIELDS,
   RECORD_FIELDS,
   mapAccount,
+  mapArchive,
   mapAudit,
   mapCoCreation,
   mapComment,

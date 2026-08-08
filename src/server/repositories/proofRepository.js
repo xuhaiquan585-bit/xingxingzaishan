@@ -17,12 +17,11 @@ class ProofRepository {
   }
 
   async findByRecordId(recordQrId) {
-    const result = await executeQuery(
-      this.transactionContext,
-      `SELECT ${PROOF_COLUMNS} FROM app.record_proofs WHERE record_qr_id = $1`,
-      [recordQrId]
-    );
-    return oneOrNull(result, mapProof);
+    return this.#findByRecordId(recordQrId, false);
+  }
+
+  async findByRecordIdForUpdate(recordQrId) {
+    return this.#findByRecordId(recordQrId, true);
   }
 
   async findByOperationId(provider, operationId) {
@@ -65,6 +64,135 @@ class ProofRepository {
       insertFields.map((field) => attempt[field])
     );
     return oneOrNull(result, mapProofAttempt, 'REPOSITORY_INSERT_RESULT_INVALID');
+  }
+
+  async markManifestReady({
+    id,
+    operation_id: operationId,
+    manifest_object_key: manifestObjectKey,
+    manifest_hash: manifestHash,
+    updated_at: updatedAt
+  }) {
+    return this.#updateProof(
+      `UPDATE app.record_proofs
+       SET status = 'manifest_ready', operation_id = $2,
+           manifest_object_key = $3, manifest_hash = $4,
+           legacy_hash_snapshot = NULL, last_error = '', updated_at = $5
+       WHERE id = $1
+         AND status IN ('not_started', 'manifest_ready', 'failed', 'retrying')
+       RETURNING ${PROOF_COLUMNS}`,
+      [id, operationId, manifestObjectKey, manifestHash, updatedAt]
+    );
+  }
+
+  async markSubmitting({ id, retry_count: retryCount, updated_at: updatedAt }) {
+    return this.#updateProof(
+      `UPDATE app.record_proofs
+       SET status = 'submitting', retry_count = $2, last_error = '', updated_at = $3
+       WHERE id = $1
+         AND status IN ('manifest_ready', 'failed', 'retrying', 'submitting')
+         AND operation_id IS NOT NULL
+         AND manifest_hash IS NOT NULL
+       RETURNING ${PROOF_COLUMNS}`,
+      [id, retryCount, updatedAt]
+    );
+  }
+
+  async markSubmitted(input) {
+    return this.#markSubmissionResult({ ...input, status: 'submitted' });
+  }
+
+  async markConfirmed(input) {
+    return this.#markSubmissionResult({ ...input, status: 'confirmed' });
+  }
+
+  async markFailed({ id, last_error: lastError, updated_at: updatedAt }) {
+    return this.#updateProof(
+      `UPDATE app.record_proofs
+       SET status = 'failed', last_error = $2, updated_at = $3
+       WHERE id = $1
+         AND status IN ('not_started', 'manifest_ready', 'submitting', 'failed', 'retrying')
+       RETURNING ${PROOF_COLUMNS}`,
+      [id, lastError, updatedAt]
+    );
+  }
+
+  async failPendingAttempts({ proof_id: proofId, sanitized_error: error, completed_at: completedAt }) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `UPDATE app.proof_attempts
+       SET result_status = 'failed', sanitized_error = $2, completed_at = $3
+       WHERE proof_id = $1 AND result_status = 'pending'`,
+      [proofId, error, completedAt]
+    );
+    return Number(result.rowCount || 0);
+  }
+
+  async completeAttempt({
+    proof_id: proofId,
+    attempt_number: attemptNumber,
+    result_status: resultStatus,
+    sanitized_error: error,
+    completed_at: completedAt
+  }) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `UPDATE app.proof_attempts
+       SET request_state = 'sent', result_status = $3,
+           sanitized_error = $4, completed_at = $5
+       WHERE proof_id = $1 AND attempt_number = $2
+         AND result_status = 'pending'
+       RETURNING ${ATTEMPT_COLUMNS}`,
+      [proofId, attemptNumber, resultStatus, error, completedAt]
+    );
+    return oneOrNull(result, mapProofAttempt, 'REPOSITORY_UPDATE_RESULT_INVALID');
+  }
+
+  async #findByRecordId(recordQrId, forUpdate) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `SELECT ${PROOF_COLUMNS} FROM app.record_proofs
+       WHERE record_qr_id = $1${forUpdate ? ' FOR UPDATE' : ''}`,
+      [recordQrId]
+    );
+    return oneOrNull(result, mapProof);
+  }
+
+  async #markSubmissionResult({
+    id,
+    status,
+    transaction_hash: transactionHash,
+    block_height: blockHeight,
+    provider_record_id: providerRecordId,
+    provider_certificate_url: providerCertificateUrl,
+    confirmed_at: confirmedAt,
+    updated_at: updatedAt
+  }) {
+    return this.#updateProof(
+      `UPDATE app.record_proofs
+       SET status = $2, transaction_hash = COALESCE($3, transaction_hash),
+           block_height = COALESCE($4, block_height),
+           provider_record_id = COALESCE($5, provider_record_id),
+           provider_certificate_url = COALESCE($6, provider_certificate_url),
+           confirmed_at = COALESCE($7, confirmed_at), last_error = '', updated_at = $8
+       WHERE id = $1 AND status IN ('submitting', 'submitted')
+       RETURNING ${PROOF_COLUMNS}`,
+      [
+        id,
+        status,
+        transactionHash || null,
+        blockHeight,
+        providerRecordId || null,
+        providerCertificateUrl || null,
+        confirmedAt,
+        updatedAt
+      ]
+    );
+  }
+
+  async #updateProof(sql, params) {
+    const result = await executeQuery(this.transactionContext, sql, params);
+    return oneOrNull(result, mapProof, 'REPOSITORY_UPDATE_RESULT_INVALID');
   }
 }
 
