@@ -459,3 +459,20 @@ close the separate Shadow Read execution gates documented in
   `6917cdec3f167230d5d31802c3ad171d1cbbb757dcf70a64ccba60fc296856e2`.
 - `AccountRepository.allocateId()` formats the sequence value with the existing
   six-digit minimum width and fails closed when the database result is invalid.
+
+### Runtime identity write transaction boundary
+
+- `identityWriteService.js` defines transaction-scoped PostgreSQL operations
+  for idempotent web and miniapp identity creation, phone binding, and guarded
+  disposal of an unreferenced temporary miniapp account.
+- Canonical phone and OpenID keys use sorted transaction advisory locks. A
+  disposable identity is not removed when its account or OpenID appears in
+  normalized business rows or nested sanitized payment-event metadata.
+- Account allocation uses `app.account_id_seq`; identity creation, binding,
+  merge, and cleanup run inside one service-owned database transaction. The
+  repositories remain limited to their injected transaction context.
+- This service is not connected to routes, application startup, PM2 runtime
+  configuration, or production traffic. JSON remains the only runtime write
+  source, and this boundary does not authorize dual writes or cutover.
+- Unit validation is complete. Real PostgreSQL identity-write integration in a
+  disposable database is still required before route or Shadow integration.

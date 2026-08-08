@@ -49,6 +49,7 @@ const {
   AuditRepository,
   CoCreationRepository,
   IdentityRepository,
+  IdentityReferenceRepository,
   OrderRepository,
   PaymentRepository,
   ProofRepository,
@@ -1390,6 +1391,63 @@ test('account repository allocates canonical IDs from the database sequence', as
     new AccountRepository(invalidHarness.context).allocateId(),
     (error) => error.code === 'REPOSITORY_ACCOUNT_ID_SEQUENCE_INVALID'
   );
+});
+
+test('identity write repositories lock canonical keys and expose bounded mutations', async () => {
+  const identityRow = {
+    id: 32, legacy_id: null, account_id: 'ACC000029', phone: '13800000029',
+    openid: 'openid-29', unionid: null, source: 'web+miniapp',
+    created_at: '2026-08-08T08:00:00.000Z',
+    updated_at: '2026-08-08T08:01:00.000Z'
+  };
+  const harness = createRepositoryContext([
+    { rows: [], rowCount: 1 },
+    { rows: [], rowCount: 1 },
+    { rows: [identityRow], rowCount: 1 },
+    { rows: [identityRow], rowCount: 1 }
+  ]);
+  const repository = new IdentityRepository(harness.context);
+
+  await repository.lockIdentityKeys(['phone:z', 'openid:a', 'phone:z']);
+  await repository.updateIdentity(identityRow.id, identityRow);
+  await repository.deleteById(identityRow.id);
+
+  assert.deepEqual(harness.calls.slice(0, 2).map((call) => call.params), [
+    ['openid:a'],
+    ['phone:z']
+  ]);
+  assert.match(harness.calls[0].sql, /pg_advisory_xact_lock/);
+  assert.match(harness.calls[2].sql, /^UPDATE app\.users SET/);
+  assert.deepEqual(harness.calls[2].params, [
+    32, identityRow.phone, identityRow.openid, identityRow.unionid,
+    identityRow.source, identityRow.updated_at
+  ]);
+  assert.match(harness.calls[3].sql, /^DELETE FROM app\.users/);
+  await assert.rejects(
+    repository.lockIdentityKeys([]),
+    (error) => error.code === 'REPOSITORY_IDENTITY_LOCK_KEY_REQUIRED'
+  );
+});
+
+test('identity reference repository checks account and nested identity references', async () => {
+  const harness = createRepositoryContext([
+    { rows: [{ has_references: true }], rowCount: 1 }
+  ]);
+  const hasReferences = await new IdentityReferenceRepository(harness.context)
+    .hasBusinessReferences({ accountId: 'ACC000029', openid: 'openid-29' });
+
+  assert.equal(hasReferences, true);
+  assert.deepEqual(harness.calls[0].params, ['ACC000029', 'openid-29']);
+  assert.match(harness.calls[0].sql, /FROM app\.records WHERE account_id = \$1/);
+  assert.match(
+    harness.calls[0].sql,
+    /jsonb_build_object\('identity', to_jsonb\(\$1::text\)\)/
+  );
+  assert.match(
+    harness.calls[0].sql,
+    /jsonb_build_object\('identity', to_jsonb\(\$2::text\)\)/
+  );
+  assert.equal(harness.calls[0].sql.includes('openid-29'), false);
 });
 
 test('public QR batch repository exposes only the fields required by the public adapter', async () => {

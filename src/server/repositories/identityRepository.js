@@ -1,6 +1,7 @@
 'use strict';
 
 const { IDENTITY_FIELDS, mapIdentity } = require('./mappers');
+const { RepositoryError } = require('./errors');
 const { assertTransactionContext, executeQuery, many, oneOrNull } = require('./query');
 
 const COLUMNS = IDENTITY_FIELDS.join(', ');
@@ -62,6 +63,27 @@ class IdentityRepository {
     return Number(result.rows[0] ? result.rows[0].count : 0);
   }
 
+  async lockIdentityKeys(keys) {
+    const normalizedKeys = [...new Set(
+      (Array.isArray(keys) ? keys : [])
+        .map((key) => String(key || '').trim())
+        .filter(Boolean)
+    )].sort();
+    if (normalizedKeys.length === 0) {
+      throw new RepositoryError(
+        'REPOSITORY_IDENTITY_LOCK_KEY_REQUIRED',
+        'At least one identity lock key is required.'
+      );
+    }
+    for (const key of normalizedKeys) {
+      await executeQuery(
+        this.transactionContext,
+        'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))',
+        [key]
+      );
+    }
+  }
+
   async insert(identity) {
     const insertFields = IDENTITY_FIELDS.filter((field) => field !== 'id');
     const columns = insertFields.join(', ');
@@ -72,6 +94,28 @@ class IdentityRepository {
       insertFields.map((field) => identity[field])
     );
     return oneOrNull(result, mapIdentity, 'REPOSITORY_INSERT_RESULT_INVALID');
+  }
+
+  async updateIdentity(identityId, identity) {
+    const mutableFields = ['phone', 'openid', 'unionid', 'source', 'updated_at'];
+    const assignments = mutableFields
+      .map((field, index) => `${field} = $${index + 2}`)
+      .join(', ');
+    const result = await executeQuery(
+      this.transactionContext,
+      `UPDATE app.users SET ${assignments} WHERE id = $1 RETURNING ${COLUMNS}`,
+      [identityId, ...mutableFields.map((field) => identity[field])]
+    );
+    return oneOrNull(result, mapIdentity);
+  }
+
+  async deleteById(identityId) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `DELETE FROM app.users WHERE id = $1 RETURNING ${COLUMNS}`,
+      [identityId]
+    );
+    return oneOrNull(result, mapIdentity);
   }
 
   async #findUnique(column, value, forUpdate, duplicateCode) {

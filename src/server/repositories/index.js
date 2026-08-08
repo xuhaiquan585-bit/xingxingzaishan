@@ -4,6 +4,7 @@ const { AccountRepository } = require('./accountRepository');
 const { AuditRepository } = require('./auditRepository');
 const { CoCreationRepository } = require('./coCreationRepository');
 const { IdentityRepository } = require('./identityRepository');
+const { IdentityReferenceRepository } = require('./identityReferenceRepository');
 const { OrderRepository } = require('./orderRepository');
 const { PaymentRepository } = require('./paymentRepository');
 const { ProofRepository } = require('./proofRepository');
@@ -17,6 +18,7 @@ module.exports = {
   AuditRepository,
   CoCreationRepository,
   IdentityRepository,
+  IdentityReferenceRepository,
   OrderRepository,
   PaymentRepository,
   ProofRepository,

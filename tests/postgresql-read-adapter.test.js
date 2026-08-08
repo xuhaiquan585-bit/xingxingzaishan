@@ -22,6 +22,12 @@ const {
   presentIdentity
 } = require('../src/server/services/postgres/identityReadAdapter');
 const {
+  IdentityWriteError,
+  IdentityWriteTransaction,
+  createIdentityWriteService,
+  sourceWithMiniapp
+} = require('../src/server/services/postgres/identityWriteService');
+const {
   PersonalRecordReadAdapter
 } = require('../src/server/services/postgres/personalRecordReadAdapter');
 
@@ -321,6 +327,262 @@ test('identity presentation prefers legacy IDs and keeps unsafe bigint IDs as st
     presentIdentity(identityFixture({ id: '9007199254740993' })).id,
     '9007199254740993'
   );
+});
+
+function makeIdentityWriteHarness({ accounts = [], identities = [], references = [] } = {}) {
+  const state = {
+    accounts: accounts.map((item) => ({ ...item })),
+    identities: identities.map((item) => ({ ...item })),
+    references: new Set(references)
+  };
+  const calls = [];
+  let nextAccountNumber = 29;
+  let nextIdentityId = 32;
+  const accountRepository = {
+    async allocateId() {
+      return `ACC${String(nextAccountNumber++).padStart(6, '0')}`;
+    },
+    async insert(account) {
+      state.accounts.push({ ...account });
+      return { ...account };
+    },
+    async findByIdForUpdate(accountId) {
+      return state.accounts.find((item) => item.id === accountId) || null;
+    },
+    async deleteById(accountId) {
+      const index = state.accounts.findIndex((item) => item.id === accountId);
+      if (index === -1) return null;
+      return state.accounts.splice(index, 1)[0];
+    }
+  };
+  const identityRepository = {
+    async lockIdentityKeys(keys) {
+      calls.push(['identity.lock', [...keys].sort()]);
+    },
+    async findUniqueByPhoneForUpdate(phone) {
+      return state.identities.find((item) => item.phone === phone) || null;
+    },
+    async findUniqueByOpenidForUpdate(openid) {
+      return state.identities.find((item) => item.openid === openid) || null;
+    },
+    async countByAccountId(accountId) {
+      return state.identities.filter((item) => item.account_id === accountId).length;
+    },
+    async insert(identity) {
+      const inserted = { id: String(nextIdentityId++), ...identity };
+      state.identities.push(inserted);
+      return inserted;
+    },
+    async updateIdentity(identityId, patch) {
+      const index = state.identities.findIndex(
+        (item) => String(item.id) === String(identityId)
+      );
+      if (index === -1) return null;
+      state.identities[index] = { ...state.identities[index], ...patch };
+      return state.identities[index];
+    },
+    async deleteById(identityId) {
+      const index = state.identities.findIndex(
+        (item) => String(item.id) === String(identityId)
+      );
+      if (index === -1) return null;
+      return state.identities.splice(index, 1)[0];
+    }
+  };
+  const identityReferenceRepository = {
+    async hasBusinessReferences({ accountId, openid }) {
+      return state.references.has(accountId) || state.references.has(openid);
+    }
+  };
+  return {
+    accountRepository,
+    calls,
+    identityReferenceRepository,
+    identityRepository,
+    state
+  };
+}
+
+function makeIdentityWriteTransaction(harness) {
+  return new IdentityWriteTransaction({
+    ...harness,
+    clock: () => new Date('2026-08-08T08:00:00.000Z')
+  });
+}
+
+test('identity write transaction requires narrow transaction-scoped dependencies', () => {
+  assert.throws(
+    () => new IdentityWriteTransaction(),
+    (error) => (
+      error instanceof IdentityWriteError
+      && error.code === 'IDENTITY_WRITE_DEPENDENCY_REQUIRED'
+    )
+  );
+});
+
+test('identity write source transitions stay inside the PostgreSQL constraint', () => {
+  assert.equal(sourceWithMiniapp('miniapp'), 'miniapp');
+  assert.equal(sourceWithMiniapp('web'), 'web+miniapp');
+  assert.equal(sourceWithMiniapp('web+miniapp'), 'web+miniapp');
+  assert.equal(sourceWithMiniapp('migration'), 'web+miniapp');
+  assert.throws(
+    () => sourceWithMiniapp('unknown-source'),
+    (error) => error.code === 'IDENTITY_SOURCE_CONFLICT'
+  );
+});
+
+test('identity write transaction creates idempotent web and miniapp identities', async () => {
+  const harness = makeIdentityWriteHarness();
+  const transaction = makeIdentityWriteTransaction(harness);
+
+  const web = await transaction.createOrGetWebIdentity({ phone: ' 13800000029 ' });
+  const repeatedWeb = await transaction.createOrGetWebIdentity({ phone: '13800000029' });
+  const miniapp = await transaction.createOrGetMiniappIdentity({
+    openid: ' openid-new ',
+    unionid: ''
+  });
+  const updatedMiniapp = await transaction.createOrGetMiniappIdentity({
+    openid: 'openid-new',
+    unionid: 'unionid-new'
+  });
+
+  assert.equal(web.account_id, 'ACC000029');
+  assert.deepEqual(repeatedWeb, web);
+  assert.equal(miniapp.account_id, 'ACC000030');
+  assert.equal(updatedMiniapp.unionid, 'unionid-new');
+  assert.equal(harness.state.accounts.length, 2);
+  assert.equal(harness.state.identities.length, 2);
+  assert.deepEqual(
+    harness.state.accounts.map((account) => account.created_from),
+    ['web_phone', 'miniapp_openid']
+  );
+  assert.deepEqual(
+    harness.state.identities.map((identity) => identity.source),
+    ['web', 'miniapp']
+  );
+  assert.equal(Object.isFrozen(web), true);
+});
+
+test('identity write transaction binds a phone idempotently and rejects replacement', async () => {
+  const harness = makeIdentityWriteHarness({
+    accounts: [{ id: 'ACC000029' }],
+    identities: [{
+      id: '32', legacy_id: null, account_id: 'ACC000029', phone: null,
+      openid: 'openid-mini', unionid: null, source: 'miniapp',
+      created_at: '2026-08-08T07:00:00.000Z',
+      updated_at: '2026-08-08T07:00:00.000Z'
+    }]
+  });
+  const transaction = makeIdentityWriteTransaction(harness);
+
+  const bound = await transaction.bindMiniappPhone({
+    openid: 'openid-mini', phone: '13800000029', unionid: 'unionid-mini'
+  });
+  const repeated = await transaction.bindMiniappPhone({
+    openid: 'openid-mini', phone: '13800000029'
+  });
+  assert.equal(bound.data.phone, '13800000029');
+  assert.equal(bound.data.unionid, 'unionid-mini');
+  assert.equal(repeated.data.id, 32);
+  await assert.rejects(
+    transaction.bindMiniappPhone({
+      openid: 'openid-mini', phone: '13800000030'
+    }),
+    (error) => error.code === 'MINIAPP_PHONE_REPLACE_REQUIRED'
+  );
+  assert.equal(harness.state.identities.length, 1);
+});
+
+test('identity write transaction merges disposable miniapp identity into web account', async () => {
+  const initial = {
+    accounts: [{ id: 'ACC000028' }, { id: 'ACC000029' }],
+    identities: [
+      {
+        id: '31', legacy_id: null, account_id: 'ACC000028', phone: '13800000028',
+        openid: null, unionid: null, source: 'web',
+        created_at: '2026-08-08T06:00:00.000Z',
+        updated_at: '2026-08-08T06:00:00.000Z'
+      },
+      {
+        id: '32', legacy_id: null, account_id: 'ACC000029', phone: null,
+        openid: 'openid-mini', unionid: null, source: 'miniapp',
+        created_at: '2026-08-08T07:00:00.000Z',
+        updated_at: '2026-08-08T07:00:00.000Z'
+      }
+    ]
+  };
+  const harness = makeIdentityWriteHarness(initial);
+  const result = await makeIdentityWriteTransaction(harness).bindMiniappPhone({
+    openid: 'openid-mini', phone: '13800000028', unionid: 'unionid-merged'
+  });
+
+  assert.equal(result.data.id, 31);
+  assert.equal(result.data.account_id, 'ACC000028');
+  assert.equal(result.data.source, 'web+miniapp');
+  assert.equal(result.data.openid, 'openid-mini');
+  assert.equal(harness.state.accounts.length, 1);
+  assert.equal(harness.state.identities.length, 1);
+
+  const referencedHarness = makeIdentityWriteHarness({
+    ...initial,
+    references: ['openid-mini']
+  });
+  await assert.rejects(
+    makeIdentityWriteTransaction(referencedHarness).bindMiniappPhone({
+      openid: 'openid-mini', phone: '13800000028'
+    }),
+    (error) => error.code === 'MINIAPP_ACCOUNT_CONFLICT'
+  );
+  assert.equal(referencedHarness.state.accounts.length, 2);
+  assert.equal(referencedHarness.state.identities.length, 2);
+});
+
+test('identity write service owns one explicit database transaction per operation', async () => {
+  const harness = makeIdentityWriteHarness();
+  const transactionCalls = [];
+  const pool = { connect() {} };
+  const repositoryTypes = {
+    AccountRepository: class { constructor() { return harness.accountRepository; } },
+    IdentityRepository: class { constructor() { return harness.identityRepository; } },
+    IdentityReferenceRepository: class {
+      constructor() { return harness.identityReferenceRepository; }
+    }
+  };
+  const service = createIdentityWriteService({
+    pool,
+    repositoryTypes,
+    clock: () => new Date('2026-08-08T08:00:00.000Z'),
+    async transactionRunner(currentPool, callback, options) {
+      transactionCalls.push({ currentPool, options });
+      return callback({ query() {} });
+    }
+  });
+
+  const identity = await service.createOrGetWebIdentity({ phone: '13800000029' });
+  assert.equal(identity.account_id, 'ACC000029');
+  assert.deepEqual(transactionCalls, [{
+    currentPool: pool,
+    options: { isolationLevel: 'read committed' }
+  }]);
+});
+
+test('identity write service converts bind errors only after transaction rejection', async () => {
+  const transactionCalls = [];
+  const pool = { connect() {} };
+  const service = createIdentityWriteService({
+    pool,
+    repositoryTypes: {},
+    async transactionRunner(currentPool, _callback, options) {
+      transactionCalls.push({ currentPool, options });
+      throw new IdentityWriteError('MINIAPP_ACCOUNT_CONFLICT');
+    }
+  });
+
+  assert.deepEqual(
+    await service.bindMiniappPhone({ openid: 'openid', phone: 'phone' }),
+    { error: 'MINIAPP_ACCOUNT_CONFLICT' }
+  );
+  assert.equal(transactionCalls.length, 1);
 });
 
 test('public QR adapter is isolated from JSON, SQL, connections, and transaction control', () => {

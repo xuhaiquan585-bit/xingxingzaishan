@@ -65,6 +65,15 @@ class AccountRepository {
     );
     return oneOrNull(result, mapAccount);
   }
+
+  async deleteById(accountId) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `DELETE FROM app.accounts WHERE id = $1 RETURNING ${COLUMNS}`,
+      [accountId]
+    );
+    return oneOrNull(result, mapAccount);
+  }
 }
 
 module.exports = { AccountRepository };

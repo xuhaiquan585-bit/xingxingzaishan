@@ -26,6 +26,9 @@ const {
   IdentityReadAdapter
 } = require('../src/server/services/postgres/identityReadAdapter');
 const {
+  createIdentityWriteService
+} = require('../src/server/services/postgres/identityWriteService');
+const {
   PersonalRecordReadAdapter
 } = require('../src/server/services/postgres/personalRecordReadAdapter');
 const {
@@ -543,6 +546,86 @@ test('manual PostgreSQL public QR adapter integration', {
     assert.equal(identityCandidate.openid.openid, fixture.users[1].openid);
     assert.equal(identityCandidate.authenticated.data.id, fixture.users[2].id);
     assert.deepEqual(identityCandidate.missing, { error: 'UNAUTHORIZED' });
+
+    const identityWriteService = createIdentityWriteService({
+      pool,
+      clock: () => new Date('2026-07-01T12:00:00.000Z')
+    });
+    const concurrentWebIdentities = await Promise.all([
+      identityWriteService.createOrGetWebIdentity({ phone: '13800000004' }),
+      identityWriteService.createOrGetWebIdentity({ phone: '13800000004' })
+    ]);
+    assert.deepEqual(concurrentWebIdentities[0], concurrentWebIdentities[1]);
+    assert.equal(concurrentWebIdentities[0].account_id, 'ACC000004');
+
+    const temporaryMiniappIdentity = await identityWriteService.createOrGetMiniappIdentity({
+      openid: 'openid-merge-fixture',
+      unionid: 'unionid-merge-fixture'
+    });
+    assert.equal(temporaryMiniappIdentity.account_id, 'ACC000005');
+    const mergedIdentity = await identityWriteService.bindMiniappPhone({
+      openid: temporaryMiniappIdentity.openid,
+      phone: concurrentWebIdentities[0].phone,
+      unionid: temporaryMiniappIdentity.unionid
+    });
+    assert.equal(mergedIdentity.data.id, concurrentWebIdentities[0].id);
+    assert.equal(mergedIdentity.data.account_id, 'ACC000004');
+    assert.equal(mergedIdentity.data.openid, 'openid-merge-fixture');
+    assert.equal(mergedIdentity.data.source, 'web+miniapp');
+
+    const blockedWebIdentity = await identityWriteService.createOrGetWebIdentity({
+      phone: '13800000005'
+    });
+    const referencedMiniappIdentity = await identityWriteService.createOrGetMiniappIdentity({
+      openid: 'openid-reference-fixture'
+    });
+    await pool.query(
+      `INSERT INTO app.orders
+         (id, order_no, account_id, product_id, openid_snapshot, phone_snapshot,
+          product_snapshot, quantity, unit_price_cents, total_amount_cents, status,
+          payment_status, receiver_name, receiver_phone, region, address, created_at,
+          updated_at)
+       VALUES
+         ('ORDER_IDENTITY_REFERENCE', 'ORDER-NO-IDENTITY-REFERENCE', $1, NULL, '', '',
+          '{}'::jsonb, 1, 0, 0, 'cancelled', 'unpaid', '', '', '', '', $2, $2)`,
+      [fixture.accounts[0].id, CREATED_AT]
+    );
+    await pool.query(
+      `INSERT INTO app.payment_events
+         (order_id, event_type, status, sanitized_metadata, created_at)
+       VALUES
+         ('ORDER_IDENTITY_REFERENCE', 'identity_reference_fixture', 'received',
+          jsonb_build_object(
+            'nested', jsonb_build_object('account_id', $1::text)
+          ), $2)`,
+      [referencedMiniappIdentity.account_id, CREATED_AT]
+    );
+    const referencedMerge = await identityWriteService.bindMiniappPhone({
+      openid: referencedMiniappIdentity.openid,
+      phone: blockedWebIdentity.phone
+    });
+    assert.deepEqual(referencedMerge, { error: 'MINIAPP_ACCOUNT_CONFLICT' });
+
+    const identityWriteState = await pool.query(
+      `SELECT
+         (SELECT count(*)::integer FROM app.accounts) AS account_count,
+         (SELECT count(*)::integer FROM app.users) AS identity_count,
+         (SELECT count(*)::integer FROM app.users WHERE phone = $1) AS concurrent_phone_count,
+         (SELECT count(*)::integer FROM app.accounts WHERE id = $2) AS merged_temp_account_count,
+         (SELECT count(*)::integer FROM app.users WHERE openid = $3) AS referenced_identity_count`,
+      [
+        concurrentWebIdentities[0].phone,
+        temporaryMiniappIdentity.account_id,
+        referencedMiniappIdentity.openid
+      ]
+    );
+    assert.deepEqual(identityWriteState.rows, [{
+      account_count: 6,
+      identity_count: 6,
+      concurrent_phone_count: 1,
+      merged_temp_account_count: 0,
+      referenced_identity_count: 1
+    }]);
 
     const shadowDirectory = path.join(directory, 'direct-shadow');
     shadowRuntime = createPublicQrShadowRuntime({
