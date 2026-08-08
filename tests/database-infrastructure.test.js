@@ -1571,6 +1571,72 @@ test('outbox repository fixes lifecycle state and serializes only the supplied j
   assert.equal(Object.isFrozen(result), true);
 });
 
+test('outbox repository recovers stale work, claims with skip-locked, and enforces ownership', async () => {
+  const row = Object.fromEntries(OUTBOX_FIELDS.map((field) => [field, null]));
+  row.id = '00000000-0000-0000-0000-000000000902';
+  row.job_type = 'record_proof_prepare_submit';
+  row.aggregate_type = 'record';
+  row.aggregate_id = 'QR_WRITE';
+  row.idempotency_key = 'record-proof:QR_WRITE';
+  row.payload = { record_qr_id: 'QR_WRITE' };
+  row.status = 'processing';
+  row.attempt_count = 1;
+  row.locked_by = 'worker-test';
+  const harness = createRepositoryContext(Array.from({ length: 5 }, () => ({
+    rows: [row], rowCount: 1
+  })));
+  const repository = new OutboxRepository(harness.context);
+
+  await repository.recoverStale({
+    stale_before: '2026-08-09T08:55:00.000Z',
+    recovered_at: '2026-08-09T09:00:00.000Z',
+    limit: 1000
+  });
+  await repository.claimPending({
+    worker_id: 'worker-test',
+    claimed_at: '2026-08-09T09:00:00.000Z',
+    limit: 1000
+  });
+  await repository.markSucceeded({
+    id: row.id,
+    worker_id: 'worker-test',
+    updated_at: '2026-08-09T09:01:00.000Z'
+  });
+  await repository.releaseForRetry({
+    id: row.id,
+    worker_id: 'worker-test',
+    available_at: '2026-08-09T09:02:00.000Z',
+    last_error: 'PROVIDER_TIMEOUT',
+    updated_at: '2026-08-09T09:01:00.000Z'
+  });
+  await repository.markFailed({
+    id: row.id,
+    worker_id: 'worker-test',
+    last_error: 'PROVIDER_REJECTED',
+    updated_at: '2026-08-09T09:03:00.000Z'
+  });
+
+  assert.match(harness.calls[0].sql, /status = 'processing' AND locked_at <= \$1/);
+  assert.match(harness.calls[0].sql, /FOR UPDATE SKIP LOCKED/);
+  assert.match(harness.calls[0].sql, /OUTBOX_STALE_LOCK_RECOVERED/);
+  assert.deepEqual(harness.calls[0].params, [
+    '2026-08-09T08:55:00.000Z',
+    '2026-08-09T09:00:00.000Z',
+    50
+  ]);
+  assert.match(harness.calls[1].sql, /FOR UPDATE SKIP LOCKED/);
+  assert.match(harness.calls[1].sql, /status = 'pending'/);
+  assert.deepEqual(harness.calls[1].params, [
+    'worker-test',
+    '2026-08-09T09:00:00.000Z',
+    50
+  ]);
+  for (const call of harness.calls.slice(2)) {
+    assert.match(call.sql, /status = 'processing' AND locked_by = \$2/);
+    assert.doesNotMatch(call.sql, /FOR UPDATE/);
+  }
+});
+
 test('QR lifecycle repositories expose only transaction-scoped state transitions', async () => {
   const record = Object.fromEntries(RECORD_FIELDS.map((field) => [field, null]));
   record.qr_id = 'QR_WRITE';

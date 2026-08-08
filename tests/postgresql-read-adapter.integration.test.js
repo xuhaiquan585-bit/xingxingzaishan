@@ -32,6 +32,9 @@ const {
   createQrLifecycleWriteService
 } = require('../src/server/services/postgres/qrLifecycleWriteService');
 const {
+  createOutboxWorker
+} = require('../src/server/services/postgres/outboxWorkerService');
+const {
   PersonalRecordReadAdapter
 } = require('../src/server/services/postgres/personalRecordReadAdapter');
 const {
@@ -746,6 +749,42 @@ test('manual PostgreSQL public QR adapter integration', {
       maximum_comment_position: 1,
       pending_proof_job_count: 2,
       proof_job_key_count: 2
+    }]);
+
+    const handledProofJobs = [];
+    const outboxWorker = createOutboxWorker({
+      pool,
+      workerId: 'integration-outbox-worker',
+      clock: () => new Date('2026-07-01T12:31:00.000Z'),
+      handlers: {
+        async record_proof_prepare_submit(job) {
+          handledProofJobs.push(job.aggregate_id);
+        }
+      }
+    });
+    assert.deepEqual(await outboxWorker.runOnce(), {
+      recovered: 0,
+      claimed: 2,
+      succeeded: 2,
+      retried: 0,
+      failed: 0
+    });
+    assert.deepEqual(handledProofJobs.sort(), ['QR_WRITE_CO', 'QR_WRITE_DIRECT']);
+    const completedOutboxState = await pool.query(
+      `SELECT
+         count(*) FILTER (WHERE status = 'succeeded')::integer AS succeeded_job_count,
+         count(*) FILTER (WHERE locked_at IS NOT NULL OR locked_by IS NOT NULL)::integer
+           AS locked_job_count,
+         min(attempt_count)::integer AS minimum_attempt_count,
+         max(attempt_count)::integer AS maximum_attempt_count
+       FROM app.outbox_jobs
+       WHERE aggregate_id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')`
+    );
+    assert.deepEqual(completedOutboxState.rows, [{
+      succeeded_job_count: 2,
+      locked_job_count: 0,
+      minimum_attempt_count: 1,
+      maximum_attempt_count: 1
     }]);
 
     const shadowDirectory = path.join(directory, 'direct-shadow');

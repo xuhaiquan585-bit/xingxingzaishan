@@ -33,6 +33,11 @@ const {
   createQrLifecycleWriteService
 } = require('../src/server/services/postgres/qrLifecycleWriteService');
 const {
+  OutboxWorkerError,
+  createOutboxWorker,
+  safeErrorCode
+} = require('../src/server/services/postgres/outboxWorkerService');
+const {
   PersonalRecordReadAdapter
 } = require('../src/server/services/postgres/personalRecordReadAdapter');
 
@@ -913,6 +918,104 @@ test('QR lifecycle write service is isolated from JSON, SQL, and runtime environ
   );
   assert.doesNotMatch(source, /dbService|readDB|writeDB|process\.env/);
   assert.doesNotMatch(source, /\b(?:SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\b/);
+});
+
+test('outbox worker executes handlers outside transactions and records safe outcomes', async () => {
+  let transactionDepth = 0;
+  const transitions = [];
+  const jobs = [
+    { id: 'JOB_OK', job_type: 'proof', attempt_count: 1 },
+    { id: 'JOB_RETRY', job_type: 'proof', attempt_count: 1 },
+    { id: 'JOB_UNKNOWN', job_type: 'unknown', attempt_count: 1 }
+  ];
+  const repository = {
+    async recoverStale(input) {
+      transitions.push(['recovered', input]);
+      return [];
+    },
+    async claimPending(input) {
+      transitions.push(['claim', input]);
+      return jobs;
+    },
+    async markSucceeded(input) {
+      transitions.push(['succeeded', input]);
+      return { id: input.id };
+    },
+    async releaseForRetry(input) {
+      transitions.push(['retry', input]);
+      return { id: input.id };
+    },
+    async markFailed(input) {
+      transitions.push(['failed', input]);
+      return { id: input.id };
+    }
+  };
+  const worker = createOutboxWorker({
+    pool: { connect() {} },
+    workerId: 'unit-worker',
+    repositoryTypes: {
+      OutboxRepository: class { constructor() { return repository; } }
+    },
+    handlers: {
+      async proof(job) {
+        assert.equal(transactionDepth, 0);
+        if (job.id === 'JOB_RETRY') {
+          const error = new Error('sensitive provider response');
+          error.code = 'PROVIDER_TIMEOUT';
+          throw error;
+        }
+      }
+    },
+    clock: () => new Date('2026-08-09T09:00:00.000Z'),
+    async transactionRunner(_pool, callback, options) {
+      assert.deepEqual(options, { isolationLevel: 'read committed' });
+      transactionDepth += 1;
+      try {
+        return await callback({ query() {} });
+      } finally {
+        transactionDepth -= 1;
+      }
+    }
+  });
+
+  assert.deepEqual(await worker.runOnce(), {
+    recovered: 0,
+    claimed: 3,
+    succeeded: 1,
+    retried: 1,
+    failed: 1
+  });
+  const retry = transitions.find(([kind]) => kind === 'retry')[1];
+  assert.equal(retry.last_error, 'PROVIDER_TIMEOUT');
+  assert.equal(retry.available_at, '2026-08-09T09:00:01.000Z');
+  const failed = transitions.find(([kind]) => kind === 'failed')[1];
+  assert.equal(failed.last_error, 'OUTBOX_HANDLER_NOT_REGISTERED');
+  assert.equal(JSON.stringify(transitions).includes('sensitive provider response'), false);
+  assert.deepEqual(transitions.find(([kind]) => kind === 'recovered')[1], {
+    stale_before: '2026-08-09T08:55:00.000Z',
+    recovered_at: '2026-08-09T09:00:00.000Z',
+    limit: 10
+  });
+});
+
+test('outbox worker validates configuration and sanitizes untrusted errors', () => {
+  assert.throws(
+    () => createOutboxWorker({ pool: { connect() {} } }),
+    (error) => error instanceof OutboxWorkerError
+      && error.code === 'OUTBOX_WORKER_ID_REQUIRED'
+  );
+  assert.equal(safeErrorCode({ code: 'UPSTREAM_TIMEOUT' }), 'UPSTREAM_TIMEOUT');
+  assert.equal(safeErrorCode({ code: 'unsafe error text' }), 'OUTBOX_HANDLER_FAILED');
+});
+
+test('outbox worker is isolated from JSON, SQL, environment, and automatic startup', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../src/server/services/postgres/outboxWorkerService.js'),
+    'utf8'
+  );
+  assert.doesNotMatch(source, /dbService|readDB|writeDB|process\.env/);
+  assert.doesNotMatch(source, /\b(?:SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\b/);
+  assert.doesNotMatch(source, /setInterval|setTimeout/);
 });
 
 test('public QR adapter is isolated from JSON, SQL, connections, and transaction control', () => {
