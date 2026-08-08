@@ -65,6 +65,7 @@ function readRecordProofRuntimeConfig(env = process.env) {
   const source = env && typeof env === 'object' ? env : {};
   const enabled = text(source.RECORD_PROOF_RUNTIME_ENABLED);
   if (!enabled) return disabled('DISABLED_BY_DEFAULT');
+  if (enabled === 'false') return disabled('DISABLED_BY_CONFIGURATION');
   if (enabled !== 'true') return disabled('INVALID_ENABLED_VALUE');
 
   const allowlist = parseAllowlist(source.RECORD_PROOF_RUNTIME_ALLOWLIST);

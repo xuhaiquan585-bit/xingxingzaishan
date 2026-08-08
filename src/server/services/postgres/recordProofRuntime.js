@@ -180,29 +180,48 @@ function createRecordProofRuntimeController({
   let closed = false;
 
   function ensureRuntime() {
-    if (closed) return null;
+    if (closed) {
+      return {
+        config: Object.freeze({ enabled: false, reason: 'RUNTIME_CLOSED' }),
+        pending: null
+      };
+    }
     const config = readConfig(env);
-    if (!config || config.enabled !== true) return null;
+    if (!config || config.enabled !== true) {
+      return { config, pending: null };
+    }
     if (!runtimePromise) {
       runtimePromise = Promise.resolve().then(() => runtimeFactory(config, {
         env,
         onWorkerError
       }));
     }
-    return runtimePromise;
+    return { config, pending: runtimePromise };
   }
 
   async function start() {
-    const pending = ensureRuntime();
-    if (!pending) return false;
+    const { config, pending } = ensureRuntime();
+    if (!pending) {
+      const reason = String(config && config.reason || 'CONFIG_INVALID');
+      if (['DISABLED_BY_DEFAULT', 'DISABLED_BY_CONFIGURATION'].includes(reason)) {
+        return false;
+      }
+      throw new RecordProofRuntimeError('RECORD_PROOF_RUNTIME_CONFIG_INVALID');
+    }
     const runtime = await pending;
     runtime.start();
     return true;
   }
 
   async function invoke(method, rawResult) {
-    const pending = ensureRuntime();
-    if (!pending) return Object.freeze({ outcome: 'disabled', status: null });
+    const { config, pending } = ensureRuntime();
+    if (!pending) {
+      return Object.freeze({
+        outcome: 'disabled',
+        status: null,
+        reason: String(config && config.reason || 'CONFIG_INVALID')
+      });
+    }
     const runtime = await pending;
     return runtime[method](rawResult);
   }
@@ -223,8 +242,25 @@ function createRecordProofRuntimeController({
   });
 }
 
+const defaultController = createRecordProofRuntimeController();
+
+function startRecordProofRuntime() {
+  return defaultController.start();
+}
+
+function applyRecordProofCallback(rawResult) {
+  return defaultController.applyCallback(rawResult);
+}
+
+function closeRecordProofRuntime() {
+  return defaultController.close();
+}
+
 module.exports = {
   RecordProofRuntimeError,
+  applyRecordProofCallback,
+  closeRecordProofRuntime,
   createRecordProofRuntime,
-  createRecordProofRuntimeController
+  createRecordProofRuntimeController,
+  startRecordProofRuntime
 };

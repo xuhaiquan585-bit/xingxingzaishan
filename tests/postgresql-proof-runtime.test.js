@@ -12,6 +12,10 @@ const {
   createRecordProofRuntime,
   createRecordProofRuntimeController
 } = require('../src/server/services/postgres/recordProofRuntime');
+const {
+  createAvataCallbackHandler
+} = require('../src/server/routes/chain');
+const { startServer } = require('../src/server/server');
 
 function enabledEnv(overrides = {}) {
   return {
@@ -38,6 +42,9 @@ function enabledEnv(overrides = {}) {
 
 test('record proof runtime config is default-off and requires complete real-provider gates', () => {
   assert.equal(readRecordProofRuntimeConfig({}).reason, 'DISABLED_BY_DEFAULT');
+  assert.equal(readRecordProofRuntimeConfig({
+    RECORD_PROOF_RUNTIME_ENABLED: 'false'
+  }).reason, 'DISABLED_BY_CONFIGURATION');
   assert.equal(readRecordProofRuntimeConfig({
     ...enabledEnv(),
     RECORD_PROOF_RUNTIME_ALLOWLIST: ''
@@ -177,7 +184,31 @@ test('record proof controller does not construct runtime while disabled', async 
   assert.equal(await controller.start(), false);
   assert.deepEqual(await controller.applyCallback({ secret: 'not-read' }), {
     outcome: 'disabled',
-    status: null
+    status: null,
+    reason: 'DISABLED_BY_DEFAULT'
+  });
+  assert.equal(factoryCalls, 0);
+  await controller.close();
+});
+
+test('record proof controller fails closed when enablement is invalid', async () => {
+  let factoryCalls = 0;
+  const controller = createRecordProofRuntimeController({
+    env: {},
+    readConfig: () => ({ enabled: false, reason: 'ALLOWLIST_REQUIRED' }),
+    runtimeFactory() {
+      factoryCalls += 1;
+    }
+  });
+
+  await assert.rejects(
+    controller.start(),
+    (error) => error.code === 'RECORD_PROOF_RUNTIME_CONFIG_INVALID'
+  );
+  assert.deepEqual(await controller.applyCallback({}), {
+    outcome: 'disabled',
+    status: null,
+    reason: 'ALLOWLIST_REQUIRED'
   });
   assert.equal(factoryCalls, 0);
   await controller.close();
@@ -227,7 +258,175 @@ test('record proof runtime blocks worker and callbacks when import provenance is
   await runtime.close();
 });
 
-test('record proof runtime has no route, server, PM2, or automatic startup wiring', () => {
+function fakeResponse() {
+  return {
+    statusCode: 200,
+    contentType: null,
+    body: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    type(value) {
+      this.contentType = value;
+      return this;
+    },
+    send(value) {
+      this.body = value;
+      return this;
+    }
+  };
+}
+
+function callbackRequest() {
+  return {
+    originalUrl: '/api/chain/avata/callback?source=provider',
+    body: { operation_id: 'operation-1', status: 1 },
+    headers: { 'x-api-key': 'test' }
+  };
+}
+
+test('AVATA callback verifies before selecting a persistence path', async () => {
+  let runtimeCalls = 0;
+  let legacyCalls = 0;
+  const handler = createAvataCallbackHandler({
+    verifyCallback: () => ({ ok: false }),
+    applyRuntimeCallback: async () => {
+      runtimeCalls += 1;
+    },
+    applyLegacyCallback: async () => {
+      legacyCalls += 1;
+    }
+  });
+  const response = fakeResponse();
+
+  await handler(callbackRequest(), response);
+
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.body, 'FAILED');
+  assert.equal(runtimeCalls, 0);
+  assert.equal(legacyCalls, 0);
+});
+
+test('AVATA callback preserves JSON behavior only while runtime is safely off', async () => {
+  let legacyCalls = 0;
+  const handler = createAvataCallbackHandler({
+    verifyCallback: () => ({ ok: true }),
+    applyRuntimeCallback: async () => ({
+      outcome: 'disabled',
+      status: null,
+      reason: 'DISABLED_BY_CONFIGURATION'
+    }),
+    applyLegacyCallback: async () => {
+      legacyCalls += 1;
+      return { data: { id: 'QR_ALLOWED' } };
+    }
+  });
+  const response = fakeResponse();
+
+  await handler(callbackRequest(), response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.contentType, 'text/plain');
+  assert.equal(response.body, 'SUCCESS');
+  assert.equal(legacyCalls, 1);
+});
+
+test('AVATA callback uses PostgreSQL exclusively when proof runtime is enabled', async () => {
+  let legacyCalls = 0;
+  const handler = createAvataCallbackHandler({
+    verifyCallback: () => ({ ok: true }),
+    applyRuntimeCallback: async () => ({ outcome: 'duplicate', status: 'confirmed' }),
+    applyLegacyCallback: async () => {
+      legacyCalls += 1;
+    }
+  });
+  const response = fakeResponse();
+
+  await handler(callbackRequest(), response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body, 'SUCCESS');
+  assert.equal(legacyCalls, 0);
+});
+
+test('AVATA callback fails closed for out-of-scope and invalid runtime states', async () => {
+  const notFoundHandler = createAvataCallbackHandler({
+    verifyCallback: () => ({ ok: true }),
+    applyRuntimeCallback: async () => ({ outcome: 'not_found', status: null }),
+    applyLegacyCallback: async () => assert.fail('legacy fallback must not run')
+  });
+  const notFoundResponse = fakeResponse();
+  await notFoundHandler(callbackRequest(), notFoundResponse);
+  assert.equal(notFoundResponse.statusCode, 404);
+
+  const invalidHandler = createAvataCallbackHandler({
+    verifyCallback: () => ({ ok: true }),
+    applyRuntimeCallback: async () => ({
+      outcome: 'disabled',
+      status: null,
+      reason: 'ALLOWLIST_REQUIRED'
+    }),
+    applyLegacyCallback: async () => assert.fail('legacy fallback must not run')
+  });
+  const invalidResponse = fakeResponse();
+  await invalidHandler(callbackRequest(), invalidResponse);
+  assert.equal(invalidResponse.statusCode, 503);
+});
+
+test('server starts and closes the shared proof runtime with its process lifecycle', async () => {
+  const calls = [];
+  const listeners = new Map();
+  const server = {
+    close(callback) {
+      calls.push('http-close');
+      callback();
+    }
+  };
+  const app = {
+    listen(_port, callback) {
+      calls.push('http-listen');
+      callback();
+      return server;
+    }
+  };
+  const processObject = {
+    once(event, handler) {
+      listeners.set(event, handler);
+    },
+    exit(code) {
+      calls.push(`exit-${code}`);
+    }
+  };
+  const runtimeError = new Error('runtime start failed');
+  const errors = [];
+  const { startup } = startServer({
+    app,
+    port: 0,
+    processObject,
+    startProofRuntime: async () => {
+      calls.push('proof-start');
+      throw runtimeError;
+    },
+    closeShadowRuntime: async () => calls.push('runtime-close'),
+    onError: (error) => errors.push(error)
+  });
+
+  await startup;
+
+  assert.equal(listeners.has('SIGTERM'), true);
+  assert.equal(listeners.has('SIGINT'), true);
+  assert.deepEqual(errors, [runtimeError]);
+  assert.deepEqual(calls, [
+    'http-listen',
+    'proof-start',
+    'http-close',
+    'runtime-close',
+    'exit-1'
+  ]);
+});
+
+test('record proof runtime wiring remains isolated from PM2 and JSON internals', () => {
   const runtimeSource = fs.readFileSync(
     path.join(__dirname, '../src/server/services/postgres/recordProofRuntime.js'),
     'utf8'
@@ -242,6 +441,9 @@ test('record proof runtime has no route, server, PM2, or automatic startup wirin
   );
 
   assert.doesNotMatch(runtimeSource, /dbService|readDB|writeDB|express|router|pm2/);
-  assert.doesNotMatch(serverSource, /recordProofRuntime/);
-  assert.doesNotMatch(routeSource, /recordProofRuntime/);
+  assert.match(serverSource, /startRecordProofRuntime/);
+  assert.match(serverSource, /closeRecordProofRuntime/);
+  assert.match(routeSource, /applyRecordProofCallback/);
+  assert.doesNotMatch(serverSource, /pm2/);
+  assert.doesNotMatch(routeSource, /pm2/);
 });
