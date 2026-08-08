@@ -9,6 +9,7 @@ const {
   PublicQrReadAdapter,
   PublicQrReadError,
   publicComments,
+  publicLegacyCommentId,
   publicTimestamp
 } = require('../src/server/services/postgres/publicQrReadAdapter');
 const {
@@ -299,6 +300,27 @@ test('public comments use source position when creation timestamps are equal', (
   ]);
   assert.deepEqual(comments.map((comment) => comment.id), ['SECOND', 'FIRST']);
   assert.equal(JSON.stringify(comments).includes('source_position'), false);
+});
+
+test('legacy numeric comment IDs retain the existing JSON number type', () => {
+  assert.equal(publicLegacyCommentId('42', 'UUID_FALLBACK'), 42);
+  assert.equal(publicLegacyCommentId('-2', 'UUID_FALLBACK'), -2);
+  assert.equal(publicLegacyCommentId('COMMENT_42', 'UUID_FALLBACK'), 'COMMENT_42');
+  assert.equal(publicLegacyCommentId('0042', 'UUID_FALLBACK'), '0042');
+  assert.equal(
+    publicLegacyCommentId('9007199254740992', 'UUID_FALLBACK'),
+    '9007199254740992'
+  );
+  assert.equal(publicLegacyCommentId(null, 'UUID_FALLBACK'), 'UUID_FALLBACK');
+
+  const comments = publicComments([{
+    id: 'UUID_FALLBACK',
+    legacy_comment_id: '7',
+    source_position: 0,
+    status: 'kept',
+    created_at: '2026-07-01T10:00:00.000Z'
+  }]);
+  assert.equal(comments[0].id, 7);
 });
 
 test('public comments fail closed without a valid stable source position', () => {

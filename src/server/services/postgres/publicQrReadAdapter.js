@@ -44,6 +44,15 @@ function publicTimestamp(value, fallback = null) {
   return value === null || value === undefined ? fallback : String(value);
 }
 
+function publicLegacyCommentId(legacyId, fallbackId) {
+  const value = legacyId === null || legacyId === undefined || legacyId === ''
+    ? fallbackId
+    : legacyId;
+  if (typeof value !== 'string' || !/^-?(?:0|[1-9]\d*)$/.test(value)) return value;
+  const numericValue = Number(value);
+  return Number.isSafeInteger(numericValue) ? numericValue : value;
+}
+
 function publicComments(comments) {
   return (Array.isArray(comments) ? comments : [])
     .filter((comment) => comment && comment.status !== 'deleted')
@@ -62,7 +71,7 @@ function publicComments(comments) {
       return timestampDifference || left.source_position - right.source_position;
     })
     .map((comment) => ({
-      id: comment.legacy_comment_id || comment.id,
+      id: publicLegacyCommentId(comment.legacy_comment_id, comment.id),
       author_name: comment.author_name || '',
       content: comment.content || '',
       created_at: publicTimestamp(comment.created_at, '')
@@ -319,5 +328,6 @@ module.exports = {
   PublicQrReadError,
   normalizeViewer,
   publicComments,
+  publicLegacyCommentId,
   publicTimestamp
 };
