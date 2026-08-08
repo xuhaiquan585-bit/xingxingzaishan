@@ -520,6 +520,10 @@ close the separate Shadow Read execution gates documented in
 - Disabled-provider mock responses are rejected by default and cannot be
   persisted as confirmed proofs. The adapter reads no database or environment
   state and has no application-startup wiring.
+- The isolated provider-result service locks proofs by provider operation ID
+  and applies callback or query outcomes in one short transaction. Duplicate
+  confirmation can fill missing certificate metadata, while conflicting IDs
+  fail closed and stale events cannot regress a confirmed proof.
 - Interrupted attempts are closed before idempotent resubmission. Existing
   submitted or confirmed proofs do not submit twice, and imported legacy proof
   evidence fails closed instead of being overwritten.

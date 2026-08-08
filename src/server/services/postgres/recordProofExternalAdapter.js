@@ -75,6 +75,33 @@ function normalizeBlockHeight(value) {
   return normalized;
 }
 
+function boundedOptionalText(value, maximum) {
+  const normalized = normalizedText(value);
+  if (normalized.length > maximum) {
+    throw new RecordProofExternalError('RECORD_PROOF_PROVIDER_RESULT_INVALID');
+  }
+  return normalized || null;
+}
+
+function normalizeCertificateUrl(value) {
+  const normalized = boundedOptionalText(value, 4096);
+  if (!normalized) return null;
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch (_error) {
+    throw new RecordProofExternalError('RECORD_PROOF_PROVIDER_RESULT_INVALID');
+  }
+  if (
+    parsed.protocol !== 'https:'
+    || parsed.username
+    || parsed.password
+  ) {
+    throw new RecordProofExternalError('RECORD_PROOF_PROVIDER_RESULT_INVALID');
+  }
+  return normalized;
+}
+
 function defaultDependencies(overrides) {
   let manifestService;
   let archiveService;
@@ -130,6 +157,24 @@ function createRecordProofExternalAdapter(options = {}) {
     'RECORD_PROOF_PROVIDER_NORMALIZER_REQUIRED'
   );
   const allowMock = options.allowMock === true;
+
+  function normalizeRecordResult(raw) {
+    if (raw && raw.mock === true && !allowMock) {
+      throw new RecordProofExternalError('RECORD_PROOF_PROVIDER_DISABLED');
+    }
+    const result = normalizeResult(raw);
+    if (!result || typeof result !== 'object') {
+      throw new RecordProofExternalError('RECORD_PROOF_PROVIDER_RESULT_INVALID');
+    }
+    return Object.freeze({
+      status: normalizeProviderStatus(result.status),
+      operation_id: boundedOptionalText(result.operation_id, 200),
+      transaction_hash: boundedOptionalText(result.tx_hash, 255),
+      block_height: normalizeBlockHeight(result.block_height),
+      provider_record_id: boundedOptionalText(result.record_id, 200),
+      provider_certificate_url: normalizeCertificateUrl(result.certificate_url)
+    });
+  }
 
   async function prepareRecord({ record, proof } = {}) {
     const recordId = normalizedText(record && record.id);
@@ -194,28 +239,23 @@ function createRecordProofExternalAdapter(options = {}) {
       starId: recordId,
       sealedAt
     });
-    if (raw && raw.mock === true && !allowMock) {
-      throw new RecordProofExternalError('RECORD_PROOF_PROVIDER_DISABLED');
+    const result = normalizeRecordResult(raw);
+    if (result.operation_id && result.operation_id !== operationId) {
+      throw new RecordProofExternalError('RECORD_PROOF_PROVIDER_RESULT_CONFLICT');
     }
-    const result = normalizeResult(raw);
-    if (!result || typeof result !== 'object') {
-      throw new RecordProofExternalError('RECORD_PROOF_PROVIDER_RESULT_INVALID');
-    }
-    return Object.freeze({
-      status: normalizeProviderStatus(result.status),
-      transaction_hash: normalizedText(result.tx_hash) || null,
-      block_height: normalizeBlockHeight(result.block_height),
-      provider_record_id: normalizedText(result.record_id) || null,
-      provider_certificate_url:
-        normalizedText(result.certificate_url) || null
-    });
+    return result;
   }
 
-  return Object.freeze({ prepareRecord, submitRecord });
+  return Object.freeze({
+    prepareRecord,
+    submitRecord,
+    normalizeRecordResult
+  });
 }
 
 module.exports = {
   RecordProofExternalError,
   createRecordProofExternalAdapter,
+  normalizeCertificateUrl,
   normalizeProviderStatus
 };

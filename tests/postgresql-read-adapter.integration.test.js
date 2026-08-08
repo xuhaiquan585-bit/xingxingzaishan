@@ -38,6 +38,9 @@ const {
   createRecordProofJobHandler
 } = require('../src/server/services/postgres/recordProofJobHandler');
 const {
+  createRecordProofResultService
+} = require('../src/server/services/postgres/recordProofResultService');
+const {
   PersonalRecordReadAdapter
 } = require('../src/server/services/postgres/personalRecordReadAdapter');
 const {
@@ -769,7 +772,9 @@ test('manual PostgreSQL public QR adapter integration', {
       },
       async submitRecord(input) {
         return {
-          status: 'confirmed',
+          status: input.record_qr_id === 'QR_WRITE_DIRECT'
+            ? 'confirmed'
+            : 'submitted',
           transaction_hash: `tx-${input.record_qr_id}`,
           block_height: input.record_qr_id === 'QR_WRITE_DIRECT' ? 101 : 102,
           provider_record_id: `provider-${input.record_qr_id}`
@@ -792,6 +797,33 @@ test('manual PostgreSQL public QR adapter integration', {
       failed: 0
     });
     assert.deepEqual(handledProofJobs.sort(), ['QR_WRITE_CO', 'QR_WRITE_DIRECT']);
+    const proofResultService = createRecordProofResultService({
+      pool,
+      normalizeProviderResult: (value) => value,
+      clock: () => new Date('2026-07-01T12:32:00.000Z')
+    });
+    assert.deepEqual(await proofResultService.applyCallback({
+      status: 'confirmed',
+      operation_id: `record_QR_WRITE_CO_${sha256('manifest:QR_WRITE_CO').slice(0, 16)}`,
+      transaction_hash: 'tx-QR_WRITE_CO',
+      block_height: 102,
+      provider_record_id: 'provider-QR_WRITE_CO',
+      provider_certificate_url: 'https://fixture.invalid/QR_WRITE_CO.pdf'
+    }), {
+      outcome: 'applied',
+      status: 'confirmed'
+    });
+    assert.deepEqual(await proofResultService.applyCallback({
+      status: 'confirmed',
+      operation_id: `record_QR_WRITE_CO_${sha256('manifest:QR_WRITE_CO').slice(0, 16)}`,
+      transaction_hash: 'tx-QR_WRITE_CO',
+      block_height: 102,
+      provider_record_id: 'provider-QR_WRITE_CO',
+      provider_certificate_url: 'https://fixture.invalid/QR_WRITE_CO.pdf'
+    }), {
+      outcome: 'duplicate',
+      status: 'confirmed'
+    });
     const completedOutboxState = await pool.query(
       `SELECT
          count(*) FILTER (WHERE status = 'succeeded')::integer AS succeeded_job_count,
@@ -822,13 +854,19 @@ test('manual PostgreSQL public QR adapter integration', {
           WHERE record_qr_id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')
             AND status = 'ready') AS ready_archive_count,
          (SELECT count(DISTINCT operation_id)::integer FROM app.record_proofs
-          WHERE record_qr_id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')) AS operation_count`
+          WHERE record_qr_id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')) AS operation_count,
+         (SELECT count(*)::integer FROM app.record_proofs
+          WHERE record_qr_id = 'QR_WRITE_CO'
+            AND callback_received_at IS NOT NULL
+            AND provider_certificate_url =
+              'https://fixture.invalid/QR_WRITE_CO.pdf') AS callback_proof_count`
     );
     assert.deepEqual(completedProofState.rows, [{
       confirmed_proof_count: 2,
       succeeded_attempt_count: 2,
       ready_archive_count: 2,
-      operation_count: 2
+      operation_count: 2,
+      callback_proof_count: 1
     }]);
 
     const shadowDirectory = path.join(directory, 'direct-shadow');

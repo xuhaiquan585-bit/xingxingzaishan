@@ -145,11 +145,38 @@ test('external adapter normalizes only known provider outcomes', async () => {
   const adapter = createRecordProofExternalAdapter(adapterOptions());
   assert.deepEqual(await adapter.submitRecord(submission()), {
     status: 'confirmed',
+    operation_id: null,
     transaction_hash: 'tx-external',
     block_height: 42,
     provider_record_id: 'provider-record',
     provider_certificate_url: 'https://example.test/certificate.pdf'
   });
+
+  const invalidCertificateAdapter = createRecordProofExternalAdapter(
+    adapterOptions({
+      submitRecordProof: async () => ({
+        status: 'confirmed',
+        certificate_url: 'javascript:alert(1)'
+      })
+    })
+  );
+  await assert.rejects(
+    invalidCertificateAdapter.submitRecord(submission()),
+    (error) => error.code === 'RECORD_PROOF_PROVIDER_RESULT_INVALID'
+  );
+
+  const conflictingOperationAdapter = createRecordProofExternalAdapter(
+    adapterOptions({
+      submitRecordProof: async () => ({
+        status: 'submitted',
+        operation_id: 'record_QR_OTHER_bbbbbbbbbbbbbbbb'
+      })
+    })
+  );
+  await assert.rejects(
+    conflictingOperationAdapter.submitRecord(submission()),
+    (error) => error.code === 'RECORD_PROOF_PROVIDER_RESULT_CONFLICT'
+  );
 });
 
 test('external adapter has no database, environment, or runtime startup wiring', () => {

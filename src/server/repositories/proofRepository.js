@@ -25,10 +25,18 @@ class ProofRepository {
   }
 
   async findByOperationId(provider, operationId) {
+    return this.#findByOperationId(provider, operationId, false);
+  }
+
+  async findByOperationIdForUpdate(provider, operationId) {
+    return this.#findByOperationId(provider, operationId, true);
+  }
+
+  async #findByOperationId(provider, operationId, forUpdate) {
     const result = await executeQuery(
       this.transactionContext,
       `SELECT ${PROOF_COLUMNS} FROM app.record_proofs
-       WHERE provider = $1 AND operation_id = $2`,
+       WHERE provider = $1 AND operation_id = $2${forUpdate ? ' FOR UPDATE' : ''}`,
       [provider, operationId]
     );
     return oneOrNull(result, mapProof);
@@ -114,6 +122,54 @@ class ProofRepository {
          AND status IN ('not_started', 'manifest_ready', 'submitting', 'failed', 'retrying')
        RETURNING ${PROOF_COLUMNS}`,
       [id, lastError, updatedAt]
+    );
+  }
+
+  async applyProviderEvent({
+    id,
+    status,
+    transaction_hash: transactionHash,
+    block_height: blockHeight,
+    provider_record_id: providerRecordId,
+    provider_certificate_url: providerCertificateUrl,
+    confirmed_at: confirmedAt,
+    callback_received_at: callbackReceivedAt,
+    last_error: lastError,
+    updated_at: updatedAt
+  }) {
+    return this.#updateProof(
+      `UPDATE app.record_proofs
+       SET status = $2,
+           transaction_hash = COALESCE($3, transaction_hash),
+           block_height = COALESCE($4, block_height),
+           provider_record_id = COALESCE($5, provider_record_id),
+           provider_certificate_url = COALESCE(provider_certificate_url, $6),
+           confirmed_at = COALESCE($7, confirmed_at),
+           callback_received_at = COALESCE(callback_received_at, $8),
+           last_error = $9, updated_at = $10
+       WHERE id = $1
+         AND (
+           ($2 = 'submitted' AND status IN ('submitting', 'submitted'))
+           OR ($2 = 'confirmed' AND status IN (
+             'submitting', 'submitted', 'confirmed', 'failed', 'retrying'
+           ))
+           OR ($2 = 'failed' AND status IN (
+             'submitting', 'submitted', 'failed', 'retrying'
+           ))
+         )
+       RETURNING ${PROOF_COLUMNS}`,
+      [
+        id,
+        status,
+        transactionHash,
+        blockHeight,
+        providerRecordId,
+        providerCertificateUrl,
+        confirmedAt,
+        callbackReceivedAt,
+        lastError,
+        updatedAt
+      ]
     );
   }
 

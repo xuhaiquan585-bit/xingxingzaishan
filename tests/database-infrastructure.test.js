@@ -1761,6 +1761,60 @@ test('proof repository enforces guarded progression and closes attempt history',
   assert.match(harness.calls[6].sql, /result_status = 'pending'/);
 });
 
+test('proof repository locks operations and applies guarded provider events', async () => {
+  const row = Object.fromEntries(PROOF_FIELDS.map((field) => [field, null]));
+  Object.assign(row, {
+    id: '00000000-0000-0000-0000-000000000951',
+    provider: 'avata_wenchang',
+    operation_id: 'record_QR_RESULT_aaaaaaaaaaaaaaaa',
+    status: 'confirmed',
+    callback_received_at: '2026-08-09T14:00:00.000Z'
+  });
+  const harness = createRepositoryContext([
+    { rows: [row], rowCount: 1 },
+    { rows: [row], rowCount: 1 }
+  ]);
+  const repository = new ProofRepository(harness.context);
+
+  await repository.findByOperationIdForUpdate(
+    row.provider,
+    row.operation_id
+  );
+  await repository.applyProviderEvent({
+    id: row.id,
+    status: 'confirmed',
+    transaction_hash: 'tx-result',
+    block_height: 99,
+    provider_record_id: 'provider-result',
+    provider_certificate_url: 'https://example.test/certificate.pdf',
+    confirmed_at: row.callback_received_at,
+    callback_received_at: row.callback_received_at,
+    last_error: '',
+    updated_at: row.callback_received_at
+  });
+
+  assert.match(harness.calls[0].sql, /operation_id = \$2 FOR UPDATE/);
+  assert.match(harness.calls[1].sql, /callback_received_at = COALESCE/);
+  assert.match(
+    harness.calls[1].sql,
+    /provider_certificate_url = COALESCE\(provider_certificate_url, \$6\)/
+  );
+  assert.match(harness.calls[1].sql, /\$2 = 'confirmed'/);
+  assert.match(harness.calls[1].sql, /status IN \(/);
+  assert.deepEqual(harness.calls[1].params, [
+    row.id,
+    'confirmed',
+    'tx-result',
+    99,
+    'provider-result',
+    'https://example.test/certificate.pdf',
+    row.callback_received_at,
+    row.callback_received_at,
+    '',
+    row.callback_received_at
+  ]);
+});
+
 test('QR lifecycle repositories expose only transaction-scoped state transitions', async () => {
   const record = Object.fromEntries(RECORD_FIELDS.map((field) => [field, null]));
   record.qr_id = 'QR_WRITE';
