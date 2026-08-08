@@ -524,6 +524,19 @@ close the separate Shadow Read execution gates documented in
   and applies callback or query outcomes in one short transaction. Duplicate
   confirmation can fill missing certificate metadata, while conflicting IDs
   fail closed and stale events cannot regress a confirmed proof.
+- The guarded runtime assembly requires an exact enable value, an explicit QR
+  allowlist, the exact imported source SHA-256, a stable worker ID, complete
+  real-provider credentials, and an HTTPS callback URL. Missing or malformed
+  settings leave it disabled.
+- Worker claims and stale-lock recovery are scoped in SQL to the record-proof
+  job type and the same QR allowlist. Provider callback and query results are
+  checked against that allowlist again after locking the proof row.
+- Every worker pass and provider-result application requires the configured
+  source hash to have a passed import and the database to have the exact
+  canonical migration set.
+- The runtime scheduler is serial, bounded, and closes its timer, active run,
+  and pool deterministically. It is not imported by application startup or the
+  existing AVATA callback route, so deployment alone cannot start it.
 - Interrupted attempts are closed before idempotent resubmission. Existing
   submitted or confirmed proofs do not submit twice, and imported legacy proof
   evidence fails closed instead of being overwritten.

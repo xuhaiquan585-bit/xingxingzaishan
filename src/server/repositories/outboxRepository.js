@@ -12,6 +12,22 @@ const {
 const COLUMNS = OUTBOX_FIELDS.join(', ');
 const JOB_COLUMNS = OUTBOX_FIELDS.map((field) => `job.${field}`).join(', ');
 
+function normalizeScope(values, code) {
+  if (values === undefined || values === null) return null;
+  if (!Array.isArray(values) || values.length === 0 || values.length > 1000) {
+    const error = new Error(code);
+    error.code = code;
+    throw error;
+  }
+  const normalized = [...new Set(values.map((value) => String(value || '').trim()))];
+  if (normalized.some((value) => !value || value.length > 160 || /[\r\n\0]/.test(value))) {
+    const error = new Error(code);
+    error.code = code;
+    throw error;
+  }
+  return normalized;
+}
+
 class OutboxRepository {
   constructor(transactionContext) {
     this.transactionContext = assertTransactionContext(transactionContext);
@@ -37,14 +53,27 @@ class OutboxRepository {
     return oneOrNull(result, mapOutboxJob, 'REPOSITORY_INSERT_RESULT_INVALID');
   }
 
-  async claimPending({ worker_id: workerId, claimed_at: claimedAt, limit } = {}) {
+  async claimPending({
+    worker_id: workerId,
+    claimed_at: claimedAt,
+    limit,
+    job_types: jobTypes,
+    aggregate_ids: aggregateIds
+  } = {}) {
     const boundedLimit = normalizeLimit(limit, { defaultValue: 10, maximum: 50 });
+    const normalizedJobTypes = normalizeScope(jobTypes, 'OUTBOX_JOB_TYPE_SCOPE_INVALID');
+    const normalizedAggregateIds = normalizeScope(
+      aggregateIds,
+      'OUTBOX_AGGREGATE_SCOPE_INVALID'
+    );
     const result = await executeQuery(
       this.transactionContext,
       `WITH candidates AS (
          SELECT id
          FROM app.outbox_jobs
          WHERE status = 'pending' AND available_at <= $2
+           AND ($4::text[] IS NULL OR job_type = ANY($4::text[]))
+           AND ($5::text[] IS NULL OR aggregate_id = ANY($5::text[]))
          ORDER BY available_at ASC, created_at ASC
          FOR UPDATE SKIP LOCKED
          LIMIT $3
@@ -58,19 +87,32 @@ class OutboxRepository {
        FROM candidates
        WHERE job.id = candidates.id
        RETURNING ${JOB_COLUMNS}`,
-      [workerId, claimedAt, boundedLimit]
+      [workerId, claimedAt, boundedLimit, normalizedJobTypes, normalizedAggregateIds]
     );
     return many(result, mapOutboxJob);
   }
 
-  async recoverStale({ stale_before: staleBefore, recovered_at: recoveredAt, limit } = {}) {
+  async recoverStale({
+    stale_before: staleBefore,
+    recovered_at: recoveredAt,
+    limit,
+    job_types: jobTypes,
+    aggregate_ids: aggregateIds
+  } = {}) {
     const boundedLimit = normalizeLimit(limit, { defaultValue: 10, maximum: 50 });
+    const normalizedJobTypes = normalizeScope(jobTypes, 'OUTBOX_JOB_TYPE_SCOPE_INVALID');
+    const normalizedAggregateIds = normalizeScope(
+      aggregateIds,
+      'OUTBOX_AGGREGATE_SCOPE_INVALID'
+    );
     const result = await executeQuery(
       this.transactionContext,
       `WITH stale AS (
          SELECT id
          FROM app.outbox_jobs
          WHERE status = 'processing' AND locked_at <= $1
+           AND ($4::text[] IS NULL OR job_type = ANY($4::text[]))
+           AND ($5::text[] IS NULL OR aggregate_id = ANY($5::text[]))
          ORDER BY locked_at ASC
          FOR UPDATE SKIP LOCKED
          LIMIT $3
@@ -81,7 +123,13 @@ class OutboxRepository {
        FROM stale
        WHERE job.id = stale.id
        RETURNING ${JOB_COLUMNS}`,
-      [staleBefore, recoveredAt, boundedLimit]
+      [
+        staleBefore,
+        recoveredAt,
+        boundedLimit,
+        normalizedJobTypes,
+        normalizedAggregateIds
+      ]
     );
     return many(result, mapOutboxJob);
   }

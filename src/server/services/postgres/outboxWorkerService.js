@@ -34,6 +34,18 @@ function positiveInteger(value, fallback, maximum, code) {
   return candidate;
 }
 
+function optionalScope(values, code) {
+  if (values === undefined || values === null) return null;
+  if (!Array.isArray(values) || values.length === 0 || values.length > 1000) {
+    throw new OutboxWorkerError(code);
+  }
+  const normalized = [...new Set(values.map((value) => String(value || '').trim()))];
+  if (normalized.some((value) => !value || value.length > 160 || /[\r\n\0]/.test(value))) {
+    throw new OutboxWorkerError(code);
+  }
+  return Object.freeze(normalized);
+}
+
 function createOutboxWorker({
   pool,
   transactionRunner,
@@ -44,7 +56,9 @@ function createOutboxWorker({
   batchSize = 10,
   maxAttempts = 5,
   retryBaseMs = 1000,
-  lockTimeoutMs = 5 * 60 * 1000
+  lockTimeoutMs = 5 * 60 * 1000,
+  jobTypes,
+  aggregateIds
 } = {}) {
   if (!pool || typeof pool.connect !== 'function') {
     throw new OutboxWorkerError('OUTBOX_WORKER_POOL_REQUIRED');
@@ -77,6 +91,11 @@ function createOutboxWorker({
     24 * 60 * 60 * 1000,
     'OUTBOX_WORKER_LOCK_TIMEOUT_INVALID'
   );
+  const normalizedJobTypes = optionalScope(jobTypes, 'OUTBOX_WORKER_JOB_TYPES_INVALID');
+  const normalizedAggregateIds = optionalScope(
+    aggregateIds,
+    'OUTBOX_WORKER_AGGREGATE_IDS_INVALID'
+  );
   const runTransaction = transactionRunner
     || require('../../database/transaction').withTransaction;
   const repositories = repositoryTypes || require('../../repositories');
@@ -98,12 +117,16 @@ function createOutboxWorker({
       const recovered = await currentRepository.recoverStale({
         stale_before: new Date(claimedAt.getTime() - normalizedLockTimeoutMs).toISOString(),
         recovered_at: claimedAt.toISOString(),
-        limit: normalizedBatchSize
+        limit: normalizedBatchSize,
+        job_types: normalizedJobTypes,
+        aggregate_ids: normalizedAggregateIds
       });
       const jobs = await currentRepository.claimPending({
         worker_id: normalizedWorkerId,
         claimed_at: claimedAt.toISOString(),
-        limit: normalizedBatchSize
+        limit: normalizedBatchSize,
+        job_types: normalizedJobTypes,
+        aggregate_ids: normalizedAggregateIds
       });
       return { recovered, jobs };
     }, {

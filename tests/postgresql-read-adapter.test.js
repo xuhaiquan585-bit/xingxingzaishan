@@ -953,6 +953,8 @@ test('outbox worker executes handlers outside transactions and records safe outc
   const worker = createOutboxWorker({
     pool: { connect() {} },
     workerId: 'unit-worker',
+    jobTypes: ['proof'],
+    aggregateIds: ['QR_ALLOWED'],
     repositoryTypes: {
       OutboxRepository: class { constructor() { return repository; } }
     },
@@ -994,7 +996,16 @@ test('outbox worker executes handlers outside transactions and records safe outc
   assert.deepEqual(transitions.find(([kind]) => kind === 'recovered')[1], {
     stale_before: '2026-08-09T08:55:00.000Z',
     recovered_at: '2026-08-09T09:00:00.000Z',
-    limit: 10
+    limit: 10,
+    job_types: ['proof'],
+    aggregate_ids: ['QR_ALLOWED']
+  });
+  assert.deepEqual(transitions.find(([kind]) => kind === 'claim')[1], {
+    worker_id: 'unit-worker',
+    claimed_at: '2026-08-09T09:00:00.000Z',
+    limit: 10,
+    job_types: ['proof'],
+    aggregate_ids: ['QR_ALLOWED']
   });
 });
 
@@ -1006,6 +1017,14 @@ test('outbox worker validates configuration and sanitizes untrusted errors', () 
   );
   assert.equal(safeErrorCode({ code: 'UPSTREAM_TIMEOUT' }), 'UPSTREAM_TIMEOUT');
   assert.equal(safeErrorCode({ code: 'unsafe error text' }), 'OUTBOX_HANDLER_FAILED');
+  assert.throws(
+    () => createOutboxWorker({
+      pool: { connect() {} },
+      workerId: 'unit-worker',
+      aggregateIds: []
+    }),
+    (error) => error.code === 'OUTBOX_WORKER_AGGREGATE_IDS_INVALID'
+  );
 });
 
 test('outbox worker is isolated from JSON, SQL, environment, and automatic startup', () => {

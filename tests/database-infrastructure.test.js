@@ -1593,12 +1593,16 @@ test('outbox repository recovers stale work, claims with skip-locked, and enforc
   await repository.recoverStale({
     stale_before: '2026-08-09T08:55:00.000Z',
     recovered_at: '2026-08-09T09:00:00.000Z',
-    limit: 1000
+    limit: 1000,
+    job_types: ['record_proof_prepare_submit'],
+    aggregate_ids: ['QR_WRITE']
   });
   await repository.claimPending({
     worker_id: 'worker-test',
     claimed_at: '2026-08-09T09:00:00.000Z',
-    limit: 1000
+    limit: 1000,
+    job_types: ['record_proof_prepare_submit'],
+    aggregate_ids: ['QR_WRITE']
   });
   await repository.markSucceeded({
     id: row.id,
@@ -1626,15 +1630,21 @@ test('outbox repository recovers stale work, claims with skip-locked, and enforc
   assert.deepEqual(harness.calls[0].params, [
     '2026-08-09T08:55:00.000Z',
     '2026-08-09T09:00:00.000Z',
-    50
+    50,
+    ['record_proof_prepare_submit'],
+    ['QR_WRITE']
   ]);
+  assert.match(harness.calls[0].sql, /job_type = ANY\(\$4::text\[\]\)/);
+  assert.match(harness.calls[0].sql, /aggregate_id = ANY\(\$5::text\[\]\)/);
   assert.match(harness.calls[1].sql, /FOR UPDATE SKIP LOCKED/);
   assert.match(harness.calls[1].sql, /status = 'pending'/);
   assert.match(harness.calls[1].sql, /RETURNING job\.id, job\.job_type/);
   assert.deepEqual(harness.calls[1].params, [
     'worker-test',
     '2026-08-09T09:00:00.000Z',
-    50
+    50,
+    ['record_proof_prepare_submit'],
+    ['QR_WRITE']
   ]);
   for (const call of harness.calls.slice(2)) {
     assert.match(call.sql, /status = 'processing' AND locked_by = \$2/);

@@ -757,6 +757,20 @@ test('manual PostgreSQL public QR adapter integration', {
       proof_job_key_count: 2
     }]);
 
+    await pool.query(
+      `INSERT INTO app.outbox_jobs
+         (id, job_type, aggregate_type, aggregate_id, idempotency_key,
+          payload, status, attempt_count, available_at, locked_at, locked_by,
+          last_error, created_at, updated_at)
+       VALUES
+         ('00000000-0000-0000-0000-000000000990',
+          'record_proof_prepare_submit', 'record', 'QR_OUTSIDE_SCOPE',
+          'record-proof:QR_OUTSIDE_SCOPE',
+          '{"record_qr_id":"QR_OUTSIDE_SCOPE"}'::jsonb,
+          'pending', 0, $1, NULL, NULL, '', $1, $1)`,
+      [CREATED_AT]
+    );
+
     const handledProofJobs = [];
     const recordProofJobHandler = createRecordProofJobHandler({
       pool,
@@ -784,6 +798,8 @@ test('manual PostgreSQL public QR adapter integration', {
     const outboxWorker = createOutboxWorker({
       pool,
       workerId: 'integration-outbox-worker',
+      jobTypes: ['record_proof_prepare_submit'],
+      aggregateIds: ['QR_WRITE_CO', 'QR_WRITE_DIRECT'],
       clock: () => new Date('2026-07-01T12:31:00.000Z'),
       handlers: {
         record_proof_prepare_submit: recordProofJobHandler
@@ -800,6 +816,7 @@ test('manual PostgreSQL public QR adapter integration', {
     const proofResultService = createRecordProofResultService({
       pool,
       normalizeProviderResult: (value) => value,
+      allowedRecordQrIds: ['QR_WRITE_CO', 'QR_WRITE_DIRECT'],
       clock: () => new Date('2026-07-01T12:32:00.000Z')
     });
     assert.deepEqual(await proofResultService.applyCallback({
@@ -839,6 +856,17 @@ test('manual PostgreSQL public QR adapter integration', {
       locked_job_count: 0,
       minimum_attempt_count: 1,
       maximum_attempt_count: 1
+    }]);
+    const outsideScopeOutboxState = await pool.query(
+      `SELECT status, attempt_count, locked_at, locked_by
+       FROM app.outbox_jobs
+       WHERE aggregate_id = 'QR_OUTSIDE_SCOPE'`
+    );
+    assert.deepEqual(outsideScopeOutboxState.rows, [{
+      status: 'pending',
+      attempt_count: 0,
+      locked_at: null,
+      locked_by: null
     }]);
     const completedProofState = await pool.query(
       `SELECT

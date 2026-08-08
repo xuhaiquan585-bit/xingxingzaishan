@@ -109,6 +109,7 @@ function createHarness(initialProof = proof(), overrides = {}) {
     repositoryTypes,
     transactionRunner,
     normalizeProviderResult,
+    allowedRecordQrIds: overrides.allowedRecordQrIds,
     clock: () => new Date(NOW)
   });
   return { service, state };
@@ -219,6 +220,27 @@ test('proof result service fails closed on invalid, unknown, and unready state',
     (error) => error instanceof RecordProofResultError
       && error.code === 'RECORD_PROOF_PROVIDER_RESULT_INVALID'
       && !error.message.includes('sensitive provider body')
+  );
+});
+
+test('proof result service hides and ignores operations outside its QR scope', async () => {
+  const outside = createHarness(proof(), {
+    allowedRecordQrIds: new Set(['QR_OTHER'])
+  });
+
+  assert.deepEqual(
+    await outside.service.applyCallback(providerResult()),
+    { outcome: 'not_found', status: null }
+  );
+  assert.equal(outside.state.updateCount, 0);
+
+  assert.throws(
+    () => createRecordProofResultService({
+      pool: { connect() {} },
+      normalizeProviderResult: (value) => value,
+      allowedRecordQrIds: []
+    }),
+    (error) => error.code === 'RECORD_PROOF_RESULT_SCOPE_INVALID'
   );
 });
 

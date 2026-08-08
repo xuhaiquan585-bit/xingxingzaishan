@@ -102,12 +102,31 @@ function assertCompatible(current, result) {
   }
 }
 
+function normalizedRecordScope(values) {
+  if (values === undefined || values === null) return null;
+  const entries = values instanceof Set ? [...values] : values;
+  if (!Array.isArray(entries) || entries.length === 0 || entries.length > 1000) {
+    throw new RecordProofResultError('RECORD_PROOF_RESULT_SCOPE_INVALID');
+  }
+  const normalized = new Set(entries.map((value) => normalizedText(value)));
+  if (
+    normalized.size === 0
+    || [...normalized].some((value) => (
+      !value || value.length > 160 || /[\r\n\0]/.test(value)
+    ))
+  ) {
+    throw new RecordProofResultError('RECORD_PROOF_RESULT_SCOPE_INVALID');
+  }
+  return normalized;
+}
+
 function createRecordProofResultService({
   pool,
   normalizeProviderResult,
   transactionRunner,
   repositoryTypes,
   provider = 'avata_wenchang',
+  allowedRecordQrIds,
   clock = () => new Date()
 } = {}) {
   if (!pool || typeof pool.connect !== 'function') {
@@ -123,6 +142,7 @@ function createRecordProofResultService({
   if (!normalizedProvider || normalizedProvider.length > 64) {
     throw new RecordProofResultError('RECORD_PROOF_RESULT_PROVIDER_INVALID');
   }
+  const recordScope = normalizedRecordScope(allowedRecordQrIds);
   const runTransaction = transactionRunner
     || require('../../database/transaction').withTransaction;
   const repositories = repositoryTypes || require('../../repositories');
@@ -146,6 +166,9 @@ function createRecordProofResultService({
         result.operation_id
       );
       if (!current) {
+        return Object.freeze({ outcome: 'not_found', status: null });
+      }
+      if (recordScope && !recordScope.has(normalizedText(current.record_qr_id))) {
         return Object.freeze({ outcome: 'not_found', status: null });
       }
       if (!ALLOWED_CURRENT_STATUSES.has(current.status)) {
