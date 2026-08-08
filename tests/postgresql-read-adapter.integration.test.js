@@ -643,8 +643,8 @@ test('manual PostgreSQL public QR adapter integration', {
       clock: () => new Date('2026-07-01T12:30:00.000Z')
     });
     const directWrite = await qrWriteService.activateQRByKey('token-write-direct', {
-      account_id: fixture.accounts[0].id,
-      phone: fixture.users[0].phone,
+      account_id: concurrentWebIdentities[0].account_id,
+      phone: concurrentWebIdentities[0].phone,
       content: 'PostgreSQL direct write',
       image_url: 'https://fixture.invalid/write-direct.jpg',
       show_brand_disclosure: false
@@ -653,14 +653,14 @@ test('manual PostgreSQL public QR adapter integration', {
     assert.equal(directWrite.data.record.sealed_at.toISOString(), '2026-07-01T12:30:00.000Z');
     assert.deepEqual(
       await qrWriteService.activateQRByKey('token-write-direct', {
-        account_id: fixture.accounts[0].id
+        account_id: concurrentWebIdentities[0].account_id
       }),
       { error: 'QR_ALREADY_ACTIVATED' }
     );
 
     const coWrite = await qrWriteService.startCoCreationByKey('token-write-co', {
-      account_id: fixture.accounts[0].id,
-      phone: fixture.users[0].phone,
+      account_id: concurrentWebIdentities[0].account_id,
+      phone: concurrentWebIdentities[0].phone,
       content: 'PostgreSQL co-creation write',
       image_url: 'https://fixture.invalid/write-co.jpg',
       show_brand_disclosure: false
@@ -669,8 +669,8 @@ test('manual PostgreSQL public QR adapter integration', {
     const commentWrite = await qrWriteService.addCoCreationCommentByKey(
       'token-write-co',
       {
-        account_id: fixture.accounts[1].id,
-        phone: fixture.users[1].phone,
+        account_id: blockedWebIdentity.account_id,
+        phone: blockedWebIdentity.phone,
         authorName: 'Integration witness',
         content: 'PostgreSQL comment write'
       }
@@ -678,14 +678,14 @@ test('manual PostgreSQL public QR adapter integration', {
     assert.equal(commentWrite.data.comment.source_position, 0);
     assert.deepEqual(
       await qrWriteService.addCoCreationCommentByKey('token-write-co', {
-        account_id: fixture.accounts[1].id,
+        account_id: blockedWebIdentity.account_id,
         content: 'Duplicate comment'
       }),
       { error: 'CO_CREATION_COMMENT_EXISTS' }
     );
     assert.deepEqual(
       await qrWriteService.deleteCoCreationCommentByKey('token-write-co', {
-        account_id: fixture.accounts[1].id,
+        account_id: blockedWebIdentity.account_id,
         commentId: commentWrite.data.comment.id
       }),
       { error: 'FORBIDDEN' }
@@ -693,7 +693,7 @@ test('manual PostgreSQL public QR adapter integration', {
     const deletedWrite = await qrWriteService.deleteCoCreationCommentByKey(
       'token-write-co',
       {
-        account_id: fixture.accounts[0].id,
+        account_id: concurrentWebIdentities[0].account_id,
         commentId: commentWrite.data.comment.id
       }
     );
@@ -701,7 +701,7 @@ test('manual PostgreSQL public QR adapter integration', {
     const replacementWrite = await qrWriteService.addCoCreationCommentByKey(
       'token-write-co',
       {
-        account_id: fixture.accounts[1].id,
+        account_id: blockedWebIdentity.account_id,
         authorName: 'Integration witness',
         content: 'Replacement comment'
       }
@@ -709,7 +709,7 @@ test('manual PostgreSQL public QR adapter integration', {
     assert.equal(replacementWrite.data.comment.source_position, 1);
     const finalizedWrite = await qrWriteService.finalizeCoCreationByKey(
       'token-write-co',
-      { account_id: fixture.accounts[0].id }
+      { account_id: concurrentWebIdentities[0].account_id }
     );
     assert.equal(finalizedWrite.data.qr.lifecycle_status, 'activated');
     assert.equal(finalizedWrite.data.co_creation.status, 'finalized');
