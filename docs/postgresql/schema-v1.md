@@ -118,8 +118,9 @@ Any field not listed above is a blocking `UNKNOWN_QR_FIELD` anomaly. It is never
 Indexes: status; created_at. `app.account_id_seq` allocates the numeric suffix
 for new `ACC` IDs without scanning or locking the accounts table. Migration
 `005` initializes its next value above the largest imported suffix and blocks
-nonconforming historical IDs. Accounts are not physically deleted by normal
-business flows.
+nonconforming historical IDs. The staging importer realigns the sequence after
+loading accounts for fresh migration-first environments. Accounts are not
+physically deleted by normal business flows.
 
 ### `users`
 

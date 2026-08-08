@@ -16,6 +16,12 @@ const {
   comparePublicQrDtos
 } = require('../src/server/services/postgres/publicQrDtoComparator');
 const {
+  IdentityReadAdapter,
+  IdentityReadError,
+  legacyIdentityId,
+  presentIdentity
+} = require('../src/server/services/postgres/identityReadAdapter');
+const {
   PersonalRecordReadAdapter
 } = require('../src/server/services/postgres/personalRecordReadAdapter');
 
@@ -80,6 +86,21 @@ function makeHarness({
   return {
     adapter: new PublicQrReadAdapter(dependencies),
     calls
+  };
+}
+
+function identityFixture(overrides = {}) {
+  return {
+    id: '31',
+    legacy_id: null,
+    account_id: 'ACC000028',
+    phone: '13800000028',
+    openid: 'openid-28',
+    unionid: null,
+    source: 'web+miniapp',
+    created_at: new Date('2026-08-04T01:02:03.000Z'),
+    updated_at: new Date('2026-08-04T01:02:04.000Z'),
+    ...overrides
   };
 }
 
@@ -164,6 +185,143 @@ function activatedFixture(overrides = {}) {
     }
   };
 }
+
+test('identity read adapter requires narrow repository dependencies', () => {
+  assert.throws(
+    () => new IdentityReadAdapter(),
+    (error) => (
+      error instanceof IdentityReadError
+      && error.code === 'IDENTITY_READ_DEPENDENCY_REQUIRED'
+    )
+  );
+});
+
+test('identity read adapter is isolated from JSON, SQL, connections, and runtime config', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../src/server/services/postgres/identityReadAdapter.js'),
+    'utf8'
+  );
+  assert.doesNotMatch(source, /dbService|readDB|writeDB|process\.env/);
+  assert.doesNotMatch(source, /require\(['"](?:pg|\.\.\/\.\.\/database)/);
+  assert.doesNotMatch(source, /\b(?:SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\b/);
+});
+
+test('identity read adapter preserves legacy identity shape for phone and OpenID lookups', async () => {
+  const identity = identityFixture();
+  const calls = [];
+  const adapter = new IdentityReadAdapter({
+    identityRepository: {
+      async findById(id) {
+        calls.push(['identity.findById', id]);
+        return identity;
+      },
+      async findUniqueByPhone(phone) {
+        calls.push(['identity.findUniqueByPhone', phone]);
+        return phone === identity.phone ? identity : null;
+      },
+      async findUniqueByOpenid(openid) {
+        calls.push(['identity.findUniqueByOpenid', openid]);
+        return openid === identity.openid ? identity : null;
+      }
+    },
+    accountRepository: {
+      async findById(accountId) {
+        calls.push(['account.findById', accountId]);
+        return accountId === identity.account_id ? { id: accountId } : null;
+      }
+    }
+  });
+
+  const byPhone = await adapter.findExistingByPhone(` ${identity.phone} `);
+  const byOpenid = await adapter.findExistingByOpenid(` ${identity.openid} `);
+  assert.deepEqual(byPhone, {
+    id: 31,
+    phone: identity.phone,
+    openid: identity.openid,
+    unionid: null,
+    source: 'web+miniapp',
+    created_at: '2026-08-04T01:02:03.000Z',
+    updated_at: '2026-08-04T01:02:04.000Z',
+    account_id: identity.account_id
+  });
+  assert.deepEqual(byOpenid, byPhone);
+  assert.equal(Object.isFrozen(byPhone), true);
+  assert.equal(await adapter.findExistingByPhone(''), null);
+  assert.equal(await adapter.findExistingByOpenid('missing-openid'), null);
+  assert.deepEqual(calls, [
+    ['identity.findUniqueByPhone', identity.phone],
+    ['account.findById', identity.account_id],
+    ['identity.findUniqueByOpenid', identity.openid],
+    ['account.findById', identity.account_id],
+    ['identity.findUniqueByOpenid', 'missing-openid']
+  ]);
+});
+
+test('identity read adapter fails closed for broken account and session mappings', async () => {
+  const identity = identityFixture();
+  let account = { id: identity.account_id };
+  const queryFailure = Object.assign(new Error('database unavailable'), {
+    code: 'REPOSITORY_DATABASE_UNAVAILABLE'
+  });
+  const adapter = new IdentityReadAdapter({
+    identityRepository: {
+      findById: async (id) => {
+        if (id === 'database-error') throw queryFailure;
+        return id === String(identity.id) ? identity : null;
+      },
+      findUniqueByPhone: async () => identity,
+      findUniqueByOpenid: async () => identity
+    },
+    accountRepository: {
+      findById: async () => account
+    }
+  });
+
+  account = null;
+  await assert.rejects(
+    adapter.findExistingByPhone(identity.phone),
+    (error) => error.code === 'ACCOUNT_MAPPING_REQUIRED'
+  );
+  account = { id: identity.account_id };
+  assert.deepEqual(
+    await adapter.getAuthenticatedIdentity({ identityId: 'missing' }),
+    { error: 'UNAUTHORIZED' }
+  );
+  assert.deepEqual(
+    await adapter.getAuthenticatedIdentity({
+      identityId: identity.id,
+      accountId: 'ACC999999'
+    }),
+    { error: 'ACCOUNT_MAPPING_MISMATCH' }
+  );
+  assert.deepEqual(
+    await adapter.getAuthenticatedIdentity({
+      identityId: identity.id,
+      accountId: identity.account_id,
+      openid: 'different-openid'
+    }),
+    { error: 'ACCOUNT_IDENTITY_MISMATCH' }
+  );
+  const authenticated = await adapter.getAuthenticatedIdentity({
+    identityId: identity.id,
+    accountId: identity.account_id,
+    openid: identity.openid
+  });
+  assert.equal(authenticated.data.id, 31);
+  await assert.rejects(
+    adapter.getAuthenticatedIdentity({ identityId: 'database-error' }),
+    (error) => error === queryFailure
+  );
+});
+
+test('identity presentation prefers legacy IDs and keeps unsafe bigint IDs as strings', () => {
+  assert.equal(legacyIdentityId({ id: '31', legacy_id: null }), 31);
+  assert.equal(legacyIdentityId({ id: '32', legacy_id: 'legacy-user' }), 'legacy-user');
+  assert.equal(
+    presentIdentity(identityFixture({ id: '9007199254740993' })).id,
+    '9007199254740993'
+  );
+});
 
 test('public QR adapter is isolated from JSON, SQL, connections, and transaction control', () => {
   const source = fs.readFileSync(

@@ -453,6 +453,8 @@ close the separate Shadow Read execution gates documented in
 - The migration rejects nonconforming historical account IDs and initializes
   the next sequence value above the largest imported numeric suffix. It does
   not rewrite imported accounts or modify migrations `001` through `004`.
+- The staging importer realigns the same sequence after importing accounts, so
+  a fresh database that runs migrations before the import gets the same next ID.
 - Migration `005` has canonical checksum
   `6917cdec3f167230d5d31802c3ad171d1cbbb757dcf70a64ccba60fc296856e2`.
 - `AccountRepository.allocateId()` formats the sequence value with the existing

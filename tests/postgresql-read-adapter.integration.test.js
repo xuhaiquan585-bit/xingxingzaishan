@@ -11,7 +11,9 @@ const { closePostgresPool, createPostgresPool } = require('../src/server/databas
 const { readPostgresConfig } = require('../src/server/database/config');
 const { withTransaction } = require('../src/server/database/transaction');
 const {
+  AccountRepository,
   CoCreationRepository,
+  IdentityRepository,
   ProofRepository,
   QrBatchRepository,
   QrRepository,
@@ -20,6 +22,9 @@ const {
 const {
   PublicQrReadAdapter
 } = require('../src/server/services/postgres/publicQrReadAdapter');
+const {
+  IdentityReadAdapter
+} = require('../src/server/services/postgres/identityReadAdapter');
 const {
   PersonalRecordReadAdapter
 } = require('../src/server/services/postgres/personalRecordReadAdapter');
@@ -491,7 +496,8 @@ test('manual PostgreSQL public QR adapter integration', {
         '001_init_schema.sql',
         '002_add_comment_source_position.sql',
         '003_preserve_legacy_import_evidence.sql',
-        '004_allow_legacy_product_buy_type.sql'
+        '004_allow_legacy_product_buy_type.sql',
+        '005_add_account_id_sequence.sql'
       ]
     );
     const repeatedMigration = await runMigrations({ pool, apply: true, target: 'test' });
@@ -503,6 +509,40 @@ test('manual PostgreSQL public QR adapter integration', {
       plan: analysis.plan
     });
     assert.equal(imported.status, 'PASSED');
+    assert.equal(imported.sequence_values.accounts, '4');
+
+    const identityCandidate = await withTransaction(pool, async (transactionContext) => {
+      const adapter = new IdentityReadAdapter({
+        identityRepository: new IdentityRepository(transactionContext),
+        accountRepository: new AccountRepository(transactionContext)
+      });
+      return {
+        phone: await adapter.findExistingByPhone(` ${fixture.users[0].phone} `),
+        openid: await adapter.findExistingByOpenid(` ${fixture.users[1].openid} `),
+        authenticated: await adapter.getAuthenticatedIdentity({
+          identityId: fixture.users[2].id,
+          accountId: fixture.users[2].account_id,
+          openid: fixture.users[2].openid
+        }),
+        missing: await adapter.getAuthenticatedIdentity({ identityId: 999999 })
+      };
+    }, { isolationLevel: 'repeatable read', readOnly: true });
+    assert.deepEqual(
+      {
+        id: identityCandidate.phone.id,
+        phone: identityCandidate.phone.phone,
+        account_id: identityCandidate.phone.account_id
+      },
+      {
+        id: fixture.users[0].id,
+        phone: fixture.users[0].phone,
+        account_id: fixture.users[0].account_id
+      }
+    );
+    assert.equal(identityCandidate.openid.id, fixture.users[1].id);
+    assert.equal(identityCandidate.openid.openid, fixture.users[1].openid);
+    assert.equal(identityCandidate.authenticated.data.id, fixture.users[2].id);
+    assert.deepEqual(identityCandidate.missing, { error: 'UNAUTHORIZED' });
 
     const shadowDirectory = path.join(directory, 'direct-shadow');
     shadowRuntime = createPublicQrShadowRuntime({

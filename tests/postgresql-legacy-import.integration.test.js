@@ -141,6 +141,11 @@ test('manual PostgreSQL legacy import compatibility', {
       plan: analysis.plan
     });
     assert.equal(imported.status, 'PASSED');
+    assert.equal(imported.sequence_values.accounts, '2');
+    const accountSequence = await pool.query(
+      'SELECT last_value::text AS last_value, is_called FROM app.account_id_seq'
+    );
+    assert.deepEqual(accountSequence.rows, [{ last_value: '2', is_called: false }]);
 
     const comments = await pool.query(
       `SELECT account_id, source_position, legacy_duplicate, author_name, content

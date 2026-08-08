@@ -307,7 +307,7 @@ async function importPlanToPostgres({ plan, transactionContext }) {
   return importedCounts;
 }
 
-async function resetIdentitySequences(transactionContext) {
+async function resetImportedSequences(transactionContext) {
   assertTransactionContext(transactionContext);
   const sequenceValues = {};
   for (const table of IDENTITY_TABLES) {
@@ -320,6 +320,19 @@ async function resetIdentitySequences(transactionContext) {
     );
     sequenceValues[table] = result.rows[0] ? String(result.rows[0].sequence_value) : null;
   }
+  const accountResult = await transactionContext.query(
+    `SELECT setval(
+      'app.account_id_seq',
+      GREATEST(COALESCE((
+        SELECT MAX(substring(id FROM 4)::bigint) + 1
+        FROM app.accounts
+      ), 1), 1),
+      false
+    ) AS sequence_value`
+  );
+  sequenceValues.accounts = accountResult.rows[0]
+    ? String(accountResult.rows[0].sequence_value)
+    : null;
   return sequenceValues;
 }
 
@@ -330,5 +343,5 @@ module.exports = {
   assertImportPlan,
   importPlanToPostgres,
   planSha256,
-  resetIdentitySequences
+  resetImportedSequences
 };

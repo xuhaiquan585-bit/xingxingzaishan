@@ -15,7 +15,7 @@ const {
   IMPORT_ORDER,
   importPlanToPostgres,
   planSha256,
-  resetIdentitySequences
+  resetImportedSequences
 } = require('./importer/writer');
 const { verifyImportedPlan } = require('./importer/verify-import');
 
@@ -263,7 +263,7 @@ async function executeStagingImport({
       await assertBusinessTablesEmpty(transactionContext);
 
       const importedCounts = await importPlanToPostgres({ plan, transactionContext });
-      const sequenceValues = await resetIdentitySequences(transactionContext);
+      const sequenceValues = await resetImportedSequences(transactionContext);
       const verification = await verifyImportedPlan({ plan, transactionContext });
       sourceUnchanged(snapshot);
 

@@ -1087,6 +1087,16 @@ function createStagingTransactionHarness({ failOnCollection = null } = {}) {
           return { rows: [{ sequence_value: value }] };
         }
 
+        if (normalized.includes("'app.account_id_seq'") && normalized.includes('FROM app.accounts')) {
+          const ids = state.tables.accounts
+            .map((row) => /^ACC(\d+)$/.exec(String(row.id || '')))
+            .filter(Boolean)
+            .map((match) => Number(match[1]));
+          const value = ids.length ? Math.max(...ids) + 1 : 1;
+          state.sequences.accounts = { last_value: value, is_called: false };
+          return { rows: [{ sequence_value: value }] };
+        }
+
         const maximumMatch = /^SELECT COALESCE\(MAX\(id\), 0\)::text AS max_id FROM app\.([a-z_]+)$/.exec(normalized);
         if (maximumMatch) {
           const ids = state.tables[maximumMatch[1]]
@@ -1248,6 +1258,7 @@ test('staging import commits one verified business transaction and blocks a repe
   assert.equal(harness.state.importRuns.length, 1);
   assert.equal(harness.state.importRuns[0].status, 'passed');
   assert.equal(result.sequence_values.users, '2');
+  assert.equal(result.sequence_values.accounts, '3');
   IMPORT_ORDER.forEach((collection) => {
     assert.equal(harness.state.tables[collection].length, analysis.plan[collection].length);
   });
