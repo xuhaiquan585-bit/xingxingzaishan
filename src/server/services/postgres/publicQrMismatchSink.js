@@ -7,6 +7,7 @@ const path = require('path');
 const SAFE_ENDPOINTS = new Set([
   '/api/qr/:qrId',
   '/api/miniapp/qr/:key',
+  '/api/user/me',
   '/api/user/records',
   '/api/user/records/:id',
   '/api/miniapp/user/records',

@@ -803,21 +803,7 @@ function findUserById(userId) {
   return matches.length === 1 ? matches[0] : null;
 }
 
-function getAuthenticatedUserById({ userId, accountId = null }) {
-  const db = readDB();
-  const matches = db.users.filter((item) => String(item.id) === String(userId));
-  if (matches.length !== 1) {
-    return { error: 'UNAUTHORIZED' };
-  }
-  try {
-    return { data: requireMappedUser(db, matches[0], { accountId }) };
-  } catch (error) {
-    return { error: error.code || 'UNAUTHORIZED' };
-  }
-}
-
-function getAuthenticatedMiniappUser({ userId, openid, accountId = null }) {
-  const db = readDB();
+function authenticateUserFromDatabase(db, { userId, accountId = null, openid = null }) {
   const matches = db.users.filter((item) => String(item.id) === String(userId));
   if (matches.length !== 1) {
     return { error: 'UNAUTHORIZED' };
@@ -827,6 +813,27 @@ function getAuthenticatedMiniappUser({ userId, openid, accountId = null }) {
   } catch (error) {
     return { error: error.code || 'UNAUTHORIZED' };
   }
+}
+
+function getAuthenticatedUserReadContext(input) {
+  const { db, sourceHash } = readDBWithHash();
+  return { result: authenticateUserFromDatabase(db, input), sourceHash };
+}
+
+function getAuthenticatedUserById(input) {
+  return getAuthenticatedUserReadContext(input).result;
+}
+
+function getAuthenticatedMiniappUserReadContext(input) {
+  const { db, sourceHash } = readDBWithHash();
+  return {
+    result: authenticateUserFromDatabase(db, input),
+    sourceHash
+  };
+}
+
+function getAuthenticatedMiniappUser(input) {
+  return getAuthenticatedMiniappUserReadContext(input).result;
 }
 
 function findUserByOpenid(openid) {
@@ -2765,7 +2772,9 @@ module.exports = {
   writeDatabaseSnapshot,
   createOrGetUser,
   findUserById,
+  getAuthenticatedUserReadContext,
   getAuthenticatedUserById,
+  getAuthenticatedMiniappUserReadContext,
   getAuthenticatedMiniappUser,
   findUserByOpenid,
   createOrGetMiniappUser,

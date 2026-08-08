@@ -7,6 +7,9 @@ const { closePublicQrShadowRuntime } = require('./services/postgres/publicQrShad
 const {
   closePersonalRecordShadowRuntime
 } = require('./services/postgres/personalRecordShadowRuntime');
+const {
+  closeIdentityShadowRuntime
+} = require('./services/postgres/identityShadowRuntime');
 
 const PORT = process.env.PORT || 3000;
 const SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -14,7 +17,8 @@ const SHUTDOWN_TIMEOUT_MS = 10_000;
 function closeShadowRuntimes() {
   return Promise.all([
     closePublicQrShadowRuntime(),
-    closePersonalRecordShadowRuntime()
+    closePersonalRecordShadowRuntime(),
+    closeIdentityShadowRuntime()
   ]);
 }
 

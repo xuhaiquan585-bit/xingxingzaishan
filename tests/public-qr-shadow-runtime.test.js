@@ -15,6 +15,17 @@ const {
 const {
   createPersonalRecordShadowScheduler
 } = require('../src/server/services/postgres/personalRecordShadowRuntime');
+const {
+  createIdentityShadowRuntime,
+  createIdentityShadowScheduler,
+  identityAuthDto
+} = require('../src/server/services/postgres/identityShadowRuntime');
+const {
+  isH5IdentityShadowRequest
+} = require('../src/server/middlewares/userSession');
+const {
+  isMiniappIdentityShadowRequest
+} = require('../src/server/middlewares/miniappAuth');
 
 function enabledConfig() {
   return {
@@ -138,6 +149,78 @@ test('personal record scheduler gates by account and starts only after response 
   assert.equal(observed.length, 1);
   assert.equal(observed[0].allowlistKey, 'ACC_OWNER');
   await scheduler.close();
+});
+
+test('identity scheduler is account allowlisted, lazy, and response-finish only', async () => {
+  let runtimeCalls = 0;
+  const observed = [];
+  const scheduler = createIdentityShadowScheduler({
+    readConfig: () => ({ enabled: true, allowlist: new Set(['ACC_OWNER']) }),
+    runtimeFactory: () => {
+      runtimeCalls += 1;
+      return {
+        observer: { observe: async (event) => observed.push(event) },
+        close: async () => {}
+      };
+    }
+  });
+  assert.equal(scheduler.register({
+    res: new EventEmitter(),
+    event: { accountId: 'ACC_OTHER' }
+  }), false);
+
+  const response = new EventEmitter();
+  assert.equal(scheduler.register({
+    res: response,
+    event: { accountId: 'ACC_OWNER', channel: 'h5' }
+  }), true);
+  assert.equal(runtimeCalls, 0);
+  response.emit('finish');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(runtimeCalls, 1);
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0].allowlistKey, 'ACC_OWNER');
+  await scheduler.close();
+});
+
+test('identity shadow request gates avoid static and unrelated authenticated traffic', () => {
+  assert.equal(isH5IdentityShadowRequest({
+    method: 'GET', originalUrl: '/api/user/me?refresh=1'
+  }), true);
+  assert.equal(isH5IdentityShadowRequest({
+    method: 'GET', originalUrl: '/assets/home.jpg'
+  }), false);
+  assert.equal(isMiniappIdentityShadowRequest({
+    method: 'GET', originalUrl: '/api/miniapp/user/records'
+  }), true);
+  assert.equal(isMiniappIdentityShadowRequest({
+    method: 'GET', originalUrl: '/api/miniapp/user/records/QR1'
+  }), false);
+});
+
+test('identity auth DTO compares exact identity values without exposing them to the sink', () => {
+  assert.deepEqual(identityAuthDto({
+    data: {
+      id: '31',
+      phone: '13800000000',
+      openid: 'openid-value',
+      unionid: null,
+      account_id: 'ACC000002'
+    }
+  }), {
+    authenticated: true,
+    identity: {
+      id: 31,
+      phone: '13800000000',
+      openid: 'openid-value',
+      unionid: null,
+      account_id: 'ACC000002'
+    }
+  });
+  assert.deepEqual(identityAuthDto({ error: 'UNAUTHORIZED' }), {
+    authenticated: false,
+    error: 'UNAUTHORIZED'
+  });
 });
 
 test('scheduler does not create a runtime when shutdown starts before response finish', async () => {
@@ -287,6 +370,108 @@ test('runtime releases the read-only transaction before resolving candidate asse
     eligibility: 'ELIGIBLE',
     lifecycle: 'activated',
     dto: { id: 'QR_PUBLIC_1', activation_status: 'activated' }
+  });
+  await runtime.close();
+  assert.equal(poolClosed, true);
+});
+
+test('identity runtime uses freshness and an exact read-only identity lookup', async () => {
+  const sourceHash = '1'.repeat(64);
+  const migrations = [{ version: '001_init_schema.sql', checksum: '2'.repeat(64) }];
+  let inTransaction = false;
+  let poolClosed = false;
+
+  class ProvenanceRepository {
+    async findPassedImportBySourceHash(value) {
+      return value === sourceHash ? { source_sha256: value, status: 'passed' } : null;
+    }
+    async findLatestPassedImport() { return null; }
+    async listAppliedMigrations() { return migrations; }
+  }
+  class EmptyRepository { constructor() {} }
+  class FakeAdapter {
+    async getAuthenticatedIdentity(input) {
+      assert.equal(inTransaction, true);
+      assert.deepEqual(input, {
+        identityId: 31,
+        accountId: 'ACC_OWNER',
+        openid: 'openid-private'
+      });
+      return {
+        data: {
+          id: 31,
+          phone: '13800000000',
+          openid: 'openid-private',
+          unionid: null,
+          account_id: 'ACC_OWNER'
+        }
+      };
+    }
+  }
+  class FakeSink {
+    enqueue() { return { accepted: true, completion: Promise.resolve(true) }; }
+    async flush() {}
+  }
+
+  const runtime = createIdentityShadowRuntime({
+    ...enabledConfig(),
+    allowlist: new Set(['ACC_OWNER'])
+  }, {
+    env: {
+      PGHOST: '127.0.0.1',
+      PGUSER: 'test',
+      PGDATABASE: 'shadow_test',
+      PGSSL: 'false'
+    },
+    createPool: ({ config }) => {
+      assert.equal(config.applicationName, 'xingxingzaishan-identity-shadow');
+      assert.equal(config.poolMax, 2);
+      return { type: 'fake-pool' };
+    },
+    closePool: async () => { poolClosed = true; },
+    transactionRunner: async (_pool, callback, options) => {
+      assert.deepEqual(options, { isolationLevel: 'repeatable read', readOnly: true });
+      inTransaction = true;
+      try {
+        return await callback({ query: async () => ({ rows: [] }) });
+      } finally {
+        inTransaction = false;
+      }
+    },
+    migrationsLoader: () => migrations,
+    repositories: {
+      PublicQrProvenanceRepository: ProvenanceRepository,
+      IdentityRepository: EmptyRepository,
+      AccountRepository: EmptyRepository
+    },
+    AdapterClass: FakeAdapter,
+    compareDtos: () => ({ matches: true, mismatch_count: 0, mismatches: [] }),
+    SinkClass: FakeSink,
+    createObserver: (dependencies) => ({
+      observe: (event) => dependencies.readCandidate({ ...event, timeoutMs: 250 }),
+      close: async () => {}
+    })
+  });
+
+  const candidate = await runtime.observer.observe({
+    channel: 'miniapp',
+    accountId: 'ACC_OWNER',
+    sourceHash,
+    viewer: { identityId: 31, openid: 'openid-private' }
+  });
+  assert.deepEqual(candidate, {
+    eligibility: 'ELIGIBLE',
+    lifecycle: 'miniapp_session',
+    dto: {
+      authenticated: true,
+      identity: {
+        id: 31,
+        phone: '13800000000',
+        openid: 'openid-private',
+        unionid: null,
+        account_id: 'ACC_OWNER'
+      }
+    }
   });
   await runtime.close();
   assert.equal(poolClosed, true);

@@ -21,6 +21,9 @@ const {
 const {
   readPersonalRecordShadowConfig
 } = require('../src/server/services/postgres/personalRecordShadowConfig');
+const {
+  readIdentityShadowConfig
+} = require('../src/server/services/postgres/identityShadowConfig');
 
 function enabledConfig(overrides = {}) {
   return {
@@ -89,6 +92,17 @@ test('personal record shadow config is independently default-off and account all
     PERSONAL_RECORD_SHADOW_READ_ENABLED: 'true',
     PERSONAL_RECORD_SHADOW_READ_ALLOWLIST: 'ACC000002',
     PERSONAL_RECORD_SHADOW_READ_LOG_DIR: path.join(os.tmpdir(), 'personal-record-shadow-test')
+  });
+  assert.equal(config.enabled, true);
+  assert.deepEqual([...config.allowlist], ['ACC000002']);
+});
+
+test('identity shadow config is independently default-off and account allowlisted', () => {
+  assert.equal(readIdentityShadowConfig({}).reason, 'DISABLED_BY_DEFAULT');
+  const config = readIdentityShadowConfig({
+    IDENTITY_SHADOW_READ_ENABLED: 'true',
+    IDENTITY_SHADOW_READ_ALLOWLIST: 'ACC000002',
+    IDENTITY_SHADOW_READ_LOG_DIR: path.join(os.tmpdir(), 'identity-shadow-test')
   });
   assert.equal(config.enabled, true);
   assert.deepEqual([...config.allowlist], ['ACC000002']);
@@ -356,6 +370,27 @@ test('sanitizeMismatchRecord uses a strict value-free field allowlist', () => {
   assert.equal(record.mismatch_count, 1);
   const serialized = JSON.stringify(record);
   assert.doesNotMatch(serialized, /private\.example|token-value|ACCOUNT_PRIVATE|baseline_value/);
+});
+
+test('identity shadow endpoint logs remain value-free', () => {
+  const record = sanitizeMismatchRecord({
+    endpoint_template: '/api/user/me',
+    channel: 'h5',
+    lifecycle: 'h5_session',
+    field_path: '$.identity.phone',
+    difference_type: 'value_mismatch',
+    baseline_type: 'string',
+    candidate_type: 'string',
+    phone: '13800000000',
+    openid: 'openid-private',
+    account_id: 'ACC000002',
+    token: 'token-private'
+  });
+  assert.equal(record.endpoint_template, '/api/user/me');
+  assert.doesNotMatch(
+    JSON.stringify(record),
+    /13800000000|openid-private|ACC000002|token-private/
+  );
 });
 
 test('file sink is lazy, rotates at the byte boundary, and removes expired files', async () => {

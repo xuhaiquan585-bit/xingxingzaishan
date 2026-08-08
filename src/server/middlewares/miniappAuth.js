@@ -1,5 +1,12 @@
 const { verifyMiniappToken } = require('../services/miniappAuthService');
-const { getAuthenticatedMiniappUser } = require('../services/dbService');
+const {
+  getAuthenticatedMiniappUser,
+  getAuthenticatedMiniappUserReadContext
+} = require('../services/dbService');
+const {
+  identityAuthDto,
+  registerIdentityShadowObservation
+} = require('../services/postgres/identityShadowRuntime');
 
 function getBearerToken(req) {
   const value = req.headers.authorization || '';
@@ -9,7 +16,12 @@ function getBearerToken(req) {
   return value.replace('Bearer ', '').trim();
 }
 
-function attachMiniappUser(req) {
+function isMiniappIdentityShadowRequest(req) {
+  const pathname = String(req.originalUrl || req.url || '').split('?')[0];
+  return req.method === 'GET' && pathname === '/api/miniapp/user/records';
+}
+
+function attachMiniappUser(req, res) {
   const token = getBearerToken(req);
   const payload = verifyMiniappToken(token);
   if (!payload || !payload.id || !payload.openid) {
@@ -17,22 +29,43 @@ function attachMiniappUser(req) {
     return null;
   }
 
-  const result = getAuthenticatedMiniappUser({
+  const input = {
     userId: payload.id,
     openid: payload.openid,
     accountId: payload.account_id || null
-  });
+  };
+  const observeIdentity = isMiniappIdentityShadowRequest(req);
+  const context = observeIdentity
+    ? getAuthenticatedMiniappUserReadContext(input)
+    : { result: getAuthenticatedMiniappUser(input), sourceHash: null };
+  const { result } = context;
   req.miniappUser = result.data || null;
+  if (req.miniappUser && observeIdentity) {
+    registerIdentityShadowObservation({
+      res,
+      event: {
+        endpointTemplate: '/api/miniapp/user/records',
+        channel: 'miniapp',
+        accountId: result.data.account_id,
+        sourceHash: context.sourceHash,
+        baselineDto: identityAuthDto(result),
+        viewer: {
+          identityId: result.data.id,
+          openid: result.data.openid
+        }
+      }
+    });
+  }
   return req.miniappUser;
 }
 
-function optionalMiniappAuth(req, _res, next) {
-  attachMiniappUser(req);
+function optionalMiniappAuth(req, res, next) {
+  attachMiniappUser(req, res);
   return next();
 }
 
 function requireMiniappAuth(req, res, next) {
-  const user = attachMiniappUser(req);
+  const user = attachMiniappUser(req, res);
   if (!user) {
     return res.status(401).json({
       status: 'error',
@@ -57,5 +90,6 @@ function requireMiniappPhone(req, res, next) {
 module.exports = {
   optionalMiniappAuth,
   requireMiniappAuth,
-  requireMiniappPhone
+  requireMiniappPhone,
+  isMiniappIdentityShadowRequest
 };

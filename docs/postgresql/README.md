@@ -474,5 +474,31 @@ close the separate Shadow Read execution gates documented in
 - This service is not connected to routes, application startup, PM2 runtime
   configuration, or production traffic. JSON remains the only runtime write
   source, and this boundary does not authorize dual writes or cutover.
-- Unit validation is complete. Real PostgreSQL identity-write integration in a
-  disposable database is still required before route or Shadow integration.
+- Unit validation and real PostgreSQL identity-write integration are complete.
+  The disposable database exercised concurrent identity creation, binding,
+  guarded merge, sequence allocation, and reference protection, then was
+  removed without changing the staging database.
+
+### Identity authentication Shadow Read
+
+- Identity Shadow compares the completed JSON authentication result with an
+  exact PostgreSQL identity/account lookup. It never shadows registration,
+  phone binding, account merge, or any other write.
+- Sampling is deliberately limited to `GET /api/user/me` for H5 and
+  `GET /api/miniapp/user/records` for miniapp. Static files and unrelated
+  authenticated traffic do not create observations.
+- The Candidate starts only after the JSON response finishes, uses the source
+  SHA-256 captured with the baseline read, requires an exact passed import and
+  canonical migration set, and runs in a bounded read-only repeatable-read
+  transaction.
+- Enablement is strict and independent through
+  `IDENTITY_SHADOW_READ_ENABLED=true`, an explicit
+  `IDENTITY_SHADOW_READ_ALLOWLIST`, and an absolute external
+  `IDENTITY_SHADOW_READ_LOG_DIR`. Missing or malformed settings fail closed.
+- Logs contain only endpoint templates, channel/lifecycle labels, outcomes,
+  latency buckets, mismatch paths, and value types. Phone numbers, OpenIDs,
+  account IDs, identity IDs, tokens, compared values, and database secrets are
+  never serialized.
+- The implementation is deployed-capable but remains default-off. JSON is
+  still the only response and write source; production PostgreSQL traffic,
+  dual writes, and cutover are not authorized by this phase.

@@ -3,7 +3,14 @@ const {
   getCookieName,
   getCookieMaxAge
 } = require('../services/userSessionService');
-const { getAuthenticatedUserById } = require('../services/dbService');
+const {
+  getAuthenticatedUserById,
+  getAuthenticatedUserReadContext
+} = require('../services/dbService');
+const {
+  identityAuthDto,
+  registerIdentityShadowObservation
+} = require('../services/postgres/identityShadowRuntime');
 
 function parseCookies(rawCookie = '') {
   return rawCookie
@@ -55,24 +62,49 @@ function clearCookieHeader() {
   return attrs.join('; ');
 }
 
+function isH5IdentityShadowRequest(req) {
+  const pathname = String(req.originalUrl || req.url || '').split('?')[0];
+  return req.method === 'GET' && pathname === '/api/user/me';
+}
+
 function attachUserSession() {
-  return (req, _res, next) => {
+  return (req, res, next) => {
     const cookies = parseCookies(req.headers.cookie || '');
     req.userSessionId = cookies[getCookieName()] || null;
     req.user = null;
     if (req.userSessionId) {
       const session = getSession(req.userSessionId);
       if (session) {
-        const result = getAuthenticatedUserById({
+        const input = {
           userId: session.user_id,
           accountId: session.account_id || null
-        });
+        };
+        const observeIdentity = isH5IdentityShadowRequest(req);
+        const context = observeIdentity
+          ? getAuthenticatedUserReadContext(input)
+          : { result: getAuthenticatedUserById(input), sourceHash: null };
+        const { result } = context;
         if (result.data) {
           req.user = {
             id: result.data.id,
             phone: result.data.phone,
             account_id: result.data.account_id
           };
+          if (observeIdentity) {
+            registerIdentityShadowObservation({
+              res,
+              event: {
+                endpointTemplate: '/api/user/me',
+                channel: 'h5',
+                accountId: result.data.account_id,
+                sourceHash: context.sourceHash,
+                baselineDto: identityAuthDto(result),
+                viewer: {
+                  identityId: result.data.id
+                }
+              }
+            });
+          }
         }
       }
     }
@@ -97,5 +129,6 @@ module.exports = {
   buildCookieHeader,
   clearCookieHeader,
   parseCookies,
+  isH5IdentityShadowRequest,
   getCookieMaxAge
 };
