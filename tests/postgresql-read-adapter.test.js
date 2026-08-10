@@ -597,12 +597,13 @@ test('identity write service converts bind errors only after transaction rejecti
 
 function makeQrLifecycleWriteHarness({
   lifecycleStatus = 'unactivated',
+  issueStatus = 'issued',
   ownerAccountId = 'ACC_OWNER',
   comments = []
 } = {}) {
   const state = {
     qr: {
-      id: 'QR_WRITE', issue_status: 'issued', lifecycle_status: lifecycleStatus,
+      id: 'QR_WRITE', issue_status: issueStatus, lifecycle_status: lifecycleStatus,
       hidden: false, batch_id: 'BATCH_WRITE', print_batch_id: null,
       qr_image_url_snapshot: '', access_token: 'token-write',
       created_at: '2026-08-09T00:00:00.000Z',
@@ -776,6 +777,29 @@ test('QR lifecycle direct activation creates one sealed record and advances the 
   );
 });
 
+test('QR lifecycle write rejects unissued QR codes before direct or co-creation writes', async () => {
+  for (const operation of ['activateByKey', 'startCoCreationByKey']) {
+    const harness = makeQrLifecycleWriteHarness({ issueStatus: 'unissued' });
+    const before = structuredClone(harness.state);
+
+    await assert.rejects(
+      makeQrLifecycleWriteTransaction(harness)[operation]({
+        key: 'token-write',
+        payload: {
+          account_id: 'ACC_OWNER',
+          phone: '13800000001',
+          content: 'Must not be written',
+          image_object_key: 'records/must-not-write.jpg'
+        }
+      }),
+      (error) => error instanceof QrLifecycleWriteError
+        && error.code === 'QR_NOT_ISSUED'
+    );
+
+    assert.deepEqual(harness.state, before);
+  }
+});
+
 test('QR lifecycle co-creation serializes comments, deletion, and final sealing', async () => {
   const harness = makeQrLifecycleWriteHarness();
   const transaction = makeQrLifecycleWriteTransaction(harness, [
@@ -878,7 +902,15 @@ test('QR lifecycle write service owns one transaction and translates route busin
     await service.activateQRByKey('missing', { account_id: 'ACC_OWNER' }),
     { error: 'QR_NOT_FOUND' }
   );
+  harness.state.qr.issue_status = 'unissued';
+  assert.deepEqual(
+    await service.activateQRByKey('token-write', { account_id: 'ACC_OWNER' }),
+    { error: 'QR_NOT_ISSUED' }
+  );
   assert.deepEqual(calls, [{
+    currentPool: pool,
+    options: { isolationLevel: 'read committed' }
+  }, {
     currentPool: pool,
     options: { isolationLevel: 'read committed' }
   }]);

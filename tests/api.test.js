@@ -1182,6 +1182,12 @@ test('GET /api/user/records should return only current user activated records', 
     'base64'
   );
 
+  const issuedDb = getTestDbSnapshot();
+  issuedDb.qr_codes.find(
+    (item) => item.id === 'STAR0003'
+  ).issue_status = 'issued';
+  writeTestDbSnapshot(issuedDb);
+
   const uploaderCookie = await loginUserAndGetCookie('13600136000');
   const uploadRes = await postMultipartWithCookie('/api/upload', {
     fields: { qr_id: 'STAR0003' },
@@ -2171,6 +2177,74 @@ test('POST /api/qr/:id/record should validate image_url required', async () => {
   const res = await postJsonWithCookie('/api/qr/STAR0001/record', { content: 'hello' }, cookie);
   assert.equal(res.status, 400);
   assert.equal(res.body.code, 'VALIDATION_ERROR');
+});
+
+test('unissued QR codes cannot be activated or enter co-creation from H5 or miniapp', async () => {
+  const adminLogin = await postJson('/api/admin/login', {
+    username: 'admin',
+    password: 'test-admin-pass'
+  });
+  const generated = await postJson('/api/admin/qr/generate', {
+    prefix: 'UIG',
+    count: 4
+  }, adminLogin.body.data.token);
+  assert.equal(generated.status, 200);
+
+  const keys = generated.body.data.records.map(
+    (item) => item.qr_access_token
+  );
+  const h5Cookie = await loginUserAndGetCookie('13800138101');
+  const miniappToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'unissued-lifecycle-gate',
+    phone: '13800138102'
+  });
+
+  const db = getTestDbSnapshot();
+  for (const key of keys) {
+    const qr = db.qr_codes.find(
+      (item) => item.qr_access_token === key
+    );
+    assert.ok(qr);
+    qr.issue_status = 'unissued';
+  }
+  writeTestDbSnapshot(db);
+
+  const before = JSON.stringify(getTestDbSnapshot());
+  const requests = [
+    () => postJsonWithCookie(`/api/qr/${keys[0]}/record`, {
+      content: 'H5 direct must fail',
+      image_object_key: 'records/h5-direct-blocked.jpg'
+    }, h5Cookie),
+    () => postJsonWithCookie(`/api/qr/${keys[1]}/record`, {
+      mode: 'co_create',
+      content: 'H5 co-create must fail',
+      image_object_key: 'records/h5-co-blocked.jpg'
+    }, h5Cookie),
+    () => postJson(`/api/miniapp/qr/${keys[2]}/record`, {
+      content: 'Miniapp direct must fail',
+      image_object_key: 'records/mini-direct-blocked.jpg'
+    }, miniappToken),
+    () => postJson(`/api/miniapp/qr/${keys[3]}/record`, {
+      mode: 'co_create',
+      content: 'Miniapp co-create must fail',
+      image_object_key: 'records/mini-co-blocked.jpg'
+    }, miniappToken)
+  ];
+
+  for (const request of requests) {
+    const response = await request();
+    assert.equal(response.status, 409);
+    assert.equal(response.body.code, 'QR_NOT_ISSUED');
+    assert.equal(JSON.stringify(getTestDbSnapshot()), before);
+  }
+
+  const restored = getTestDbSnapshot();
+  for (const key of keys) {
+    restored.qr_codes.find(
+      (item) => item.qr_access_token === key
+    ).issue_status = 'issued';
+  }
+  writeTestDbSnapshot(restored);
 });
 
 test('POST /api/admin/login should reject wrong credentials', async () => {
@@ -5288,6 +5362,12 @@ test('GET /api/nft/:id/download should return download_url after activation', as
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
     'base64'
   );
+
+  const issuedDb = getTestDbSnapshot();
+  issuedDb.qr_codes.find(
+    (item) => item.id === 'STAR0002'
+  ).issue_status = 'issued';
+  writeTestDbSnapshot(issuedDb);
 
   const userCookie = await loginUserAndGetCookie('13800138000');
   const uploadRes = await postMultipartWithCookie('/api/upload', {

@@ -1211,6 +1211,9 @@ function activateQRCodeOnce(qrId, payload) {
   }
 
   const qrCode = db.qr_codes[index];
+  if (qrCode.issue_status !== 'issued') {
+    return { error: 'QR_NOT_ISSUED' };
+  }
   if (qrCode.activation_status !== 'unactivated') {
     return { error: 'QR_ALREADY_ACTIVATED', data: qrCode };
   }
@@ -1268,10 +1271,12 @@ function startCoCreationOnce(qrId, payload) {
   }
 
   const qrCode = db.qr_codes[index];
+  if (qrCode.issue_status !== 'issued') {
+    return { error: 'QR_NOT_ISSUED' };
+  }
   if (qrCode.activation_status !== 'unactivated') {
     return { error: 'QR_ALREADY_ACTIVATED', data: qrCode };
   }
-
   const showBrandDisclosure = payload.show_brand_disclosure === true;
   const batch = qrCode.batch_id ? db.batches.find((item) => item.id === qrCode.batch_id) : null;
   const batchDisclosure = batch ? String(batch.brand_disclosure_text || '') : '';

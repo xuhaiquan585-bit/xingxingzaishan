@@ -218,6 +218,9 @@ function validateQrData(source, collector) {
     validateRequiredFields(collector, qr, ['id', 'issue_status', 'activation_status', 'created_at'], 'qr_codes', reference);
     if (!qr || !QR_ISSUE_STATUSES.has(qr.issue_status)) collector.add('INVALID_STATUS', 'qr_codes', reference, 'issue_status');
     if (!qr || !QR_LIFECYCLES.has(qr.activation_status)) collector.add('INVALID_QR_LIFECYCLE', 'qr_codes', reference, 'activation_status');
+    if (qr && qr.issue_status !== 'issued' && qr.activation_status !== 'unactivated') {
+      collector.add('INVALID_QR_ISSUE_LIFECYCLE', 'qr_codes', reference, 'issue_status');
+    }
     if (qr && qr.batch_id && !batches.has(qr.batch_id)) collector.add('MISSING_REFERENCE', 'qr_codes', reference, 'batch_id');
     validateTimestamp(collector, qr && qr.created_at, 'qr_codes', reference, 'created_at', { required: true });
     ['updated_at', 'activated_at', 'co_creation_started_at', 'chain_confirmed_at', 'chain_callback_received_at', 'archive_updated_at'].forEach((field) => {

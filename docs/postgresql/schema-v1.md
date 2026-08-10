@@ -148,7 +148,7 @@ Text PK preserving batch ID; name; brand_name; note; disclosure text/default; nu
 
 ### `qr_codes`
 
-Text PK; issue_status CHECK; lifecycle_status CHECK; hidden; nullable batch FK; nullable print_batch_id; QR image snapshot; access_token; created_at/updated_at. Indexes: partial unique access_token, batch_id, issue/lifecycle status, hidden, created_at.
+Text PK; issue_status CHECK; lifecycle_status CHECK; hidden; nullable batch FK; nullable print_batch_id; QR image snapshot; access_token; created_at/updated_at. New writes enforce that only issued QR codes may advance beyond `unactivated`; the compatibility constraint is initially `NOT VALID` so known legacy anomalies can be repaired through a later full source re-import. Indexes: partial unique access_token, batch_id, issue/lifecycle status, hidden, created_at.
 
 ### `records`
 

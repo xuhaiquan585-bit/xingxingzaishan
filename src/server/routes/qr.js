@@ -368,6 +368,14 @@ router.post('/:qrId/record', requireUserSession, async (req, res) => {
     });
   }
 
+  if (result.error === 'QR_NOT_ISSUED') {
+    return res.status(409).json({
+      status: 'error',
+      code: 'QR_NOT_ISSUED',
+      message: '\u8be5\u4e8c\u7ef4\u7801\u5c1a\u672a\u53d1\u884c\uff0c\u65e0\u6cd5\u6fc0\u6d3b\u6216\u5f00\u59cb\u5171\u521b\u3002'
+    });
+  }
+
   let responseData = result.data;
   if (mode !== 'co_create' && result.data) {
     responseData = await prepareRecordManifest(result.data);

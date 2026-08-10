@@ -11,6 +11,7 @@ const BUSINESS_ERROR_CODES = new Set([
   'CO_CREATION_COMMENT_LIMIT_REACHED',
   'FORBIDDEN',
   'QR_ALREADY_ACTIVATED',
+  'QR_NOT_ISSUED',
   'QR_NOT_FOUND'
 ]);
 
@@ -277,6 +278,9 @@ class QrLifecycleWriteTransaction {
     if (!qr) throw new QrLifecycleWriteError('QR_NOT_FOUND');
     if (qr.lifecycle_status !== 'unactivated') {
       throw new QrLifecycleWriteError('QR_ALREADY_ACTIVATED');
+    }
+    if (qr.issue_status !== 'issued') {
+      throw new QrLifecycleWriteError('QR_NOT_ISSUED');
     }
     return qr;
   }

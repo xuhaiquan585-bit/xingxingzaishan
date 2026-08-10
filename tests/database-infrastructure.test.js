@@ -448,6 +448,10 @@ test('compatibility migrations are additive and leave migration 001 unchanged', 
     path.join(migrationsDirectory, '005_add_account_id_sequence.sql'),
     'utf8'
   );
+  const issuedLifecycleMigration = fs.readFileSync(
+    path.join(migrationsDirectory, '006_guard_unissued_qr_lifecycle.sql'),
+    'utf8'
+  );
   assert.equal(
     crypto.createHash('sha256').update(initialBytes).digest('hex'),
     'c827cd85e9552805690d6837383fb6d23c043d32be359ce61b99f743ba477d18'
@@ -481,6 +485,12 @@ test('compatibility migrations are additive and leave migration 001 unchanged', 
   assert.match(accountIdSequenceMigration, /WHERE id !~ '\^ACC\[0-9\]\+\$'/);
   assert.match(accountIdSequenceMigration, /max\(substring\(id FROM 4\)::bigint\) \+ 1/);
   assert.match(accountIdSequenceMigration, /false\s*\n\);/);
+  assert.match(issuedLifecycleMigration, /qr_codes_issued_lifecycle_chk/);
+  assert.match(
+    issuedLifecycleMigration,
+    /issue_status = 'issued'[\s\S]*lifecycle_status = 'unactivated'/
+  );
+  assert.match(issuedLifecycleMigration, /NOT VALID/);
 
   const migrations = loadMigrations({ migrationsDirectory });
   assert.deepEqual(
@@ -490,7 +500,8 @@ test('compatibility migrations are additive and leave migration 001 unchanged', 
       '002_add_comment_source_position.sql',
       '003_preserve_legacy_import_evidence.sql',
       '004_allow_legacy_product_buy_type.sql',
-      '005_add_account_id_sequence.sql'
+      '005_add_account_id_sequence.sql',
+      '006_guard_unissued_qr_lifecycle.sql'
     ]
   );
 });
@@ -802,6 +813,23 @@ test('importer blocks unknown source fields, duplicate identities, broken refere
   assert.equal(report.blocked_reasons.includes('DUPLICATE_IDENTITY'), true);
   assert.equal(report.blocked_reasons.includes('MISSING_REFERENCE'), true);
   assert.equal(report.blocked_reasons.includes('INVALID_QR_LIFECYCLE'), true);
+});
+
+test('importer blocks unissued QR codes that advanced beyond unactivated', () => {
+  const fixture = makeImporterFixture();
+  fixture.qr_codes[0].issue_status = 'unissued';
+
+  const analysis = analyzeImporterFixture(fixture);
+
+  assert.equal(analysis.report.status, 'BLOCKED');
+  assert.equal(
+    analysis.report.anomalies.some((item) => (
+      item.category === 'INVALID_QR_ISSUE_LIFECYCLE'
+        && item.entity_type === 'qr_codes'
+        && item.field === 'issue_status'
+    )),
+    true
+  );
 });
 
 test('importer groups payment events by order transaction and keeps rejected unlinked callbacks auditable', () => {

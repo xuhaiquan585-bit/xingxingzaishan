@@ -460,6 +460,18 @@ close the separate Shadow Read execution gates documented in
 - `AccountRepository.allocateId()` formats the sequence value with the existing
   six-digit minimum width and fails closed when the database result is invalid.
 
+### QR issuance lifecycle invariant
+
+- Migration `006_guard_unissued_qr_lifecycle.sql` prevents new or updated QR
+  rows from advancing beyond `unactivated` until their issue status is
+  `issued`.
+- The constraint is added as `NOT VALID`: PostgreSQL enforces it for subsequent
+  writes while allowing the known legacy anomaly to remain readable until the
+  source data is corrected and fully re-imported.
+- JSON and PostgreSQL lifecycle services reject direct activation and
+  co-creation with `QR_NOT_ISSUED`; import validation blocks the same invalid
+  issue/lifecycle combination.
+
 ### Runtime identity write transaction boundary
 
 - `identityWriteService.js` defines transaction-scoped PostgreSQL operations
