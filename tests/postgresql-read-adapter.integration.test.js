@@ -41,6 +41,9 @@ const {
   createRecordProofResultService
 } = require('../src/server/services/postgres/recordProofResultService');
 const {
+  closeRecordProofRuntime
+} = require('../src/server/services/postgres/recordProofRuntime');
+const {
   PersonalRecordReadAdapter
 } = require('../src/server/services/postgres/personalRecordReadAdapter');
 const {
@@ -52,6 +55,7 @@ const {
   createPublicQrShadowRuntime
 } = require('../src/server/services/postgres/publicQrShadowRuntime');
 const { generateMiniappToken } = require('../src/server/services/miniappAuthService');
+const { signRequest } = require('../src/server/services/avataService');
 const {
   createSession,
   getCookieName
@@ -347,6 +351,32 @@ function stopServer(server) {
   });
 }
 
+function postRaw(port, requestPath, body, headers = {}) {
+  const payload = JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path: requestPath,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+        ...headers
+      }
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => resolve({
+        status: res.statusCode,
+        raw: Buffer.concat(chunks).toString('utf8')
+      }));
+    });
+    req.on('error', reject);
+    req.end(payload);
+  });
+}
+
 async function readCandidate(pool, { key, channel, viewer }) {
   const loaded = await withTransaction(pool, async (transactionContext) => {
     const queries = [];
@@ -499,6 +529,8 @@ test('manual PostgreSQL public QR adapter integration', {
 
   const config = readPostgresConfig(process.env);
   const pool = createPostgresPool({ config });
+  const originalFetch = global.fetch;
+  let externalFetchCalls = 0;
   let shadowRuntime;
   let server;
   let port;
@@ -914,8 +946,72 @@ test('manual PostgreSQL public QR adapter integration', {
       queueLimit: 100
     }, { env: process.env });
 
+    Object.assign(process.env, {
+      RECORD_PROOF_RUNTIME_ENABLED: 'true',
+      RECORD_PROOF_RUNTIME_ALLOWLIST: 'QR_WRITE_DIRECT',
+      RECORD_PROOF_RUNTIME_SOURCE_SHA256: source.sourceHash,
+      RECORD_PROOF_WORKER_ID: 'proof-runtime-route-integration',
+      RECORD_PROOF_WORKER_INTERVAL_MS: '300000',
+      CHAIN_ENABLED: 'true',
+      CHAIN_CALLBACK_URL: 'https://example.test/api/chain/avata/callback',
+      AVATA_API_KEY: 'proof-runtime-route-key',
+      AVATA_API_SECRET: 'proof-runtime-route-secret',
+      AVATA_IDENTITY_NAME: 'proof-runtime-route-name',
+      AVATA_IDENTITY_NUM: 'proof-runtime-route-number'
+    });
+
     const { createApp } = require('../src/server/app');
     ({ server, port } = await startServer(createApp()));
+
+    const routeCallbackBody = {
+      operation_id:
+        `record_QR_WRITE_DIRECT_${sha256('manifest:QR_WRITE_DIRECT').slice(0, 16)}`,
+      status: 1,
+      tx_hash: 'tx-QR_WRITE_DIRECT',
+      block_height: 101,
+      record: {
+        record_id: 'provider-QR_WRITE_DIRECT',
+        certificate_url: 'https://fixture.invalid/QR_WRITE_DIRECT.pdf'
+      }
+    };
+    const callbackTimestamp = String(Date.now());
+    const callbackSignature = signRequest({
+      path: '/api/chain/avata/callback',
+      body: routeCallbackBody,
+      timestamp: callbackTimestamp,
+      apiSecret: process.env.AVATA_API_SECRET
+    });
+    const temporaryJsonHashBefore = sha256(fs.readFileSync(process.env.DB_FILE));
+    global.fetch = async () => {
+      externalFetchCalls += 1;
+      throw new Error('EXTERNAL_FETCH_FORBIDDEN_IN_INTEGRATION');
+    };
+    const routeCallbackResponse = await postRaw(
+      port,
+      '/api/chain/avata/callback',
+      routeCallbackBody,
+      {
+        'X-Api-Key': process.env.AVATA_API_KEY,
+        'X-Timestamp': callbackTimestamp,
+        'X-Signature': callbackSignature
+      }
+    );
+    assert.deepEqual(routeCallbackResponse, { status: 200, raw: 'SUCCESS' });
+    assert.equal(externalFetchCalls, 0);
+    assert.equal(
+      sha256(fs.readFileSync(process.env.DB_FILE)),
+      temporaryJsonHashBefore
+    );
+    const routedProofResult = await pool.query(
+      `SELECT provider_certificate_url,
+              callback_received_at IS NOT NULL AS callback_received
+       FROM app.record_proofs
+       WHERE record_qr_id = 'QR_WRITE_DIRECT'`
+    );
+    assert.deepEqual(routedProofResult.rows, [{
+      provider_certificate_url: 'https://fixture.invalid/QR_WRITE_DIRECT.pdf',
+      callback_received: true
+    }]);
     const owner = fixture.users[1];
     const participant = fixture.users[1];
     const ownerToken = generateMiniappToken(owner);
@@ -1189,9 +1285,11 @@ test('manual PostgreSQL public QR adapter integration', {
       'record_proofs_record_provider_uq'
     ].forEach((name) => assert.equal(indexNames.has(name), true));
   } finally {
+    global.fetch = originalFetch;
     if (shadowRuntime) await shadowRuntime.close();
     await closePublicQrShadowRuntime();
     if (server) await stopServer(server);
+    await closeRecordProofRuntime();
     await pool.query('DROP SCHEMA IF EXISTS app CASCADE');
     await closePostgresPool(pool);
     fs.rmSync(directory, { recursive: true, force: true });
@@ -1201,5 +1299,16 @@ test('manual PostgreSQL public QR adapter integration', {
     delete process.env.PUBLIC_QR_SHADOW_READ_ENABLED;
     delete process.env.PUBLIC_QR_SHADOW_READ_ALLOWLIST;
     delete process.env.PUBLIC_QR_SHADOW_READ_LOG_DIR;
+    delete process.env.RECORD_PROOF_RUNTIME_ENABLED;
+    delete process.env.RECORD_PROOF_RUNTIME_ALLOWLIST;
+    delete process.env.RECORD_PROOF_RUNTIME_SOURCE_SHA256;
+    delete process.env.RECORD_PROOF_WORKER_ID;
+    delete process.env.RECORD_PROOF_WORKER_INTERVAL_MS;
+    delete process.env.CHAIN_ENABLED;
+    delete process.env.CHAIN_CALLBACK_URL;
+    delete process.env.AVATA_API_KEY;
+    delete process.env.AVATA_API_SECRET;
+    delete process.env.AVATA_IDENTITY_NAME;
+    delete process.env.AVATA_IDENTITY_NUM;
   }
 });
