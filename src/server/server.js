@@ -8,6 +8,9 @@ const {
   closePublicQrPrimaryReadRuntime
 } = require('./services/postgres/publicQrPrimaryReadRuntime');
 const {
+  closeQrLifecycleWriteRuntime
+} = require('./services/postgres/qrLifecycleWriteRuntime');
+const {
   closePersonalRecordShadowRuntime
 } = require('./services/postgres/personalRecordShadowRuntime');
 const {
@@ -25,6 +28,7 @@ function closeShadowRuntimes() {
   return Promise.all([
     closePublicQrShadowRuntime(),
     closePublicQrPrimaryReadRuntime(),
+    closeQrLifecycleWriteRuntime(),
     closePersonalRecordShadowRuntime(),
     closeIdentityShadowRuntime(),
     closeRecordProofRuntime()

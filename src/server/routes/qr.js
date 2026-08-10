@@ -24,6 +24,10 @@ const {
   readPublicQrPrimary
 } = require('../services/postgres/publicQrPrimaryReadRuntime');
 const {
+  qrLifecycleWriteHttpError,
+  writeQrLifecycle
+} = require('../services/postgres/qrLifecycleWriteRuntime');
+const {
   prepareRecordManifest,
   submitPreparedRecord
 } = require('../services/chainProofService');
@@ -38,6 +42,49 @@ function isValidPhone(phone) {
 
 function getAccountId(user) {
   return user && user.account_id ? String(user.account_id) : '';
+}
+
+async function selectPostgresLifecycleWrite({ key, operation, payload, req }) {
+  const { qr, sourceHash } = findPublicQrReadContextByKey(key);
+  return writeQrLifecycle({
+    key,
+    operation,
+    payload,
+    publicQrId: qr && qr.id,
+    sourceHash,
+    channel: 'h5',
+    viewer: {
+      accountId: getAccountId(req.user),
+      phoneBound: Boolean(req.user && req.user.phone)
+    },
+    assetResolver: createPublicQrAssetResolver()
+  });
+}
+
+function respondLifecycleWriteUnavailable(res, error) {
+  const response = qrLifecycleWriteHttpError(error);
+  return res.status(response.status).json({
+    status: 'error',
+    code: response.code,
+    message: response.message
+  });
+}
+
+function formatPostgresCreatedComment(result) {
+  const comment = result && result.data && result.data.comment;
+  if (!comment) return null;
+  const createdAt = comment.created_at instanceof Date
+    ? comment.created_at.toISOString()
+    : comment.created_at;
+  return {
+    id: comment.legacy_comment_id ?? comment.id,
+    phone: comment.phone_snapshot || '',
+    account_id: comment.account_id,
+    author_name: comment.author_name,
+    content: comment.content,
+    status: comment.status,
+    created_at: createdAt
+  };
 }
 
 function isCoCreationOwnerByAccount(qr, user) {
@@ -344,9 +391,23 @@ router.post('/:qrId/record', requireUserSession, async (req, res) => {
     show_brand_disclosure: showBrandDisclosure === true
   };
 
-  const result = mode === 'co_create'
-    ? startCoCreationByKey(req.params.qrId, payload)
-    : activateQRByKey(req.params.qrId, payload);
+  let selectedWrite;
+  try {
+    selectedWrite = await selectPostgresLifecycleWrite({
+      key: req.params.qrId,
+      operation: mode === 'co_create' ? 'start_co_creation' : 'activate',
+      payload,
+      req
+    });
+  } catch (error) {
+    return respondLifecycleWriteUnavailable(res, error);
+  }
+
+  const result = selectedWrite.selected
+    ? selectedWrite.result
+    : mode === 'co_create'
+      ? startCoCreationByKey(req.params.qrId, payload)
+      : activateQRByKey(req.params.qrId, payload);
 
   if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
     return respondAccountContextRequired(res);
@@ -376,6 +437,14 @@ router.post('/:qrId/record', requireUserSession, async (req, res) => {
     });
   }
 
+  if (selectedWrite.selected) {
+    return res.json({
+      status: 'success',
+      code: 'OK',
+      data: selectedWrite.dto
+    });
+  }
+
   let responseData = result.data;
   if (mode !== 'co_create' && result.data) {
     responseData = await prepareRecordManifest(result.data);
@@ -389,7 +458,7 @@ router.post('/:qrId/record', requireUserSession, async (req, res) => {
   });
 });
 
-router.post('/:qrId/comments', requireUserSession, (req, res) => {
+router.post('/:qrId/comments', requireUserSession, async (req, res) => {
   const authorName = String(req.body.author_name || '').trim();
   const content = String(req.body.content || '').trim();
   const accountId = getAccountId(req.user);
@@ -414,12 +483,26 @@ router.post('/:qrId/comments', requireUserSession, (req, res) => {
     return respondAccountContextRequired(res);
   }
 
-  const result = addCoCreationCommentByKey(req.params.qrId, {
+  const payload = {
     phone: req.user.phone,
     account_id: accountId,
     authorName,
     content
-  });
+  };
+  let selectedWrite;
+  try {
+    selectedWrite = await selectPostgresLifecycleWrite({
+      key: req.params.qrId,
+      operation: 'add_comment',
+      payload,
+      req
+    });
+  } catch (error) {
+    return respondLifecycleWriteUnavailable(res, error);
+  }
+  const result = selectedWrite.selected
+    ? selectedWrite.result
+    : addCoCreationCommentByKey(req.params.qrId, payload);
 
   if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
     return respondAccountContextRequired(res);
@@ -457,20 +540,36 @@ router.post('/:qrId/comments', requireUserSession, (req, res) => {
   return res.json({
     status: 'success',
     code: 'OK',
-    data: result.data
+    data: selectedWrite.selected
+      ? formatPostgresCreatedComment(result)
+      : result.data
   });
 });
 
-router.delete('/:qrId/comments/:commentId', requireUserSession, (req, res) => {
+router.delete('/:qrId/comments/:commentId', requireUserSession, async (req, res) => {
   const accountId = getAccountId(req.user);
   if (!accountId) {
     return respondAccountContextRequired(res);
   }
 
-  const result = deleteCoCreationCommentByKey(req.params.qrId, {
+  const payload = {
     commentId: req.params.commentId,
     account_id: accountId
-  });
+  };
+  let selectedWrite;
+  try {
+    selectedWrite = await selectPostgresLifecycleWrite({
+      key: req.params.qrId,
+      operation: 'delete_comment',
+      payload,
+      req
+    });
+  } catch (error) {
+    return respondLifecycleWriteUnavailable(res, error);
+  }
+  const result = selectedWrite.selected
+    ? selectedWrite.result
+    : deleteCoCreationCommentByKey(req.params.qrId, payload);
 
   if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
     return respondAccountContextRequired(res);
@@ -494,7 +593,9 @@ router.delete('/:qrId/comments/:commentId', requireUserSession, (req, res) => {
   return res.json({
     status: 'success',
     code: 'OK',
-    data: formatRecordPayload(result.data, req)
+    data: selectedWrite.selected
+      ? selectedWrite.dto
+      : formatRecordPayload(result.data, req)
   });
 });
 
@@ -504,9 +605,23 @@ router.post('/:qrId/finalize', requireUserSession, async (req, res) => {
     return respondAccountContextRequired(res);
   }
 
-  const result = finalizeCoCreationByKey(req.params.qrId, {
+  const payload = {
     account_id: accountId
-  });
+  };
+  let selectedWrite;
+  try {
+    selectedWrite = await selectPostgresLifecycleWrite({
+      key: req.params.qrId,
+      operation: 'finalize',
+      payload,
+      req
+    });
+  } catch (error) {
+    return respondLifecycleWriteUnavailable(res, error);
+  }
+  const result = selectedWrite.selected
+    ? selectedWrite.result
+    : finalizeCoCreationByKey(req.params.qrId, payload);
 
   if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
     return respondAccountContextRequired(res);
@@ -531,6 +646,14 @@ router.post('/:qrId/finalize', requireUserSession, async (req, res) => {
       status: 'error',
       code: 'CO_CREATION_CLOSED',
       message: '这瓶酒不在共创中，不能确认封存。'
+    });
+  }
+
+  if (selectedWrite.selected) {
+    return res.json({
+      status: 'success',
+      code: 'OK',
+      data: selectedWrite.dto
     });
   }
 

@@ -578,7 +578,33 @@ close the separate Shadow Read execution gates documented in
 - Reads run in bounded read-only repeatable-read transactions. Asset URL
   presentation happens after the transaction is released, and the lazily
   created pool closes with the HTTP process lifecycle.
-- This boundary is implementation-only. Deployment does not enable it and
-  does not authorize production PostgreSQL traffic. A disposable PostgreSQL
-  integration run and a timed, single-QR controlled production read are still
-  required before any enablement.
+- Deployment does not enable this boundary. Disposable integration, timed
+  cohort checks, and the full 104-QR/208-route controlled production read have
+  passed with JSON restored afterward. Stable enablement remains separately
+  gated by the coordinated read/write cutover described below.
+
+### QR lifecycle controlled PostgreSQL write boundary
+
+- H5 and miniapp activation, co-creation start, comment add/delete, and final
+  sealing now share an independently controlled PostgreSQL write boundary.
+  It is disabled by default and preserves the JSON route when it is not
+  selected.
+- Enablement requires all three exact settings:
+  `QR_LIFECYCLE_POSTGRES_WRITE_ENABLED=true`, a canonical QR-ID-only
+  `QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST`, and the audited 64-character
+  lowercase `QR_LIFECYCLE_POSTGRES_WRITE_SOURCE_SHA256`.
+- An allowlisted write requires the configured import provenance and canonical
+  migration set, executes through `qrLifecycleWriteService.js`, and returns a
+  DTO rebuilt from PostgreSQL. Direct activation and final sealing enqueue the
+  proof outbox job in the same transaction; the legacy JSON proof submission
+  path is not invoked.
+- Configuration drift, stale provenance, database failures, and DTO identity
+  drift fail closed as generic `503 QR_WRITE_UNAVAILABLE`. Business conflicts
+  retain the existing route status and code contracts.
+- The pool is lazy, bounded, and closed with the HTTP process. Deployment alone
+  does not create a PostgreSQL connection or change production writes.
+- This boundary does not by itself authorize stable cutover. The current
+  primary-read source gate uses the full JSON snapshot hash, so unrelated JSON
+  identity writes can invalidate a long-lived read selection. Stable public QR
+  cutover must therefore coordinate the complete QR read/write selection and
+  replace or explicitly retire that per-request full-file drift gate.

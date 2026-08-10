@@ -57,6 +57,9 @@ const {
 const {
   closePublicQrPrimaryReadRuntime
 } = require('../src/server/services/postgres/publicQrPrimaryReadRuntime');
+const {
+  closeQrLifecycleWriteRuntime
+} = require('../src/server/services/postgres/qrLifecycleWriteRuntime');
 const { generateMiniappToken } = require('../src/server/services/miniappAuthService');
 const { signRequest } = require('../src/server/services/avataService');
 const {
@@ -758,7 +761,7 @@ test('manual PostgreSQL public QR adapter integration', {
     assert.equal(finalizedWrite.data.qr.lifecycle_status, 'activated');
     assert.equal(finalizedWrite.data.co_creation.status, 'finalized');
 
-    const lifecycleWriteState = await pool.query(
+    const routeLifecycleWriteState = await pool.query(
       `SELECT
          (SELECT count(*)::integer FROM app.qr_codes
           WHERE id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')
@@ -782,7 +785,7 @@ test('manual PostgreSQL public QR adapter integration', {
          (SELECT count(DISTINCT idempotency_key)::integer FROM app.outbox_jobs
           WHERE aggregate_id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')) AS proof_job_key_count`
     );
-    assert.deepEqual(lifecycleWriteState.rows, [{
+    assert.deepEqual(routeLifecycleWriteState.rows, [{
       activated_qr_count: 2,
       sealed_record_count: 2,
       finalized_creation_count: 1,
@@ -1163,6 +1166,68 @@ test('manual PostgreSQL public QR adapter integration', {
       ['QR_ACTIVATED_DIRECT', 'Activated fixture']
     );
 
+    const lifecycleWriter = fixture.users[1];
+    const lifecycleWriterSession = createSession({
+      userId: lifecycleWriter.id,
+      phone: lifecycleWriter.phone,
+      accountId: lifecycleWriter.account_id
+    });
+    const lifecycleWriterCookie = `${getCookieName()}=${lifecycleWriterSession.sid}`;
+    const jsonHashBeforeLifecycleWrite = sha256(fs.readFileSync(process.env.DB_FILE));
+    Object.assign(process.env, {
+      QR_LIFECYCLE_POSTGRES_WRITE_ENABLED: 'true',
+      QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST: 'QR_UNACTIVATED',
+      QR_LIFECYCLE_POSTGRES_WRITE_SOURCE_SHA256: source.sourceHash
+    });
+
+    const lifecycleWriteResponse = await postRaw(
+      port,
+      '/api/qr/token-qr_unactivated/record',
+      {
+        content: 'PostgreSQL route activation',
+        image_object_key: 'records/route-activation.jpg'
+      },
+      { Cookie: lifecycleWriterCookie }
+    );
+    assert.equal(lifecycleWriteResponse.status, 200);
+    const lifecycleWriteBody = JSON.parse(lifecycleWriteResponse.raw);
+    assert.equal(lifecycleWriteBody.data.id, 'QR_UNACTIVATED');
+    assert.equal(lifecycleWriteBody.data.activation_status, 'activated');
+    assert.equal(
+      sha256(fs.readFileSync(process.env.DB_FILE)),
+      jsonHashBeforeLifecycleWrite
+    );
+    const lifecycleWriteState = await pool.query(
+      `SELECT
+        (SELECT lifecycle_status FROM app.qr_codes
+          WHERE id = 'QR_UNACTIVATED') AS lifecycle_status,
+        (SELECT count(*)::integer FROM app.records
+          WHERE qr_id = 'QR_UNACTIVATED') AS record_count,
+        (SELECT count(*)::integer FROM app.outbox_jobs
+          WHERE aggregate_id = 'QR_UNACTIVATED'
+            AND job_type = 'record_proof_prepare_submit') AS outbox_count`
+    );
+    assert.deepEqual(lifecycleWriteState.rows, [{
+      lifecycle_status: 'activated',
+      record_count: 1,
+      outbox_count: 1
+    }]);
+
+    process.env.QR_LIFECYCLE_POSTGRES_WRITE_ENABLED = 'false';
+    await closeQrLifecycleWriteRuntime();
+    await pool.query(
+      "DELETE FROM app.outbox_jobs WHERE aggregate_id = 'QR_UNACTIVATED'"
+    );
+    await pool.query(
+      "DELETE FROM app.records WHERE qr_id = 'QR_UNACTIVATED'"
+    );
+    await pool.query(
+      `UPDATE app.qr_codes
+       SET lifecycle_status = 'unactivated', updated_at = $1
+       WHERE id = 'QR_UNACTIVATED'`,
+      [CREATED_AT]
+    );
+
     const personalListBaseline = await requestJson(
       port,
       '/api/miniapp/user/records',
@@ -1345,6 +1410,7 @@ test('manual PostgreSQL public QR adapter integration', {
     if (shadowRuntime) await shadowRuntime.close();
     await closePublicQrShadowRuntime();
     await closePublicQrPrimaryReadRuntime();
+    await closeQrLifecycleWriteRuntime();
     if (server) await stopServer(server);
     await closeRecordProofRuntime();
     await pool.query('DROP SCHEMA IF EXISTS app CASCADE');
@@ -1359,6 +1425,9 @@ test('manual PostgreSQL public QR adapter integration', {
     delete process.env.PUBLIC_QR_POSTGRES_READ_ENABLED;
     delete process.env.PUBLIC_QR_POSTGRES_READ_ALLOWLIST;
     delete process.env.PUBLIC_QR_POSTGRES_READ_SOURCE_SHA256;
+    delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ENABLED;
+    delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST;
+    delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_SOURCE_SHA256;
     delete process.env.RECORD_PROOF_RUNTIME_ENABLED;
     delete process.env.RECORD_PROOF_RUNTIME_ALLOWLIST;
     delete process.env.RECORD_PROOF_RUNTIME_SOURCE_SHA256;

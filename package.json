@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/server/server.js",
     "dev": "node src/server/server.js",
-    "test": "node --test tests/api.test.js tests/database-infrastructure.test.js tests/postgresql-proof-external-adapter.test.js tests/postgresql-proof-job-handler.test.js tests/postgresql-proof-result-service.test.js tests/postgresql-proof-runtime.test.js tests/postgresql-read-adapter.test.js tests/public-qr-gap-audit.test.js tests/public-qr-primary-read-runtime.test.js tests/public-qr-shadow-observer.test.js tests/public-qr-shadow-runtime.test.js",
+    "test": "node --test tests/api.test.js tests/database-infrastructure.test.js tests/postgresql-proof-external-adapter.test.js tests/postgresql-proof-job-handler.test.js tests/postgresql-proof-result-service.test.js tests/postgresql-proof-runtime.test.js tests/postgresql-read-adapter.test.js tests/public-qr-gap-audit.test.js tests/public-qr-primary-read-runtime.test.js tests/public-qr-shadow-observer.test.js tests/public-qr-shadow-runtime.test.js tests/qr-lifecycle-write-runtime.test.js",
     "db:migrate:dry": "node scripts/database/migrate.js --dry-run",
     "db:migrate": "node scripts/database/migrate.js --apply",
     "migrate:oss": "node scripts/migrate-local-to-oss.js",

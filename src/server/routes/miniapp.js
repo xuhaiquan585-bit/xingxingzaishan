@@ -44,6 +44,10 @@ const {
   readPublicQrPrimary
 } = require('../services/postgres/publicQrPrimaryReadRuntime');
 const {
+  qrLifecycleWriteHttpError,
+  writeQrLifecycle
+} = require('../services/postgres/qrLifecycleWriteRuntime');
+const {
   registerPersonalRecordShadowObservation
 } = require('../services/postgres/personalRecordShadowRuntime');
 const {
@@ -85,6 +89,49 @@ function normalizePhone(phone) {
 
 function getMiniappAccountId(user) {
   return user && user.account_id ? String(user.account_id) : '';
+}
+
+async function selectPostgresLifecycleWrite({ key, operation, payload, req }) {
+  const { qr, sourceHash } = findPublicQrReadContextByKey(key);
+  return writeQrLifecycle({
+    key,
+    operation,
+    payload,
+    publicQrId: qr && qr.id,
+    sourceHash,
+    channel: 'miniapp',
+    viewer: {
+      accountId: getMiniappAccountId(req.miniappUser),
+      phoneBound: Boolean(req.miniappUser && req.miniappUser.phone)
+    },
+    assetResolver: createPublicQrAssetResolver()
+  });
+}
+
+function respondLifecycleWriteUnavailable(res, error) {
+  const response = qrLifecycleWriteHttpError(error);
+  return res.status(response.status).json({
+    status: 'error',
+    code: response.code,
+    message: response.message
+  });
+}
+
+function formatPostgresCreatedComment(result) {
+  const comment = result && result.data && result.data.comment;
+  if (!comment) return null;
+  const createdAt = comment.created_at instanceof Date
+    ? comment.created_at.toISOString()
+    : comment.created_at;
+  return {
+    id: comment.legacy_comment_id ?? comment.id,
+    phone: comment.phone_snapshot || '',
+    account_id: comment.account_id,
+    author_name: comment.author_name,
+    content: comment.content,
+    status: comment.status,
+    created_at: createdAt
+  };
 }
 
 function isCoCreationOwnerByAccount(qr, user) {
@@ -904,9 +951,22 @@ router.post('/qr/:key/record', requireMiniappAuth, requireMiniappPhone, async (r
     account_id: accountId,
     show_brand_disclosure: req.body.show_brand_disclosure === true
   };
-  const result = mode === 'co_create'
-    ? startCoCreationByKey(req.params.key, payload)
-    : activateQRByKey(req.params.key, payload);
+  let selectedWrite;
+  try {
+    selectedWrite = await selectPostgresLifecycleWrite({
+      key: req.params.key,
+      operation: mode === 'co_create' ? 'start_co_creation' : 'activate',
+      payload,
+      req
+    });
+  } catch (error) {
+    return respondLifecycleWriteUnavailable(res, error);
+  }
+  const result = selectedWrite.selected
+    ? selectedWrite.result
+    : mode === 'co_create'
+      ? startCoCreationByKey(req.params.key, payload)
+      : activateQRByKey(req.params.key, payload);
 
   if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
     return respondMiniappAccountContextRequired(res);
@@ -931,6 +991,14 @@ router.post('/qr/:key/record', requireMiniappAuth, requireMiniappPhone, async (r
       status: 'error',
       code: 'QR_NOT_ISSUED',
       message: '\u8be5\u4e8c\u7ef4\u7801\u5c1a\u672a\u53d1\u884c\uff0c\u65e0\u6cd5\u6fc0\u6d3b\u6216\u5f00\u59cb\u5171\u521b\u3002'
+    });
+  }
+
+  if (selectedWrite.selected) {
+    return res.json({
+      status: 'success',
+      code: 'OK',
+      data: selectedWrite.dto
     });
   }
 
@@ -979,12 +1047,26 @@ router.post('/qr/:key/comments', requireMiniappAuth, requireMiniappPhone, async 
     throw error;
   }
 
-  const result = addCoCreationCommentByKey(req.params.key, {
+  const payload = {
     phone: req.miniappUser.phone,
     account_id: accountId,
     authorName,
     content
-  });
+  };
+  let selectedWrite;
+  try {
+    selectedWrite = await selectPostgresLifecycleWrite({
+      key: req.params.key,
+      operation: 'add_comment',
+      payload,
+      req
+    });
+  } catch (error) {
+    return respondLifecycleWriteUnavailable(res, error);
+  }
+  const result = selectedWrite.selected
+    ? selectedWrite.result
+    : addCoCreationCommentByKey(req.params.key, payload);
   if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
     return respondMiniappAccountContextRequired(res);
   }
@@ -1001,19 +1083,39 @@ router.post('/qr/:key/comments', requireMiniappAuth, requireMiniappPhone, async 
     return res.status(409).json({ status: 'error', code: 'CO_CREATION_COMMENT_LIMIT_REACHED', message: '共创留言已满，等待发起人确认封存。' });
   }
 
-  return res.json({ status: 'success', code: 'OK', data: result.data });
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: selectedWrite.selected
+      ? formatPostgresCreatedComment(result)
+      : result.data
+  });
 });
 
-router.delete('/qr/:key/comments/:commentId', requireMiniappAuth, requireMiniappPhone, (req, res) => {
+router.delete('/qr/:key/comments/:commentId', requireMiniappAuth, requireMiniappPhone, async (req, res) => {
   const accountId = getMiniappAccountId(req.miniappUser);
   if (!accountId) {
     return respondMiniappAccountContextRequired(res);
   }
 
-  const result = deleteCoCreationCommentByKey(req.params.key, {
+  const payload = {
     commentId: req.params.commentId,
     account_id: accountId
-  });
+  };
+  let selectedWrite;
+  try {
+    selectedWrite = await selectPostgresLifecycleWrite({
+      key: req.params.key,
+      operation: 'delete_comment',
+      payload,
+      req
+    });
+  } catch (error) {
+    return respondLifecycleWriteUnavailable(res, error);
+  }
+  const result = selectedWrite.selected
+    ? selectedWrite.result
+    : deleteCoCreationCommentByKey(req.params.key, payload);
   if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
     return respondMiniappAccountContextRequired(res);
   }
@@ -1026,7 +1128,9 @@ router.delete('/qr/:key/comments/:commentId', requireMiniappAuth, requireMiniapp
   return res.json({
     status: 'success',
     code: 'OK',
-    data: recordPayload(result.data, req.miniappUser)
+    data: selectedWrite.selected
+      ? selectedWrite.dto
+      : recordPayload(result.data, req.miniappUser)
   });
 });
 
@@ -1036,9 +1140,23 @@ router.post('/qr/:key/finalize', requireMiniappAuth, requireMiniappPhone, async 
     return respondMiniappAccountContextRequired(res);
   }
 
-  const result = finalizeCoCreationByKey(req.params.key, {
+  const payload = {
     account_id: accountId
-  });
+  };
+  let selectedWrite;
+  try {
+    selectedWrite = await selectPostgresLifecycleWrite({
+      key: req.params.key,
+      operation: 'finalize',
+      payload,
+      req
+    });
+  } catch (error) {
+    return respondLifecycleWriteUnavailable(res, error);
+  }
+  const result = selectedWrite.selected
+    ? selectedWrite.result
+    : finalizeCoCreationByKey(req.params.key, payload);
   if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
     return respondMiniappAccountContextRequired(res);
   }
@@ -1050,6 +1168,13 @@ router.post('/qr/:key/finalize', requireMiniappAuth, requireMiniappPhone, async 
   }
   if (result.error === 'CO_CREATION_CLOSED') {
     return res.status(409).json({ status: 'error', code: 'CO_CREATION_CLOSED', message: '这瓶酒不在共创中，不能确认封存。' });
+  }
+  if (selectedWrite.selected) {
+    return res.json({
+      status: 'success',
+      code: 'OK',
+      data: selectedWrite.dto
+    });
   }
   let responseData = result.data;
   if (result.data) {
