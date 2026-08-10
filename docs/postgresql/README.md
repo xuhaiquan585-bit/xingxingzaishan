@@ -564,14 +564,17 @@ close the separate Shadow Read execution gates documented in
 - Enablement requires all three exact settings:
   `PUBLIC_QR_POSTGRES_READ_ENABLED=true`, a canonical QR-ID-only
   `PUBLIC_QR_POSTGRES_READ_ALLOWLIST`, and the audited 64-character lowercase
-  `PUBLIC_QR_POSTGRES_READ_SOURCE_SHA256`.
-- JSON resolves only the canonical QR ID and captures the source SHA-256 used
-  by the selection gate. Requests outside the allowlist retain the existing
-  JSON path and do not construct a PostgreSQL pool.
+  `PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256`.
+- JSON resolves only the canonical QR ID and computes the versioned
+  `public_qr_v1` domain checksum used by the selection gate. The checksum is
+  built from mapped QR batches, QR rows, records, co-creation state/comments,
+  and public proof/archive state. Unrelated identity, commerce, and content
+  edits do not invalidate it. Requests outside the allowlist retain the
+  existing JSON path and do not construct a PostgreSQL pool.
 - An allowlisted request uses PostgreSQL as its only DTO source. Before reading
-  business rows, the runtime requires the configured source hash to have a
-  passed import and requires the exact canonical migration set. Source drift,
-  stale imports, version drift, connection failures, and resolved-ID drift
+  business rows, the runtime requires the configured domain checksum in a
+  passed import's checksum summary and requires the exact canonical migration
+  set. Domain drift, stale imports, version drift, connection failures, and resolved-ID drift
   return a generic `503 PUBLIC_QR_READ_UNAVAILABLE`; they never fall back to
   JSON. Existing `QR_NOT_FOUND` and `QR_HIDDEN` contracts remain `404` and
   `403`.
@@ -592,9 +595,10 @@ close the separate Shadow Read execution gates documented in
 - Enablement requires all three exact settings:
   `QR_LIFECYCLE_POSTGRES_WRITE_ENABLED=true`, a canonical QR-ID-only
   `QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST`, and the audited 64-character
-  lowercase `QR_LIFECYCLE_POSTGRES_WRITE_SOURCE_SHA256`.
+  lowercase `QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256`.
 - An allowlisted write requires the configured import provenance and canonical
-  migration set, executes through `qrLifecycleWriteService.js`, and returns a
+  migration set and verifies that the request account already exists in
+  PostgreSQL. It executes through `qrLifecycleWriteService.js` and returns a
   DTO rebuilt from PostgreSQL. Direct activation and final sealing enqueue the
   proof outbox job in the same transaction; the legacy JSON proof submission
   path is not invoked.
@@ -603,8 +607,10 @@ close the separate Shadow Read execution gates documented in
   retain the existing route status and code contracts.
 - The pool is lazy, bounded, and closed with the HTTP process. Deployment alone
   does not create a PostgreSQL connection or change production writes.
-- This boundary does not by itself authorize stable cutover. The current
-  primary-read source gate uses the full JSON snapshot hash, so unrelated JSON
-  identity writes can invalidate a long-lived read selection. Stable public QR
-  cutover must therefore coordinate the complete QR read/write selection and
-  replace or explicitly retire that per-request full-file drift gate.
+- New imports record `public_qr_v1_sha256` in
+  `app.import_runs.checksum_summary`. Existing verified imports can register it
+  once with `npm run db:register-public-qr-domain --` plus the explicit source,
+  expected source/domain hashes, staging target, and both staging confirmations.
+- This boundary does not by itself authorize stable cutover. Read and write
+  selection must still be enabled together so a QR cannot be read from
+  PostgreSQL and written only to JSON.

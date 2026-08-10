@@ -527,6 +527,8 @@ test('manual PostgreSQL public QR adapter integration', {
   const analysis = analyzeFixture(source.inputPath, source.sourceHash);
   assert.equal(analysis.report.status, 'READY');
   assert.equal(analysis.report.can_import, true);
+  const publicQrDomainHash =
+    analysis.report.domain_checksums.public_qr_v1_sha256;
 
   process.env.NODE_ENV = 'test';
   process.env.DB_FILE = analysis.snapshot.sourcePath;
@@ -1115,7 +1117,7 @@ test('manual PostgreSQL public QR adapter integration', {
     Object.assign(process.env, {
       PUBLIC_QR_POSTGRES_READ_ENABLED: 'true',
       PUBLIC_QR_POSTGRES_READ_ALLOWLIST: 'QR_ACTIVATED_DIRECT',
-      PUBLIC_QR_POSTGRES_READ_SOURCE_SHA256: source.sourceHash
+      PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256: publicQrDomainHash
     });
 
     const selectedPrimaryRead = await requestJson(
@@ -1135,7 +1137,7 @@ test('manual PostgreSQL public QR adapter integration', {
     assert.equal(unselectedJsonRead.status, 200);
     assert.equal(unselectedJsonRead.body.data.content, 'Comment ordering fixture');
 
-    process.env.PUBLIC_QR_POSTGRES_READ_SOURCE_SHA256 = 'f'.repeat(64);
+    process.env.PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256 = 'f'.repeat(64);
     const stalePrimaryRead = await requestJson(
       port,
       '/api/qr/token-qr_activated_direct'
@@ -1171,7 +1173,7 @@ test('manual PostgreSQL public QR adapter integration', {
     Object.assign(process.env, {
       QR_LIFECYCLE_POSTGRES_WRITE_ENABLED: 'true',
       QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST: 'QR_UNACTIVATED',
-      QR_LIFECYCLE_POSTGRES_WRITE_SOURCE_SHA256: source.sourceHash
+      QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256: publicQrDomainHash
     });
 
     const lifecycleWriteResponse = await postRaw(
@@ -1418,10 +1420,10 @@ test('manual PostgreSQL public QR adapter integration', {
     delete process.env.PUBLIC_QR_SHADOW_READ_LOG_DIR;
     delete process.env.PUBLIC_QR_POSTGRES_READ_ENABLED;
     delete process.env.PUBLIC_QR_POSTGRES_READ_ALLOWLIST;
-    delete process.env.PUBLIC_QR_POSTGRES_READ_SOURCE_SHA256;
+    delete process.env.PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256;
     delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ENABLED;
     delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST;
-    delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_SOURCE_SHA256;
+    delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256;
     delete process.env.RECORD_PROOF_RUNTIME_ENABLED;
     delete process.env.RECORD_PROOF_RUNTIME_ALLOWLIST;
     delete process.env.RECORD_PROOF_RUNTIME_SOURCE_SHA256;

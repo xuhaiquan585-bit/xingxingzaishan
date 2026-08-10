@@ -10,6 +10,10 @@ const { readPostgresConfig, redactPostgresConfig } = require('../../src/server/d
 const { withTransaction } = require('../../src/server/database/transaction');
 const { inspectMigrationState, loadMigrations } = require('./migrate');
 const { analyzeSourceSnapshot } = require('./importer');
+const {
+  PUBLIC_QR_DOMAIN_CHECKSUM_KEY,
+  publicQrDomainSha256
+} = require('./importer/domain-markers');
 const { assertSourceUnchanged, readSourceSnapshot } = require('./importer/reader');
 const {
   IMPORT_ORDER,
@@ -138,6 +142,14 @@ function assertAnalysisReady(report, plan) {
       'Blocking anomalies must be zero before staging import.'
     );
   }
+  const domainHash = publicQrDomainSha256(plan);
+  if (!report.domain_checksums
+      || report.domain_checksums[PUBLIC_QR_DOMAIN_CHECKSUM_KEY] !== domainHash) {
+    throw stagingImportError(
+      'POSTGRES_IMPORT_DOMAIN_CHECKSUM_MISMATCH',
+      'The public QR domain checksum does not match the analyzed import plan.'
+    );
+  }
   return planSha256(plan);
 }
 
@@ -163,7 +175,11 @@ async function createImportRun(transactionContext, { report, runId, planDigest }
       `snapshot-${report.source_sha256.slice(0, 12)}`,
       IMPORTER_VERSION,
       JSON.stringify(report.source_counts || {}),
-      JSON.stringify({ plan_sha256: planDigest })
+      JSON.stringify({
+        plan_sha256: planDigest,
+        [PUBLIC_QR_DOMAIN_CHECKSUM_KEY]:
+          report.domain_checksums[PUBLIC_QR_DOMAIN_CHECKSUM_KEY]
+      })
     ]
   );
 }
@@ -275,7 +291,12 @@ async function executeStagingImport({
         [
           runId,
           JSON.stringify(importedCounts),
-          JSON.stringify({ plan_sha256: planDigest, source_sha256: report.source_sha256 })
+          JSON.stringify({
+            plan_sha256: planDigest,
+            source_sha256: report.source_sha256,
+            [PUBLIC_QR_DOMAIN_CHECKSUM_KEY]:
+              report.domain_checksums[PUBLIC_QR_DOMAIN_CHECKSUM_KEY]
+          })
         ]
       );
       return { importedCounts, sequenceValues, verification };
@@ -287,6 +308,8 @@ async function executeStagingImport({
       import_run_id: runId,
       source_sha256: report.source_sha256,
       plan_sha256: planDigest,
+      public_qr_domain_sha256:
+        report.domain_checksums[PUBLIC_QR_DOMAIN_CHECKSUM_KEY],
       imported_counts: result.importedCounts,
       sequence_values: result.sequenceValues,
       integrity_checks: result.verification.integrity

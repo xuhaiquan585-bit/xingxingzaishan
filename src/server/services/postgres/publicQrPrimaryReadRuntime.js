@@ -1,6 +1,6 @@
 'use strict';
 
-const { checkCandidateFreshness } = require('./publicQrFreshness');
+const { checkPublicQrDomainFreshness } = require('./publicQrFreshness');
 const { readPublicQrPrimaryReadConfig } = require('./publicQrPrimaryReadConfig');
 
 class PublicQrPrimaryReadError extends Error {
@@ -16,7 +16,7 @@ function primaryReadError(code) {
 }
 
 function assertEnabledConfig(config) {
-  if (!config || config.enabled !== true || !config.sourceHash || !config.allowlist) {
+  if (!config || config.enabled !== true || !config.domainHash || !config.allowlist) {
     throw primaryReadError('PUBLIC_QR_POSTGRES_READ_CONFIG_INVALID');
   }
 }
@@ -29,7 +29,7 @@ function createPublicQrPrimaryReadRuntime(config, {
   migrationsLoader,
   repositories,
   AdapterClass,
-  freshnessChecker = checkCandidateFreshness,
+  freshnessChecker = checkPublicQrDomainFreshness,
   storageModeReader
 } = {}) {
   assertEnabledConfig(config);
@@ -81,7 +81,7 @@ function createPublicQrPrimaryReadRuntime(config, {
       );
       const eligibility = await freshnessChecker({
         provenanceRepository,
-        sourceHash: config.sourceHash,
+        domainHash: config.domainHash,
         migrations
       });
       if (eligibility !== 'ELIGIBLE') {
@@ -144,8 +144,8 @@ function createPublicQrPrimaryReadController({
 
     const publicQrId = String(input.publicQrId || '').trim();
     if (!publicQrId || !config.allowlist.has(publicQrId)) return { selected: false };
-    if (String(input.sourceHash || '') !== config.sourceHash) {
-      throw primaryReadError('PUBLIC_QR_POSTGRES_READ_SOURCE_MISMATCH');
+    if (String(input.domainHash || '') !== config.domainHash) {
+      throw primaryReadError('PUBLIC_QR_POSTGRES_READ_DOMAIN_MISMATCH');
     }
     if (closed) throw primaryReadError('PUBLIC_QR_POSTGRES_READ_CLOSED');
 

@@ -2,6 +2,9 @@
 
 const { RepositoryError } = require('./errors');
 const { assertTransactionContext, executeQuery, oneOrNull } = require('./query');
+const {
+  PUBLIC_QR_DOMAIN_CHECKSUM_KEY
+} = require('../../../scripts/database/importer/domain-markers');
 
 function assertSourceHash(sourceHash) {
   const normalized = String(sourceHash || '').trim().toLowerCase();
@@ -15,6 +18,7 @@ function mapImportRun(row) {
   if (!row) return null;
   return Object.freeze({
     source_sha256: String(row.source_sha256 || '').trim(),
+    public_qr_domain_sha256: String(row.public_qr_domain_sha256 || '').trim() || null,
     status: row.status,
     completed_at: row.completed_at
   });
@@ -42,6 +46,23 @@ class PublicQrProvenanceRepository {
       [assertSourceHash(sourceHash)]
     );
     return oneOrNull(result, mapImportRun, 'PUBLIC_QR_IMPORT_SOURCE_DUPLICATE');
+  }
+
+  async findPassedImportByPublicQrDomainHash(domainHash) {
+    const normalized = assertSourceHash(domainHash);
+    const result = await executeQuery(
+      this.transactionContext,
+      `SELECT trim(source_sha256) AS source_sha256,
+              checksum_summary ->> $2 AS public_qr_domain_sha256,
+              status, completed_at
+       FROM app.import_runs
+       WHERE status = 'passed'
+         AND checksum_summary ->> $2 = $1
+       ORDER BY completed_at DESC NULLS LAST, source_sha256 ASC
+       LIMIT 1`,
+      [normalized, PUBLIC_QR_DOMAIN_CHECKSUM_KEY]
+    );
+    return oneOrNull(result, mapImportRun);
   }
 
   async findLatestPassedImport() {

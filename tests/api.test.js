@@ -787,6 +787,9 @@ test('database reads should not rewrite files or reissue issued QR codes', () =>
 
 test('public QR read context resolves token-first QR and batch from one source snapshot', () => {
   const {
+    publicQrDomainSha256FromSource
+  } = require('../scripts/database/importer/domain-markers');
+  const {
     findPublicQrReadContextByKey,
     getDatabaseSnapshot
   } = require('../src/server/services/dbService');
@@ -807,6 +810,7 @@ test('public QR read context resolves token-first QR and batch from one source s
     assert.equal(context.qr.id, qr.id);
     assert.equal(databaseReads, 1);
     assert.equal(context.sourceHash, crypto.createHash('sha256').update(raw).digest('hex'));
+    assert.equal(context.publicQrDomainHash, publicQrDomainSha256FromSource(db));
     const expectedBatch = qr.batch_id
       ? db.batches.find((item) => item.id === qr.batch_id) || null
       : null;

@@ -9,13 +9,16 @@ const {
   readPublicQrPrimaryReadConfig
 } = require('../src/server/services/postgres/publicQrPrimaryReadConfig');
 const {
+  checkPublicQrDomainFreshness
+} = require('../src/server/services/postgres/publicQrFreshness');
+const {
   PublicQrPrimaryReadError,
   createPublicQrPrimaryReadController,
   createPublicQrPrimaryReadRuntime,
   publicQrPrimaryReadHttpError
 } = require('../src/server/services/postgres/publicQrPrimaryReadRuntime');
 
-const SOURCE_HASH = 'a'.repeat(64);
+const DOMAIN_HASH = 'a'.repeat(64);
 
 function enabledConfig(overrides = {}) {
   return {
@@ -23,11 +26,37 @@ function enabledConfig(overrides = {}) {
     requested: true,
     reason: 'ENABLED',
     allowlist: new Set(['SSS00004']),
-    sourceHash: SOURCE_HASH,
+    domainHash: DOMAIN_HASH,
     timeoutMs: 500,
     ...overrides
   };
 }
+
+test('public QR domain freshness requires marker provenance and canonical migrations', async () => {
+  const migrations = [{ version: '001.sql', checksum: 'b'.repeat(64) }];
+  const eligible = await checkPublicQrDomainFreshness({
+    provenanceRepository: {
+      findPassedImportByPublicQrDomainHash: async (value) => (
+        value === DOMAIN_HASH ? { public_qr_domain_sha256: value } : null
+      ),
+      findLatestPassedImport: async () => ({ source_sha256: 'c'.repeat(64) }),
+      listAppliedMigrations: async () => migrations
+    },
+    domainHash: DOMAIN_HASH,
+    migrations
+  });
+  assert.equal(eligible, 'ELIGIBLE');
+
+  const stale = await checkPublicQrDomainFreshness({
+    provenanceRepository: {
+      findPassedImportByPublicQrDomainHash: async () => null,
+      findLatestPassedImport: async () => ({ source_sha256: 'c'.repeat(64) })
+    },
+    domainHash: DOMAIN_HASH,
+    migrations
+  });
+  assert.equal(stale, 'STALE_SOURCE');
+});
 
 test('public QR primary read config is strictly default-off and rejects partial enablement', () => {
   assert.deepEqual(
@@ -54,19 +83,19 @@ test('public QR primary read config is strictly default-off and rejects partial 
   assert.equal(readPublicQrPrimaryReadConfig({
     PUBLIC_QR_POSTGRES_READ_ENABLED: 'true',
     PUBLIC_QR_POSTGRES_READ_ALLOWLIST: 'SSS00004',
-    PUBLIC_QR_POSTGRES_READ_SOURCE_SHA256: 'not-a-hash'
-  }).reason, 'SOURCE_SHA256_REQUIRED');
+    PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256: 'not-a-hash'
+  }).reason, 'DOMAIN_SHA256_REQUIRED');
 });
 
-test('public QR primary read config accepts only a canonical QR allowlist and exact source hash', () => {
+test('public QR primary read config accepts only a canonical QR allowlist and domain hash', () => {
   const config = readPublicQrPrimaryReadConfig({
     PUBLIC_QR_POSTGRES_READ_ENABLED: 'true',
     PUBLIC_QR_POSTGRES_READ_ALLOWLIST: 'SSS00004, CS1X00003',
-    PUBLIC_QR_POSTGRES_READ_SOURCE_SHA256: SOURCE_HASH
+    PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH
   });
   assert.equal(config.enabled, true);
   assert.equal(config.requested, true);
-  assert.equal(config.sourceHash, SOURCE_HASH);
+  assert.equal(config.domainHash, DOMAIN_HASH);
   assert.deepEqual([...config.allowlist], ['SSS00004', 'CS1X00003']);
 });
 
@@ -84,14 +113,14 @@ test('primary read controller stays lazy for default-off and allowlist misses', 
   });
   assert.deepEqual(await allowlistMiss.read({
     publicQrId: 'SSS00005',
-    sourceHash: SOURCE_HASH
+    domainHash: DOMAIN_HASH
   }), { selected: false });
   assert.equal(runtimeCalls, 0);
   await disabled.close();
   await allowlistMiss.close();
 });
 
-test('primary read controller fails closed before runtime creation for invalid config or source drift', async () => {
+test('primary read controller fails closed before runtime creation for invalid config or domain drift', async () => {
   let runtimeCalls = 0;
   const invalid = createPublicQrPrimaryReadController({
     readConfig: () => ({ enabled: false, requested: true }),
@@ -107,8 +136,8 @@ test('primary read controller fails closed before runtime creation for invalid c
     runtimeFactory: () => { runtimeCalls += 1; }
   });
   await assert.rejects(
-    drifted.read({ publicQrId: 'SSS00004', sourceHash: 'b'.repeat(64) }),
-    (error) => error.code === 'PUBLIC_QR_POSTGRES_READ_SOURCE_MISMATCH'
+    drifted.read({ publicQrId: 'SSS00004', domainHash: 'b'.repeat(64) }),
+    (error) => error.code === 'PUBLIC_QR_POSTGRES_READ_DOMAIN_MISMATCH'
   );
   assert.equal(runtimeCalls, 0);
 });
@@ -134,7 +163,7 @@ test('selected primary reads use one lazy runtime and close it once', async () =
   const input = {
     key: 'public-token',
     publicQrId: 'SSS00004',
-    sourceHash: SOURCE_HASH,
+    domainHash: DOMAIN_HASH,
     channel: 'h5'
   };
   assert.deepEqual(await controller.read(input), {
@@ -162,7 +191,7 @@ test('primary read controller drains an active request before closing its runtim
   });
   const reading = controller.read({
     publicQrId: 'SSS00004',
-    sourceHash: SOURCE_HASH
+    domainHash: DOMAIN_HASH
   });
   await new Promise((resolve) => setImmediate(resolve));
   const closing = controller.close();
@@ -233,9 +262,9 @@ test('primary runtime verifies freshness in a read-only transaction before prese
       QrBatchRepository: EmptyRepository
     },
     AdapterClass: FakeAdapter,
-    freshnessChecker: async ({ sourceHash, migrations: actualMigrations }) => {
+    freshnessChecker: async ({ domainHash, migrations: actualMigrations }) => {
       freshnessCalls += 1;
-      assert.equal(sourceHash, SOURCE_HASH);
+      assert.equal(domainHash, DOMAIN_HASH);
       assert.deepEqual(actualMigrations, migrations);
       return 'ELIGIBLE';
     },

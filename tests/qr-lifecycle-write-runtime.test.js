@@ -18,7 +18,7 @@ const {
   qrLifecycleWriteHttpError
 } = require('../src/server/services/postgres/qrLifecycleWriteRuntime');
 
-const SOURCE_HASH = 'a'.repeat(64);
+const DOMAIN_HASH = 'a'.repeat(64);
 
 function enabledConfig(overrides = {}) {
   return {
@@ -26,7 +26,7 @@ function enabledConfig(overrides = {}) {
     requested: true,
     reason: 'ENABLED',
     allowlist: new Set(['SSS00004']),
-    sourceHash: SOURCE_HASH,
+    domainHash: DOMAIN_HASH,
     timeoutMs: 2_000,
     ...overrides
   };
@@ -57,18 +57,18 @@ test('QR lifecycle PostgreSQL write config is strict and default-off', () => {
   assert.equal(readQrLifecycleWriteConfig({
     QR_LIFECYCLE_POSTGRES_WRITE_ENABLED: 'true',
     QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST: 'SSS00004',
-    QR_LIFECYCLE_POSTGRES_WRITE_SOURCE_SHA256: 'not-a-hash'
-  }).reason, 'SOURCE_SHA256_REQUIRED');
+    QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256: 'not-a-hash'
+  }).reason, 'DOMAIN_SHA256_REQUIRED');
 });
 
-test('QR lifecycle PostgreSQL write config accepts a canonical allowlist and source hash', () => {
+test('QR lifecycle PostgreSQL write config accepts a canonical allowlist and domain hash', () => {
   const config = readQrLifecycleWriteConfig({
     QR_LIFECYCLE_POSTGRES_WRITE_ENABLED: 'true',
     QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST: 'SSS00004,A00002',
-    QR_LIFECYCLE_POSTGRES_WRITE_SOURCE_SHA256: SOURCE_HASH
+    QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256: DOMAIN_HASH
   });
   assert.equal(config.enabled, true);
-  assert.equal(config.sourceHash, SOURCE_HASH);
+  assert.equal(config.domainHash, DOMAIN_HASH);
   assert.deepEqual([...config.allowlist], ['SSS00004', 'A00002']);
 });
 
@@ -86,14 +86,14 @@ test('write controller remains lazy while disabled or outside the allowlist', as
   });
   assert.deepEqual(await allowlistMiss.write({
     publicQrId: 'SSS00005',
-    sourceHash: SOURCE_HASH
+    domainHash: DOMAIN_HASH
   }), { selected: false });
   assert.equal(runtimeCalls, 0);
   await disabled.close();
   await allowlistMiss.close();
 });
 
-test('write controller fails closed for partial configuration and source drift', async () => {
+test('write controller fails closed for partial configuration and domain drift', async () => {
   let runtimeCalls = 0;
   const invalid = createQrLifecycleWriteController({
     readConfig: () => ({ enabled: false, requested: true }),
@@ -109,8 +109,8 @@ test('write controller fails closed for partial configuration and source drift',
     runtimeFactory: () => { runtimeCalls += 1; }
   });
   await assert.rejects(
-    drifted.write({ publicQrId: 'SSS00004', sourceHash: 'b'.repeat(64) }),
-    (error) => error.code === 'QR_LIFECYCLE_POSTGRES_WRITE_SOURCE_MISMATCH'
+    drifted.write({ publicQrId: 'SSS00004', domainHash: 'b'.repeat(64) }),
+    (error) => error.code === 'QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_MISMATCH'
   );
   assert.equal(runtimeCalls, 0);
 });
@@ -135,7 +135,7 @@ test('selected writes share one lazy runtime and drain before closing', async ()
   const writing = controller.write({
     operation: 'activate',
     publicQrId: 'SSS00004',
-    sourceHash: SOURCE_HASH
+    domainHash: DOMAIN_HASH
   });
   await new Promise((resolve) => setImmediate(resolve));
   const closing = controller.close();
@@ -189,6 +189,7 @@ test('write runtime checks provenance, executes the selected operation, and retu
     migrationsLoader: () => migrations,
     repositories: {
       PublicQrProvenanceRepository: EmptyRepository,
+      AccountRepository: class { async exists() { return true; } },
       QrRepository: EmptyRepository,
       RecordRepository: EmptyRepository,
       CoCreationRepository: EmptyRepository,
@@ -196,8 +197,8 @@ test('write runtime checks provenance, executes the selected operation, and retu
       QrBatchRepository: EmptyRepository
     },
     AdapterClass: FakeAdapter,
-    freshnessChecker: async ({ sourceHash, migrations: actualMigrations }) => {
-      calls.push(['freshness', sourceHash]);
+    freshnessChecker: async ({ domainHash, migrations: actualMigrations }) => {
+      calls.push(['freshness', domainHash]);
       assert.deepEqual(actualMigrations, migrations);
       return 'ELIGIBLE';
     },
@@ -226,7 +227,7 @@ test('write runtime checks provenance, executes the selected operation, and retu
     dto: { id: 'SSS00004', activation_status: 'activated' }
   });
   assert.deepEqual(calls, [
-    ['freshness', SOURCE_HASH],
+    ['freshness', DOMAIN_HASH],
     ['activate', 'public-token', 'ACC000002'],
     ['load', 'public-token', 'h5'],
     ['present', 'request-assets']
@@ -253,6 +254,7 @@ test('write runtime returns business failures without presenting and rejects sta
     migrationsLoader: () => [],
     repositories: {
       PublicQrProvenanceRepository: EmptyRepository,
+      AccountRepository: class { async exists() { return true; } },
       QrRepository: EmptyRepository,
       RecordRepository: EmptyRepository,
       CoCreationRepository: EmptyRepository,
@@ -286,6 +288,24 @@ test('write runtime returns business failures without presenting and rejects sta
     (error) => error.code === 'QR_LIFECYCLE_POSTGRES_WRITE_STALE_SOURCE'
   );
   await stale.close();
+
+  const identityUnavailable = createQrLifecycleWriteRuntime(enabledConfig(), {
+    ...baseOptions,
+    repositories: {
+      ...baseOptions.repositories,
+      AccountRepository: class { async exists() { return false; } }
+    },
+    freshnessChecker: async () => 'ELIGIBLE',
+    writeServiceFactory: () => ({ activateQRByKey: async () => ({ data: {} }) })
+  });
+  await assert.rejects(
+    identityUnavailable.write({
+      operation: 'activate',
+      payload: { account_id: 'ACC_NOT_IMPORTED' }
+    }),
+    (error) => error.code === 'QR_LIFECYCLE_POSTGRES_WRITE_IDENTITY_UNAVAILABLE'
+  );
+  await identityUnavailable.close();
 });
 
 test('write runtime HTTP failures are sanitized and both route families are wired', () => {
@@ -322,7 +342,7 @@ test('default-off H5 route preserves the existing JSON write path without Postgr
   process.env.AUTH_SECRET = 'qr-write-route-secret';
   delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ENABLED;
   delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST;
-  delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_SOURCE_SHA256;
+  delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256;
 
   let server;
   try {

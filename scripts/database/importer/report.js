@@ -1,5 +1,10 @@
 'use strict';
 
+const {
+  PUBLIC_QR_DOMAIN_CHECKSUM_KEY,
+  publicQrDomainSha256
+} = require('./domain-markers');
+
 function countBy(items, key) {
   return items.reduce((counts, item) => {
     const value = item[key];
@@ -59,6 +64,9 @@ function buildReport({ snapshot, source, plan, anomalies, conservation }) {
     source_path: snapshot.sourcePath,
     source_sha256: snapshot.sourceHash,
     source_size: snapshot.sourceSize,
+    domain_checksums: {
+      [PUBLIC_QR_DOMAIN_CHECKSUM_KEY]: publicQrDomainSha256(plan)
+    },
     schema_version: source && source.meta && source.meta.schema_version
       ? source.meta.schema_version
       : 'legacy-current',

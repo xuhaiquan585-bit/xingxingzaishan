@@ -1,6 +1,6 @@
 'use strict';
 
-const { checkCandidateFreshness } = require('./publicQrFreshness');
+const { checkPublicQrDomainFreshness } = require('./publicQrFreshness');
 const { readQrLifecycleWriteConfig } = require('./qrLifecycleWriteConfig');
 
 const OPERATION_METHODS = Object.freeze({
@@ -27,7 +27,7 @@ function writeError(code) {
 }
 
 function assertEnabledConfig(config) {
-  if (!config || config.enabled !== true || !config.sourceHash || !config.allowlist) {
+  if (!config || config.enabled !== true || !config.domainHash || !config.allowlist) {
     throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_CONFIG_INVALID');
   }
 }
@@ -40,7 +40,7 @@ function createQrLifecycleWriteRuntime(config, {
   migrationsLoader,
   repositories,
   AdapterClass,
-  freshnessChecker = checkCandidateFreshness,
+  freshnessChecker = checkPublicQrDomainFreshness,
   storageModeReader,
   writeServiceFactory
 } = {}) {
@@ -82,20 +82,29 @@ function createQrLifecycleWriteRuntime(config, {
   const writeService = createWriteService({ pool });
   let closed = false;
 
-  async function assertFreshCandidate() {
-    const eligibility = await runTransaction(pool, async (transactionContext) => {
+  async function assertFreshCandidate(input) {
+    const accountId = String(
+      input && input.payload && (input.payload.account_id || input.payload.accountId) || ''
+    ).trim();
+    const state = await runTransaction(pool, async (transactionContext) => {
       const provenanceRepository = new repositoryTypes.PublicQrProvenanceRepository(
         transactionContext
       );
-      return freshnessChecker({
+      const eligibility = await freshnessChecker({
         provenanceRepository,
-        sourceHash: config.sourceHash,
+        domainHash: config.domainHash,
         migrations
       });
+      const accountAvailable = eligibility !== 'ELIGIBLE' || !accountId
+        || await new repositoryTypes.AccountRepository(transactionContext).exists(accountId);
+      return { eligibility, accountAvailable };
     }, { isolationLevel: 'repeatable read', readOnly: true });
 
-    if (eligibility !== 'ELIGIBLE') {
-      throw writeError(`QR_LIFECYCLE_POSTGRES_WRITE_${eligibility}`);
+    if (state.eligibility !== 'ELIGIBLE') {
+      throw writeError(`QR_LIFECYCLE_POSTGRES_WRITE_${state.eligibility}`);
+    }
+    if (!state.accountAvailable) {
+      throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_IDENTITY_UNAVAILABLE');
     }
   }
 
@@ -133,7 +142,7 @@ function createQrLifecycleWriteRuntime(config, {
       throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_OPERATION_INVALID');
     }
 
-    await assertFreshCandidate();
+    await assertFreshCandidate(input);
     const result = await writeService[method](input.key, input.payload || {});
     if (result && result.error) return Object.freeze({ result });
 
@@ -168,8 +177,8 @@ function createQrLifecycleWriteController({
 
     const publicQrId = String(input.publicQrId || '').trim();
     if (!publicQrId || !config.allowlist.has(publicQrId)) return { selected: false };
-    if (String(input.sourceHash || '') !== config.sourceHash) {
-      throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_SOURCE_MISMATCH');
+    if (String(input.domainHash || '') !== config.domainHash) {
+      throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_MISMATCH');
     }
     if (closed) throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_CLOSED');
 

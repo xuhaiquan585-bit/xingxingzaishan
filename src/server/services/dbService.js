@@ -4,6 +4,9 @@ const crypto = require('crypto');
 const QRCode = require('qrcode');
 const { addLabelToQR } = require('../utils/qrWithLabel');
 const { hashPassword, verifyPassword, isPasswordHashed } = require('./passwordService');
+const {
+  publicQrDomainSha256FromSource
+} = require('../../../scripts/database/importer/domain-markers');
 
 const dataDir = process.env.DB_DIR
   ? path.resolve(process.env.DB_DIR)
@@ -86,6 +89,7 @@ const REQUIRED_DATABASE_ARRAYS = [
   'payment_logs'
 ];
 const databaseSourceHashes = new WeakMap();
+let publicQrDomainHashCache = null;
 
 function normalizeProductSceneTags(value, existing = []) {
   const hasValue = value !== undefined && value !== null;
@@ -1175,8 +1179,15 @@ function findQRByKey(key) {
 function findPublicQrReadContextByKey(key) {
   const normalizedKey = String(key || '').trim();
   const { db, sourceHash } = readDBWithHash();
+  if (!publicQrDomainHashCache || publicQrDomainHashCache.sourceHash !== sourceHash) {
+    publicQrDomainHashCache = {
+      sourceHash,
+      domainHash: publicQrDomainSha256FromSource(db)
+    };
+  }
+  const publicQrDomainHash = publicQrDomainHashCache.domainHash;
   if (!normalizedKey) {
-    return { qr: null, batch: null, sourceHash };
+    return { qr: null, batch: null, sourceHash, publicQrDomainHash };
   }
 
   const qr = db.qr_codes.find((item) => item.qr_access_token === normalizedKey)
@@ -1185,7 +1196,7 @@ function findPublicQrReadContextByKey(key) {
   const batch = qr && qr.batch_id
     ? db.batches.find((item) => item.id === qr.batch_id) || null
     : null;
-  return { qr, batch, sourceHash };
+  return { qr, batch, sourceHash, publicQrDomainHash };
 }
 
 function getSampleUnactivated() {

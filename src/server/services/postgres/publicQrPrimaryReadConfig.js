@@ -12,7 +12,7 @@ function disabled(reason, { requested = false } = {}) {
     requested,
     reason,
     allowlist: new Set(),
-    sourceHash: null,
+    domainHash: null,
     timeoutMs: DEFAULT_TIMEOUT_MS
   });
 }
@@ -35,9 +35,9 @@ function readPublicQrPrimaryReadConfig(env = process.env) {
     return disabled('ALLOWLIST_INVALID', { requested: true });
   }
 
-  const sourceHash = String(env.PUBLIC_QR_POSTGRES_READ_SOURCE_SHA256 || '').trim();
-  if (!SOURCE_HASH_PATTERN.test(sourceHash)) {
-    return disabled('SOURCE_SHA256_REQUIRED', { requested: true });
+  const domainHash = String(env.PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256 || '').trim();
+  if (!SOURCE_HASH_PATTERN.test(domainHash)) {
+    return disabled('DOMAIN_SHA256_REQUIRED', { requested: true });
   }
 
   return Object.freeze({
@@ -45,7 +45,7 @@ function readPublicQrPrimaryReadConfig(env = process.env) {
     requested: true,
     reason: 'ENABLED',
     allowlist,
-    sourceHash,
+    domainHash,
     timeoutMs: DEFAULT_TIMEOUT_MS
   });
 }

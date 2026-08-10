@@ -45,13 +45,13 @@ function getAccountId(user) {
 }
 
 async function selectPostgresLifecycleWrite({ key, operation, payload, req }) {
-  const { qr, sourceHash } = findPublicQrReadContextByKey(key);
+  const { qr, publicQrDomainHash } = findPublicQrReadContextByKey(key);
   return writeQrLifecycle({
     key,
     operation,
     payload,
     publicQrId: qr && qr.id,
-    sourceHash,
+    domainHash: publicQrDomainHash,
     channel: 'h5',
     viewer: {
       accountId: getAccountId(req.user),
@@ -274,7 +274,12 @@ router.get('/sample-unactivated', (_req, res) => {
 
 router.get('/:qrId', async (req, res) => {
   const key = String(req.params.qrId || '').trim();
-  const { qr, batch, sourceHash } = findPublicQrReadContextByKey(key);
+  const {
+    qr,
+    batch,
+    sourceHash,
+    publicQrDomainHash
+  } = findPublicQrReadContextByKey(key);
   const assetResolver = createPublicQrAssetResolver();
   const viewer = {
     accountId: req.user && req.user.account_id ? String(req.user.account_id) : '',
@@ -285,7 +290,7 @@ router.get('/:qrId', async (req, res) => {
     const primaryRead = await readPublicQrPrimary({
       key,
       publicQrId: qr && qr.id,
-      sourceHash,
+      domainHash: publicQrDomainHash,
       channel: 'h5',
       viewer,
       assetResolver

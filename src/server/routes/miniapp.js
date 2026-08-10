@@ -92,13 +92,13 @@ function getMiniappAccountId(user) {
 }
 
 async function selectPostgresLifecycleWrite({ key, operation, payload, req }) {
-  const { qr, sourceHash } = findPublicQrReadContextByKey(key);
+  const { qr, publicQrDomainHash } = findPublicQrReadContextByKey(key);
   return writeQrLifecycle({
     key,
     operation,
     payload,
     publicQrId: qr && qr.id,
-    sourceHash,
+    domainHash: publicQrDomainHash,
     channel: 'miniapp',
     viewer: {
       accountId: getMiniappAccountId(req.miniappUser),
@@ -842,7 +842,12 @@ router.post('/upload', requireMiniappAuth, upload.single('image'), async (req, r
 
 router.get('/qr/:key', optionalMiniappAuth, async (req, res) => {
   const key = String(req.params.key || '').trim();
-  const { qr, batch, sourceHash } = findPublicQrReadContextByKey(key);
+  const {
+    qr,
+    batch,
+    sourceHash,
+    publicQrDomainHash
+  } = findPublicQrReadContextByKey(key);
   const assetResolver = createPublicQrAssetResolver();
   const viewer = {
     accountId: getMiniappAccountId(req.miniappUser),
@@ -853,7 +858,7 @@ router.get('/qr/:key', optionalMiniappAuth, async (req, res) => {
     const primaryRead = await readPublicQrPrimary({
       key,
       publicQrId: qr && qr.id,
-      sourceHash,
+      domainHash: publicQrDomainHash,
       channel: 'miniapp',
       viewer,
       assetResolver

@@ -25,6 +25,11 @@ const {
 } = require('../scripts/database/migrate');
 const { main: runImporterCli, parseArguments: parseImporterArguments } = require('../scripts/database/import-dry-run');
 const { analyzeSourceSnapshot, runDryRun } = require('../scripts/database/importer');
+const {
+  PUBLIC_QR_DOMAIN_CHECKSUM_KEY,
+  publicQrDomainSha256,
+  publicQrDomainSha256FromSource
+} = require('../scripts/database/importer/domain-markers');
 const { mapSourceToPlan } = require('../scripts/database/importer/mapping');
 const { validateImportSource } = require('../scripts/database/importer/validator');
 const {
@@ -44,6 +49,10 @@ const {
   executeStagingImport,
   parseArguments: parseStagingImportArguments
 } = require('../scripts/database/import-staging');
+const {
+  parseArguments: parseDomainMarkerArguments,
+  registerPublicQrDomainMarker
+} = require('../scripts/database/register-public-qr-domain-marker');
 const {
   AccountRepository,
   ArchiveRepository,
@@ -1254,6 +1263,82 @@ test('writer accepts only an injected transaction context and preserves plan val
   assert.equal(/['"](?:BEGIN|COMMIT|ROLLBACK)['"]/.test(writerSource), false);
 });
 
+test('public QR domain marker ignores unrelated identity fields and detects QR changes', () => {
+  const fixture = makeImporterFixture();
+  const baseline = publicQrDomainSha256FromSource(fixture);
+  const reordered = JSON.parse(JSON.stringify(fixture));
+  reordered.qr_codes.reverse();
+  assert.equal(publicQrDomainSha256FromSource(reordered), baseline);
+
+  const unrelated = JSON.parse(JSON.stringify(fixture));
+  unrelated.accounts[0].display_name = 'unrelated identity edit';
+  unrelated.miniapp_content.home_title = 'unrelated content edit';
+  assert.equal(publicQrDomainSha256FromSource(unrelated), baseline);
+
+  const changed = JSON.parse(JSON.stringify(fixture));
+  changed.qr_codes[0].content = 'changed public QR content';
+  assert.notEqual(publicQrDomainSha256FromSource(changed), baseline);
+
+  const analysis = analyzeImporterFixture(fixture);
+  assert.equal(publicQrDomainSha256(analysis.plan), baseline);
+  assert.equal(
+    analysis.report.domain_checksums[PUBLIC_QR_DOMAIN_CHECKSUM_KEY],
+    baseline
+  );
+});
+
+test('public QR domain marker registration requires explicit gates and verified parity', async () => {
+  const hash = 'a'.repeat(64);
+  assert.throws(
+    () => parseDomainMarkerArguments([]),
+    (error) => error.code === 'PUBLIC_QR_DOMAIN_MARKER_SHA256_REQUIRED'
+  );
+  assert.deepEqual(parseDomainMarkerArguments([
+    '--input=fixture.json',
+    `--expected-source-sha256=${hash}`,
+    `--expected-domain-sha256=${hash}`,
+    '--target=staging',
+    '--apply-staging',
+    '--staging-confirmed'
+  ]), {
+    inputPath: 'fixture.json',
+    expectedSourceSha256: hash,
+    expectedDomainSha256: hash,
+    target: 'staging'
+  });
+
+  const fixture = makeImporterFixture();
+  const { plan } = analyzeImporterFixture(fixture);
+  const domainHash = publicQrDomainSha256(plan);
+  const calls = [];
+  const transactionContext = {
+    async query(sql, params = []) {
+      calls.push({ sql: String(sql), params });
+      if (String(sql).includes('FROM app.import_runs')) {
+        return { rows: [{ id: 'import-run', current_domain_sha256: null }] };
+      }
+      return { rows: [], rowCount: 1 };
+    }
+  };
+  const result = await registerPublicQrDomainMarker({
+    pool: {},
+    snapshot: { sourceHash: 'b'.repeat(64) },
+    plan,
+    expectedDomainSha256: domainHash,
+    migrations: [],
+    transactionRunner: async (_pool, callback, options) => {
+      assert.deepEqual(options, { isolationLevel: 'serializable' });
+      return callback(transactionContext);
+    },
+    sourceUnchanged() {},
+    migrationInspector: async () => ({ pending: [] }),
+    verifyPlan: async () => ({ integrity: { orphan_count: 0 } })
+  });
+  assert.equal(result.updated, true);
+  assert.equal(result.public_qr_domain_sha256, domainHash);
+  assert.equal(calls.some((call) => call.sql.includes('jsonb_set')), true);
+});
+
 test('mapping gives child rows historical timestamps and maps audit metadata to the SQL column', () => {
   const fixture = makeImporterFixture();
   const createdAt = fixture.accounts[0].created_at;
@@ -1292,6 +1377,14 @@ test('staging import commits one verified business transaction and blocks a repe
   assert.equal(result.status, 'PASSED');
   assert.equal(harness.state.importRuns.length, 1);
   assert.equal(harness.state.importRuns[0].status, 'passed');
+  assert.equal(
+    harness.state.importRuns[0].checksum_summary[PUBLIC_QR_DOMAIN_CHECKSUM_KEY],
+    analysis.report.domain_checksums[PUBLIC_QR_DOMAIN_CHECKSUM_KEY]
+  );
+  assert.equal(
+    result.public_qr_domain_sha256,
+    analysis.report.domain_checksums[PUBLIC_QR_DOMAIN_CHECKSUM_KEY]
+  );
   assert.equal(result.sequence_values.users, '2');
   assert.equal(result.sequence_values.accounts, '3');
   IMPORT_ORDER.forEach((collection) => {
@@ -1913,19 +2006,32 @@ test('QR lifecycle repositories expose only transaction-scoped state transitions
 
 test('public QR provenance repository checks exact source hashes and canonical migrations', async () => {
   const sourceHash = 'a'.repeat(64);
+  const domainHash = 'c'.repeat(64);
   const harness = createRepositoryContext([
     {
       rows: [{ source_sha256: sourceHash, status: 'passed', completed_at: '2026-01-01T00:00:00Z' }],
+      rowCount: 1
+    },
+    {
+      rows: [{
+        source_sha256: sourceHash,
+        public_qr_domain_sha256: domainHash,
+        status: 'passed',
+        completed_at: '2026-01-01T00:00:00Z'
+      }],
       rowCount: 1
     },
     { rows: [{ version: '001_init_schema.sql', checksum: 'b'.repeat(64) }], rowCount: 1 }
   ]);
   const repository = new PublicQrProvenanceRepository(harness.context);
   const importRun = await repository.findPassedImportBySourceHash(sourceHash);
+  const domainImportRun = await repository.findPassedImportByPublicQrDomainHash(domainHash);
   const migrations = await repository.listAppliedMigrations();
   assert.equal(importRun.source_sha256, sourceHash);
+  assert.equal(domainImportRun.public_qr_domain_sha256, domainHash);
   assert.deepEqual(harness.calls[0].params, [sourceHash]);
   assert.equal(harness.calls[0].sql.includes(sourceHash), false);
+  assert.deepEqual(harness.calls[1].params, [domainHash, PUBLIC_QR_DOMAIN_CHECKSUM_KEY]);
   assert.deepEqual(migrations, [{ version: '001_init_schema.sql', checksum: 'b'.repeat(64) }]);
   await assert.rejects(
     repository.findPassedImportBySourceHash('not-a-hash'),
