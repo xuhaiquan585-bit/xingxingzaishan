@@ -67,7 +67,7 @@ const {
   getCookieName
 } = require('../src/server/services/userSessionService');
 const { executeStagingImport } = require('../scripts/database/import-staging');
-const { runMigrations } = require('../scripts/database/migrate');
+const { loadMigrations, runMigrations } = require('../scripts/database/migrate');
 const { analyzeSourceSnapshot } = require('../scripts/database/importer');
 const { readSourceSnapshot, sha256 } = require('../scripts/database/importer/reader');
 
@@ -545,13 +545,7 @@ test('manual PostgreSQL public QR adapter integration', {
     const migration = await runMigrations({ pool, apply: true, target: 'test' });
     assert.deepEqual(
       migration.applied.map((item) => item.version),
-      [
-        '001_init_schema.sql',
-        '002_add_comment_source_position.sql',
-        '003_preserve_legacy_import_evidence.sql',
-        '004_allow_legacy_product_buy_type.sql',
-        '005_add_account_id_sequence.sql'
-      ]
+      loadMigrations().map((item) => item.version)
     );
     const repeatedMigration = await runMigrations({ pool, apply: true, target: 'test' });
     assert.deepEqual(repeatedMigration.applied, []);

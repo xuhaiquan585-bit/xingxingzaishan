@@ -26,7 +26,7 @@ const {
 const { executeStagingImport } = require('../scripts/database/import-staging');
 const { analyzeSourceSnapshot } = require('../scripts/database/importer');
 const { readSourceSnapshot, sha256 } = require('../scripts/database/importer/reader');
-const { runMigrations } = require('../scripts/database/migrate');
+const { loadMigrations, runMigrations } = require('../scripts/database/migrate');
 
 const RUN_INTEGRATION = process.env.RUN_POSTGRES_INTEGRATION === 'true';
 const CREATED_AT = '2026-07-01T10:00:00.000Z';
@@ -127,13 +127,10 @@ test('manual PostgreSQL legacy import compatibility', {
   const pool = createPostgresPool({ config: readPostgresConfig(process.env) });
   try {
     const migration = await runMigrations({ pool, apply: true, target: 'test' });
-    assert.deepEqual(migration.applied.map((item) => item.version), [
-      '001_init_schema.sql',
-      '002_add_comment_source_position.sql',
-      '003_preserve_legacy_import_evidence.sql',
-      '004_allow_legacy_product_buy_type.sql',
-      '005_add_account_id_sequence.sql'
-    ]);
+    assert.deepEqual(
+      migration.applied.map((item) => item.version),
+      loadMigrations().map((item) => item.version)
+    );
     const imported = await executeStagingImport({
       pool,
       snapshot: analysis.snapshot,
