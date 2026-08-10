@@ -20,6 +20,10 @@ const {
   registerPublicQrShadowObservation
 } = require('../services/postgres/publicQrShadowRuntime');
 const {
+  publicQrPrimaryReadHttpError,
+  readPublicQrPrimary
+} = require('../services/postgres/publicQrPrimaryReadRuntime');
+const {
   prepareRecordManifest,
   submitPreparedRecord
 } = require('../services/chainProofService');
@@ -221,9 +225,39 @@ router.get('/sample-unactivated', (_req, res) => {
   });
 });
 
-router.get('/:qrId', (req, res) => {
+router.get('/:qrId', async (req, res) => {
   const key = String(req.params.qrId || '').trim();
   const { qr, batch, sourceHash } = findPublicQrReadContextByKey(key);
+  const assetResolver = createPublicQrAssetResolver();
+  const viewer = {
+    accountId: req.user && req.user.account_id ? String(req.user.account_id) : '',
+    phoneBound: Boolean(req.user && req.user.phone)
+  };
+
+  try {
+    const primaryRead = await readPublicQrPrimary({
+      key,
+      publicQrId: qr && qr.id,
+      sourceHash,
+      channel: 'h5',
+      viewer,
+      assetResolver
+    });
+    if (primaryRead.selected) {
+      return res.json({
+        status: 'success',
+        code: 'OK',
+        data: primaryRead.dto
+      });
+    }
+  } catch (error) {
+    const response = publicQrPrimaryReadHttpError(error);
+    return res.status(response.status).json({
+      status: 'error',
+      code: response.code,
+      message: response.message
+    });
+  }
 
   if (!qr) {
     return res.status(404).json({
@@ -241,7 +275,6 @@ router.get('/:qrId', (req, res) => {
     });
   }
 
-  const assetResolver = createPublicQrAssetResolver();
   const data = formatQRStatusPayload(qr, req, { batch, assetResolver });
   registerPublicQrShadowObservation({
     res,
@@ -250,10 +283,7 @@ router.get('/:qrId', (req, res) => {
       endpointTemplate: '/api/qr/:qrId',
       key,
       publicQrId: qr.id,
-      viewer: {
-        accountId: req.user && req.user.account_id ? String(req.user.account_id) : '',
-        phoneBound: Boolean(req.user && req.user.phone)
-      },
+      viewer,
       baselineDto: data,
       sourceHash,
       assetResolver

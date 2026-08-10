@@ -40,6 +40,10 @@ const {
   registerPublicQrShadowObservation
 } = require('../services/postgres/publicQrShadowRuntime');
 const {
+  publicQrPrimaryReadHttpError,
+  readPublicQrPrimary
+} = require('../services/postgres/publicQrPrimaryReadRuntime');
+const {
   registerPersonalRecordShadowObservation
 } = require('../services/postgres/personalRecordShadowRuntime');
 const {
@@ -789,9 +793,40 @@ router.post('/upload', requireMiniappAuth, upload.single('image'), async (req, r
   }
 });
 
-router.get('/qr/:key', optionalMiniappAuth, (req, res) => {
+router.get('/qr/:key', optionalMiniappAuth, async (req, res) => {
   const key = String(req.params.key || '').trim();
   const { qr, batch, sourceHash } = findPublicQrReadContextByKey(key);
+  const assetResolver = createPublicQrAssetResolver();
+  const viewer = {
+    accountId: getMiniappAccountId(req.miniappUser),
+    phoneBound: Boolean(req.miniappUser && req.miniappUser.phone)
+  };
+
+  try {
+    const primaryRead = await readPublicQrPrimary({
+      key,
+      publicQrId: qr && qr.id,
+      sourceHash,
+      channel: 'miniapp',
+      viewer,
+      assetResolver
+    });
+    if (primaryRead.selected) {
+      return res.json({
+        status: 'success',
+        code: 'OK',
+        data: primaryRead.dto
+      });
+    }
+  } catch (error) {
+    const response = publicQrPrimaryReadHttpError(error);
+    return res.status(response.status).json({
+      status: 'error',
+      code: response.code,
+      message: response.message
+    });
+  }
+
   if (!qr) {
     return res.status(404).json({
       status: 'error',
@@ -806,7 +841,6 @@ router.get('/qr/:key', optionalMiniappAuth, (req, res) => {
       message: '这颗星暂不可见。'
     });
   }
-  const assetResolver = createPublicQrAssetResolver();
   const data = formatQRPayload(qr, req.miniappUser, { batch, assetResolver });
   registerPublicQrShadowObservation({
     res,
@@ -815,10 +849,7 @@ router.get('/qr/:key', optionalMiniappAuth, (req, res) => {
       endpointTemplate: '/api/miniapp/qr/:key',
       key,
       publicQrId: qr.id,
-      viewer: {
-        accountId: getMiniappAccountId(req.miniappUser),
-        phoneBound: Boolean(req.miniappUser && req.miniappUser.phone)
-      },
+      viewer,
       baselineDto: data,
       sourceHash,
       assetResolver

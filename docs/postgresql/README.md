@@ -543,3 +543,30 @@ close the separate Shadow Read execution gates documented in
 - The worker and proof handler are not connected to PM2, application startup,
   OSS, AVATA, or production traffic. JSON remains the runtime authority until
   the complete per-QR read/write/proof slice passes controlled validation.
+
+### Public QR controlled PostgreSQL primary read boundary
+
+- H5 `GET /api/qr/:qrId` and miniapp `GET /api/miniapp/qr/:key` now have a
+  separately controlled PostgreSQL primary-read boundary. It is independent
+  from Public QR Shadow Read and is disabled by default.
+- Enablement requires all three exact settings:
+  `PUBLIC_QR_POSTGRES_READ_ENABLED=true`, a canonical QR-ID-only
+  `PUBLIC_QR_POSTGRES_READ_ALLOWLIST`, and the audited 64-character lowercase
+  `PUBLIC_QR_POSTGRES_READ_SOURCE_SHA256`.
+- JSON resolves only the canonical QR ID and captures the source SHA-256 used
+  by the selection gate. Requests outside the allowlist retain the existing
+  JSON path and do not construct a PostgreSQL pool.
+- An allowlisted request uses PostgreSQL as its only DTO source. Before reading
+  business rows, the runtime requires the configured source hash to have a
+  passed import and requires the exact canonical migration set. Source drift,
+  stale imports, version drift, connection failures, and resolved-ID drift
+  return a generic `503 PUBLIC_QR_READ_UNAVAILABLE`; they never fall back to
+  JSON. Existing `QR_NOT_FOUND` and `QR_HIDDEN` contracts remain `404` and
+  `403`.
+- Reads run in bounded read-only repeatable-read transactions. Asset URL
+  presentation happens after the transaction is released, and the lazily
+  created pool closes with the HTTP process lifecycle.
+- This boundary is implementation-only. Deployment does not enable it and
+  does not authorize production PostgreSQL traffic. A disposable PostgreSQL
+  integration run and a timed, single-QR controlled production read are still
+  required before any enablement.

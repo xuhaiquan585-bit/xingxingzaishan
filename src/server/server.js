@@ -5,6 +5,9 @@ require('dotenv').config();
 const { createApp } = require('./app');
 const { closePublicQrShadowRuntime } = require('./services/postgres/publicQrShadowRuntime');
 const {
+  closePublicQrPrimaryReadRuntime
+} = require('./services/postgres/publicQrPrimaryReadRuntime');
+const {
   closePersonalRecordShadowRuntime
 } = require('./services/postgres/personalRecordShadowRuntime');
 const {
@@ -21,6 +24,7 @@ const SHUTDOWN_TIMEOUT_MS = 10_000;
 function closeShadowRuntimes() {
   return Promise.all([
     closePublicQrShadowRuntime(),
+    closePublicQrPrimaryReadRuntime(),
     closePersonalRecordShadowRuntime(),
     closeIdentityShadowRuntime(),
     closeRecordProofRuntime()
