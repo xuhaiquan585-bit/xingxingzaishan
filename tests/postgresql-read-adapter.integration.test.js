@@ -54,6 +54,9 @@ const {
   closePublicQrShadowRuntime,
   createPublicQrShadowRuntime
 } = require('../src/server/services/postgres/publicQrShadowRuntime');
+const {
+  closePublicQrPrimaryReadRuntime
+} = require('../src/server/services/postgres/publicQrPrimaryReadRuntime');
 const { generateMiniappToken } = require('../src/server/services/miniappAuthService');
 const { signRequest } = require('../src/server/services/avataService');
 const {
@@ -1107,6 +1110,59 @@ test('manual PostgreSQL public QR adapter integration', {
     }
     assert.equal(mismatchCount, 0);
 
+    const jsonHashBeforePrimaryRead = sha256(fs.readFileSync(process.env.DB_FILE));
+    await pool.query(
+      'UPDATE app.records SET content = $2 WHERE qr_id = $1',
+      ['QR_ACTIVATED_DIRECT', 'PostgreSQL primary-only route content']
+    );
+    Object.assign(process.env, {
+      PUBLIC_QR_POSTGRES_READ_ENABLED: 'true',
+      PUBLIC_QR_POSTGRES_READ_ALLOWLIST: 'QR_ACTIVATED_DIRECT',
+      PUBLIC_QR_POSTGRES_READ_SOURCE_SHA256: source.sourceHash
+    });
+
+    const selectedPrimaryRead = await requestJson(
+      port,
+      '/api/qr/token-qr_activated_direct'
+    );
+    assert.equal(selectedPrimaryRead.status, 200);
+    assert.equal(
+      selectedPrimaryRead.body.data.content,
+      'PostgreSQL primary-only route content'
+    );
+
+    const unselectedJsonRead = await requestJson(
+      port,
+      '/api/qr/token-qr_activated_comments'
+    );
+    assert.equal(unselectedJsonRead.status, 200);
+    assert.equal(unselectedJsonRead.body.data.content, 'Comment ordering fixture');
+
+    process.env.PUBLIC_QR_POSTGRES_READ_SOURCE_SHA256 = 'f'.repeat(64);
+    const stalePrimaryRead = await requestJson(
+      port,
+      '/api/qr/token-qr_activated_direct'
+    );
+    assert.equal(stalePrimaryRead.status, 503);
+    assert.equal(stalePrimaryRead.body.code, 'PUBLIC_QR_READ_UNAVAILABLE');
+
+    process.env.PUBLIC_QR_POSTGRES_READ_ENABLED = 'false';
+    const disabledJsonRead = await requestJson(
+      port,
+      '/api/qr/token-qr_activated_direct'
+    );
+    assert.equal(disabledJsonRead.status, 200);
+    assert.equal(disabledJsonRead.body.data.content, 'Activated fixture');
+    assert.equal(
+      sha256(fs.readFileSync(process.env.DB_FILE)),
+      jsonHashBeforePrimaryRead
+    );
+    await closePublicQrPrimaryReadRuntime();
+    await pool.query(
+      'UPDATE app.records SET content = $2 WHERE qr_id = $1',
+      ['QR_ACTIVATED_DIRECT', 'Activated fixture']
+    );
+
     const personalListBaseline = await requestJson(
       port,
       '/api/miniapp/user/records',
@@ -1288,6 +1344,7 @@ test('manual PostgreSQL public QR adapter integration', {
     global.fetch = originalFetch;
     if (shadowRuntime) await shadowRuntime.close();
     await closePublicQrShadowRuntime();
+    await closePublicQrPrimaryReadRuntime();
     if (server) await stopServer(server);
     await closeRecordProofRuntime();
     await pool.query('DROP SCHEMA IF EXISTS app CASCADE');
@@ -1299,6 +1356,9 @@ test('manual PostgreSQL public QR adapter integration', {
     delete process.env.PUBLIC_QR_SHADOW_READ_ENABLED;
     delete process.env.PUBLIC_QR_SHADOW_READ_ALLOWLIST;
     delete process.env.PUBLIC_QR_SHADOW_READ_LOG_DIR;
+    delete process.env.PUBLIC_QR_POSTGRES_READ_ENABLED;
+    delete process.env.PUBLIC_QR_POSTGRES_READ_ALLOWLIST;
+    delete process.env.PUBLIC_QR_POSTGRES_READ_SOURCE_SHA256;
     delete process.env.RECORD_PROOF_RUNTIME_ENABLED;
     delete process.env.RECORD_PROOF_RUNTIME_ALLOWLIST;
     delete process.env.RECORD_PROOF_RUNTIME_SOURCE_SHA256;
