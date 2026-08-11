@@ -611,6 +611,14 @@ close the separate Shadow Read execution gates documented in
   `app.import_runs.checksum_summary`. Existing verified imports can register it
   once with `npm run db:register-public-qr-domain --` plus the explicit source,
   expected source/domain hashes, staging target, and both staging confirmations.
+- A previously imported source that contains an intentionally preserved
+  unissued/lifecycle inconsistency must also provide the exact QR IDs through
+  `--allow-preserved-unissued-lifecycle-ids`. This exception is registration
+  only: every blocking anomaly must be that exact lifecycle category, the
+  allowlist must equal the mapped anomalous IDs, migration 006 must be current,
+  its database constraint must still be present as `NOT VALID`, and full
+  source-to-PostgreSQL row parity must pass before provenance metadata changes.
+  New imports continue to reject the anomaly without exception.
 - This boundary does not by itself authorize stable cutover. Read and write
   selection must still be enabled together so a QR cannot be read from
   PostgreSQL and written only to JSON.

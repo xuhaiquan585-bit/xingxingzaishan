@@ -50,6 +50,7 @@ const {
   parseArguments: parseStagingImportArguments
 } = require('../scripts/database/import-staging');
 const {
+  assertMarkerAnalysisReady,
   parseArguments: parseDomainMarkerArguments,
   registerPublicQrDomainMarker
 } = require('../scripts/database/register-public-qr-domain-marker');
@@ -1304,8 +1305,31 @@ test('public QR domain marker registration requires explicit gates and verified 
     inputPath: 'fixture.json',
     expectedSourceSha256: hash,
     expectedDomainSha256: hash,
-    target: 'staging'
+    target: 'staging',
+    preservedUnissuedLifecycleIds: []
   });
+
+  assert.deepEqual(parseDomainMarkerArguments([
+    '--input=fixture.json',
+    `--expected-source-sha256=${hash}`,
+    `--expected-domain-sha256=${hash}`,
+    '--target=staging',
+    '--apply-staging',
+    '--staging-confirmed',
+    '--allow-preserved-unissued-lifecycle-ids=STAR0002,STAR0001'
+  ]).preservedUnissuedLifecycleIds, ['STAR0001', 'STAR0002']);
+  assert.throws(
+    () => parseDomainMarkerArguments([
+      '--input=fixture.json',
+      `--expected-source-sha256=${hash}`,
+      `--expected-domain-sha256=${hash}`,
+      '--target=staging',
+      '--apply-staging',
+      '--staging-confirmed',
+      '--allow-preserved-unissued-lifecycle-ids=STAR0001,STAR0001'
+    ]),
+    (error) => error.code === 'PUBLIC_QR_DOMAIN_MARKER_LEGACY_ALLOWLIST_INVALID'
+  );
 
   const fixture = makeImporterFixture();
   const { plan } = analyzeImporterFixture(fixture);
@@ -1336,7 +1360,99 @@ test('public QR domain marker registration requires explicit gates and verified 
   });
   assert.equal(result.updated, true);
   assert.equal(result.public_qr_domain_sha256, domainHash);
+  assert.deepEqual(result.preserved_unissued_lifecycle_ids, []);
   assert.equal(calls.some((call) => call.sql.includes('jsonb_set')), true);
+});
+
+test('public QR domain marker accepts only an exact migration-protected legacy lifecycle allowlist', async () => {
+  const fixture = makeImporterFixture();
+  fixture.qr_codes[0].issue_status = 'unissued';
+  const analysis = analyzeImporterFixture(fixture);
+
+  assert.equal(analysis.report.status, 'BLOCKED');
+  assert.throws(
+    () => assertMarkerAnalysisReady(analysis.report, analysis.plan),
+    (error) => error.code === 'PUBLIC_QR_DOMAIN_MARKER_LEGACY_ALLOWLIST_MISMATCH'
+  );
+  assert.throws(
+    () => assertMarkerAnalysisReady(
+      analysis.report,
+      analysis.plan,
+      ['STAR9999']
+    ),
+    (error) => error.code === 'PUBLIC_QR_DOMAIN_MARKER_LEGACY_ALLOWLIST_MISMATCH'
+  );
+  assert.deepEqual(
+    assertMarkerAnalysisReady(
+      analysis.report,
+      analysis.plan,
+      ['STAR0001']
+    ),
+    ['STAR0001']
+  );
+
+  const additionallyBlocked = makeImporterFixture();
+  additionallyBlocked.qr_codes[0].issue_status = 'unissued';
+  additionallyBlocked.qr_codes[0].activated_at = null;
+  const additionallyBlockedAnalysis = analyzeImporterFixture(additionallyBlocked);
+  assert.throws(
+    () => assertMarkerAnalysisReady(
+      additionallyBlockedAnalysis.report,
+      additionallyBlockedAnalysis.plan,
+      ['STAR0001']
+    ),
+    (error) => error.code === 'PUBLIC_QR_DOMAIN_MARKER_SOURCE_BLOCKED'
+  );
+
+  const domainHash = publicQrDomainSha256(analysis.plan);
+  const calls = [];
+  const transactionContext = {
+    async query(sql) {
+      calls.push(String(sql));
+      if (String(sql).includes('FROM pg_constraint')) {
+        return { rows: [{ convalidated: false }], rowCount: 1 };
+      }
+      if (String(sql).includes('FROM app.import_runs')) {
+        return { rows: [{ id: 'import-run', current_domain_sha256: null }] };
+      }
+      return { rows: [], rowCount: 1 };
+    }
+  };
+  const result = await registerPublicQrDomainMarker({
+    pool: {},
+    snapshot: { sourceHash: 'b'.repeat(64) },
+    plan: analysis.plan,
+    expectedDomainSha256: domainHash,
+    preservedUnissuedLifecycleIds: ['STAR0001'],
+    migrations: [],
+    transactionRunner: async (_pool, callback) => callback(transactionContext),
+    sourceUnchanged() {},
+    migrationInspector: async () => ({ pending: [] }),
+    verifyPlan: async () => ({ integrity: { orphan_count: 0 } })
+  });
+
+  assert.deepEqual(result.preserved_unissued_lifecycle_ids, ['STAR0001']);
+  assert.equal(calls.some((sql) => sql.includes('FROM pg_constraint')), true);
+
+  transactionContext.query = async (sql) => {
+    if (String(sql).includes('FROM pg_constraint')) {
+      return { rows: [{ convalidated: true }], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 1 };
+  };
+  await assert.rejects(
+    registerPublicQrDomainMarker({
+      pool: {},
+      snapshot: { sourceHash: 'b'.repeat(64) },
+      plan: analysis.plan,
+      expectedDomainSha256: domainHash,
+      preservedUnissuedLifecycleIds: ['STAR0001'],
+      migrations: [],
+      transactionRunner: async (_pool, callback) => callback(transactionContext),
+      migrationInspector: async () => ({ pending: [] })
+    }),
+    (error) => error.code === 'PUBLIC_QR_DOMAIN_MARKER_LEGACY_CONSTRAINT_REQUIRED'
+  );
 });
 
 test('mapping gives child rows historical timestamps and maps audit metadata to the SQL column', () => {
