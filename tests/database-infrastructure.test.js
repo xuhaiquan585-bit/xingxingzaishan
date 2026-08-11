@@ -2460,6 +2460,8 @@ test('production privacy snapshot runner is read-only, exact-targeted, and value
   assert.match(source, /EXPECTED_SOURCE_SHA=/);
   assert.match(source, /FINDINGS_CONFIRMED/);
   assert.match(source, /\['SSS00003', 'SSS00008', 'SSS00009'\]/);
+  assert.match(source, /CONTENT_PRIVACY_EVIDENCE_DEPENDENCY_COUNT/);
+  assert.match(source, /CLASSIFY_PROOF_DEPENDENCIES_BEFORE_REMEDIATION/);
   assert.match(source, /PRODUCTION_DATABASE_ACCESS=NONE/);
   assert.match(source, /PRODUCTION_RUNTIME_RESTARTED=NO/);
   assert.doesNotMatch(source, /\bpsql\b|\bpm2 restart\b|\brm\b|\bsed -i\b/);

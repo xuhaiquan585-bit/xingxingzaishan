@@ -58,6 +58,14 @@ assert.deepEqual(
   report.affected_qr_ids,
   ['SSS00003', 'SSS00008', 'SSS00009']
 );
+assert.equal(Number.isInteger(report.evidence_dependency_count), true);
+assert.equal(Array.isArray(report.evidence_dependency_qr_ids), true);
+assert.equal(report.evidence_dependency_count,
+  report.evidence_dependency_qr_ids.length);
+assert.equal(Number.isInteger(report.archive_dependency_count), true);
+assert.equal(Array.isArray(report.archive_dependency_qr_ids), true);
+assert.equal(report.archive_dependency_count,
+  report.archive_dependency_qr_ids.length);
 assert.equal(report.raw_identity_values_persisted, false);
 assert.equal(report.raw_business_content_persisted, false);
 assert.equal(report.production_database_access, 'NONE');
@@ -69,8 +77,26 @@ for (const finding of report.findings) {
   assert.notEqual(finding.content_sha256, finding.proposed_content_sha256);
   assert.equal(finding.match_count > 0, true);
   assert.equal(finding.matched_identity_count > 0, true);
+  assert.equal(typeof finding.evidence_dependency.present, 'boolean');
+  assert.match(finding.evidence_dependency.proof_hash_kind,
+    /^(?:NONE|SHA256|LEGACY)$/);
 }
 console.log('CONTENT_PRIVACY_FINDING_SET_GATE=PASS');
+console.log(
+  `CONTENT_PRIVACY_EVIDENCE_DEPENDENCY_COUNT=${
+    report.evidence_dependency_count
+  }`
+);
+console.log(
+  `CONTENT_PRIVACY_EVIDENCE_DEPENDENCY_QR_IDS=${
+    report.evidence_dependency_qr_ids.join(',') || 'NONE'
+  }`
+);
+console.log(
+  `CONTENT_PRIVACY_ARCHIVE_DEPENDENCY_COUNT=${
+    report.archive_dependency_count
+  }`
+);
 NODE
 
 [ "$(sha256sum "$SOURCE" | awk '{print $1}')" = \
@@ -115,4 +141,4 @@ echo 'EXPECTED_HISTORICAL_FINDING_COUNT=3'
 echo 'PRODUCTION_SOURCE_UNCHANGED=YES'
 echo 'PRODUCTION_DATABASE_ACCESS=NONE'
 echo 'PRODUCTION_RUNTIME_RESTARTED=NO'
-echo 'NEXT_ACTION=BUILD_EXACT_TARGET_RESUMABLE_REMEDIATION'
+echo 'NEXT_ACTION=CLASSIFY_PROOF_DEPENDENCIES_BEFORE_REMEDIATION'

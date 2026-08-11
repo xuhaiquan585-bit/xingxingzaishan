@@ -768,6 +768,9 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
 - Audit output contains QR identifiers, counts, and before/after content
   fingerprints only. It never persists raw phone numbers, identity values,
   business content, or the protected snapshot path.
+- The report also classifies proof and archive dependencies without exposing
+  proof values. An affected record with existing evidence must not be rewritten
+  until the remediation preserves the meaning of that immutable evidence.
 - This gate prevents recurrence but does not rewrite historical rows. A
   separate exact-target, resumable JSON/PostgreSQL correction must be produced
   only after the protected production snapshot confirms the expected finding

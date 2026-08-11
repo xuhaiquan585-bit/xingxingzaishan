@@ -50,6 +50,8 @@ function sourceFixture() {
         id: 'QR_FOREIGN', issue_status: 'issued', activation_status: 'activated',
         account_id: 'ACC_OWNER', phone: OWNER_PHONE,
         content: `${PRIVATE_PHRASE} ${OTHER_PHONE}`,
+        chain_status: 'confirmed', manifest_hash: 'a'.repeat(64),
+        chain_tx_hash: 'fixture-transaction', chain_confirmed_at: timestamp,
         activated_at: timestamp, created_at: timestamp, updated_at: timestamp
       },
       {
@@ -150,6 +152,22 @@ test('privacy audit reports fingerprints and identifiers without raw sensitive v
     assert.equal(report.record_finding_count, 1);
     assert.equal(report.comment_finding_count, 1);
     assert.deepEqual(report.affected_qr_ids, ['QR_COMMENT', 'QR_FOREIGN']);
+    assert.equal(report.schema_version, 2);
+    assert.equal(report.evidence_dependency_count, 1);
+    assert.deepEqual(report.evidence_dependency_qr_ids, ['QR_FOREIGN']);
+    assert.equal(report.archive_dependency_count, 0);
+    assert.deepEqual(report.archive_dependency_qr_ids, []);
+    const foreign = report.findings.find((item) => item.qr_id === 'QR_FOREIGN');
+    assert.deepEqual(foreign.evidence_dependency, {
+      present: true,
+      proof_status: 'confirmed',
+      proof_hash_kind: 'SHA256',
+      external_reference_present: true,
+      archive_present: false,
+      archive_status: null
+    });
+    const comment = report.findings.find((item) => item.qr_id === 'QR_COMMENT');
+    assert.equal(comment.evidence_dependency.present, false);
     assert.equal(serialized.includes(OWNER_PHONE), false);
     assert.equal(serialized.includes(OTHER_PHONE), false);
     assert.equal(serialized.includes(PRIVATE_PHRASE), false);

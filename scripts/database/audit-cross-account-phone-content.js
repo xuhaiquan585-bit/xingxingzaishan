@@ -116,7 +116,48 @@ function decodeUtf8(bytes) {
   }
 }
 
-function finding({ collection, qrId, sourcePosition, ownerAccountId, content, identities }) {
+function proofDependency(proof, archive) {
+  if (!proof && !archive) {
+    return Object.freeze({
+      present: false,
+      proof_status: null,
+      proof_hash_kind: 'NONE',
+      external_reference_present: false,
+      archive_present: false,
+      archive_status: null
+    });
+  }
+  return Object.freeze({
+    present: true,
+    proof_status: proof ? String(proof.status || '') || null : null,
+    proof_hash_kind: proof && proof.manifest_hash
+      ? 'SHA256'
+      : proof && proof.legacy_hash_snapshot ? 'LEGACY' : 'NONE',
+    external_reference_present: Boolean(proof && (
+      proof.operation_id
+      || proof.transaction_hash
+      || proof.provider_record_id
+      || proof.provider_certificate_url
+      || proof.certificate_object_key
+      || proof.certificate_object_url_snapshot
+      || proof.confirmed_at
+      || proof.callback_received_at
+    )),
+    archive_present: Boolean(archive),
+    archive_status: archive ? String(archive.status || '') || null : null
+  });
+}
+
+function finding({
+  collection,
+  qrId,
+  sourcePosition,
+  ownerAccountId,
+  content,
+  identities,
+  proof,
+  archive
+}) {
   const redaction = redactCrossAccountPhoneReferences({
     content,
     ownerAccountId,
@@ -130,7 +171,8 @@ function finding({ collection, qrId, sourcePosition, ownerAccountId, content, id
     content_sha256: sha256(Buffer.from(String(content || ''), 'utf8')),
     proposed_content_sha256: sha256(Buffer.from(redaction.content, 'utf8')),
     match_count: redaction.match_count,
-    matched_identity_count: redaction.matched_identity_count
+    matched_identity_count: redaction.matched_identity_count,
+    evidence_dependency: proofDependency(proof, archive)
   });
 }
 
@@ -143,6 +185,12 @@ function analyzeSource(source, sourceHash) {
   const coCreationQrIds = new Map(
     plan.co_creations.map((row) => [row.id, row.qr_id])
   );
+  const proofsByQrId = new Map(
+    plan.record_proofs.map((row) => [row.record_qr_id, row])
+  );
+  const archivesByQrId = new Map(
+    plan.record_archives.map((row) => [row.record_qr_id, row])
+  );
   const findings = [];
 
   plan.records.forEach((record) => {
@@ -152,19 +200,24 @@ function analyzeSource(source, sourceHash) {
       sourcePosition: null,
       ownerAccountId: record.account_id,
       content: record.content,
-      identities
+      identities,
+      proof: proofsByQrId.get(record.qr_id),
+      archive: archivesByQrId.get(record.qr_id)
     });
     if (result) findings.push(result);
   });
 
   plan.co_creation_comments.forEach((comment) => {
+    const qrId = coCreationQrIds.get(comment.co_creation_id);
     const result = finding({
       collection: 'co_creation_comments',
-      qrId: coCreationQrIds.get(comment.co_creation_id),
+      qrId,
       sourcePosition: comment.source_position,
       ownerAccountId: comment.account_id,
       content: comment.content,
-      identities
+      identities,
+      proof: proofsByQrId.get(qrId),
+      archive: archivesByQrId.get(qrId)
     });
     if (result) findings.push(result);
   });
@@ -175,8 +228,18 @@ function analyzeSource(source, sourceHash) {
     || Number(left.source_position ?? -1) - Number(right.source_position ?? -1)
   ));
   const affectedQrIds = [...new Set(findings.map((item) => item.qr_id))].sort();
+  const evidenceDependencyQrIds = [...new Set(
+    findings
+      .filter((item) => item.evidence_dependency.present)
+      .map((item) => item.qr_id)
+  )].sort();
+  const archiveDependencyQrIds = [...new Set(
+    findings
+      .filter((item) => item.evidence_dependency.archive_present)
+      .map((item) => item.qr_id)
+  )].sort();
   return Object.freeze({
-    schema_version: 1,
+    schema_version: 2,
     mode: 'dry-run',
     status: findings.length > 0 ? 'FINDINGS_CONFIRMED' : 'CLEAN',
     read_only: true,
@@ -194,6 +257,10 @@ function analyzeSource(source, sourceHash) {
       (item) => item.collection === 'co_creation_comments'
     ).length,
     affected_qr_ids: affectedQrIds,
+    evidence_dependency_count: evidenceDependencyQrIds.length,
+    evidence_dependency_qr_ids: evidenceDependencyQrIds,
+    archive_dependency_count: archiveDependencyQrIds.length,
+    archive_dependency_qr_ids: archiveDependencyQrIds,
     findings,
     raw_identity_values_persisted: false,
     raw_business_content_persisted: false,
@@ -256,6 +323,7 @@ module.exports = {
   auditFile,
   main,
   parseArguments,
+  proofDependency,
   resolveAuditInput,
   sha256
 };
