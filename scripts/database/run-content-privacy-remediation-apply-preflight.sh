@@ -38,6 +38,24 @@ assert_default_off() {
     tr '\0' '\n' < "/proc/$app_pid/environ" |
       grep -qx "${flag}=false" || return 1
   done
+
+  for flag in \
+    IDENTITY_POSTGRES_AUTHORITY_ENABLED \
+    QR_ISSUANCE_POSTGRES_AUTHORITY_ENABLED
+  do
+    local value
+    value="$(
+      tr '\0' '\n' < "/proc/$app_pid/environ" |
+        sed -n "s/^${flag}=//p" |
+        tail -n 1
+    )"
+    [ -z "$value" ] || [ "$value" = false ] || return 1
+  done
+
+  if tr '\0' '\n' < "/proc/$app_pid/environ" |
+     grep -Eq '^(DATABASE_URL|PGPASSWORD)=.+$'; then
+    return 1
+  fi
 }
 
 [ "$(id -u)" -eq 0 ] || fail ROOT_REQUIRED

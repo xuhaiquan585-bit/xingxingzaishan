@@ -2526,6 +2526,9 @@ test('production privacy remediation apply preflight is exact and read-only', ()
   );
   assert.match(runner, /EXPECTED_QR_IDS=SSS00003,SSS00008,SSS00009/);
   assert.match(runner, /default_transaction_read_only=on/);
+  assert.match(runner, /IDENTITY_POSTGRES_AUTHORITY_ENABLED/);
+  assert.match(runner, /QR_ISSUANCE_POSTGRES_AUTHORITY_ENABLED/);
+  assert.match(runner, /DATABASE_URL\|PGPASSWORD/);
   assert.match(runner, /--preflight/);
   assert.match(runner, /PRODUCTION_JSON_WRITE=NONE/);
   assert.match(runner, /PRODUCTION_DATABASE_WRITE=NONE/);
