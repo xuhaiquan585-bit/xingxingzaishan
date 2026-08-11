@@ -1030,6 +1030,135 @@ test('manual PostgreSQL public QR adapter integration', {
     });
     const personalOwnerCookie = `${getCookieName()}=${personalOwnerSession.sid}`;
 
+    const jsonHashBeforeAllScopeRoutes = sha256(
+      fs.readFileSync(process.env.DB_FILE)
+    );
+    await pool.query(
+      `INSERT INTO app.qr_codes
+         (id, issue_status, lifecycle_status, access_token, created_at, updated_at)
+       VALUES
+         ('QR_SCOPE_ALL', 'issued', 'unactivated', 'token-scope-all', $1, $1)`,
+      [CREATED_AT]
+    );
+    delete process.env.PUBLIC_QR_POSTGRES_READ_ALLOWLIST;
+    delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST;
+    delete process.env.PERSONAL_RECORD_POSTGRES_READ_ALLOWLIST;
+    Object.assign(process.env, {
+      PUBLIC_QR_POSTGRES_READ_ENABLED: 'true',
+      PUBLIC_QR_POSTGRES_READ_SCOPE: 'all',
+      PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256: publicQrDomainHash,
+      QR_LIFECYCLE_POSTGRES_WRITE_ENABLED: 'true',
+      QR_LIFECYCLE_POSTGRES_WRITE_SCOPE: 'all',
+      QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256: publicQrDomainHash,
+      PERSONAL_RECORD_POSTGRES_READ_ENABLED: 'true',
+      PERSONAL_RECORD_POSTGRES_READ_SCOPE: 'all',
+      PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256: publicQrDomainHash
+    });
+
+    const allScopeWriteResponse = await postRaw(
+      port,
+      '/api/qr/token-scope-all/record',
+      {
+        content: 'PostgreSQL-only all-scope route content',
+        image_object_key: 'records/scope-all-route.jpg'
+      },
+      { Cookie: personalOwnerCookie }
+    );
+    assert.equal(allScopeWriteResponse.status, 200);
+    const allScopeWriteBody = JSON.parse(allScopeWriteResponse.raw);
+    assert.equal(allScopeWriteBody.data.id, 'QR_SCOPE_ALL');
+    assert.equal(allScopeWriteBody.data.activation_status, 'activated');
+    assert.equal(
+      allScopeWriteBody.data.content,
+      'PostgreSQL-only all-scope route content'
+    );
+
+    for (const requestPath of [
+      '/api/qr/token-scope-all',
+      '/api/miniapp/qr/token-scope-all'
+    ]) {
+      const response = await requestJson(port, requestPath);
+      assert.equal(response.status, 200);
+      assert.equal(response.body.data.id, 'QR_SCOPE_ALL');
+      assert.equal(
+        response.body.data.content,
+        'PostgreSQL-only all-scope route content'
+      );
+    }
+
+    const allScopePersonalCases = [
+      {
+        path: '/api/user/records',
+        token: '',
+        headers: { Cookie: personalOwnerCookie },
+        detail: false
+      },
+      {
+        path: '/api/user/records/QR_SCOPE_ALL',
+        token: '',
+        headers: { Cookie: personalOwnerCookie },
+        detail: true
+      },
+      {
+        path: '/api/miniapp/user/records',
+        token: personalOwnerToken,
+        headers: {},
+        detail: false
+      },
+      {
+        path: '/api/miniapp/user/records/QR_SCOPE_ALL',
+        token: personalOwnerToken,
+        headers: {},
+        detail: true
+      }
+    ];
+    for (const current of allScopePersonalCases) {
+      const response = await requestJson(
+        port,
+        current.path,
+        current.token,
+        current.headers
+      );
+      assert.equal(response.status, 200);
+      const record = current.detail
+        ? response.body.data
+        : response.body.data.records.find(
+          (item) => item.id === 'QR_SCOPE_ALL'
+        );
+      assert.ok(record);
+      assert.equal(record.id, 'QR_SCOPE_ALL');
+      assert.equal(record.content, 'PostgreSQL-only all-scope route content');
+    }
+
+    const allScopeDatabaseState = await pool.query(
+      `SELECT
+         (SELECT lifecycle_status FROM app.qr_codes
+          WHERE id = 'QR_SCOPE_ALL') AS lifecycle_status,
+         (SELECT count(*)::integer FROM app.records
+          WHERE qr_id = 'QR_SCOPE_ALL') AS record_count,
+         (SELECT count(*)::integer FROM app.outbox_jobs
+          WHERE aggregate_id = 'QR_SCOPE_ALL'
+            AND job_type = 'record_proof_prepare_submit') AS outbox_count`
+    );
+    assert.deepEqual(allScopeDatabaseState.rows, [{
+      lifecycle_status: 'activated',
+      record_count: 1,
+      outbox_count: 1
+    }]);
+    assert.equal(
+      sha256(fs.readFileSync(process.env.DB_FILE)),
+      jsonHashBeforeAllScopeRoutes
+    );
+
+    process.env.PUBLIC_QR_POSTGRES_READ_ENABLED = 'false';
+    process.env.QR_LIFECYCLE_POSTGRES_WRITE_ENABLED = 'false';
+    process.env.PERSONAL_RECORD_POSTGRES_READ_ENABLED = 'false';
+    await pool.query(
+      "DELETE FROM app.outbox_jobs WHERE aggregate_id = 'QR_SCOPE_ALL'"
+    );
+    await pool.query("DELETE FROM app.records WHERE qr_id = 'QR_SCOPE_ALL'");
+    await pool.query("DELETE FROM app.qr_codes WHERE id = 'QR_SCOPE_ALL'");
+
     const exactCases = [
       {
         label: 'h5 unactivated',
@@ -1119,6 +1248,7 @@ test('manual PostgreSQL public QR adapter integration', {
     );
     Object.assign(process.env, {
       PUBLIC_QR_POSTGRES_READ_ENABLED: 'true',
+      PUBLIC_QR_POSTGRES_READ_SCOPE: 'allowlist',
       PUBLIC_QR_POSTGRES_READ_ALLOWLIST: 'QR_ACTIVATED_DIRECT',
       PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256: publicQrDomainHash
     });
@@ -1175,6 +1305,7 @@ test('manual PostgreSQL public QR adapter integration', {
     const jsonHashBeforeLifecycleWrite = sha256(fs.readFileSync(process.env.DB_FILE));
     Object.assign(process.env, {
       QR_LIFECYCLE_POSTGRES_WRITE_ENABLED: 'true',
+      QR_LIFECYCLE_POSTGRES_WRITE_SCOPE: 'allowlist',
       QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST: 'QR_UNACTIVATED',
       QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256: publicQrDomainHash
     });
@@ -1310,6 +1441,7 @@ test('manual PostgreSQL public QR adapter integration', {
     );
     Object.assign(process.env, {
       PERSONAL_RECORD_POSTGRES_READ_ENABLED: 'true',
+      PERSONAL_RECORD_POSTGRES_READ_SCOPE: 'allowlist',
       PERSONAL_RECORD_POSTGRES_READ_ALLOWLIST: personalOwner.account_id,
       PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256: publicQrDomainHash
     });
