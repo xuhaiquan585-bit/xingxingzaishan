@@ -13,6 +13,7 @@
     "privacy:audit": "node scripts/database/audit-cross-account-phone-content.js",
     "privacy:audit:production-snapshot": "bash scripts/database/run-content-privacy-audit.sh",
     "privacy:prepare:production-snapshot": "bash scripts/database/run-content-privacy-remediation-prepare.sh",
+    "privacy:apply:preflight:production-snapshot": "bash scripts/database/run-content-privacy-remediation-apply-preflight.sh",
     "test:postgres:stable-scope": "bash scripts/database/run-stable-scope-integration.sh",
     "migrate:oss": "node scripts/migrate-local-to-oss.js",
     "migrate:oss:dry": "node scripts/migrate-local-to-oss.js --dry-run",

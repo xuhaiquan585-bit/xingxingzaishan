@@ -84,6 +84,13 @@ const { executeStagingImport } = require('../scripts/database/import-staging');
 const { loadMigrations, runMigrations } = require('../scripts/database/migrate');
 const { analyzeSourceSnapshot } = require('../scripts/database/importer');
 const { readSourceSnapshot, sha256 } = require('../scripts/database/importer/reader');
+const {
+  executeRemediation,
+  validateArtifacts
+} = require('../scripts/database/apply-content-privacy-remediation');
+const {
+  prepareSource
+} = require('../scripts/database/prepare-content-privacy-remediation');
 
 const RUN_INTEGRATION = process.env.RUN_POSTGRES_INTEGRATION === 'true';
 const CREATED_AT = '2026-07-01T10:00:00.000Z';
@@ -592,6 +599,109 @@ test('manual PostgreSQL public QR adapter integration', {
     );
     const repeatedMigration = await runMigrations({ pool, apply: true, target: 'test' });
     assert.deepEqual(repeatedMigration.applied, []);
+
+    const privacyDirectory = path.join(directory, 'privacy-apply');
+    fs.mkdirSync(privacyDirectory);
+    const privacyFixture = buildFixture();
+    privacyFixture.qr_codes.find(
+      (item) => item.id === 'QR_ACTIVATED_DIRECT'
+    ).content = `Privacy integration ${privacyFixture.users[1].phone}`;
+    const privacySource = writeFixture(privacyDirectory, privacyFixture);
+    const privacyAnalysis = analyzeFixture(
+      privacySource.inputPath,
+      privacySource.sourceHash
+    );
+    const privacyImported = await executeStagingImport({
+      pool,
+      snapshot: privacyAnalysis.snapshot,
+      report: privacyAnalysis.report,
+      plan: privacyAnalysis.plan
+    });
+    assert.equal(privacyImported.status, 'PASSED');
+
+    const privacyPrepared = prepareSource({
+      source: privacyFixture,
+      sourceHash: privacySource.sourceHash,
+      expectedQrIds: ['QR_ACTIVATED_DIRECT'],
+      remediatedAt: '2026-07-01T11:30:00.000Z'
+    });
+    const privacyCandidatePath = path.join(privacyDirectory, 'candidate.json');
+    const privacyReportPath = path.join(privacyDirectory, 'report.json');
+    const privacyLivePath = path.join(privacyDirectory, 'live.json');
+    fs.writeFileSync(privacyCandidatePath, privacyPrepared.serialized);
+    fs.writeFileSync(
+      privacyReportPath,
+      `${JSON.stringify(privacyPrepared.report, null, 2)}\n`
+    );
+    fs.copyFileSync(privacySource.inputPath, privacyLivePath);
+    const privacyOptions = {
+      mode: 'apply',
+      sourcePath: privacySource.inputPath,
+      candidatePath: privacyCandidatePath,
+      reportPath: privacyReportPath,
+      liveDatabasePath: privacyLivePath,
+      expectedSourceSha256: privacySource.sourceHash,
+      expectedCandidateSha256:
+        privacyPrepared.report.candidate_source_sha256,
+      expectedSourceDomainSha256:
+        privacyPrepared.report.source_public_qr_domain_sha256,
+      expectedCandidateDomainSha256:
+        privacyPrepared.report.candidate_public_qr_domain_sha256,
+      expectedQrIds: Object.freeze(['QR_ACTIVATED_DIRECT']),
+      expectedDatabase: String(process.env.PGDATABASE)
+    };
+    const privacyArtifacts = validateArtifacts(privacyOptions);
+    const privacyApplied = await executeRemediation({
+      options: privacyOptions,
+      pool,
+      artifacts: privacyArtifacts
+    });
+    assert.equal(privacyApplied.status, 'APPLIED');
+    assert.equal(privacyApplied.postgres_applied, true);
+    assert.equal(privacyApplied.json_applied, true);
+    assert.equal(privacyApplied.reproof_jobs_enqueued, 1);
+    const privacyRepeated = await executeRemediation({
+      options: privacyOptions,
+      pool,
+      artifacts: privacyArtifacts
+    });
+    assert.equal(privacyRepeated.status, 'ALREADY_APPLIED');
+    const privacyState = await pool.query(
+      `SELECT
+        (SELECT count(*) FROM app.import_runs
+          WHERE source_sha256 = $1 AND status = 'passed') AS marker_count,
+        (SELECT count(*) FROM app.import_runs
+          WHERE source_sha256 = $2 AND status = 'blocked'
+            AND checksum_summary ->> 'superseded_by_source_sha256' = $1)
+          AS superseded_source_count,
+        (SELECT count(*) FROM app.record_proofs
+          WHERE record_qr_id = 'QR_ACTIVATED_DIRECT') AS proof_count,
+        (SELECT count(*) FROM app.outbox_jobs
+          WHERE aggregate_id = 'QR_ACTIVATED_DIRECT'
+            AND job_type = 'record_proof_prepare_submit') AS outbox_count,
+        (SELECT content FROM app.records
+          WHERE qr_id = 'QR_ACTIVATED_DIRECT') AS revised_content`,
+      [
+        privacyPrepared.report.candidate_source_sha256,
+        privacySource.sourceHash
+      ]
+    );
+    assert.equal(Number(privacyState.rows[0].marker_count), 1);
+    assert.equal(Number(privacyState.rows[0].superseded_source_count), 1);
+    assert.equal(Number(privacyState.rows[0].proof_count), 0);
+    assert.equal(Number(privacyState.rows[0].outbox_count), 1);
+    assert.match(privacyState.rows[0].revised_content, /138\*\*\*\*0002/);
+    assert.equal(
+      privacyState.rows[0].revised_content.includes(privacyFixture.users[1].phone),
+      false
+    );
+
+    await pool.query('DROP SCHEMA app CASCADE');
+    const resetMigration = await runMigrations({ pool, apply: true, target: 'test' });
+    assert.deepEqual(
+      resetMigration.applied.map((item) => item.version),
+      loadMigrations().map((item) => item.version)
+    );
     const imported = await executeStagingImport({
       pool,
       snapshot: analysis.snapshot,

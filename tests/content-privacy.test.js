@@ -22,6 +22,14 @@ const {
   prepareSource,
   runBoundedRedactionRounds
 } = require('../scripts/database/prepare-content-privacy-remediation');
+const {
+  assertPlanDelta,
+  parseArguments: parseApplyArguments,
+  readLiveDatabaseState,
+  replaceLiveDatabase,
+  validateArtifacts
+} = require('../scripts/database/apply-content-privacy-remediation');
+const { mapSourceToPlan } = require('../scripts/database/importer/mapping');
 
 const OWNER_PHONE = '13800000001';
 const OTHER_PHONE = '13900000002';
@@ -115,6 +123,44 @@ function remediationSourceFixture() {
     updated_at: timestamp
   }));
   return source;
+}
+
+function writeRemediationArtifacts(directory) {
+  const sourceData = remediationSourceFixture();
+  const sourceBytes = Buffer.from(JSON.stringify(sourceData), 'utf8');
+  const sourceHash = sha256(sourceBytes);
+  const prepared = prepareSource({
+    source: sourceData,
+    sourceHash,
+    expectedQrIds: ['SSS00003', 'SSS00008', 'SSS00009'],
+    remediatedAt: '2026-08-12T01:02:03.000Z'
+  });
+  const sourcePath = path.join(directory, 'source.json');
+  const candidatePath = path.join(directory, 'candidate.json');
+  const reportPath = path.join(directory, 'report.json');
+  const liveDatabasePath = path.join(directory, 'live.json');
+  fs.writeFileSync(sourcePath, sourceBytes);
+  fs.writeFileSync(candidatePath, prepared.serialized);
+  fs.writeFileSync(reportPath, `${JSON.stringify(prepared.report, null, 2)}\n`);
+  fs.writeFileSync(liveDatabasePath, sourceBytes);
+  return {
+    prepared,
+    options: {
+      mode: 'preflight',
+      sourcePath,
+      candidatePath,
+      reportPath,
+      liveDatabasePath,
+      expectedSourceSha256: sourceHash,
+      expectedCandidateSha256: prepared.report.candidate_source_sha256,
+      expectedSourceDomainSha256:
+        prepared.report.source_public_qr_domain_sha256,
+      expectedCandidateDomainSha256:
+        prepared.report.candidate_public_qr_domain_sha256,
+      expectedQrIds: Object.freeze(['SSS00003', 'SSS00008', 'SSS00009']),
+      expectedDatabase: 'fixture_test'
+    }
+  };
 }
 
 test('privacy policy allows an owner phone and rejects another account full phone', () => {
@@ -397,6 +443,97 @@ test('privacy remediation preparation writes protected outputs without changing 
         reportOutput: report
       }),
       (error) => error.code === 'CONTENT_PRIVACY_REMEDIATION_OUTPUT_EXISTS'
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('privacy remediation apply requires an explicit mode and production gates', () => {
+  assert.throws(
+    () => parseApplyArguments([]),
+    (error) => error.code === 'CONTENT_PRIVACY_APPLY_MODE_REQUIRED'
+  );
+  const common = [
+    '--source=/tmp/source.json',
+    '--candidate=/tmp/candidate.json',
+    '--report=/tmp/report.json',
+    '--live-database=/tmp/live.json',
+    `--expected-source-sha256=${'1'.repeat(64)}`,
+    `--expected-candidate-sha256=${'2'.repeat(64)}`,
+    `--expected-source-domain-sha256=${'3'.repeat(64)}`,
+    `--expected-candidate-domain-sha256=${'4'.repeat(64)}`,
+    '--expected-qr-ids=SSS00003,SSS00008,SSS00009',
+    '--expected-database=fixture_test'
+  ];
+  assert.equal(parseApplyArguments(['--preflight', ...common]).mode, 'preflight');
+  assert.throws(
+    () => parseApplyArguments(['--apply-production-snapshot', ...common]),
+    (error) => error.code === 'CONTENT_PRIVACY_APPLY_CONFIRMATION_REQUIRED'
+  );
+  assert.equal(parseApplyArguments([
+    '--apply-production-snapshot',
+    '--production-confirmed',
+    '--runtime-quiesced',
+    ...common
+  ]).mode, 'apply');
+});
+
+test('privacy remediation apply validates the exact candidate and approved plan delta', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'privacy-apply-artifacts-'));
+  try {
+    const fixture = writeRemediationArtifacts(directory);
+    const artifacts = validateArtifacts(fixture.options);
+    assert.deepEqual(artifacts.delta, {
+      target_count: 3,
+      proof_removal_count: 3,
+      archive_removal_count: 2
+    });
+    assert.equal(artifacts.report.candidate_privacy_finding_count, 0);
+
+    const sourcePlan = mapSourceToPlan(remediationSourceFixture()).plan;
+    const driftedCandidate = JSON.parse(fixture.prepared.serialized);
+    driftedCandidate.accounts[0].display_name = 'unapproved change';
+    const candidatePlan = mapSourceToPlan(driftedCandidate).plan;
+    assert.throws(
+      () => assertPlanDelta({
+        sourcePlan,
+        candidatePlan,
+        report: fixture.prepared.report,
+        expectedQrIds: fixture.options.expectedQrIds
+      }),
+      (error) => error.code === 'CONTENT_PRIVACY_APPLY_UNAPPROVED_PLAN_DELTA'
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('privacy remediation live JSON replacement is atomic and resumable by hash', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'privacy-apply-json-'));
+  try {
+    const fixture = writeRemediationArtifacts(directory);
+    const artifacts = validateArtifacts(fixture.options);
+    assert.deepEqual(readLiveDatabaseState(fixture.options), {
+      hash: fixture.options.expectedSourceSha256,
+      state: 'source'
+    });
+    assert.deepEqual(replaceLiveDatabase({ options: fixture.options, artifacts }), {
+      applied: true,
+      state: 'candidate'
+    });
+    assert.equal(
+      sha256(fs.readFileSync(fixture.options.liveDatabasePath)),
+      fixture.options.expectedCandidateSha256
+    );
+    assert.deepEqual(replaceLiveDatabase({ options: fixture.options, artifacts }), {
+      applied: false,
+      state: 'candidate'
+    });
+    fs.writeFileSync(fixture.options.liveDatabasePath, '{}');
+    assert.throws(
+      () => readLiveDatabaseState(fixture.options),
+      (error) => error.code === 'CONTENT_PRIVACY_APPLY_LIVE_DATABASE_DRIFT'
     );
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });

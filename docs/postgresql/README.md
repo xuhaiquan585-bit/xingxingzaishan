@@ -789,3 +789,21 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   each round is re-audited, no new ID or comment scope is permitted, and failure
   to reach `CLEAN` within eight rounds blocks preparation without writing output.
   Preparation never writes the live JSON file, PostgreSQL, OSS, or PM2 state.
+- `npm run privacy:apply:preflight:production-snapshot` validates the pinned
+  clean candidate, preparation report, exact three-record plan delta, current
+  production source/domain marker, all migrations, and full PostgreSQL/source
+  parity. The wrapper uses a read-only PostgreSQL session, requires all runtime
+  migration boundaries to remain off, and does not change JSON, PostgreSQL,
+  OSS, or PM2.
+- The underlying apply state machine is deliberately not exposed as the next
+  production command until its isolated integration gate passes. Its write
+  phase uses one serializable advisory-locked transaction to revise only the
+  approved records, remove their superseded proof/archive rows, register the
+  candidate source/domain marker, mark the old source as superseded so stale
+  runtime configs fail closed, and enqueue one deterministic reproof job per
+  record. The JSON replacement is hash-guarded and atomic. Re-running after an
+  interruption recognizes the committed side and completes without duplicating
+  the import marker or outbox work.
+- Actual OSS preparation and AVATA submission are a later controlled phase.
+  The privacy apply transaction performs no external calls, so an external
+  provider failure cannot leave the local database transaction half committed.

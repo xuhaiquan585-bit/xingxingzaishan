@@ -2437,6 +2437,7 @@ test('stable-scope integration runner is disposable, serialized, and production-
   assert.match(source, /POSTGRES_ONLY_QR_ISSUANCE=PASS/);
   assert.match(source, /POSTGRES_PROOF_ALL_SCOPE_WORKER=PASS/);
   assert.match(source, /CROSS_ACCOUNT_PHONE_WRITE_GATES=PASS/);
+  assert.match(source, /CONTENT_PRIVACY_RESUMABLE_APPLY=PASS/);
   assert.match(source, /POSTGRES_PROOF_BACKLOG_MONITOR=PASS/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_ENABLED/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_SOURCE_SHA256/);
@@ -2444,7 +2445,7 @@ test('stable-scope integration runner is disposable, serialized, and production-
   assert.match(source, /QR_ISSUANCE_POSTGRES_AUTHORITY_SOURCE_SHA256/);
   assert.match(source, /QR_ISSUANCE_POSTGRES_AUTHORITY_DOMAIN_SHA256/);
   assert.match(source, /RECORD_PROOF_RUNTIME_DOMAIN_SHA256/);
-  assert.match(source, /NEXT_ACTION=REMEDIATE_LEGACY_PRIVACY_CONTENT/);
+  assert.match(source, /NEXT_ACTION=RUN_PRIVACY_APPLY_PREFLIGHT/);
   assert.equal(
     packageJson.scripts['test:postgres:stable-scope'],
     'bash scripts/database/run-stable-scope-integration.sh'
@@ -2492,5 +2493,59 @@ test('production privacy remediation preparation is protected and write-free', (
   assert.equal(
     packageJson.scripts['privacy:prepare:production-snapshot'],
     'bash scripts/database/run-content-privacy-remediation-prepare.sh'
+  );
+});
+
+test('production privacy remediation apply preflight is exact and read-only', () => {
+  const packageJson = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '../package.json'),
+    'utf8'
+  ));
+  const runner = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/database/run-content-privacy-remediation-apply-preflight.sh'
+    ),
+    'utf8'
+  );
+  const implementation = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/database/apply-content-privacy-remediation.js'
+    ),
+    'utf8'
+  );
+
+  assert.match(
+    runner,
+    /EXPECTED_CANDIDATE_SHA=93def24ee6dd4de63fd4ebf776a0a2056d2563df492727231b8f6de08ec0c7ee/
+  );
+  assert.match(
+    runner,
+    /EXPECTED_CANDIDATE_DOMAIN_SHA=be64b9b040d8b188b8bae9fb63e87621263bca9d8b76d40bf8c8ed302f08fa9d/
+  );
+  assert.match(runner, /EXPECTED_QR_IDS=SSS00003,SSS00008,SSS00009/);
+  assert.match(runner, /default_transaction_read_only=on/);
+  assert.match(runner, /--preflight/);
+  assert.match(runner, /PRODUCTION_JSON_WRITE=NONE/);
+  assert.match(runner, /PRODUCTION_DATABASE_WRITE=NONE/);
+  assert.match(runner, /OSS_ACCESS=NONE/);
+  assert.doesNotMatch(runner, /pm2\s+(?:stop|restart|reload|save)/);
+  assert.doesNotMatch(runner, /--apply-production-snapshot/);
+
+  assert.match(implementation, /pg_advisory_xact_lock/);
+  assert.match(implementation, /isolationLevel: 'serializable'/);
+  assert.match(implementation, /DELETE FROM app\.record_archives/);
+  assert.match(implementation, /DELETE FROM app\.record_proofs/);
+  assert.match(implementation, /verifyImportedPlan/);
+  assert.match(implementation, /privacy-reproof:/);
+  assert.match(implementation, /fs\.renameSync/);
+  assert.doesNotMatch(
+    implementation,
+    /child_process|execSync|spawnSync|ali-oss|avataService/
+  );
+  assert.equal(
+    packageJson.scripts['privacy:apply:preflight:production-snapshot'],
+    'bash scripts/database/run-content-privacy-remediation-apply-preflight.sh'
   );
 });
