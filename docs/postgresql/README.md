@@ -662,6 +662,9 @@ close the separate Shadow Read execution gates documented in
 
 ### Stable all-scope prerequisites
 
+The authority states, cutover commit point, and permitted rollback actions are
+defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-contract.md).
+
 - `scope=all` is a selection boundary, not a replication mechanism. Public QR
   and lifecycle routes can select PostgreSQL directly by the request key even
   when JSON has no matching QR, but the QR and its required references must
