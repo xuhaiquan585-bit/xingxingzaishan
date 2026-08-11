@@ -17,8 +17,10 @@ const {
   sha256
 } = require('../scripts/database/audit-cross-account-phone-content');
 const {
+  MAX_REDACTION_ROUNDS,
   prepareFiles,
-  prepareSource
+  prepareSource,
+  runBoundedRedactionRounds
 } = require('../scripts/database/prepare-content-privacy-remediation');
 
 const OWNER_PHONE = '13800000001';
@@ -260,6 +262,7 @@ test('privacy remediation preparation redacts only the exact approved records', 
   assert.equal(prepared.report.record_count_before, 3);
   assert.equal(prepared.report.record_count_after, 3);
   assert.equal(prepared.report.revisions.length, 3);
+  assert.equal(prepared.report.redaction_round_count, 1);
   assert.equal(JSON.stringify(prepared.report).includes(OWNER_PHONE), false);
   assert.equal(JSON.stringify(prepared.report).includes(OTHER_PHONE), false);
   assert.equal(JSON.stringify(prepared.report).includes(PRIVATE_PHRASE), false);
@@ -272,6 +275,10 @@ test('privacy remediation preparation redacts only the exact approved records', 
     assert.equal(row.archive_status, 'not_started');
     assert.equal(row.updated_at, '2026-08-12T01:02:03.000Z');
   }
+  for (const revision of prepared.report.revisions) {
+    assert.equal(revision.redaction_round_count, 1);
+    assert.equal(revision.redaction_rounds.length, 1);
+  }
 
   assert.throws(
     () => prepareSource({
@@ -282,6 +289,80 @@ test('privacy remediation preparation redacts only the exact approved records', 
     }),
     (error) => error.code === 'CONTENT_PRIVACY_REMEDIATION_FINDING_SET_MISMATCH'
   );
+});
+
+test('privacy remediation runs bounded rounds until the approved scope is clean', () => {
+  const finding = (qrId) => ({ qr_id: qrId, collection: 'records' });
+  const audits = [
+    {
+      status: 'FINDINGS_CONFIRMED', finding_count: 3,
+      findings: ['SSS00003', 'SSS00008', 'SSS00009'].map(finding)
+    },
+    {
+      status: 'FINDINGS_CONFIRMED', finding_count: 2,
+      findings: ['SSS00003', 'SSS00009'].map(finding)
+    },
+    { status: 'CLEAN', finding_count: 0, findings: [] }
+  ];
+  const applied = [];
+  let auditIndex = 0;
+  const result = runBoundedRedactionRounds({
+    initialAudit: audits[0],
+    expectedQrIds: ['SSS00003', 'SSS00008', 'SSS00009'],
+    applyRound({ audit, round }) {
+      applied.push({ round, ids: audit.findings.map((item) => item.qr_id) });
+    },
+    analyzeAfterRound() {
+      auditIndex += 1;
+      return audits[auditIndex];
+    }
+  });
+
+  assert.equal(MAX_REDACTION_ROUNDS, 8);
+  assert.equal(result.roundCount, 2);
+  assert.equal(result.afterAudit.status, 'CLEAN');
+  assert.deepEqual(applied, [
+    { round: 1, ids: ['SSS00003', 'SSS00008', 'SSS00009'] },
+    { round: 2, ids: ['SSS00003', 'SSS00009'] }
+  ]);
+});
+
+test('privacy remediation blocks any residual finding outside the approved scope', () => {
+  assert.throws(
+    () => runBoundedRedactionRounds({
+      initialAudit: {
+        status: 'FINDINGS_CONFIRMED',
+        finding_count: 1,
+        findings: [{ qr_id: 'UNAPPROVED', collection: 'records' }]
+      },
+      expectedQrIds: ['SSS00003'],
+      applyRound() {},
+      analyzeAfterRound() {
+        return { status: 'CLEAN', finding_count: 0, findings: [] };
+      }
+    }),
+    (error) => error.code === 'CONTENT_PRIVACY_REMEDIATION_SCOPE_EXPANDED'
+  );
+});
+
+test('privacy remediation blocks an approved finding set that does not converge', () => {
+  const audit = {
+    status: 'FINDINGS_CONFIRMED',
+    finding_count: 1,
+    findings: [{ qr_id: 'SSS00003', collection: 'records' }]
+  };
+  let appliedRounds = 0;
+  assert.throws(
+    () => runBoundedRedactionRounds({
+      initialAudit: audit,
+      expectedQrIds: ['SSS00003'],
+      maxRounds: 2,
+      applyRound() { appliedRounds += 1; },
+      analyzeAfterRound() { return audit; }
+    }),
+    (error) => error.code === 'CONTENT_PRIVACY_REMEDIATION_NOT_CONVERGED'
+  );
+  assert.equal(appliedRounds, 2);
 });
 
 test('privacy remediation preparation writes protected outputs without changing input', () => {

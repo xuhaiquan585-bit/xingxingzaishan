@@ -785,4 +785,7 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   `PRELAUNCH_TEST_DATA_REDACT_AND_REPROOF` strategy. The candidate redacts only
   the approved records, detaches their old proof/archive references, preserves
   value-free evidence fingerprints, and must contain zero privacy findings.
+  Redaction runs as a bounded fixed-point operation over those exact record IDs:
+  each round is re-audited, no new ID or comment scope is permitted, and failure
+  to reach `CLEAN` within eight rounds blocks preparation without writing output.
   Preparation never writes the live JSON file, PostgreSQL, OSS, or PM2 state.

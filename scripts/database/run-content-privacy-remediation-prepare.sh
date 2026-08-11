@@ -59,6 +59,7 @@ const candidateSha = crypto.createHash('sha256')
 
 assert.equal(report.mode, 'prepare');
 assert.equal(report.status, 'READY');
+assert.equal(report.schema_version, 2);
 assert.equal(report.apply_performed, false);
 assert.equal(report.strategy, 'PRELAUNCH_TEST_DATA_REDACT_AND_REPROOF');
 assert.equal(report.policy, 'cross-account-full-phone-v1');
@@ -79,6 +80,9 @@ assert.equal(report.archive_rows_removed_from_candidate, 2);
 assert.equal(report.record_count_before, 56);
 assert.equal(report.record_count_after, 56);
 assert.equal(report.revisions.length, 3);
+assert.equal(Number.isInteger(report.redaction_round_count), true);
+assert.equal(report.redaction_round_count >= 1, true);
+assert.equal(report.redaction_round_count <= 8, true);
 assert.equal(report.candidate_privacy_finding_count, 0);
 assert.equal(report.raw_identity_values_persisted_in_report, false);
 assert.equal(report.raw_business_content_persisted_in_report, false);
@@ -96,9 +100,24 @@ for (const revision of report.revisions) {
     revision.revised_content_sha256
   );
   assert.equal(revision.previous_proof_status, 'confirmed');
+  assert.equal(Number.isInteger(revision.redaction_round_count), true);
+  assert.equal(revision.redaction_round_count >= 1, true);
+  assert.equal(revision.redaction_round_count <= report.redaction_round_count, true);
+  assert.equal(
+    revision.redaction_rounds.length,
+    revision.redaction_round_count
+  );
+  for (const round of revision.redaction_rounds) {
+    assert.match(round.previous_content_sha256, /^[0-9a-f]{64}$/);
+    assert.match(round.revised_content_sha256, /^[0-9a-f]{64}$/);
+    assert.notEqual(round.previous_content_sha256, round.revised_content_sha256);
+    assert.equal(round.match_count > 0, true);
+    assert.equal(round.matched_identity_count > 0, true);
+  }
 }
 
 console.log('CONTENT_PRIVACY_REMEDIATION_CANDIDATE_GATE=PASS');
+console.log(`REDACTION_ROUND_COUNT=${report.redaction_round_count}`);
 console.log(`CANDIDATE_SOURCE_SHA256=${report.candidate_source_sha256}`);
 console.log(
   `CANDIDATE_PUBLIC_QR_DOMAIN_SHA256=${

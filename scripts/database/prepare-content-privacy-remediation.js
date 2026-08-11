@@ -38,6 +38,7 @@ const EVIDENCE_FIELDS = Object.freeze({
   archive_last_error: '',
   archive_updated_at: null
 });
+const MAX_REDACTION_ROUNDS = 8;
 
 function preparationError(code, message) {
   const error = new Error(message || code);
@@ -160,6 +161,57 @@ function evidenceFingerprint(proof, archive) {
   return sha256(Buffer.from(JSON.stringify({ proof, archive }), 'utf8'));
 }
 
+function assertResidualFindingScope(audit, expectedQrIds) {
+  const expected = new Set(expectedQrIds);
+  const findings = Array.isArray(audit && audit.findings) ? audit.findings : [];
+  const findingIds = findings.map((item) => String(item.qr_id || ''));
+  const uniqueFindingIds = new Set(findingIds);
+  const clean = audit && audit.status === 'CLEAN'
+    && audit.finding_count === 0
+    && findings.length === 0;
+
+  if (clean) return;
+  if (!audit
+      || audit.status !== 'FINDINGS_CONFIRMED'
+      || audit.finding_count !== findings.length
+      || findings.length === 0
+      || uniqueFindingIds.size !== findings.length
+      || findingIds.some((id) => !expected.has(id))
+      || findings.some((item) => item.collection !== 'records')) {
+    throw preparationError(
+      'CONTENT_PRIVACY_REMEDIATION_SCOPE_EXPANDED',
+      'A residual finding escaped the approved record scope.'
+    );
+  }
+}
+
+function runBoundedRedactionRounds({
+  initialAudit,
+  expectedQrIds,
+  applyRound,
+  analyzeAfterRound,
+  maxRounds = MAX_REDACTION_ROUNDS
+}) {
+  let audit = initialAudit;
+  let roundCount = 0;
+
+  while (audit.status !== 'CLEAN' && roundCount < maxRounds) {
+    assertResidualFindingScope(audit, expectedQrIds);
+    roundCount += 1;
+    applyRound({ audit, round: roundCount });
+    audit = analyzeAfterRound({ round: roundCount });
+  }
+
+  assertResidualFindingScope(audit, expectedQrIds);
+  if (audit.status !== 'CLEAN' || audit.finding_count !== 0) {
+    throw preparationError(
+      'CONTENT_PRIVACY_REMEDIATION_NOT_CONVERGED',
+      'The prepared candidate did not converge to a clean privacy state.'
+    );
+  }
+  return Object.freeze({ afterAudit: audit, roundCount });
+}
+
 function prepareSource({ source, sourceHash, expectedQrIds, remediatedAt }) {
   const before = mapSourceToPlan(source).plan;
   const audit = analyzeSource(source, sourceHash);
@@ -178,7 +230,17 @@ function prepareSource({ source, sourceHash, expectedQrIds, remediatedAt }) {
   const records = new Map(before.records.map((row) => [String(row.qr_id), row]));
   const proofs = new Map(before.record_proofs.map((row) => [String(row.record_qr_id), row]));
   const archives = new Map(before.record_archives.map((row) => [String(row.record_qr_id), row]));
-  const revisions = [];
+  const approvedSourceRows = candidate.qr_codes.filter(
+    (row) => expectedQrIds.includes(String(row.id))
+  );
+  if (approvedSourceRows.length !== expectedQrIds.length
+      || sourceRows.size !== candidate.qr_codes.length) {
+    throw preparationError(
+      'CONTENT_PRIVACY_REMEDIATION_SOURCE_ROWS_INVALID',
+      'Approved QR IDs must each resolve to one unique source row.'
+    );
+  }
+  const revisions = new Map();
 
   for (const finding of audit.findings) {
     const row = sourceRows.get(finding.qr_id);
@@ -191,43 +253,101 @@ function prepareSource({ source, sourceHash, expectedQrIds, remediatedAt }) {
         'Every approved record must have one confirmed proof dependency.'
       );
     }
-    const redaction = redactCrossAccountPhoneReferences({
-      content: record.content,
-      ownerAccountId: record.account_id,
-      identities: before.users
-    });
-    if (!redaction.has_reference
-        || sha256(Buffer.from(redaction.content, 'utf8'))
-          !== finding.proposed_content_sha256) {
-      throw preparationError(
-        'CONTENT_PRIVACY_REMEDIATION_REDACTION_DRIFT',
-        'The deterministic redaction no longer matches the approved finding.'
-      );
-    }
-    row.content = redaction.content;
-    row.updated_at = remediatedAt;
     Object.assign(row, EVIDENCE_FIELDS);
-    revisions.push(Object.freeze({
+    revisions.set(finding.qr_id, {
       qr_id: finding.qr_id,
       previous_content_sha256: finding.content_sha256,
-      revised_content_sha256: finding.proposed_content_sha256,
       previous_evidence_sha256: evidenceFingerprint(proof, archive),
       previous_proof_status: proof.status,
       previous_archive_status: archive ? archive.status : null,
-      match_count: finding.match_count
-    }));
+      redaction_rounds: []
+    });
   }
+
+  const redactionResult = runBoundedRedactionRounds({
+    initialAudit: audit,
+    expectedQrIds,
+    applyRound({ audit: roundAudit, round }) {
+      const current = mapSourceToPlan(candidate).plan;
+      const currentRecords = new Map(
+        current.records.map((record) => [String(record.qr_id), record])
+      );
+      for (const finding of roundAudit.findings) {
+        const row = sourceRows.get(finding.qr_id);
+        const record = currentRecords.get(finding.qr_id);
+        const revision = revisions.get(finding.qr_id);
+        if (!row || !record || !revision
+            || sha256(Buffer.from(record.content, 'utf8'))
+              !== finding.content_sha256) {
+          throw preparationError(
+            'CONTENT_PRIVACY_REMEDIATION_REDACTION_DRIFT',
+            'The approved source content changed during preparation.'
+          );
+        }
+        const redaction = redactCrossAccountPhoneReferences({
+          content: record.content,
+          ownerAccountId: record.account_id,
+          identities: current.users
+        });
+        const revisedContentSha256 = sha256(
+          Buffer.from(redaction.content, 'utf8')
+        );
+        if (!redaction.has_reference
+            || revisedContentSha256 !== finding.proposed_content_sha256
+            || revisedContentSha256 === finding.content_sha256) {
+          throw preparationError(
+            'CONTENT_PRIVACY_REMEDIATION_REDACTION_DRIFT',
+            'The deterministic redaction no longer matches the approved finding.'
+          );
+        }
+        row.content = redaction.content;
+        row.updated_at = remediatedAt;
+        revision.redaction_rounds.push(Object.freeze({
+          round,
+          previous_content_sha256: finding.content_sha256,
+          revised_content_sha256: revisedContentSha256,
+          match_count: redaction.match_count,
+          matched_identity_count: redaction.matched_identity_count
+        }));
+      }
+    },
+    analyzeAfterRound() {
+      const candidateBytes = Buffer.from(JSON.stringify(candidate, null, 2), 'utf8');
+      return analyzeSource(candidate, sha256(candidateBytes));
+    }
+  });
+
+  const revisionReport = [...revisions.values()]
+    .sort((left, right) => left.qr_id.localeCompare(right.qr_id))
+    .map((revision) => {
+      const rounds = revision.redaction_rounds;
+      if (rounds.length === 0) {
+        throw preparationError(
+          'CONTENT_PRIVACY_REMEDIATION_REVISION_MISSING',
+          'Every approved QR ID must have a completed redaction revision.'
+        );
+      }
+      return Object.freeze({
+        qr_id: revision.qr_id,
+        previous_content_sha256: revision.previous_content_sha256,
+        revised_content_sha256: rounds.at(-1).revised_content_sha256,
+        previous_evidence_sha256: revision.previous_evidence_sha256,
+        previous_proof_status: revision.previous_proof_status,
+        previous_archive_status: revision.previous_archive_status,
+        match_count: rounds.reduce((sum, item) => sum + item.match_count, 0),
+        matched_identity_count: rounds.reduce(
+          (sum, item) => sum + item.matched_identity_count,
+          0
+        ),
+        redaction_round_count: rounds.length,
+        redaction_rounds: Object.freeze([...rounds])
+      });
+    });
 
   const serialized = JSON.stringify(candidate, null, 2);
   const candidateSourceSha256 = sha256(Buffer.from(serialized, 'utf8'));
   const after = mapSourceToPlan(candidate).plan;
-  const afterAudit = analyzeSource(candidate, candidateSourceSha256);
-  if (afterAudit.status !== 'CLEAN' || afterAudit.finding_count !== 0) {
-    throw preparationError(
-      'CONTENT_PRIVACY_REMEDIATION_CANDIDATE_NOT_CLEAN',
-      'The prepared candidate still contains privacy findings.'
-    );
-  }
+  const afterAudit = redactionResult.afterAudit;
   const sourceDomainSha256 = publicQrDomainSha256(before);
   const candidateDomainSha256 = publicQrDomainSha256(after);
   if (sourceDomainSha256 === candidateDomainSha256) {
@@ -240,7 +360,7 @@ function prepareSource({ source, sourceHash, expectedQrIds, remediatedAt }) {
   return Object.freeze({
     serialized,
     report: Object.freeze({
-      schema_version: 1,
+      schema_version: 2,
       mode: 'prepare',
       status: 'READY',
       apply_performed: false,
@@ -261,7 +381,8 @@ function prepareSource({ source, sourceHash, expectedQrIds, remediatedAt }) {
         before.record_archives.length - after.record_archives.length,
       record_count_before: before.records.length,
       record_count_after: after.records.length,
-      revisions,
+      redaction_round_count: redactionResult.roundCount,
+      revisions: revisionReport,
       candidate_privacy_finding_count: afterAudit.finding_count,
       raw_identity_values_persisted_in_report: false,
       raw_business_content_persisted_in_report: false,
@@ -351,10 +472,12 @@ if (require.main === module) process.exitCode = main();
 
 module.exports = {
   EVIDENCE_FIELDS,
+  MAX_REDACTION_ROUNDS,
   main,
   normalizeQrIds,
   parseArguments,
   prepareFiles,
   prepareSource,
+  runBoundedRedactionRounds,
   sha256
 };
