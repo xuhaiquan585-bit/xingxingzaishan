@@ -2533,6 +2533,7 @@ test('production privacy remediation apply preflight is exact and read-only', ()
   assert.match(runner, /PRODUCTION_JSON_WRITE=NONE/);
   assert.match(runner, /PRODUCTION_DATABASE_WRITE=NONE/);
   assert.match(runner, /OSS_ACCESS=NONE/);
+  assert.match(runner, /NEXT_ACTION=BUILD_CONTROLLED_APPLY_AND_REPROOF_RUNNER/);
   assert.doesNotMatch(runner, /pm2\s+(?:stop|restart|reload|save)/);
   assert.doesNotMatch(runner, /--apply-production-snapshot/);
 
