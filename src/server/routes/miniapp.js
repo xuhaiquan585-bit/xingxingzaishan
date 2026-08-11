@@ -55,6 +55,11 @@ const {
   readPersonalRecordPrimary
 } = require('../services/postgres/personalRecordPrimaryReadRuntime');
 const {
+  IdentityAuthorityError,
+  identityAuthorityHttpError,
+  invokeIdentityAuthority
+} = require('../services/postgres/identityAuthorityRuntime');
+const {
   prepareRecordManifest,
   submitPreparedRecord
 } = require('../services/chainProofService');
@@ -173,6 +178,25 @@ function respondMiniappAccountContextRequired(res) {
 
 function shouldExposeVerificationCode() {
   return process.env.NODE_ENV !== 'production';
+}
+
+function respondIdentityAuthorityUnavailable(res) {
+  const response = identityAuthorityHttpError();
+  return res.status(response.status).json({
+    status: 'error',
+    code: response.code,
+    message: response.message
+  });
+}
+
+async function createOrGetAuthoritativeMiniappUser(input) {
+  const authority = await invokeIdentityAuthority('createOrGetMiniappIdentity', input);
+  return authority.selected ? authority.result.data : createOrGetMiniappUser(input);
+}
+
+async function bindAuthoritativeMiniappPhone(input) {
+  const authority = await invokeIdentityAuthority('bindMiniappPhone', input);
+  return authority.selected ? authority.result : bindMiniappUserPhone(input);
 }
 
 function resolveImageUrl(record, assetResolver = null) {
@@ -454,7 +478,7 @@ function miniappSmsBindError(errorCode) {
 router.post('/auth/login', async (req, res) => {
   try {
     const session = await codeToSession(req.body.code);
-    const user = createOrGetMiniappUser({
+    const user = await createOrGetAuthoritativeMiniappUser({
       openid: session.openid,
       unionid: session.unionid || null
     });
@@ -470,6 +494,9 @@ router.post('/auth/login', async (req, res) => {
       }
     });
   } catch (error) {
+    if (error instanceof IdentityAuthorityError) {
+      return respondIdentityAuthorityUnavailable(res);
+    }
     const isConfigError = error.code === 'WECHAT_CONFIG_ERROR';
     if (isAccountMappingError(error.code)) {
       return res.status(409).json({
@@ -497,7 +524,7 @@ router.post('/auth/bind-phone', requireMiniappAuth, async (req, res) => {
       });
     }
 
-    const result = bindMiniappUserPhone({
+    const result = await bindAuthoritativeMiniappPhone({
       openid: req.miniappUser.openid,
       phone,
       unionid: req.miniappUser.unionid || null
@@ -522,6 +549,9 @@ router.post('/auth/bind-phone', requireMiniappAuth, async (req, res) => {
       }
     });
   } catch (error) {
+    if (error instanceof IdentityAuthorityError) {
+      return respondIdentityAuthorityUnavailable(res);
+    }
     if (isAccountMappingError(error.code)) {
       const bindError = miniappBindPhoneError('ACCOUNT_MAPPING_REQUIRED');
       return res.status(bindError.status).json({
@@ -574,7 +604,7 @@ router.post('/auth/sms/send-code', requireMiniappAuth, async (req, res) => {
   }
 });
 
-router.post('/auth/sms/bind-phone', requireMiniappAuth, (req, res) => {
+router.post('/auth/sms/bind-phone', requireMiniappAuth, async (req, res) => {
   const phone = normalizePhone(req.body.phone);
   const code = String(req.body.code || '').trim();
   if (!isValidPhone(phone)) {
@@ -602,7 +632,7 @@ router.post('/auth/sms/bind-phone', requireMiniappAuth, (req, res) => {
       });
     }
 
-    const result = bindMiniappUserPhone({
+    const result = await bindAuthoritativeMiniappPhone({
       openid: req.miniappUser.openid,
       phone,
       unionid: req.miniappUser.unionid || null
@@ -627,6 +657,9 @@ router.post('/auth/sms/bind-phone', requireMiniappAuth, (req, res) => {
       }
     });
   } catch (error) {
+    if (error instanceof IdentityAuthorityError) {
+      return respondIdentityAuthorityUnavailable(res);
+    }
     if (isAccountMappingError(error.code)) {
       const bindError = miniappSmsBindError('ACCOUNT_MAPPING_REQUIRED');
       return res.status(bindError.status).json({

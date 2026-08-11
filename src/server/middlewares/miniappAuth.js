@@ -7,6 +7,11 @@ const {
   identityAuthDto,
   registerIdentityShadowObservation
 } = require('../services/postgres/identityShadowRuntime');
+const {
+  IdentityAuthorityError,
+  identityAuthorityHttpError,
+  invokeIdentityAuthority
+} = require('../services/postgres/identityAuthorityRuntime');
 
 function getBearerToken(req) {
   const value = req.headers.authorization || '';
@@ -21,7 +26,7 @@ function isMiniappIdentityShadowRequest(req) {
   return req.method === 'GET' && pathname === '/api/miniapp/user/records';
 }
 
-function attachMiniappUser(req, res) {
+async function attachMiniappUser(req, res) {
   const token = getBearerToken(req);
   const payload = verifyMiniappToken(token);
   if (!payload || !payload.id || !payload.openid) {
@@ -35,12 +40,19 @@ function attachMiniappUser(req, res) {
     accountId: payload.account_id || null
   };
   const observeIdentity = isMiniappIdentityShadowRequest(req);
-  const context = observeIdentity
-    ? getAuthenticatedMiniappUserReadContext(input)
-    : { result: getAuthenticatedMiniappUser(input), sourceHash: null };
+  const authority = await invokeIdentityAuthority('getAuthenticatedIdentity', {
+    identityId: input.userId,
+    openid: input.openid,
+    accountId: input.accountId
+  });
+  const context = authority.selected
+    ? { result: authority.result, sourceHash: null, authority: true }
+    : observeIdentity
+      ? getAuthenticatedMiniappUserReadContext(input)
+      : { result: getAuthenticatedMiniappUser(input), sourceHash: null };
   const { result } = context;
   req.miniappUser = result.data || null;
-  if (req.miniappUser && observeIdentity) {
+  if (req.miniappUser && observeIdentity && !context.authority) {
     registerIdentityShadowObservation({
       res,
       event: {
@@ -59,13 +71,30 @@ function attachMiniappUser(req, res) {
   return req.miniappUser;
 }
 
-function optionalMiniappAuth(req, res, next) {
-  attachMiniappUser(req, res);
-  return next();
+async function optionalMiniappAuth(req, res, next) {
+  try {
+    await attachMiniappUser(req, res);
+    return next();
+  } catch (error) {
+    if (!(error instanceof IdentityAuthorityError)) return next(error);
+    const response = identityAuthorityHttpError();
+    return res.status(response.status).json({
+      status: 'error', code: response.code, message: response.message
+    });
+  }
 }
 
-function requireMiniappAuth(req, res, next) {
-  const user = attachMiniappUser(req, res);
+async function requireMiniappAuth(req, res, next) {
+  let user;
+  try {
+    user = await attachMiniappUser(req, res);
+  } catch (error) {
+    if (!(error instanceof IdentityAuthorityError)) return next(error);
+    const response = identityAuthorityHttpError();
+    return res.status(response.status).json({
+      status: 'error', code: response.code, message: response.message
+    });
+  }
   if (!user) {
     return res.status(401).json({
       status: 'error',

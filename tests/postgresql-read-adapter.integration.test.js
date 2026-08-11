@@ -63,6 +63,9 @@ const {
 const {
   closePersonalRecordPrimaryReadRuntime
 } = require('../src/server/services/postgres/personalRecordPrimaryReadRuntime');
+const {
+  closeIdentityAuthorityRuntime
+} = require('../src/server/services/postgres/identityAuthorityRuntime');
 const { generateMiniappToken } = require('../src/server/services/miniappAuthService');
 const { signRequest } = require('../src/server/services/avataService');
 const {
@@ -360,7 +363,7 @@ function stopServer(server) {
   });
 }
 
-function postRaw(port, requestPath, body, headers = {}) {
+function postRaw(port, requestPath, body, headers = {}, includeResponseHeaders = false) {
   const payload = JSON.stringify(body);
   return new Promise((resolve, reject) => {
     const req = http.request({
@@ -376,10 +379,14 @@ function postRaw(port, requestPath, body, headers = {}) {
     }, (res) => {
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => resolve({
-        status: res.statusCode,
-        raw: Buffer.concat(chunks).toString('utf8')
-      }));
+      res.on('end', () => {
+        const response = {
+          status: res.statusCode,
+          raw: Buffer.concat(chunks).toString('utf8')
+        };
+        if (includeResponseHeaders) response.headers = res.headers;
+        resolve(response);
+      });
     });
     req.on('error', reject);
     req.end(payload);
@@ -1052,8 +1059,74 @@ test('manual PostgreSQL public QR adapter integration', {
       QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256: publicQrDomainHash,
       PERSONAL_RECORD_POSTGRES_READ_ENABLED: 'true',
       PERSONAL_RECORD_POSTGRES_READ_SCOPE: 'all',
-      PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256: publicQrDomainHash
+      PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256: publicQrDomainHash,
+      IDENTITY_POSTGRES_AUTHORITY_ENABLED: 'true',
+      IDENTITY_POSTGRES_AUTHORITY_SCOPE: 'all',
+      IDENTITY_POSTGRES_AUTHORITY_SOURCE_SHA256: source.sourceHash,
+      IDENTITY_POSTGRES_AUTHORITY_DOMAIN_SHA256: publicQrDomainHash,
+      MINIAPP_MOCK_ENABLED: 'true'
     });
+
+    const postgresOnlyPhone = '13900000991';
+    const h5IdentityLogin = await postRaw(
+      port,
+      '/api/user/login',
+      { phone: postgresOnlyPhone },
+      {},
+      true
+    );
+    assert.equal(h5IdentityLogin.status, 200);
+    const h5IdentityCookie = String(
+      h5IdentityLogin.headers['set-cookie'][0] || ''
+    ).split(';')[0];
+    assert.match(h5IdentityCookie, /^user_session_id=/);
+    const h5IdentityMe = await requestJson(
+      port,
+      '/api/user/me',
+      '',
+      { Cookie: h5IdentityCookie }
+    );
+    assert.equal(h5IdentityMe.status, 200);
+    assert.equal(h5IdentityMe.body.data.phone, postgresOnlyPhone);
+
+    const miniappIdentityLogin = await postRaw(
+      port,
+      '/api/miniapp/auth/login',
+      { code: 'postgres-only-identity' }
+    );
+    assert.equal(miniappIdentityLogin.status, 200);
+    const temporaryMiniappToken = JSON.parse(miniappIdentityLogin.raw).data.token;
+    const miniappIdentityBind = await postRaw(
+      port,
+      '/api/miniapp/auth/bind-phone',
+      { code: postgresOnlyPhone },
+      { Authorization: `Bearer ${temporaryMiniappToken}` }
+    );
+    assert.equal(miniappIdentityBind.status, 200);
+    const mergedMiniappToken = JSON.parse(miniappIdentityBind.raw).data.token;
+    const postgresIdentityState = await pool.query(
+      `SELECT legacy_id, account_id, phone, openid, source
+       FROM app.users
+       WHERE phone = $1 OR openid = $2
+       ORDER BY id`,
+      [postgresOnlyPhone, 'mock-openid-postgres-only-identity']
+    );
+    assert.equal(postgresIdentityState.rows.length, 1);
+    assert.equal(postgresIdentityState.rows[0].legacy_id, null);
+    assert.equal(postgresIdentityState.rows[0].phone, postgresOnlyPhone);
+    assert.equal(
+      postgresIdentityState.rows[0].openid,
+      'mock-openid-postgres-only-identity'
+    );
+    assert.equal(postgresIdentityState.rows[0].source, 'web+miniapp');
+    const postgresOnlyAccountId = postgresIdentityState.rows[0].account_id;
+    assert.equal(
+      fixture.users.some((item) => (
+        item.phone === postgresOnlyPhone
+        || item.openid === 'mock-openid-postgres-only-identity'
+      )),
+      false
+    );
 
     const allScopeWriteResponse = await postRaw(
       port,
@@ -1062,7 +1135,7 @@ test('manual PostgreSQL public QR adapter integration', {
         content: 'PostgreSQL-only all-scope route content',
         image_object_key: 'records/scope-all-route.jpg'
       },
-      { Cookie: personalOwnerCookie }
+      { Cookie: h5IdentityCookie }
     );
     assert.equal(allScopeWriteResponse.status, 200);
     const allScopeWriteBody = JSON.parse(allScopeWriteResponse.raw);
@@ -1090,24 +1163,24 @@ test('manual PostgreSQL public QR adapter integration', {
       {
         path: '/api/user/records',
         token: '',
-        headers: { Cookie: personalOwnerCookie },
+        headers: { Cookie: h5IdentityCookie },
         detail: false
       },
       {
         path: '/api/user/records/QR_SCOPE_ALL',
         token: '',
-        headers: { Cookie: personalOwnerCookie },
+        headers: { Cookie: h5IdentityCookie },
         detail: true
       },
       {
         path: '/api/miniapp/user/records',
-        token: personalOwnerToken,
+        token: mergedMiniappToken,
         headers: {},
         detail: false
       },
       {
         path: '/api/miniapp/user/records/QR_SCOPE_ALL',
-        token: personalOwnerToken,
+        token: mergedMiniappToken,
         headers: {},
         detail: true
       }
@@ -1153,11 +1226,14 @@ test('manual PostgreSQL public QR adapter integration', {
     process.env.PUBLIC_QR_POSTGRES_READ_ENABLED = 'false';
     process.env.QR_LIFECYCLE_POSTGRES_WRITE_ENABLED = 'false';
     process.env.PERSONAL_RECORD_POSTGRES_READ_ENABLED = 'false';
+    process.env.IDENTITY_POSTGRES_AUTHORITY_ENABLED = 'false';
     await pool.query(
       "DELETE FROM app.outbox_jobs WHERE aggregate_id = 'QR_SCOPE_ALL'"
     );
     await pool.query("DELETE FROM app.records WHERE qr_id = 'QR_SCOPE_ALL'");
     await pool.query("DELETE FROM app.qr_codes WHERE id = 'QR_SCOPE_ALL'");
+    await pool.query('DELETE FROM app.users WHERE account_id = $1', [postgresOnlyAccountId]);
+    await pool.query('DELETE FROM app.accounts WHERE id = $1', [postgresOnlyAccountId]);
 
     const exactCases = [
       {
@@ -1602,6 +1678,7 @@ test('manual PostgreSQL public QR adapter integration', {
     await closePublicQrPrimaryReadRuntime();
     await closeQrLifecycleWriteRuntime();
     await closePersonalRecordPrimaryReadRuntime();
+    await closeIdentityAuthorityRuntime();
     if (server) await stopServer(server);
     await closeRecordProofRuntime();
     await pool.query('DROP SCHEMA IF EXISTS app CASCADE');
@@ -1625,6 +1702,12 @@ test('manual PostgreSQL public QR adapter integration', {
     delete process.env.PERSONAL_RECORD_POSTGRES_READ_SCOPE;
     delete process.env.PERSONAL_RECORD_POSTGRES_READ_ALLOWLIST;
     delete process.env.PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256;
+    delete process.env.IDENTITY_POSTGRES_AUTHORITY_ENABLED;
+    delete process.env.IDENTITY_POSTGRES_AUTHORITY_SCOPE;
+    delete process.env.IDENTITY_POSTGRES_AUTHORITY_ALLOWLIST;
+    delete process.env.IDENTITY_POSTGRES_AUTHORITY_SOURCE_SHA256;
+    delete process.env.IDENTITY_POSTGRES_AUTHORITY_DOMAIN_SHA256;
+    delete process.env.MINIAPP_MOCK_ENABLED;
     delete process.env.RECORD_PROOF_RUNTIME_ENABLED;
     delete process.env.RECORD_PROOF_RUNTIME_ALLOWLIST;
     delete process.env.RECORD_PROOF_RUNTIME_SOURCE_SHA256;

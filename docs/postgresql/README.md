@@ -483,13 +483,30 @@ close the separate Shadow Read execution gates documented in
 - Account allocation uses `app.account_id_seq`; identity creation, binding,
   merge, and cleanup run inside one service-owned database transaction. The
   repositories remain limited to their injected transaction context.
-- This service is not connected to routes, application startup, PM2 runtime
-  configuration, or production traffic. JSON remains the only runtime write
-  source, and this boundary does not authorize dual writes or cutover.
+- The transaction service is connected to the separately gated identity
+  authority runtime described below. The gate remains default-off and no PM2
+  production setting is enabled by this implementation.
 - Unit validation and real PostgreSQL identity-write integration are complete.
   The disposable database exercised concurrent identity creation, binding,
   guarded merge, sequence allocation, and reference protection, then was
   removed without changing the staging database.
+
+### Runtime identity authority boundary
+
+- `identityAuthorityRuntime.js` is the single PostgreSQL authority boundary
+  for H5 account creation/login, miniapp OpenID creation, phone binding and
+  account merge, and authenticated identity lookup. Existing JSON behavior is
+  unchanged while the boundary is not selected.
+- Selection requires `IDENTITY_POSTGRES_AUTHORITY_ENABLED=true`, explicit
+  `IDENTITY_POSTGRES_AUTHORITY_SCOPE=all`, and exact source and public-QR
+  domain SHA-256 values from the same passed import. An allowlist is forbidden
+  because partial identity authority would split new account ownership.
+- Every read and write verifies source, domain, and migration provenance inside
+  its database transaction before accessing or mutating identity rows. Invalid
+  configuration, stale provenance, or database failure returns one generic
+  account-service `503`; it never falls back to JSON after authority selection.
+- The runtime is lazy, bounded to two connections, drains active operations on
+  shutdown, and is not enabled or saved in production by this code change.
 
 ### Identity authentication Shadow Read
 
@@ -687,9 +704,9 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   both are absent. It can also reuse that exact pair only after verifying the
   database owner, empty `app` schema, zero active connections, environment
   target, and file permissions. Partial or inconsistent resources fail closed.
-- The integration covers PostgreSQL-only public H5/miniapp reads, lifecycle
-  activation, and authenticated personal list/detail reads. The protected JSON
-  hash must remain unchanged.
+- The integration covers PostgreSQL-only H5 and miniapp identity creation and
+  merge, public H5/miniapp reads, lifecycle activation, and authenticated
+  personal list/detail reads. The protected JSON hash must remain unchanged.
 - An exit trap terminates test connections and removes the disposable database
   and environment on success or ordinary failure. A root-only, value-free test
   log remains under `/root/stable-scope-integration-audit-20260812/`.

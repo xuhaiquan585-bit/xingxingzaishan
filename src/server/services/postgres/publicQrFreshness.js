@@ -42,8 +42,28 @@ async function checkPublicQrDomainFreshness({
     : 'INELIGIBLE_VERSION';
 }
 
+async function checkSourceAndDomainFreshness({
+  provenanceRepository,
+  sourceHash,
+  domainHash,
+  migrations
+}) {
+  const importRun = await provenanceRepository.findPassedImportBySourceHash(sourceHash);
+  if (!importRun) {
+    const latest = await provenanceRepository.findLatestPassedImport();
+    return latest ? 'STALE_SOURCE' : 'INELIGIBLE_NO_IMPORT';
+  }
+  if (importRun.public_qr_domain_sha256 !== domainHash) return 'STALE_DOMAIN';
+  const appliedMigrations = await provenanceRepository.listAppliedMigrations();
+  if (appliedMigrations.length === 0) return 'INELIGIBLE_NO_VERSION';
+  return migrationSetMatches(appliedMigrations, migrations)
+    ? 'ELIGIBLE'
+    : 'INELIGIBLE_VERSION';
+}
+
 module.exports = {
   checkCandidateFreshness,
   checkPublicQrDomainFreshness,
+  checkSourceAndDomainFreshness,
   migrationSetMatches
 };

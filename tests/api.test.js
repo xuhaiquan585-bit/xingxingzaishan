@@ -2643,6 +2643,36 @@ test('GET /api/qc/logs should reject missing token', async () => {
   assert.equal(res.body.code, 'UNAUTHORIZED');
 });
 
+test('POST /api/admin/qr/generate should surface image staging failures', async () => {
+  const login = await postJson('/api/admin/login', {
+    username: 'admin',
+    password: 'test-admin-pass'
+  });
+  const before = JSON.stringify(getTestDbSnapshot());
+  const originalOpenSync = fs.openSync;
+
+  try {
+    fs.openSync = function patchedOpenSync(target, ...args) {
+      const normalized = String(target).replace(/\\/g, '/');
+      if (/\/public\/qrcodes\/\.[^/]+\.tmp$/.test(normalized)) {
+        const error = new Error('SIMULATED_QR_IMAGE_STAGE_FAILURE');
+        error.code = 'EACCES';
+        throw error;
+      }
+      return originalOpenSync.call(this, target, ...args);
+    };
+    const response = await postJson('/api/admin/qr/generate', {
+      prefix: 'FSG',
+      count: 1
+    }, login.body.data.token);
+    assert.equal(response.status, 500);
+    assert.equal(response.body.code, 'INTERNAL_ERROR');
+    assert.equal(JSON.stringify(getTestDbSnapshot()), before);
+  } finally {
+    fs.openSync = originalOpenSync;
+  }
+});
+
 test('miniapp WeChat mock should be explicit and never use one fixed phone', async () => {
   const oldEnv = snapshotEnv([
     'NODE_ENV',

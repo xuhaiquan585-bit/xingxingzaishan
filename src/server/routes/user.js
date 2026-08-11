@@ -22,6 +22,11 @@ const {
   personalRecordPrimaryReadHttpError,
   readPersonalRecordPrimary
 } = require('../services/postgres/personalRecordPrimaryReadRuntime');
+const {
+  IdentityAuthorityError,
+  identityAuthorityHttpError,
+  invokeIdentityAuthority
+} = require('../services/postgres/identityAuthorityRuntime');
 
 const router = express.Router();
 
@@ -58,7 +63,21 @@ function isAccountLoginError(errorCode) {
   ].includes(errorCode);
 }
 
-function handleLogin(req, res, next) {
+function respondIdentityAuthorityUnavailable(res) {
+  const response = identityAuthorityHttpError();
+  return res.status(response.status).json({
+    status: 'error',
+    code: response.code,
+    message: response.message
+  });
+}
+
+async function resolveWebIdentity(phone) {
+  const authority = await invokeIdentityAuthority('createOrGetWebIdentity', { phone });
+  return authority.selected ? authority.result.data : createOrGetUser(phone);
+}
+
+async function handleLogin(req, res, next) {
   if (!isLegacyLoginEnabled()) {
     return res.status(403).json({
       status: 'error',
@@ -78,8 +97,11 @@ function handleLogin(req, res, next) {
 
   let user;
   try {
-    user = createOrGetUser(phone);
+    user = await resolveWebIdentity(phone);
   } catch (error) {
+    if (error instanceof IdentityAuthorityError) {
+      return respondIdentityAuthorityUnavailable(res);
+    }
     if (isAccountLoginError(error.code)) {
       return accountMappingFailure(res, error.code);
     }
@@ -145,7 +167,7 @@ async function handleSendCode(req, res) {
   }
 }
 
-function handleVerifyCode(req, res, next) {
+async function handleVerifyCode(req, res, next) {
   const { phone, code } = req.body;
   if (!phone || !isValidPhone(phone)) {
     return res.status(400).json({
@@ -173,8 +195,11 @@ function handleVerifyCode(req, res, next) {
 
   let user;
   try {
-    user = createOrGetUser(phone);
+    user = await resolveWebIdentity(phone);
   } catch (error) {
+    if (error instanceof IdentityAuthorityError) {
+      return respondIdentityAuthorityUnavailable(res);
+    }
     if (isAccountLoginError(error.code)) {
       return accountMappingFailure(res, error.code);
     }

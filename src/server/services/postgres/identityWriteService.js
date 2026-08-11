@@ -265,7 +265,8 @@ function createIdentityWriteService({
   pool,
   transactionRunner,
   repositoryTypes,
-  clock
+  clock,
+  beforeOperation
 } = {}) {
   if (!pool || typeof pool.connect !== 'function') {
     throw new IdentityWriteError('IDENTITY_WRITE_POOL_REQUIRED');
@@ -276,6 +277,9 @@ function createIdentityWriteService({
 
   async function execute(operation, input) {
     return runTransaction(pool, async (transactionContext) => {
+      if (typeof beforeOperation === 'function') {
+        await beforeOperation({ transactionContext, operation, input });
+      }
       const transaction = new IdentityWriteTransaction({
         accountRepository: new repositories.AccountRepository(transactionContext),
         identityRepository: new repositories.IdentityRepository(transactionContext),

@@ -11,6 +11,11 @@ const {
   identityAuthDto,
   registerIdentityShadowObservation
 } = require('../services/postgres/identityShadowRuntime');
+const {
+  IdentityAuthorityError,
+  identityAuthorityHttpError,
+  invokeIdentityAuthority
+} = require('../services/postgres/identityAuthorityRuntime');
 
 function parseCookies(rawCookie = '') {
   return rawCookie
@@ -68,7 +73,7 @@ function isH5IdentityShadowRequest(req) {
 }
 
 function attachUserSession() {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     const cookies = parseCookies(req.headers.cookie || '');
     req.userSessionId = cookies[getCookieName()] || null;
     req.user = null;
@@ -80,9 +85,26 @@ function attachUserSession() {
           accountId: session.account_id || null
         };
         const observeIdentity = isH5IdentityShadowRequest(req);
-        const context = observeIdentity
-          ? getAuthenticatedUserReadContext(input)
-          : { result: getAuthenticatedUserById(input), sourceHash: null };
+        let context;
+        try {
+          const authority = await invokeIdentityAuthority('getAuthenticatedIdentity', {
+            identityId: input.userId,
+            accountId: input.accountId
+          });
+          context = authority.selected
+            ? { result: authority.result, sourceHash: null, authority: true }
+            : observeIdentity
+              ? getAuthenticatedUserReadContext(input)
+              : { result: getAuthenticatedUserById(input), sourceHash: null };
+        } catch (error) {
+          if (!(error instanceof IdentityAuthorityError)) return next(error);
+          const response = identityAuthorityHttpError();
+          return res.status(response.status).json({
+            status: 'error',
+            code: response.code,
+            message: response.message
+          });
+        }
         const { result } = context;
         if (result.data) {
           req.user = {
@@ -90,7 +112,7 @@ function attachUserSession() {
             phone: result.data.phone,
             account_id: result.data.account_id
           };
-          if (observeIdentity) {
+          if (observeIdentity && !context.authority) {
             registerIdentityShadowObservation({
               res,
               event: {
@@ -108,7 +130,7 @@ function attachUserSession() {
         }
       }
     }
-    next();
+    return next();
   };
 }
 

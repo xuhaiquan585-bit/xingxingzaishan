@@ -2125,7 +2125,12 @@ test('public QR provenance repository checks exact source hashes and canonical m
   const domainHash = 'c'.repeat(64);
   const harness = createRepositoryContext([
     {
-      rows: [{ source_sha256: sourceHash, status: 'passed', completed_at: '2026-01-01T00:00:00Z' }],
+      rows: [{
+        source_sha256: sourceHash,
+        public_qr_domain_sha256: domainHash,
+        status: 'passed',
+        completed_at: '2026-01-01T00:00:00Z'
+      }],
       rowCount: 1
     },
     {
@@ -2144,8 +2149,12 @@ test('public QR provenance repository checks exact source hashes and canonical m
   const domainImportRun = await repository.findPassedImportByPublicQrDomainHash(domainHash);
   const migrations = await repository.listAppliedMigrations();
   assert.equal(importRun.source_sha256, sourceHash);
+  assert.equal(importRun.public_qr_domain_sha256, domainHash);
   assert.equal(domainImportRun.public_qr_domain_sha256, domainHash);
-  assert.deepEqual(harness.calls[0].params, [sourceHash]);
+  assert.deepEqual(
+    harness.calls[0].params,
+    [sourceHash, PUBLIC_QR_DOMAIN_CHECKSUM_KEY]
+  );
   assert.equal(harness.calls[0].sql.includes(sourceHash), false);
   assert.deepEqual(harness.calls[1].params, [domainHash, PUBLIC_QR_DOMAIN_CHECKSUM_KEY]);
   assert.deepEqual(migrations, [{ version: '001_init_schema.sql', checksum: 'b'.repeat(64) }]);
@@ -2321,6 +2330,11 @@ test('stable-scope integration runner is disposable, serialized, and production-
   assert.doesNotMatch(source, /pm2\s+(?:restart|reload|save)/);
   assert.match(source, /PRODUCTION_DATABASE_SELECTED=NO/);
   assert.match(source, /PRODUCTION_JSON_UNCHANGED=YES/);
+  assert.match(source, /POSTGRES_ONLY_IDENTITY_AUTHORITY=PASS/);
+  assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_ENABLED/);
+  assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_SOURCE_SHA256/);
+  assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_DOMAIN_SHA256/);
+  assert.match(source, /NEXT_ACTION=IMPLEMENT_POSTGRES_QR_ISSUANCE/);
   assert.equal(
     packageJson.scripts['test:postgres:stable-scope'],
     'bash scripts/database/run-stable-scope-integration.sh'

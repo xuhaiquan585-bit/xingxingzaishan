@@ -560,7 +560,7 @@ router.post('/orders/:orderId/ship', requireAdmin, (req, res) => {
   });
 });
 
-router.post('/qr/generate', requireAdmin, async (req, res) => {
+router.post('/qr/generate', requireAdmin, async (req, res, next) => {
   const { prefix, count = 1, batch_id: batchId } = req.body;
   const normalizedPrefix = String(prefix || '').trim().toUpperCase();
 
@@ -581,11 +581,16 @@ router.post('/qr/generate', requireAdmin, async (req, res) => {
     });
   }
 
-  const result = await generateQRCodes({
-    prefix: normalizedPrefix,
-    count: normalizedCount,
-    batchId: batchId ? String(batchId).trim() : null
-  });
+  let result;
+  try {
+    result = await generateQRCodes({
+      prefix: normalizedPrefix,
+      count: normalizedCount,
+      batchId: batchId ? String(batchId).trim() : null
+    });
+  } catch (error) {
+    return next(error);
+  }
 
   if (result.error === 'QR_SEQUENCE_EXCEEDED') {
     return res.status(400).json({

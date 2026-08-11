@@ -39,11 +39,13 @@ class PublicQrProvenanceRepository {
   async findPassedImportBySourceHash(sourceHash) {
     const result = await executeQuery(
       this.transactionContext,
-      `SELECT trim(source_sha256) AS source_sha256, status, completed_at
+      `SELECT trim(source_sha256) AS source_sha256,
+              checksum_summary ->> $2 AS public_qr_domain_sha256,
+              status, completed_at
        FROM app.import_runs
        WHERE source_sha256 = $1 AND status = 'passed'
        LIMIT 2`,
-      [assertSourceHash(sourceHash)]
+      [assertSourceHash(sourceHash), PUBLIC_QR_DOMAIN_CHECKSUM_KEY]
     );
     return oneOrNull(result, mapImportRun, 'PUBLIC_QR_IMPORT_SOURCE_DUPLICATE');
   }
