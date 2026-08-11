@@ -622,3 +622,25 @@ close the separate Shadow Read execution gates documented in
 - This boundary does not by itself authorize stable cutover. Read and write
   selection must still be enabled together so a QR cannot be read from
   PostgreSQL and written only to JSON.
+
+### Personal record controlled PostgreSQL primary read boundary
+
+- H5 and miniapp personal record list/detail routes have an independently
+  controlled PostgreSQL primary-read boundary. It is disabled by default.
+- Enablement requires `PERSONAL_RECORD_POSTGRES_READ_ENABLED=true`, a
+  canonical account-ID-only `PERSONAL_RECORD_POSTGRES_READ_ALLOWLIST`, and the
+  audited `PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256` for `public_qr_v1`.
+- Requests outside the account allowlist retain the JSON path without creating
+  a PostgreSQL pool. Selected requests use PostgreSQL as their only DTO source,
+  run in bounded read-only repeatable-read transactions, verify import
+  provenance and canonical migrations, and preserve account ownership checks.
+- Missing or unowned selected details preserve `404 RECORD_NOT_FOUND` without
+  revealing ownership. Configuration, provenance, version, connection, and
+  identity failures return generic `503 PERSONAL_RECORD_READ_UNAVAILABLE` and
+  never fall back to stale JSON.
+- The pool is lazy, bounded, drains active reads during shutdown, and closes
+  with the HTTP process. Deployment alone cannot enable the boundary.
+- Stable QR lifecycle writes must not be enabled for an account cohort until
+  the matching personal record primary-read cohort is enabled and validated;
+  otherwise PostgreSQL-only records would not appear in the JSON-backed
+  personal list or detail routes.

@@ -1179,13 +1179,7 @@ function findQRByKey(key) {
 function findPublicQrReadContextByKey(key) {
   const normalizedKey = String(key || '').trim();
   const { db, sourceHash } = readDBWithHash();
-  if (!publicQrDomainHashCache || publicQrDomainHashCache.sourceHash !== sourceHash) {
-    publicQrDomainHashCache = {
-      sourceHash,
-      domainHash: publicQrDomainSha256FromSource(db)
-    };
-  }
-  const publicQrDomainHash = publicQrDomainHashCache.domainHash;
+  const publicQrDomainHash = getPublicQrDomainHash(db, sourceHash);
   if (!normalizedKey) {
     return { qr: null, batch: null, sourceHash, publicQrDomainHash };
   }
@@ -1197,6 +1191,16 @@ function findPublicQrReadContextByKey(key) {
     ? db.batches.find((item) => item.id === qr.batch_id) || null
     : null;
   return { qr, batch, sourceHash, publicQrDomainHash };
+}
+
+function getPublicQrDomainHash(db, sourceHash) {
+  if (!publicQrDomainHashCache || publicQrDomainHashCache.sourceHash !== sourceHash) {
+    publicQrDomainHashCache = {
+      sourceHash,
+      domainHash: publicQrDomainSha256FromSource(db)
+    };
+  }
+  return publicQrDomainHashCache.domainHash;
 }
 
 function getSampleUnactivated() {
@@ -1789,8 +1793,9 @@ function mapActivatedRecordDetail(item) {
 
 function findPersonalRecordListContextByAccountId(accountIdValue) {
   const { db, sourceHash } = readDBWithHash();
+  const publicQrDomainHash = getPublicQrDomainHash(db, sourceHash);
   const target = normalizeAccountId(accountIdValue);
-  if (!target) return { records: [], sourceHash };
+  if (!target) return { records: [], sourceHash, publicQrDomainHash };
 
   const records = db.qr_codes
     .filter((item) => (
@@ -1804,7 +1809,7 @@ function findPersonalRecordListContextByAccountId(accountIdValue) {
       return timeDifference || String(a.id).localeCompare(String(b.id));
     })
     .map(mapPersonalRecord);
-  return { records, sourceHash };
+  return { records, sourceHash, publicQrDomainHash };
 }
 
 function listActivatedRecordsByAccountId(accountIdValue) {
@@ -1851,10 +1856,11 @@ function getActivatedRecordByPhoneAndId({ phone, id }) {
 
 function findPersonalRecordDetailContext({ account_id: accountIdValue, id }) {
   const { db, sourceHash } = readDBWithHash();
+  const publicQrDomainHash = getPublicQrDomainHash(db, sourceHash);
   const targetAccountId = normalizeAccountId(accountIdValue);
   const targetId = String(id || '').trim();
   if (!targetAccountId || !targetId) {
-    return { record: null, batch: null, sourceHash };
+    return { record: null, batch: null, sourceHash, publicQrDomainHash };
   }
 
   const matched = db.qr_codes.find((item) =>
@@ -1863,13 +1869,13 @@ function findPersonalRecordDetailContext({ account_id: accountIdValue, id }) {
     && item.id === targetId
   );
 
-  if (!matched) return { record: null, batch: null, sourceHash };
+  if (!matched) return { record: null, batch: null, sourceHash, publicQrDomainHash };
 
   const record = mapActivatedRecordDetail(matched);
   const batch = record.batch_id
     ? db.batches.find((item) => item.id === record.batch_id) || null
     : null;
-  return { record, batch, sourceHash };
+  return { record, batch, sourceHash, publicQrDomainHash };
 }
 
 function getActivatedRecordByAccountIdAndId(input) {

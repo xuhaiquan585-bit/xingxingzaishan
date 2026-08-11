@@ -791,6 +791,8 @@ test('public QR read context resolves token-first QR and batch from one source s
   } = require('../scripts/database/importer/domain-markers');
   const {
     findPublicQrReadContextByKey,
+    findPersonalRecordDetailContext,
+    findPersonalRecordListContextByAccountId,
     getDatabaseSnapshot
   } = require('../src/server/services/dbService');
   const dbFile = process.env.DB_FILE;
@@ -816,6 +818,14 @@ test('public QR read context resolves token-first QR and batch from one source s
       : null;
     assert.deepEqual(context.batch, expectedBatch);
     assert.equal(Object.prototype.hasOwnProperty.call(context, 'db'), false);
+
+    const personalList = findPersonalRecordListContextByAccountId('ACCOUNT_NOT_PRESENT');
+    const personalDetail = findPersonalRecordDetailContext({
+      account_id: 'ACCOUNT_NOT_PRESENT',
+      id: qr.id
+    });
+    assert.equal(personalList.publicQrDomainHash, context.publicQrDomainHash);
+    assert.equal(personalDetail.publicQrDomainHash, context.publicQrDomainHash);
   } finally {
     fs.readFileSync = originalReadFileSync;
   }

@@ -18,6 +18,10 @@ const { createPublicQrAssetResolver } = require('../services/publicQrAssetResolv
 const {
   registerPersonalRecordShadowObservation
 } = require('../services/postgres/personalRecordShadowRuntime');
+const {
+  personalRecordPrimaryReadHttpError,
+  readPersonalRecordPrimary
+} = require('../services/postgres/personalRecordPrimaryReadRuntime');
 
 const router = express.Router();
 
@@ -243,12 +247,39 @@ function visibleComments(record) {
     }));
 }
 
-function handleRecords(req, res) {
+function respondPersonalRecordReadUnavailable(res, error) {
+  const response = personalRecordPrimaryReadHttpError(error);
+  return res.status(response.status).json({
+    status: 'error',
+    code: response.code,
+    message: response.message
+  });
+}
+
+async function handleRecords(req, res) {
   const accountId = String(req.user.account_id || '');
-  const { records: sourceRecords, sourceHash } = findPersonalRecordListContextByAccountId(
-    accountId
-  );
+  const {
+    records: sourceRecords,
+    sourceHash,
+    publicQrDomainHash
+  } = findPersonalRecordListContextByAccountId(accountId);
   const assetResolver = createPublicQrAssetResolver();
+
+  try {
+    const primaryRead = await readPersonalRecordPrimary({
+      readKind: 'list',
+      accountId,
+      domainHash: publicQrDomainHash,
+      channel: 'h5',
+      assetResolver
+    });
+    if (primaryRead.selected) {
+      return res.json({ status: 'success', code: 'OK', data: primaryRead.dto });
+    }
+  } catch (error) {
+    return respondPersonalRecordReadUnavailable(res, error);
+  }
+
   const records = sourceRecords.map((item) => ({
     id: item.id,
     content: item.content,
@@ -280,12 +311,34 @@ function handleRecords(req, res) {
   });
 }
 
-function handleRecordDetail(req, res) {
+async function handleRecordDetail(req, res) {
   const accountId = String(req.user.account_id || '');
-  const { record, batch, sourceHash } = findPersonalRecordDetailContext({
+  const {
+    record,
+    batch,
+    sourceHash,
+    publicQrDomainHash
+  } = findPersonalRecordDetailContext({
     account_id: req.user.account_id,
     id: req.params.id
   });
+
+  const assetResolver = createPublicQrAssetResolver();
+  try {
+    const primaryRead = await readPersonalRecordPrimary({
+      readKind: 'detail',
+      accountId,
+      recordId: req.params.id,
+      domainHash: publicQrDomainHash,
+      channel: 'h5',
+      assetResolver
+    });
+    if (primaryRead.selected) {
+      return res.json({ status: 'success', code: 'OK', data: primaryRead.dto });
+    }
+  } catch (error) {
+    return respondPersonalRecordReadUnavailable(res, error);
+  }
 
   if (!record) {
     return res.status(404).json({
@@ -295,7 +348,6 @@ function handleRecordDetail(req, res) {
     });
   }
 
-  const assetResolver = createPublicQrAssetResolver();
   const data = {
     id: record.id,
     content: record.content,
@@ -330,7 +382,11 @@ router.post('/sms/send-code', handleSendCode);
 router.post('/sms/verify-code', handleVerifyCode);
 router.get('/me', requireUserSession, handleMe);
 router.post('/logout', requireUserSession, handleLogout);
-router.get('/records', requireUserSession, handleRecords);
-router.get('/records/:id', requireUserSession, handleRecordDetail);
+router.get('/records', requireUserSession, (req, res, next) => (
+  handleRecords(req, res).catch(next)
+));
+router.get('/records/:id', requireUserSession, (req, res, next) => (
+  handleRecordDetail(req, res).catch(next)
+));
 
 module.exports = router;

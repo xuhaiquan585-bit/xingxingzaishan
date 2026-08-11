@@ -60,6 +60,9 @@ const {
 const {
   closeQrLifecycleWriteRuntime
 } = require('../src/server/services/postgres/qrLifecycleWriteRuntime');
+const {
+  closePersonalRecordPrimaryReadRuntime
+} = require('../src/server/services/postgres/personalRecordPrimaryReadRuntime');
 const { generateMiniappToken } = require('../src/server/services/miniappAuthService');
 const { signRequest } = require('../src/server/services/avataService');
 const {
@@ -1300,6 +1303,65 @@ test('manual PostgreSQL public QR adapter integration', {
       'h5'
     );
 
+    const jsonHashBeforePersonalPrimaryRead = sha256(fs.readFileSync(process.env.DB_FILE));
+    await pool.query(
+      'UPDATE app.records SET content = $2 WHERE qr_id = $1',
+      ['QR_ACTIVATED_COMMENTS', 'PostgreSQL personal primary-only content']
+    );
+    Object.assign(process.env, {
+      PERSONAL_RECORD_POSTGRES_READ_ENABLED: 'true',
+      PERSONAL_RECORD_POSTGRES_READ_ALLOWLIST: personalOwner.account_id,
+      PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256: publicQrDomainHash
+    });
+
+    const selectedPersonalList = await requestJson(
+      port,
+      '/api/miniapp/user/records',
+      personalOwnerToken
+    );
+    assert.equal(selectedPersonalList.status, 200);
+    assert.equal(
+      selectedPersonalList.body.data.records.find(
+        (record) => record.id === 'QR_ACTIVATED_COMMENTS'
+      ).content,
+      'PostgreSQL personal primary-only content'
+    );
+
+    const selectedPersonalDetail = await requestJson(
+      port,
+      '/api/user/records/QR_ACTIVATED_COMMENTS',
+      '',
+      { Cookie: personalOwnerCookie }
+    );
+    assert.equal(selectedPersonalDetail.status, 200);
+    assert.equal(
+      selectedPersonalDetail.body.data.content,
+      'PostgreSQL personal primary-only content'
+    );
+    assert.equal(
+      sha256(fs.readFileSync(process.env.DB_FILE)),
+      jsonHashBeforePersonalPrimaryRead
+    );
+
+    process.env.PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256 = 'f'.repeat(64);
+    const stalePersonalPrimaryRead = await requestJson(
+      port,
+      '/api/miniapp/user/records',
+      personalOwnerToken
+    );
+    assert.equal(stalePersonalPrimaryRead.status, 503);
+    assert.equal(
+      stalePersonalPrimaryRead.body.code,
+      'PERSONAL_RECORD_READ_UNAVAILABLE'
+    );
+
+    process.env.PERSONAL_RECORD_POSTGRES_READ_ENABLED = 'false';
+    await closePersonalRecordPrimaryReadRuntime();
+    await pool.query(
+      'UPDATE app.records SET content = $2 WHERE qr_id = $1',
+      ['QR_ACTIVATED_COMMENTS', 'Comment ordering fixture']
+    );
+
     await assert.rejects(
       readPersonalCandidate(pool, {
         readKind: 'detail',
@@ -1407,6 +1469,7 @@ test('manual PostgreSQL public QR adapter integration', {
     await closePublicQrShadowRuntime();
     await closePublicQrPrimaryReadRuntime();
     await closeQrLifecycleWriteRuntime();
+    await closePersonalRecordPrimaryReadRuntime();
     if (server) await stopServer(server);
     await closeRecordProofRuntime();
     await pool.query('DROP SCHEMA IF EXISTS app CASCADE');
@@ -1424,6 +1487,9 @@ test('manual PostgreSQL public QR adapter integration', {
     delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ENABLED;
     delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST;
     delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256;
+    delete process.env.PERSONAL_RECORD_POSTGRES_READ_ENABLED;
+    delete process.env.PERSONAL_RECORD_POSTGRES_READ_ALLOWLIST;
+    delete process.env.PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256;
     delete process.env.RECORD_PROOF_RUNTIME_ENABLED;
     delete process.env.RECORD_PROOF_RUNTIME_ALLOWLIST;
     delete process.env.RECORD_PROOF_RUNTIME_SOURCE_SHA256;

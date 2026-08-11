@@ -51,6 +51,10 @@ const {
   registerPersonalRecordShadowObservation
 } = require('../services/postgres/personalRecordShadowRuntime');
 const {
+  personalRecordPrimaryReadHttpError,
+  readPersonalRecordPrimary
+} = require('../services/postgres/personalRecordPrimaryReadRuntime');
+const {
   prepareRecordManifest,
   submitPreparedRecord
 } = require('../services/chainProofService');
@@ -110,6 +114,15 @@ async function selectPostgresLifecycleWrite({ key, operation, payload, req }) {
 
 function respondLifecycleWriteUnavailable(res, error) {
   const response = qrLifecycleWriteHttpError(error);
+  return res.status(response.status).json({
+    status: 'error',
+    code: response.code,
+    message: response.message
+  });
+}
+
+function respondPersonalRecordReadUnavailable(res, error) {
+  const response = personalRecordPrimaryReadHttpError(error);
   return res.status(response.status).json({
     status: 'error',
     code: response.code,
@@ -1194,12 +1207,30 @@ router.post('/qr/:key/finalize', requireMiniappAuth, requireMiniappPhone, async 
   });
 });
 
-router.get('/user/records', requireMiniappAuth, requireMiniappPhone, (req, res) => {
+async function handleMiniappPersonalRecords(req, res) {
   const accountId = getMiniappAccountId(req.miniappUser);
-  const { records: sourceRecords, sourceHash } = findPersonalRecordListContextByAccountId(
-    accountId
-  );
+  const {
+    records: sourceRecords,
+    sourceHash,
+    publicQrDomainHash
+  } = findPersonalRecordListContextByAccountId(accountId);
   const assetResolver = createPublicQrAssetResolver();
+
+  try {
+    const primaryRead = await readPersonalRecordPrimary({
+      readKind: 'list',
+      accountId,
+      domainHash: publicQrDomainHash,
+      channel: 'miniapp',
+      assetResolver
+    });
+    if (primaryRead.selected) {
+      return res.json({ status: 'success', code: 'OK', data: primaryRead.dto });
+    }
+  } catch (error) {
+    return respondPersonalRecordReadUnavailable(res, error);
+  }
+
   const records = sourceRecords.map((item) => ({
     id: item.id,
     content: item.content,
@@ -1226,14 +1257,37 @@ router.get('/user/records', requireMiniappAuth, requireMiniappPhone, (req, res) 
     code: 'OK',
     data
   });
-});
+}
 
-router.get('/user/records/:id', requireMiniappAuth, requireMiniappPhone, (req, res) => {
+async function handleMiniappPersonalRecordDetail(req, res) {
   const accountId = getMiniappAccountId(req.miniappUser);
-  const { record, batch, sourceHash } = findPersonalRecordDetailContext({
+  const {
+    record,
+    batch,
+    sourceHash,
+    publicQrDomainHash
+  } = findPersonalRecordDetailContext({
     account_id: req.miniappUser.account_id,
     id: req.params.id
   });
+
+  const assetResolver = createPublicQrAssetResolver();
+  try {
+    const primaryRead = await readPersonalRecordPrimary({
+      readKind: 'detail',
+      accountId,
+      recordId: req.params.id,
+      domainHash: publicQrDomainHash,
+      channel: 'miniapp',
+      assetResolver
+    });
+    if (primaryRead.selected) {
+      return res.json({ status: 'success', code: 'OK', data: primaryRead.dto });
+    }
+  } catch (error) {
+    return respondPersonalRecordReadUnavailable(res, error);
+  }
+
   if (!record) {
     return res.status(404).json({
       status: 'error',
@@ -1241,7 +1295,6 @@ router.get('/user/records/:id', requireMiniappAuth, requireMiniappPhone, (req, r
       message: '未找到该记录，或你无权查看。'
     });
   }
-  const assetResolver = createPublicQrAssetResolver();
   const data = {
     id: record.id,
     content: record.content || '',
@@ -1268,7 +1321,15 @@ router.get('/user/records/:id', requireMiniappAuth, requireMiniappPhone, (req, r
     }
   });
   return res.json({ status: 'success', code: 'OK', data });
-});
+}
+
+router.get('/user/records', requireMiniappAuth, requireMiniappPhone, (req, res, next) => (
+  handleMiniappPersonalRecords(req, res).catch(next)
+));
+
+router.get('/user/records/:id', requireMiniappAuth, requireMiniappPhone, (req, res, next) => (
+  handleMiniappPersonalRecordDetail(req, res).catch(next)
+));
 
 router.use((err, _req, res, _next) => {
   if (err.code === 'LIMIT_FILE_SIZE') {
