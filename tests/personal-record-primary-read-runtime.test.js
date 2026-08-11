@@ -22,6 +22,7 @@ function enabledConfig(overrides = {}) {
     enabled: true,
     requested: true,
     reason: 'ENABLED',
+    scope: 'allowlist',
     allowlist: new Set(['ACC000002']),
     domainHash: DOMAIN_HASH,
     timeoutMs: 500,
@@ -56,6 +57,17 @@ test('personal record primary config is strict, account-scoped, and default-off'
     PERSONAL_RECORD_POSTGRES_READ_ALLOWLIST: 'ACC000002',
     PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256: 'invalid'
   }).reason, 'DOMAIN_SHA256_REQUIRED');
+  assert.equal(readPersonalRecordPrimaryReadConfig({
+    PERSONAL_RECORD_POSTGRES_READ_ENABLED: 'true',
+    PERSONAL_RECORD_POSTGRES_READ_SCOPE: 'future',
+    PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH
+  }).reason, 'SCOPE_INVALID');
+  assert.equal(readPersonalRecordPrimaryReadConfig({
+    PERSONAL_RECORD_POSTGRES_READ_ENABLED: 'true',
+    PERSONAL_RECORD_POSTGRES_READ_SCOPE: 'all',
+    PERSONAL_RECORD_POSTGRES_READ_ALLOWLIST: 'ACC000002',
+    PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH
+  }).reason, 'ALLOWLIST_FORBIDDEN_FOR_ALL_SCOPE');
 
   const config = readPersonalRecordPrimaryReadConfig({
     PERSONAL_RECORD_POSTGRES_READ_ENABLED: 'true',
@@ -63,7 +75,20 @@ test('personal record primary config is strict, account-scoped, and default-off'
     PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH
   });
   assert.equal(config.enabled, true);
+  assert.equal(config.scope, 'allowlist');
   assert.deepEqual([...config.allowlist], ['ACC000002', 'ACC000003']);
+  assert.equal(config.domainHash, DOMAIN_HASH);
+});
+
+test('personal record primary all scope is explicit and needs no static account list', () => {
+  const config = readPersonalRecordPrimaryReadConfig({
+    PERSONAL_RECORD_POSTGRES_READ_ENABLED: 'true',
+    PERSONAL_RECORD_POSTGRES_READ_SCOPE: 'all',
+    PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH
+  });
+  assert.equal(config.enabled, true);
+  assert.equal(config.scope, 'all');
+  assert.equal(config.allowlist.size, 0);
   assert.equal(config.domainHash, DOMAIN_HASH);
 });
 
@@ -88,6 +113,31 @@ test('personal primary controller stays lazy for default-off and account misses'
   await missed.close();
 });
 
+test('personal primary all scope selects a future canonical account ID', async () => {
+  let runtimeCalls = 0;
+  const controller = createPersonalRecordPrimaryReadController({
+    readConfig: () => enabledConfig({ scope: 'all', allowlist: new Set() }),
+    runtimeFactory: (config) => {
+      runtimeCalls += 1;
+      assert.equal(config.scope, 'all');
+      return {
+        read: async () => ({ dto: { total: 0, records: [] } }),
+        close: async () => {}
+      };
+    }
+  });
+  assert.deepEqual(await controller.read({
+    accountId: 'ACC_FUTURE_0001',
+    domainHash: DOMAIN_HASH,
+    readKind: 'list'
+  }), {
+    selected: true,
+    dto: { total: 0, records: [] }
+  });
+  assert.equal(runtimeCalls, 1);
+  await controller.close();
+});
+
 test('personal primary controller fails closed for partial config and domain drift', async () => {
   let runtimeCalls = 0;
   const invalid = createPersonalRecordPrimaryReadController({
@@ -96,6 +146,15 @@ test('personal primary controller fails closed for partial config and domain dri
   });
   await assert.rejects(
     invalid.read({ accountId: 'ACC000002' }),
+    (error) => error.code === 'PERSONAL_RECORD_POSTGRES_READ_CONFIG_INVALID'
+  );
+
+  const conflictingScope = createPersonalRecordPrimaryReadController({
+    readConfig: () => enabledConfig({ scope: 'all' }),
+    runtimeFactory: () => { runtimeCalls += 1; }
+  });
+  await assert.rejects(
+    conflictingScope.read({ accountId: 'ACC000002', domainHash: DOMAIN_HASH }),
     (error) => error.code === 'PERSONAL_RECORD_POSTGRES_READ_CONFIG_INVALID'
   );
 
@@ -108,6 +167,7 @@ test('personal primary controller fails closed for partial config and domain dri
     (error) => error.code === 'PERSONAL_RECORD_POSTGRES_READ_DOMAIN_MISMATCH'
   );
   assert.equal(runtimeCalls, 0);
+  await conflictingScope.close();
 });
 
 test('personal primary controller reuses one runtime and drains reads before closing', async () => {

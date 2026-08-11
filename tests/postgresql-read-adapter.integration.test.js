@@ -1482,12 +1482,15 @@ test('manual PostgreSQL public QR adapter integration', {
     delete process.env.PUBLIC_QR_SHADOW_READ_ALLOWLIST;
     delete process.env.PUBLIC_QR_SHADOW_READ_LOG_DIR;
     delete process.env.PUBLIC_QR_POSTGRES_READ_ENABLED;
+    delete process.env.PUBLIC_QR_POSTGRES_READ_SCOPE;
     delete process.env.PUBLIC_QR_POSTGRES_READ_ALLOWLIST;
     delete process.env.PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256;
     delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ENABLED;
+    delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_SCOPE;
     delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST;
     delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256;
     delete process.env.PERSONAL_RECORD_POSTGRES_READ_ENABLED;
+    delete process.env.PERSONAL_RECORD_POSTGRES_READ_SCOPE;
     delete process.env.PERSONAL_RECORD_POSTGRES_READ_ALLOWLIST;
     delete process.env.PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256;
     delete process.env.RECORD_PROOF_RUNTIME_ENABLED;

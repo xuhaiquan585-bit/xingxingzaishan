@@ -1,6 +1,6 @@
 'use strict';
 
-const { parseAllowlist } = require('./shadowReadConfig');
+const { readPrimarySelectionScope } = require('./primarySelectionScope');
 
 const DEFAULT_TIMEOUT_MS = 500;
 const SOURCE_HASH_PATTERN = /^[a-f0-9]{64}$/;
@@ -11,6 +11,7 @@ function disabled(reason, { requested = false } = {}) {
     enabled: false,
     requested,
     reason,
+    scope: null,
     allowlist: new Set(),
     domainHash: null,
     timeoutMs: DEFAULT_TIMEOUT_MS
@@ -29,11 +30,12 @@ function readPublicQrPrimaryReadConfig(env = process.env) {
     return disabled('INVALID_ENABLED_VALUE', { requested: true });
   }
 
-  const allowlist = parseAllowlist(env.PUBLIC_QR_POSTGRES_READ_ALLOWLIST);
-  if (!allowlist) return disabled('ALLOWLIST_REQUIRED', { requested: true });
-  if ([...allowlist].some((value) => !PUBLIC_QR_ID_PATTERN.test(value))) {
-    return disabled('ALLOWLIST_INVALID', { requested: true });
-  }
+  const selection = readPrimarySelectionScope({
+    scopeValue: env.PUBLIC_QR_POSTGRES_READ_SCOPE,
+    allowlistValue: env.PUBLIC_QR_POSTGRES_READ_ALLOWLIST,
+    idPattern: PUBLIC_QR_ID_PATTERN
+  });
+  if (selection.error) return disabled(selection.error, { requested: true });
 
   const domainHash = String(env.PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256 || '').trim();
   if (!SOURCE_HASH_PATTERN.test(domainHash)) {
@@ -44,7 +46,8 @@ function readPublicQrPrimaryReadConfig(env = process.env) {
     enabled: true,
     requested: true,
     reason: 'ENABLED',
-    allowlist,
+    scope: selection.scope,
+    allowlist: selection.allowlist,
     domainHash,
     timeoutMs: DEFAULT_TIMEOUT_MS
   });

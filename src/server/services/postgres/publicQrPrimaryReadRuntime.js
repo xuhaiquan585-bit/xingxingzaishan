@@ -2,6 +2,10 @@
 
 const { checkPublicQrDomainFreshness } = require('./publicQrFreshness');
 const { readPublicQrPrimaryReadConfig } = require('./publicQrPrimaryReadConfig');
+const {
+  hasValidPrimarySelectionScope,
+  isSelectedByPrimaryScope
+} = require('./primarySelectionScope');
 
 class PublicQrPrimaryReadError extends Error {
   constructor(code, message) {
@@ -16,7 +20,8 @@ function primaryReadError(code) {
 }
 
 function assertEnabledConfig(config) {
-  if (!config || config.enabled !== true || !config.domainHash || !config.allowlist) {
+  if (!config || config.enabled !== true || !config.domainHash
+    || !hasValidPrimarySelectionScope(config)) {
     throw primaryReadError('PUBLIC_QR_POSTGRES_READ_CONFIG_INVALID');
   }
 }
@@ -102,7 +107,10 @@ function createPublicQrPrimaryReadRuntime(config, {
         channel: input.channel,
         viewer: input.viewer
       });
-      if (!snapshot.qr || String(snapshot.qr.id) !== String(input.publicQrId || '')) {
+      const expectedPublicQrId = String(input.publicQrId || '').trim();
+      if (!snapshot.qr
+        || (config.scope === 'allowlist' && !expectedPublicQrId)
+        || (expectedPublicQrId && String(snapshot.qr.id) !== expectedPublicQrId)) {
         throw primaryReadError('PUBLIC_QR_POSTGRES_READ_IDENTITY_MISMATCH');
       }
       return { adapter, snapshot };
@@ -141,9 +149,11 @@ function createPublicQrPrimaryReadController({
     if (config.enabled !== true) {
       throw primaryReadError('PUBLIC_QR_POSTGRES_READ_CONFIG_INVALID');
     }
+    assertEnabledConfig(config);
 
     const publicQrId = String(input.publicQrId || '').trim();
-    if (!publicQrId || !config.allowlist.has(publicQrId)) return { selected: false };
+    const selectionKey = config.scope === 'all' ? input.key : publicQrId;
+    if (!isSelectedByPrimaryScope(config, selectionKey)) return { selected: false };
     if (String(input.domainHash || '') !== config.domainHash) {
       throw primaryReadError('PUBLIC_QR_POSTGRES_READ_DOMAIN_MISMATCH');
     }

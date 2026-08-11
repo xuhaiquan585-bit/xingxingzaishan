@@ -2,6 +2,10 @@
 
 const { checkPublicQrDomainFreshness } = require('./publicQrFreshness');
 const { readQrLifecycleWriteConfig } = require('./qrLifecycleWriteConfig');
+const {
+  hasValidPrimarySelectionScope,
+  isSelectedByPrimaryScope
+} = require('./primarySelectionScope');
 
 const OPERATION_METHODS = Object.freeze({
   activate: 'activateQRByKey',
@@ -27,7 +31,8 @@ function writeError(code) {
 }
 
 function assertEnabledConfig(config) {
-  if (!config || config.enabled !== true || !config.domainHash || !config.allowlist) {
+  if (!config || config.enabled !== true || !config.domainHash
+    || !hasValidPrimarySelectionScope(config)) {
     throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_CONFIG_INVALID');
   }
 }
@@ -124,7 +129,10 @@ function createQrLifecycleWriteRuntime(config, {
         channel: input.channel,
         viewer: input.viewer
       });
-      if (!snapshot.qr || String(snapshot.qr.id) !== String(input.publicQrId || '')) {
+      const expectedPublicQrId = String(input.publicQrId || '').trim();
+      if (!snapshot.qr
+        || (config.scope === 'allowlist' && !expectedPublicQrId)
+        || (expectedPublicQrId && String(snapshot.qr.id) !== expectedPublicQrId)) {
         throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_IDENTITY_MISMATCH');
       }
       return { adapter, snapshot };
@@ -174,9 +182,11 @@ function createQrLifecycleWriteController({
     if (config.enabled !== true) {
       throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_CONFIG_INVALID');
     }
+    assertEnabledConfig(config);
 
     const publicQrId = String(input.publicQrId || '').trim();
-    if (!publicQrId || !config.allowlist.has(publicQrId)) return { selected: false };
+    const selectionKey = config.scope === 'all' ? input.key : publicQrId;
+    if (!isSelectedByPrimaryScope(config, selectionKey)) return { selected: false };
     if (String(input.domainHash || '') !== config.domainHash) {
       throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_MISMATCH');
     }

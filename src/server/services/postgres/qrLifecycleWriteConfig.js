@@ -1,6 +1,6 @@
 'use strict';
 
-const { parseAllowlist } = require('./shadowReadConfig');
+const { readPrimarySelectionScope } = require('./primarySelectionScope');
 const {
   PUBLIC_QR_ID_PATTERN,
   SOURCE_HASH_PATTERN
@@ -13,6 +13,7 @@ function disabled(reason, { requested = false } = {}) {
     enabled: false,
     requested,
     reason,
+    scope: null,
     allowlist: new Set(),
     domainHash: null,
     timeoutMs: DEFAULT_TIMEOUT_MS
@@ -31,11 +32,12 @@ function readQrLifecycleWriteConfig(env = process.env) {
     return disabled('INVALID_ENABLED_VALUE', { requested: true });
   }
 
-  const allowlist = parseAllowlist(env.QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST);
-  if (!allowlist) return disabled('ALLOWLIST_REQUIRED', { requested: true });
-  if ([...allowlist].some((value) => !PUBLIC_QR_ID_PATTERN.test(value))) {
-    return disabled('ALLOWLIST_INVALID', { requested: true });
-  }
+  const selection = readPrimarySelectionScope({
+    scopeValue: env.QR_LIFECYCLE_POSTGRES_WRITE_SCOPE,
+    allowlistValue: env.QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST,
+    idPattern: PUBLIC_QR_ID_PATTERN
+  });
+  if (selection.error) return disabled(selection.error, { requested: true });
 
   const domainHash = String(env.QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256 || '').trim();
   if (!SOURCE_HASH_PATTERN.test(domainHash)) {
@@ -46,7 +48,8 @@ function readQrLifecycleWriteConfig(env = process.env) {
     enabled: true,
     requested: true,
     reason: 'ENABLED',
-    allowlist,
+    scope: selection.scope,
+    allowlist: selection.allowlist,
     domainHash,
     timeoutMs: DEFAULT_TIMEOUT_MS
   });

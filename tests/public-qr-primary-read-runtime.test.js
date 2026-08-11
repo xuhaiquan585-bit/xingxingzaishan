@@ -25,6 +25,7 @@ function enabledConfig(overrides = {}) {
     enabled: true,
     requested: true,
     reason: 'ENABLED',
+    scope: 'allowlist',
     allowlist: new Set(['SSS00004']),
     domainHash: DOMAIN_HASH,
     timeoutMs: 500,
@@ -85,6 +86,17 @@ test('public QR primary read config is strictly default-off and rejects partial 
     PUBLIC_QR_POSTGRES_READ_ALLOWLIST: 'SSS00004',
     PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256: 'not-a-hash'
   }).reason, 'DOMAIN_SHA256_REQUIRED');
+  assert.equal(readPublicQrPrimaryReadConfig({
+    PUBLIC_QR_POSTGRES_READ_ENABLED: 'true',
+    PUBLIC_QR_POSTGRES_READ_SCOPE: 'future',
+    PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH
+  }).reason, 'SCOPE_INVALID');
+  assert.equal(readPublicQrPrimaryReadConfig({
+    PUBLIC_QR_POSTGRES_READ_ENABLED: 'true',
+    PUBLIC_QR_POSTGRES_READ_SCOPE: 'all',
+    PUBLIC_QR_POSTGRES_READ_ALLOWLIST: 'SSS00004',
+    PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH
+  }).reason, 'ALLOWLIST_FORBIDDEN_FOR_ALL_SCOPE');
 });
 
 test('public QR primary read config accepts only a canonical QR allowlist and domain hash', () => {
@@ -95,8 +107,21 @@ test('public QR primary read config accepts only a canonical QR allowlist and do
   });
   assert.equal(config.enabled, true);
   assert.equal(config.requested, true);
+  assert.equal(config.scope, 'allowlist');
   assert.equal(config.domainHash, DOMAIN_HASH);
   assert.deepEqual([...config.allowlist], ['SSS00004', 'CS1X00003']);
+});
+
+test('public QR primary read all scope is explicit and needs no static QR list', () => {
+  const config = readPublicQrPrimaryReadConfig({
+    PUBLIC_QR_POSTGRES_READ_ENABLED: 'true',
+    PUBLIC_QR_POSTGRES_READ_SCOPE: 'all',
+    PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH
+  });
+  assert.equal(config.enabled, true);
+  assert.equal(config.scope, 'all');
+  assert.equal(config.allowlist.size, 0);
+  assert.equal(config.domainHash, DOMAIN_HASH);
 });
 
 test('primary read controller stays lazy for default-off and allowlist misses', async () => {
@@ -120,6 +145,34 @@ test('primary read controller stays lazy for default-off and allowlist misses', 
   await allowlistMiss.close();
 });
 
+test('public QR primary all scope selects a future canonical QR ID', async () => {
+  let runtimeCalls = 0;
+  const controller = createPublicQrPrimaryReadController({
+    readConfig: () => enabledConfig({ scope: 'all', allowlist: new Set() }),
+    runtimeFactory: (config) => {
+      runtimeCalls += 1;
+      assert.equal(config.scope, 'all');
+      return {
+        read: async ({ key, publicQrId }) => ({
+          dto: { key, jsonResolvedId: publicQrId },
+          lifecycle: 'unactivated'
+        }),
+        close: async () => {}
+      };
+    }
+  });
+  assert.deepEqual(await controller.read({
+    key: 'future-public-token',
+    domainHash: DOMAIN_HASH
+  }), {
+    selected: true,
+    dto: { key: 'future-public-token', jsonResolvedId: '' },
+    lifecycle: 'unactivated'
+  });
+  assert.equal(runtimeCalls, 1);
+  await controller.close();
+});
+
 test('primary read controller fails closed before runtime creation for invalid config or domain drift', async () => {
   let runtimeCalls = 0;
   const invalid = createPublicQrPrimaryReadController({
@@ -128,6 +181,15 @@ test('primary read controller fails closed before runtime creation for invalid c
   });
   await assert.rejects(
     invalid.read({ publicQrId: 'SSS00004' }),
+    (error) => error.code === 'PUBLIC_QR_POSTGRES_READ_CONFIG_INVALID'
+  );
+
+  const conflictingScope = createPublicQrPrimaryReadController({
+    readConfig: () => enabledConfig({ scope: 'all' }),
+    runtimeFactory: () => { runtimeCalls += 1; }
+  });
+  await assert.rejects(
+    conflictingScope.read({ publicQrId: 'SSS00004', domainHash: DOMAIN_HASH }),
     (error) => error.code === 'PUBLIC_QR_POSTGRES_READ_CONFIG_INVALID'
   );
 
@@ -140,6 +202,7 @@ test('primary read controller fails closed before runtime creation for invalid c
     (error) => error.code === 'PUBLIC_QR_POSTGRES_READ_DOMAIN_MISMATCH'
   );
   assert.equal(runtimeCalls, 0);
+  await conflictingScope.close();
 });
 
 test('selected primary reads use one lazy runtime and close it once', async () => {
@@ -224,7 +287,10 @@ test('primary runtime verifies freshness in a read-only transaction before prese
     }
   }
 
-  const runtime = createPublicQrPrimaryReadRuntime(enabledConfig(), {
+  const runtime = createPublicQrPrimaryReadRuntime(enabledConfig({
+    scope: 'all',
+    allowlist: new Set()
+  }), {
     env: {
       PGHOST: '127.0.0.1',
       PGUSER: 'test',
@@ -273,7 +339,6 @@ test('primary runtime verifies freshness in a read-only transaction before prese
 
   assert.deepEqual(await runtime.read({
     key: 'public-token',
-    publicQrId: 'SSS00004',
     channel: 'h5',
     viewer: { accountId: 'ACC000002', phoneBound: true },
     assetResolver: { name: 'request-assets' }

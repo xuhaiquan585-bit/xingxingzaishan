@@ -4,6 +4,10 @@ const { checkPublicQrDomainFreshness } = require('./publicQrFreshness');
 const {
   readPersonalRecordPrimaryReadConfig
 } = require('./personalRecordPrimaryReadConfig');
+const {
+  hasValidPrimarySelectionScope,
+  isSelectedByPrimaryScope
+} = require('./primarySelectionScope');
 
 class PersonalRecordPrimaryReadError extends Error {
   constructor(code, message) {
@@ -21,7 +25,8 @@ function primaryReadError(code) {
 }
 
 function assertEnabledConfig(config) {
-  if (!config || config.enabled !== true || !config.domainHash || !config.allowlist) {
+  if (!config || config.enabled !== true || !config.domainHash
+    || !hasValidPrimarySelectionScope(config)) {
     throw primaryReadError('PERSONAL_RECORD_POSTGRES_READ_CONFIG_INVALID');
   }
 }
@@ -144,9 +149,10 @@ function createPersonalRecordPrimaryReadController({
     if (config.enabled !== true) {
       throw primaryReadError('PERSONAL_RECORD_POSTGRES_READ_CONFIG_INVALID');
     }
+    assertEnabledConfig(config);
 
     const accountId = String(input.accountId || '').trim();
-    if (!accountId || !config.allowlist.has(accountId)) return { selected: false };
+    if (!isSelectedByPrimaryScope(config, accountId)) return { selected: false };
     if (String(input.domainHash || '') !== config.domainHash) {
       throw primaryReadError('PERSONAL_RECORD_POSTGRES_READ_DOMAIN_MISMATCH');
     }

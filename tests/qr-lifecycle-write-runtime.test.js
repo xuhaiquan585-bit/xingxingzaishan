@@ -25,6 +25,7 @@ function enabledConfig(overrides = {}) {
     enabled: true,
     requested: true,
     reason: 'ENABLED',
+    scope: 'allowlist',
     allowlist: new Set(['SSS00004']),
     domainHash: DOMAIN_HASH,
     timeoutMs: 2_000,
@@ -59,6 +60,17 @@ test('QR lifecycle PostgreSQL write config is strict and default-off', () => {
     QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST: 'SSS00004',
     QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256: 'not-a-hash'
   }).reason, 'DOMAIN_SHA256_REQUIRED');
+  assert.equal(readQrLifecycleWriteConfig({
+    QR_LIFECYCLE_POSTGRES_WRITE_ENABLED: 'true',
+    QR_LIFECYCLE_POSTGRES_WRITE_SCOPE: 'future',
+    QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256: DOMAIN_HASH
+  }).reason, 'SCOPE_INVALID');
+  assert.equal(readQrLifecycleWriteConfig({
+    QR_LIFECYCLE_POSTGRES_WRITE_ENABLED: 'true',
+    QR_LIFECYCLE_POSTGRES_WRITE_SCOPE: 'all',
+    QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST: 'SSS00004',
+    QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256: DOMAIN_HASH
+  }).reason, 'ALLOWLIST_FORBIDDEN_FOR_ALL_SCOPE');
 });
 
 test('QR lifecycle PostgreSQL write config accepts a canonical allowlist and domain hash', () => {
@@ -68,8 +80,21 @@ test('QR lifecycle PostgreSQL write config accepts a canonical allowlist and dom
     QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256: DOMAIN_HASH
   });
   assert.equal(config.enabled, true);
+  assert.equal(config.scope, 'allowlist');
   assert.equal(config.domainHash, DOMAIN_HASH);
   assert.deepEqual([...config.allowlist], ['SSS00004', 'A00002']);
+});
+
+test('QR lifecycle PostgreSQL write all scope is explicit and list-free', () => {
+  const config = readQrLifecycleWriteConfig({
+    QR_LIFECYCLE_POSTGRES_WRITE_ENABLED: 'true',
+    QR_LIFECYCLE_POSTGRES_WRITE_SCOPE: 'all',
+    QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256: DOMAIN_HASH
+  });
+  assert.equal(config.enabled, true);
+  assert.equal(config.scope, 'all');
+  assert.equal(config.allowlist.size, 0);
+  assert.equal(config.domainHash, DOMAIN_HASH);
 });
 
 test('write controller remains lazy while disabled or outside the allowlist', async () => {
@@ -93,6 +118,39 @@ test('write controller remains lazy while disabled or outside the allowlist', as
   await allowlistMiss.close();
 });
 
+test('QR lifecycle all scope selects a future canonical QR ID', async () => {
+  let runtimeCalls = 0;
+  const controller = createQrLifecycleWriteController({
+    readConfig: () => enabledConfig({ scope: 'all', allowlist: new Set() }),
+    runtimeFactory: (config) => {
+      runtimeCalls += 1;
+      assert.equal(config.scope, 'all');
+      return {
+        write: async ({ key, publicQrId }) => {
+          assert.equal(key, 'future-public-token');
+          assert.equal(publicQrId, '');
+          return {
+            result: { data: { qr: { id: 'FUTURE_QR_0001' } } },
+            dto: { id: 'FUTURE_QR_0001' }
+          };
+        },
+        close: async () => {}
+      };
+    }
+  });
+  assert.deepEqual(await controller.write({
+    operation: 'activate',
+    key: 'future-public-token',
+    domainHash: DOMAIN_HASH
+  }), {
+    selected: true,
+    result: { data: { qr: { id: 'FUTURE_QR_0001' } } },
+    dto: { id: 'FUTURE_QR_0001' }
+  });
+  assert.equal(runtimeCalls, 1);
+  await controller.close();
+});
+
 test('write controller fails closed for partial configuration and domain drift', async () => {
   let runtimeCalls = 0;
   const invalid = createQrLifecycleWriteController({
@@ -101,6 +159,15 @@ test('write controller fails closed for partial configuration and domain drift',
   });
   await assert.rejects(
     invalid.write({ publicQrId: 'SSS00004' }),
+    (error) => error.code === 'QR_LIFECYCLE_POSTGRES_WRITE_CONFIG_INVALID'
+  );
+
+  const conflictingScope = createQrLifecycleWriteController({
+    readConfig: () => enabledConfig({ scope: 'all' }),
+    runtimeFactory: () => { runtimeCalls += 1; }
+  });
+  await assert.rejects(
+    conflictingScope.write({ publicQrId: 'SSS00004', domainHash: DOMAIN_HASH }),
     (error) => error.code === 'QR_LIFECYCLE_POSTGRES_WRITE_CONFIG_INVALID'
   );
 
@@ -113,6 +180,7 @@ test('write controller fails closed for partial configuration and domain drift',
     (error) => error.code === 'QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_MISMATCH'
   );
   assert.equal(runtimeCalls, 0);
+  await conflictingScope.close();
 });
 
 test('selected writes share one lazy runtime and drain before closing', async () => {
@@ -169,7 +237,10 @@ test('write runtime checks provenance, executes the selected operation, and retu
     }
   }
 
-  const runtime = createQrLifecycleWriteRuntime(enabledConfig(), {
+  const runtime = createQrLifecycleWriteRuntime(enabledConfig({
+    scope: 'all',
+    allowlist: new Set()
+  }), {
     env: {
       PGHOST: '127.0.0.1',
       PGUSER: 'test',
@@ -217,7 +288,6 @@ test('write runtime checks provenance, executes the selected operation, and retu
   assert.deepEqual(await runtime.write({
     operation: 'activate',
     key: 'public-token',
-    publicQrId: 'SSS00004',
     channel: 'h5',
     payload: { account_id: 'ACC000002' },
     viewer: { accountId: 'ACC000002', phoneBound: true },
@@ -341,6 +411,7 @@ test('default-off H5 route preserves the existing JSON write path without Postgr
   process.env.STORAGE_ROOT = path.join(directory, 'storage');
   process.env.AUTH_SECRET = 'qr-write-route-secret';
   delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ENABLED;
+  delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_SCOPE;
   delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST;
   delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256;
 

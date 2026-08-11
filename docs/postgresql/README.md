@@ -561,17 +561,22 @@ close the separate Shadow Read execution gates documented in
 - H5 `GET /api/qr/:qrId` and miniapp `GET /api/miniapp/qr/:key` now have a
   separately controlled PostgreSQL primary-read boundary. It is independent
   from Public QR Shadow Read and is disabled by default.
-- Enablement requires all three exact settings:
-  `PUBLIC_QR_POSTGRES_READ_ENABLED=true`, a canonical QR-ID-only
-  `PUBLIC_QR_POSTGRES_READ_ALLOWLIST`, and the audited 64-character lowercase
-  `PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256`.
+- Enablement requires `PUBLIC_QR_POSTGRES_READ_ENABLED=true`, the audited
+  64-character lowercase `PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256`, and one
+  selection scope. `PUBLIC_QR_POSTGRES_READ_SCOPE=allowlist` requires a
+  canonical QR-ID-only `PUBLIC_QR_POSTGRES_READ_ALLOWLIST`; omitting the scope
+  preserves this allowlist behavior for existing controlled-rollout files.
+  Stable authority must instead declare `PUBLIC_QR_POSTGRES_READ_SCOPE=all`
+  and omit the allowlist. Unknown scopes and an `all` scope combined with an
+  allowlist fail closed.
 - JSON resolves only the canonical QR ID and computes the versioned
   `public_qr_v1` domain checksum used by the selection gate. The checksum is
   built from mapped QR batches, QR rows, records, co-creation state/comments,
   and public proof/archive state. Unrelated identity, commerce, and content
-  edits do not invalidate it. Requests outside the allowlist retain the
-  existing JSON path and do not construct a PostgreSQL pool.
-- An allowlisted request uses PostgreSQL as its only DTO source. Before reading
+  edits do not invalidate it. In allowlist scope, requests outside the list
+  retain the existing JSON path and do not construct a PostgreSQL pool. The
+  explicit `all` scope selects every canonical current or future QR ID.
+- A selected request uses PostgreSQL as its only DTO source. Before reading
   business rows, the runtime requires the configured domain checksum in a
   passed import's checksum summary and requires the exact canonical migration
   set. Domain drift, stale imports, version drift, connection failures, and resolved-ID drift
@@ -592,11 +597,14 @@ close the separate Shadow Read execution gates documented in
   sealing now share an independently controlled PostgreSQL write boundary.
   It is disabled by default and preserves the JSON route when it is not
   selected.
-- Enablement requires all three exact settings:
-  `QR_LIFECYCLE_POSTGRES_WRITE_ENABLED=true`, a canonical QR-ID-only
-  `QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST`, and the audited 64-character
-  lowercase `QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256`.
-- An allowlisted write requires the configured import provenance and canonical
+- Enablement requires `QR_LIFECYCLE_POSTGRES_WRITE_ENABLED=true`, the audited
+  64-character lowercase `QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256`, and one
+  selection scope. `QR_LIFECYCLE_POSTGRES_WRITE_SCOPE=allowlist` requires a
+  canonical QR-ID-only `QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST`; omitting the
+  scope preserves existing controlled-rollout behavior. Stable authority must
+  explicitly use `QR_LIFECYCLE_POSTGRES_WRITE_SCOPE=all` without an allowlist.
+  Unknown or conflicting scope settings fail closed.
+- A selected write requires the configured import provenance and canonical
   migration set and verifies that the request account already exists in
   PostgreSQL. It executes through `qrLifecycleWriteService.js` and returns a
   DTO rebuilt from PostgreSQL. Direct activation and final sealing enqueue the
@@ -627,13 +635,20 @@ close the separate Shadow Read execution gates documented in
 
 - H5 and miniapp personal record list/detail routes have an independently
   controlled PostgreSQL primary-read boundary. It is disabled by default.
-- Enablement requires `PERSONAL_RECORD_POSTGRES_READ_ENABLED=true`, a
-  canonical account-ID-only `PERSONAL_RECORD_POSTGRES_READ_ALLOWLIST`, and the
-  audited `PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256` for `public_qr_v1`.
-- Requests outside the account allowlist retain the JSON path without creating
-  a PostgreSQL pool. Selected requests use PostgreSQL as their only DTO source,
-  run in bounded read-only repeatable-read transactions, verify import
-  provenance and canonical migrations, and preserve account ownership checks.
+- Enablement requires `PERSONAL_RECORD_POSTGRES_READ_ENABLED=true`, the audited
+  `PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256` for `public_qr_v1`, and one
+  selection scope. `PERSONAL_RECORD_POSTGRES_READ_SCOPE=allowlist` requires a
+  canonical account-ID-only `PERSONAL_RECORD_POSTGRES_READ_ALLOWLIST`; an
+  omitted scope remains allowlist-compatible with existing control files.
+  Stable authority must explicitly use
+  `PERSONAL_RECORD_POSTGRES_READ_SCOPE=all` and omit the allowlist. Unknown or
+  conflicting scope settings fail closed.
+- In allowlist scope, requests outside the account list retain the JSON path
+  without creating a PostgreSQL pool. The explicit `all` scope includes current
+  and future canonical account IDs. Selected requests use PostgreSQL as their
+  only DTO source, run in bounded read-only repeatable-read transactions,
+  verify import provenance and canonical migrations, and preserve account
+  ownership checks.
 - Missing or unowned selected details preserve `404 RECORD_NOT_FOUND` without
   revealing ownership. Configuration, provenance, version, connection, and
   identity failures return generic `503 PERSONAL_RECORD_READ_UNAVAILABLE` and
@@ -644,3 +659,18 @@ close the separate Shadow Read execution gates documented in
   the matching personal record primary-read cohort is enabled and validated;
   otherwise PostgreSQL-only records would not appear in the JSON-backed
   personal list or detail routes.
+
+### Stable all-scope prerequisites
+
+- `scope=all` is a selection boundary, not a replication mechanism. Public QR
+  and lifecycle routes can select PostgreSQL directly by the request key even
+  when JSON has no matching QR, but the QR and its required references must
+  already exist in PostgreSQL.
+- Stable all-scope enablement is blocked until QR issuance writes and identity
+  creation/binding writes use PostgreSQL as their durable authority. Otherwise
+  a QR or account created only in JSON after cutover would be selected for
+  PostgreSQL and fail closed instead of silently splitting authority.
+- Current-head full-route revalidation, isolated PostgreSQL integration with
+  PostgreSQL-only QR/record fixtures, coordinated read/write soak, and one
+  unified auto-off/rollback path are required before PM2 saves any all-scope
+  setting.
