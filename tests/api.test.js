@@ -2458,11 +2458,14 @@ test('admin system status should not leak secrets', async () => {
     assert.equal(res.raw.includes('super-secret-value'), false);
     assert.equal(res.raw.includes('avata-super-secret-value'), false);
     assert.equal(Object.hasOwn(res.body.data.miniapp, 'secret'), false);
-  assert.equal(res.body.data.chain.configured, true);
-  assert.equal(res.body.data.archive.configured, true);
-  assert.equal(res.body.data.archive.records_index_path, 'indexes/records.jsonl');
-  assert.equal(res.raw.includes('AVATA_API_SECRET'), false);
-  assert.equal(Object.hasOwn(res.body.data.chain, 'api_secret'), false);
+    assert.equal(res.body.data.chain.configured, true);
+    assert.equal(res.body.data.record_proof.enabled, false);
+    assert.equal(res.body.data.record_proof.healthy, true);
+    assert.equal(res.body.data.record_proof.outbox, null);
+    assert.equal(res.body.data.archive.configured, true);
+    assert.equal(res.body.data.archive.records_index_path, 'indexes/records.jsonl');
+    assert.equal(res.raw.includes('AVATA_API_SECRET'), false);
+    assert.equal(Object.hasOwn(res.body.data.chain, 'api_secret'), false);
   } finally {
     if (oldAppId === undefined) delete process.env.WECHAT_MINIAPP_APPID;
     else process.env.WECHAT_MINIAPP_APPID = oldAppId;

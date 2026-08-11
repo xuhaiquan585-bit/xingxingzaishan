@@ -134,6 +134,48 @@ class OutboxRepository {
     return many(result, mapOutboxJob);
   }
 
+  async inspectStatus({
+    inspected_at: inspectedAt,
+    stale_before: staleBefore,
+    job_types: jobTypes,
+    aggregate_ids: aggregateIds
+  } = {}) {
+    const normalizedJobTypes = normalizeScope(jobTypes, 'OUTBOX_JOB_TYPE_SCOPE_INVALID');
+    const normalizedAggregateIds = normalizeScope(
+      aggregateIds,
+      'OUTBOX_AGGREGATE_SCOPE_INVALID'
+    );
+    const result = await executeQuery(
+      this.transactionContext,
+      `SELECT
+         count(*) FILTER (WHERE status = 'pending')::integer AS pending_count,
+         count(*) FILTER (
+           WHERE status = 'pending' AND available_at <= $1
+         )::integer AS ready_count,
+         count(*) FILTER (WHERE status = 'processing')::integer AS processing_count,
+         count(*) FILTER (
+           WHERE status = 'processing' AND locked_at <= $2
+         )::integer AS stale_processing_count,
+         count(*) FILTER (WHERE status = 'failed')::integer AS failed_count,
+         count(*) FILTER (WHERE status = 'succeeded')::integer AS succeeded_count,
+         coalesce(max(attempt_count), 0)::integer AS maximum_attempt_count
+       FROM app.outbox_jobs
+       WHERE ($3::text[] IS NULL OR job_type = ANY($3::text[]))
+         AND ($4::text[] IS NULL OR aggregate_id = ANY($4::text[]))`,
+      [inspectedAt, staleBefore, normalizedJobTypes, normalizedAggregateIds]
+    );
+    const row = result.rows && result.rows[0] || {};
+    return Object.freeze({
+      pending: Number(row.pending_count || 0),
+      ready: Number(row.ready_count || 0),
+      processing: Number(row.processing_count || 0),
+      stale_processing: Number(row.stale_processing_count || 0),
+      failed: Number(row.failed_count || 0),
+      succeeded: Number(row.succeeded_count || 0),
+      maximum_attempt_count: Number(row.maximum_attempt_count || 0)
+    });
+  }
+
   async markSucceeded({ id, worker_id: workerId, updated_at: updatedAt } = {}) {
     const result = await executeQuery(
       this.transactionContext,

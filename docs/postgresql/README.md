@@ -576,25 +576,37 @@ close the separate Shadow Read execution gates documented in
   and applies callback or query outcomes in one short transaction. Duplicate
   confirmation can fill missing certificate metadata, while conflicting IDs
   fail closed and stale events cannot regress a confirmed proof.
-- The guarded runtime assembly requires an exact enable value, an explicit QR
-  allowlist, the exact imported source SHA-256, a stable worker ID, complete
-  real-provider credentials, and an HTTPS callback URL. Missing or malformed
-  settings leave it disabled.
-- Worker claims and stale-lock recovery are scoped in SQL to the record-proof
-  job type and the same QR allowlist. Provider callback and query results are
-  checked against that allowlist again after locking the proof row.
-- Every worker pass and provider-result application requires the configured
-  source hash to have a passed import and the database to have the exact
-  canonical migration set.
-- The runtime scheduler is serial, bounded, and closes its timer, active run,
-  and pool deterministically. It is not imported by application startup or the
-  existing AVATA callback route, so deployment alone cannot start it.
+- The guarded runtime assembly requires an exact enable value, one explicit
+  selection scope, exact source and public-QR domain SHA-256 values from the
+  same passed import, a stable worker ID, complete real-provider credentials,
+  and an HTTPS callback URL. Existing controlled validation can use
+  `scope=allowlist`; stable authority uses `scope=all` and forbids an allowlist
+  so newly issued QR records are covered automatically.
+- Stable activation therefore sets `RECORD_PROOF_RUNTIME_ENABLED=true`,
+  `RECORD_PROOF_RUNTIME_SCOPE=all`,
+  `RECORD_PROOF_RUNTIME_SOURCE_SHA256`,
+  `RECORD_PROOF_RUNTIME_DOMAIN_SHA256`, and `RECORD_PROOF_WORKER_ID`, while
+  leaving `RECORD_PROOF_RUNTIME_ALLOWLIST` absent. Provider and callback gates
+  remain mandatory and are never written to status or audit output.
+- Worker claims and stale-lock recovery are always scoped in SQL to the proof
+  job type. Controlled mode additionally applies the QR allowlist; all scope
+  passes no aggregate filter. Provider callback and query results apply the
+  same scope after locking the proof row.
+- Every worker pass, status inspection, and provider-result application
+  requires source, domain, and canonical-migration provenance. The value-free
+  worker status exposes only pending, ready, processing, stale, failed,
+  succeeded, and maximum-attempt counts through the authenticated admin system
+  status response.
+- The runtime scheduler is serial, bounded, starts with the HTTP process only
+  when its complete configuration is enabled, and closes its timer, active
+  run, and pool deterministically. Deployment alone leaves it default-off.
 - Interrupted attempts are closed before idempotent resubmission. Existing
   submitted or confirmed proofs do not submit twice, and imported legacy proof
   evidence fails closed instead of being overwritten.
-- The worker and proof handler are not connected to PM2, application startup,
-  OSS, AVATA, or production traffic. JSON remains the runtime authority until
-  the complete per-QR read/write/proof slice passes controlled validation.
+- The worker remains disabled in PM2 and production until coordinated stable
+  activation. Disposable integration exercises a PostgreSQL-only newly issued
+  and activated QR through all-scope claim, proof preparation, confirmation,
+  acknowledgement, and backlog inspection without external OSS or AVATA calls.
 
 ### Public QR controlled PostgreSQL primary read boundary
 

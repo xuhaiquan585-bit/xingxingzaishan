@@ -1,18 +1,25 @@
 'use strict';
 
+const {
+  PUBLIC_QR_ID_PATTERN,
+  SOURCE_HASH_PATTERN
+} = require('./publicQrPrimaryReadConfig');
+const { readPrimarySelectionScope } = require('./primarySelectionScope');
+
 const DEFAULT_INTERVAL_MS = 5000;
 const DEFAULT_BATCH_SIZE = 5;
 const DEFAULT_MAX_ATTEMPTS = 5;
 const DEFAULT_RETRY_BASE_MS = 5000;
 const DEFAULT_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
-const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
 function disabled(reason) {
   return Object.freeze({
     enabled: false,
     reason,
+    scope: null,
     allowlist: new Set(),
     sourceSha256: null,
+    domainSha256: null,
     workerId: null,
     intervalMs: DEFAULT_INTERVAL_MS,
     batchSize: DEFAULT_BATCH_SIZE,
@@ -24,13 +31,6 @@ function disabled(reason) {
 
 function text(value) {
   return String(value || '').trim();
-}
-
-function parseAllowlist(value) {
-  const entries = text(value).split(',').map((entry) => entry.trim()).filter(Boolean);
-  if (entries.length === 0 || entries.length > 1000) return null;
-  if (entries.some((entry) => entry.length > 160 || /[\r\n\0]/.test(entry))) return null;
-  return new Set(entries);
 }
 
 function parseInteger(value, fallback, minimum, maximum) {
@@ -68,12 +68,20 @@ function readRecordProofRuntimeConfig(env = process.env) {
   if (enabled === 'false') return disabled('DISABLED_BY_CONFIGURATION');
   if (enabled !== 'true') return disabled('INVALID_ENABLED_VALUE');
 
-  const allowlist = parseAllowlist(source.RECORD_PROOF_RUNTIME_ALLOWLIST);
-  if (!allowlist) return disabled('ALLOWLIST_REQUIRED');
+  const selection = readPrimarySelectionScope({
+    scopeValue: source.RECORD_PROOF_RUNTIME_SCOPE,
+    allowlistValue: source.RECORD_PROOF_RUNTIME_ALLOWLIST,
+    idPattern: PUBLIC_QR_ID_PATTERN
+  });
+  if (selection.error) return disabled(selection.error);
 
   const sourceSha256 = text(source.RECORD_PROOF_RUNTIME_SOURCE_SHA256).toLowerCase();
-  if (!SHA256_PATTERN.test(sourceSha256)) {
+  if (!SOURCE_HASH_PATTERN.test(sourceSha256)) {
     return disabled('SOURCE_SHA256_REQUIRED');
+  }
+  const domainSha256 = text(source.RECORD_PROOF_RUNTIME_DOMAIN_SHA256).toLowerCase();
+  if (!SOURCE_HASH_PATTERN.test(domainSha256)) {
+    return disabled('DOMAIN_SHA256_REQUIRED');
   }
 
   const workerId = text(source.RECORD_PROOF_WORKER_ID);
@@ -127,8 +135,10 @@ function readRecordProofRuntimeConfig(env = process.env) {
   return Object.freeze({
     enabled: true,
     reason: 'ENABLED',
-    allowlist,
+    scope: selection.scope,
+    allowlist: selection.allowlist,
     sourceSha256,
+    domainSha256,
     workerId,
     intervalMs,
     batchSize,

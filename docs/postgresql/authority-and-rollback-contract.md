@@ -79,7 +79,9 @@ PostgreSQL:
    identity lookup use PostgreSQL authority.
 3. QR activation, co-creation, comment, and finalization writes use PostgreSQL.
 4. Direct activation and finalization enqueue proof work atomically.
-5. The outbox worker claims, retries, acknowledges, and monitors proof jobs.
+5. The outbox worker uses explicit `scope=all`, claims future proof jobs,
+   retries and acknowledges them, and reports value-free backlog, stale-lock,
+   failure, and attempt counts.
 6. Personal and public read routes use PostgreSQL for current and future
    entities under explicit `scope=all` configuration.
 

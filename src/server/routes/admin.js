@@ -42,6 +42,9 @@ const {
   issueQrCodes,
   qrIssuanceAuthorityHttpError
 } = require('../services/postgres/qrIssuanceAuthorityRuntime');
+const {
+  getRecordProofRuntimeStatus
+} = require('../services/postgres/recordProofRuntime');
 
 const router = express.Router();
 
@@ -338,12 +341,29 @@ function envConfigured(names) {
   return names.every((name) => !!process.env[name]);
 }
 
-router.get('/system-status', requireAdmin, (_req, res) => {
+router.get('/system-status', requireAdmin, async (_req, res) => {
   const storageMode = getStorageMode();
   const ossNames = ['OSS_ACCESS_KEY_ID', 'OSS_ACCESS_KEY_SECRET', 'OSS_BUCKET', 'OSS_REGION', 'OSS_ENDPOINT'];
   const ossConfigured = envConfigured(ossNames);
   const miniappConfigured = hasMiniappConfig();
   const contentSafetyMode = miniappConfigured ? 'wechat' : 'mock';
+  let recordProof;
+  try {
+    recordProof = await getRecordProofRuntimeStatus();
+  } catch (_error) {
+    recordProof = Object.freeze({
+      enabled: true,
+      healthy: false,
+      reason: 'RECORD_PROOF_STATUS_UNAVAILABLE',
+      scope: null,
+      started: false,
+      running: false,
+      last_run_at: null,
+      last_run_summary: null,
+      last_error_code: 'RECORD_PROOF_STATUS_UNAVAILABLE',
+      outbox: null
+    });
+  }
   return res.json({
     status: 'success',
     code: 'OK',
@@ -363,6 +383,7 @@ router.get('/system-status', requireAdmin, (_req, res) => {
         configured: miniappConfigured || process.env.NODE_ENV !== 'production'
       },
       chain: getChainSystemStatus(),
+      record_proof: recordProof,
       archive: getArchiveSystemStatus(),
       domain: {
         base_url: process.env.BASE_URL || '',

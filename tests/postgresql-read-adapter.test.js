@@ -969,6 +969,18 @@ test('outbox worker executes handlers outside transactions and records safe outc
       transitions.push(['claim', input]);
       return jobs;
     },
+    async inspectStatus(input) {
+      transitions.push(['inspect', input]);
+      return {
+        pending: 2,
+        ready: 1,
+        processing: 1,
+        stale_processing: 0,
+        failed: 0,
+        succeeded: 4,
+        maximum_attempt_count: 2
+      };
+    },
     async markSucceeded(input) {
       transitions.push(['succeeded', input]);
       return { id: input.id };
@@ -1002,7 +1014,10 @@ test('outbox worker executes handlers outside transactions and records safe outc
     },
     clock: () => new Date('2026-08-09T09:00:00.000Z'),
     async transactionRunner(_pool, callback, options) {
-      assert.deepEqual(options, { isolationLevel: 'read committed' });
+      assert.equal(
+        options.isolationLevel,
+        options.readOnly ? 'repeatable read' : 'read committed'
+      );
       transactionDepth += 1;
       try {
         return await callback({ query() {} });
@@ -1018,6 +1033,15 @@ test('outbox worker executes handlers outside transactions and records safe outc
     succeeded: 1,
     retried: 1,
     failed: 1
+  });
+  assert.deepEqual(await worker.inspect(), {
+    pending: 2,
+    ready: 1,
+    processing: 1,
+    stale_processing: 0,
+    failed: 0,
+    succeeded: 4,
+    maximum_attempt_count: 2
   });
   const retry = transitions.find(([kind]) => kind === 'retry')[1];
   assert.equal(retry.last_error, 'PROVIDER_TIMEOUT');
@@ -1036,6 +1060,12 @@ test('outbox worker executes handlers outside transactions and records safe outc
     worker_id: 'unit-worker',
     claimed_at: '2026-08-09T09:00:00.000Z',
     limit: 10,
+    job_types: ['proof'],
+    aggregate_ids: ['QR_ALLOWED']
+  });
+  assert.deepEqual(transitions.find(([kind]) => kind === 'inspect')[1], {
+    inspected_at: '2026-08-09T09:00:00.000Z',
+    stale_before: '2026-08-09T08:55:00.000Z',
     job_types: ['proof'],
     aggregate_ids: ['QR_ALLOWED']
   });

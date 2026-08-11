@@ -185,7 +185,22 @@ function createOutboxWorker({
     return Object.freeze(summary);
   }
 
-  return Object.freeze({ runOnce });
+  async function inspect() {
+    const inspectedAt = operationTimestamp(clock);
+    return runTransaction(pool, (context) => repository(context).inspectStatus({
+      inspected_at: inspectedAt.toISOString(),
+      stale_before: new Date(
+        inspectedAt.getTime() - normalizedLockTimeoutMs
+      ).toISOString(),
+      job_types: normalizedJobTypes,
+      aggregate_ids: normalizedAggregateIds
+    }), {
+      isolationLevel: 'repeatable read',
+      readOnly: true
+    });
+  }
+
+  return Object.freeze({ inspect, runOnce });
 }
 
 module.exports = {

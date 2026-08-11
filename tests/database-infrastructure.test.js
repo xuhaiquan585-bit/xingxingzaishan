@@ -1936,6 +1936,46 @@ test('outbox repository recovers stale work, claims with skip-locked, and enforc
   }
 });
 
+test('outbox repository reports value-free scoped backlog counts', async () => {
+  const harness = createRepositoryContext([{
+    rows: [{
+      pending_count: 3,
+      ready_count: 2,
+      processing_count: 1,
+      stale_processing_count: 1,
+      failed_count: 4,
+      succeeded_count: 9,
+      maximum_attempt_count: 5
+    }],
+    rowCount: 1
+  }]);
+  const status = await new OutboxRepository(harness.context).inspectStatus({
+    inspected_at: '2026-08-12T02:00:00.000Z',
+    stale_before: '2026-08-12T01:55:00.000Z',
+    job_types: ['record_proof_prepare_submit'],
+    aggregate_ids: null
+  });
+
+  assert.deepEqual(status, {
+    pending: 3,
+    ready: 2,
+    processing: 1,
+    stale_processing: 1,
+    failed: 4,
+    succeeded: 9,
+    maximum_attempt_count: 5
+  });
+  assert.equal(Object.isFrozen(status), true);
+  assert.match(harness.calls[0].sql, /stale_processing_count/);
+  assert.doesNotMatch(harness.calls[0].sql, /payload/);
+  assert.deepEqual(harness.calls[0].params, [
+    '2026-08-12T02:00:00.000Z',
+    '2026-08-12T01:55:00.000Z',
+    ['record_proof_prepare_submit'],
+    null
+  ]);
+});
+
 test('archive repository persists only ready metadata or a sanitized preparation failure', async () => {
   const row = Object.fromEntries(ARCHIVE_FIELDS.map((field) => [field, null]));
   Object.assign(row, {
@@ -2379,12 +2419,15 @@ test('stable-scope integration runner is disposable, serialized, and production-
   assert.match(source, /PRODUCTION_JSON_UNCHANGED=YES/);
   assert.match(source, /POSTGRES_ONLY_IDENTITY_AUTHORITY=PASS/);
   assert.match(source, /POSTGRES_ONLY_QR_ISSUANCE=PASS/);
+  assert.match(source, /POSTGRES_PROOF_ALL_SCOPE_WORKER=PASS/);
+  assert.match(source, /POSTGRES_PROOF_BACKLOG_MONITOR=PASS/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_ENABLED/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_SOURCE_SHA256/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_DOMAIN_SHA256/);
   assert.match(source, /QR_ISSUANCE_POSTGRES_AUTHORITY_SOURCE_SHA256/);
   assert.match(source, /QR_ISSUANCE_POSTGRES_AUTHORITY_DOMAIN_SHA256/);
-  assert.match(source, /NEXT_ACTION=VALIDATE_PROOF_OUTBOX_WORKER/);
+  assert.match(source, /RECORD_PROOF_RUNTIME_DOMAIN_SHA256/);
+  assert.match(source, /NEXT_ACTION=REMEDIATE_LEGACY_PRIVACY_CONTENT/);
   assert.equal(
     packageJson.scripts['test:postgres:stable-scope'],
     'bash scripts/database/run-stable-scope-integration.sh'

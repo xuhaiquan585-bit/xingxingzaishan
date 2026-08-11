@@ -41,8 +41,12 @@ const {
   createRecordProofResultService
 } = require('../src/server/services/postgres/recordProofResultService');
 const {
-  closeRecordProofRuntime
+  closeRecordProofRuntime,
+  createRecordProofRuntime
 } = require('../src/server/services/postgres/recordProofRuntime');
+const {
+  readRecordProofRuntimeConfig
+} = require('../src/server/services/postgres/recordProofRuntimeConfig');
 const {
   PersonalRecordReadAdapter
 } = require('../src/server/services/postgres/personalRecordReadAdapter');
@@ -576,6 +580,7 @@ test('manual PostgreSQL public QR adapter integration', {
   const originalFetch = global.fetch;
   let externalFetchCalls = 0;
   let shadowRuntime;
+  let stableProofRuntime;
   let server;
   let port;
   try {
@@ -938,6 +943,9 @@ test('manual PostgreSQL public QR adapter integration', {
       locked_at: null,
       locked_by: null
     }]);
+    await pool.query(
+      "DELETE FROM app.outbox_jobs WHERE aggregate_id = 'QR_OUTSIDE_SCOPE'"
+    );
     const completedProofState = await pool.query(
       `SELECT
          (SELECT count(*)::integer FROM app.record_proofs
@@ -988,6 +996,7 @@ test('manual PostgreSQL public QR adapter integration', {
       RECORD_PROOF_RUNTIME_ENABLED: 'true',
       RECORD_PROOF_RUNTIME_ALLOWLIST: 'QR_WRITE_DIRECT',
       RECORD_PROOF_RUNTIME_SOURCE_SHA256: source.sourceHash,
+      RECORD_PROOF_RUNTIME_DOMAIN_SHA256: publicQrDomainHash,
       RECORD_PROOF_WORKER_ID: 'proof-runtime-route-integration',
       RECORD_PROOF_WORKER_INTERVAL_MS: '300000',
       CHAIN_ENABLED: 'true',
@@ -1276,11 +1285,100 @@ test('manual PostgreSQL public QR adapter integration', {
       jsonHashBeforeAllScopeRoutes
     );
 
+    const stableProofEnv = {
+      ...process.env,
+      RECORD_PROOF_RUNTIME_ENABLED: 'true',
+      RECORD_PROOF_RUNTIME_SCOPE: 'all',
+      RECORD_PROOF_RUNTIME_ALLOWLIST: '',
+      RECORD_PROOF_RUNTIME_SOURCE_SHA256: source.sourceHash,
+      RECORD_PROOF_RUNTIME_DOMAIN_SHA256: publicQrDomainHash,
+      RECORD_PROOF_WORKER_ID: 'stable-proof-runtime-integration'
+    };
+    const stableProofConfig = readRecordProofRuntimeConfig(stableProofEnv);
+    assert.equal(stableProofConfig.enabled, true);
+    assert.equal(stableProofConfig.scope, 'all');
+    stableProofRuntime = createRecordProofRuntime(stableProofConfig, {
+      env: stableProofEnv,
+      externalAdapterFactory: () => ({
+        async prepareRecord({ record }) {
+          return {
+            manifest_hash: sha256(`stable-manifest:${record.id}`),
+            manifest_object_key: `records/${record.id}/record_manifest.json`,
+            image_sha256: null,
+            index_object_key: `indexes/by-star/${record.id}.json`
+          };
+        },
+        async submitRecord(input) {
+          return {
+            status: 'confirmed',
+            transaction_hash: `stable-tx-${input.record_qr_id}`,
+            block_height: 201,
+            provider_record_id: `stable-provider-${input.record_qr_id}`,
+            confirmed_at: '2026-08-12T02:00:00.000Z'
+          };
+        },
+        normalizeRecordResult: (value) => value
+      })
+    });
+    assert.deepEqual(await stableProofRuntime.runOnce(), {
+      recovered: 0,
+      claimed: 1,
+      succeeded: 1,
+      retried: 0,
+      failed: 0
+    });
+    const stableProofStatus = await stableProofRuntime.status();
+    assert.equal(stableProofStatus.scope, 'all');
+    assert.equal(stableProofStatus.healthy, true);
+    assert.deepEqual(stableProofStatus.outbox, {
+      pending: 0,
+      ready: 0,
+      processing: 0,
+      stale_processing: 0,
+      failed: 0,
+      succeeded: 3,
+      maximum_attempt_count: 1
+    });
+    const stableProofState = await pool.query(
+      `SELECT
+         (SELECT status FROM app.outbox_jobs
+          WHERE aggregate_id = $1) AS outbox_status,
+         (SELECT status FROM app.record_proofs
+          WHERE record_qr_id = $1) AS proof_status,
+         (SELECT count(*)::integer FROM app.proof_attempts attempt
+          JOIN app.record_proofs proof ON proof.id = attempt.proof_id
+          WHERE proof.record_qr_id = $1
+            AND attempt.result_status = 'succeeded') AS succeeded_attempt_count`,
+      [allScopeQrId]
+    );
+    assert.deepEqual(stableProofState.rows, [{
+      outbox_status: 'succeeded',
+      proof_status: 'confirmed',
+      succeeded_attempt_count: 1
+    }]);
+    await stableProofRuntime.close();
+    stableProofRuntime = null;
+
     process.env.PUBLIC_QR_POSTGRES_READ_ENABLED = 'false';
     process.env.QR_LIFECYCLE_POSTGRES_WRITE_ENABLED = 'false';
     process.env.PERSONAL_RECORD_POSTGRES_READ_ENABLED = 'false';
     process.env.IDENTITY_POSTGRES_AUTHORITY_ENABLED = 'false';
     process.env.QR_ISSUANCE_POSTGRES_AUTHORITY_ENABLED = 'false';
+    await pool.query(
+      `DELETE FROM app.proof_attempts
+       WHERE proof_id IN (
+         SELECT id FROM app.record_proofs WHERE record_qr_id = $1
+       )`,
+      [allScopeQrId]
+    );
+    await pool.query(
+      'DELETE FROM app.record_archives WHERE record_qr_id = $1',
+      [allScopeQrId]
+    );
+    await pool.query(
+      'DELETE FROM app.record_proofs WHERE record_qr_id = $1',
+      [allScopeQrId]
+    );
     await pool.query(
       'DELETE FROM app.outbox_jobs WHERE aggregate_id = $1',
       [allScopeQrId]
@@ -1735,6 +1833,7 @@ test('manual PostgreSQL public QR adapter integration', {
     await closePersonalRecordPrimaryReadRuntime();
     await closeIdentityAuthorityRuntime();
     await closeQrIssuanceAuthorityRuntime();
+    if (stableProofRuntime) await stableProofRuntime.close();
     if (server) await stopServer(server);
     await closeRecordProofRuntime();
     await pool.query('DROP SCHEMA IF EXISTS app CASCADE');
@@ -1773,6 +1872,8 @@ test('manual PostgreSQL public QR adapter integration', {
     delete process.env.RECORD_PROOF_RUNTIME_ENABLED;
     delete process.env.RECORD_PROOF_RUNTIME_ALLOWLIST;
     delete process.env.RECORD_PROOF_RUNTIME_SOURCE_SHA256;
+    delete process.env.RECORD_PROOF_RUNTIME_DOMAIN_SHA256;
+    delete process.env.RECORD_PROOF_RUNTIME_SCOPE;
     delete process.env.RECORD_PROOF_WORKER_ID;
     delete process.env.RECORD_PROOF_WORKER_INTERVAL_MS;
     delete process.env.CHAIN_ENABLED;

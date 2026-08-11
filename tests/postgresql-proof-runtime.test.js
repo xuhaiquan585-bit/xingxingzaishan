@@ -22,6 +22,7 @@ function enabledEnv(overrides = {}) {
     RECORD_PROOF_RUNTIME_ENABLED: 'true',
     RECORD_PROOF_RUNTIME_ALLOWLIST: 'QR_ALLOWED,QR_SECOND',
     RECORD_PROOF_RUNTIME_SOURCE_SHA256: 'a'.repeat(64),
+    RECORD_PROOF_RUNTIME_DOMAIN_SHA256: 'b'.repeat(64),
     RECORD_PROOF_WORKER_ID: 'proof-worker-test',
     CHAIN_ENABLED: 'true',
     CHAIN_CALLBACK_URL: 'https://example.test/api/chain/avata/callback',
@@ -51,8 +52,16 @@ test('record proof runtime config is default-off and requires complete real-prov
   }).reason, 'ALLOWLIST_REQUIRED');
   assert.equal(readRecordProofRuntimeConfig({
     ...enabledEnv(),
+    RECORD_PROOF_RUNTIME_SCOPE: 'all'
+  }).reason, 'ALLOWLIST_FORBIDDEN_FOR_ALL_SCOPE');
+  assert.equal(readRecordProofRuntimeConfig({
+    ...enabledEnv(),
     RECORD_PROOF_RUNTIME_SOURCE_SHA256: 'invalid'
   }).reason, 'SOURCE_SHA256_REQUIRED');
+  assert.equal(readRecordProofRuntimeConfig({
+    ...enabledEnv(),
+    RECORD_PROOF_RUNTIME_DOMAIN_SHA256: 'invalid'
+  }).reason, 'DOMAIN_SHA256_REQUIRED');
   assert.equal(readRecordProofRuntimeConfig({
     ...enabledEnv(),
     CHAIN_ENABLED: 'false'
@@ -72,7 +81,9 @@ test('record proof runtime config is default-off and requires complete real-prov
   }));
   assert.equal(config.enabled, true);
   assert.deepEqual([...config.allowlist], ['QR_ALLOWED', 'QR_SECOND']);
+  assert.equal(config.scope, 'allowlist');
   assert.equal(config.sourceSha256, 'a'.repeat(64));
+  assert.equal(config.domainSha256, 'b'.repeat(64));
   assert.equal(config.intervalMs, 2000);
   assert.equal(config.batchSize, 3);
 });
@@ -117,7 +128,18 @@ test('record proof runtime scopes worker and result handling to one explicit QR 
     },
     workerFactory(input) {
       captured.worker = input;
-      return { runOnce: () => workerResult };
+      return {
+        runOnce: () => workerResult,
+        inspect: async () => ({
+          pending: 0,
+          ready: 0,
+          processing: 0,
+          stale_processing: 0,
+          failed: 0,
+          succeeded: 2,
+          maximum_attempt_count: 1
+        })
+      };
     },
     migrationsLoader: () => [{ version: '001.sql', checksum: 'b'.repeat(64) }],
     async eligibilityChecker(input) {
@@ -152,6 +174,7 @@ test('record proof runtime scopes worker and result handling to one explicit QR 
   workerResolve({ claimed: 0, succeeded: 0 });
   assert.deepEqual(await firstRun, { claimed: 0, succeeded: 0 });
   assert.equal(captured.eligibility.sourceSha256, 'a'.repeat(64));
+  assert.equal(captured.eligibility.domainSha256, 'b'.repeat(64));
   assert.deepEqual(captured.eligibility.migrations, [{
     version: '001.sql',
     checksum: 'b'.repeat(64)
@@ -160,6 +183,10 @@ test('record proof runtime scopes worker and result handling to one explicit QR 
     outcome: 'applied',
     status: 'confirmed'
   });
+  const status = await runtime.status();
+  assert.equal(status.healthy, true);
+  assert.equal(status.scope, 'allowlist');
+  assert.equal(status.outbox.succeeded, 2);
 
   await runtime.close();
   assert.equal(timerCleared, true);
@@ -168,6 +195,55 @@ test('record proof runtime scopes worker and result handling to one explicit QR 
     runtime.runOnce(),
     (error) => error.code === 'RECORD_PROOF_RUNTIME_CLOSED'
   );
+});
+
+test('record proof runtime all scope covers future QR jobs without an allowlist', async () => {
+  const config = readRecordProofRuntimeConfig(enabledEnv({
+    RECORD_PROOF_RUNTIME_SCOPE: 'all',
+    RECORD_PROOF_RUNTIME_ALLOWLIST: ''
+  }));
+  assert.equal(config.enabled, true);
+  assert.equal(config.scope, 'all');
+  assert.equal(config.allowlist.size, 0);
+
+  const captured = {};
+  const runtime = createRecordProofRuntime(config, {
+    env: enabledEnv(),
+    createPool: () => ({ connect() {} }),
+    closePool: async () => {},
+    externalAdapterFactory: () => ({
+      prepareRecord: async () => ({}),
+      submitRecord: async () => ({}),
+      normalizeRecordResult: (value) => value
+    }),
+    jobHandlerFactory: () => async () => {},
+    resultServiceFactory(input) {
+      captured.result = input;
+      return {
+        applyCallback: async () => ({ outcome: 'not_found', status: null }),
+        applyQueryResult: async () => ({ outcome: 'not_found', status: null })
+      };
+    },
+    workerFactory(input) {
+      captured.worker = input;
+      return {
+        runOnce: async () => ({
+          recovered: 0, claimed: 0, succeeded: 0, retried: 0, failed: 0
+        }),
+        inspect: async () => ({
+          pending: 0, ready: 0, processing: 0, stale_processing: 0,
+          failed: 0, succeeded: 0, maximum_attempt_count: 0
+        })
+      };
+    },
+    migrationsLoader: () => [],
+    eligibilityChecker: async () => 'ELIGIBLE'
+  });
+
+  assert.equal(captured.worker.aggregateIds, null);
+  assert.equal(captured.result.allowedRecordQrIds, null);
+  assert.equal((await runtime.status()).scope, 'all');
+  await runtime.close();
 });
 
 test('record proof controller does not construct runtime while disabled', async () => {
@@ -186,6 +262,18 @@ test('record proof controller does not construct runtime while disabled', async 
     outcome: 'disabled',
     status: null,
     reason: 'DISABLED_BY_DEFAULT'
+  });
+  assert.deepEqual(await controller.status(), {
+    enabled: false,
+    healthy: true,
+    reason: 'DISABLED_BY_DEFAULT',
+    scope: null,
+    started: false,
+    running: false,
+    last_run_at: null,
+    last_run_summary: null,
+    last_error_code: null,
+    outbox: null
   });
   assert.equal(factoryCalls, 0);
   await controller.close();
