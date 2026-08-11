@@ -73,6 +73,8 @@ The authority commit point is blocked until all producers are durable in
 PostgreSQL:
 
 1. Admin QR issuance creates issued QR rows and access tokens in PostgreSQL.
+   A referenced batch must already be PostgreSQL-authoritative; stable use of
+   newly created batches additionally requires the batch-management producer.
 2. H5 and miniapp identity creation, phone/OpenID binding, and authenticated
    identity lookup use PostgreSQL authority.
 3. QR activation, co-creation, comment, and finalization writes use PostgreSQL.
@@ -129,4 +131,3 @@ point instead of long-term dual-write. This is appropriate while all accounts
 are test accounts and no real customer traffic exists. The decision must be
 reviewed before real-customer enablement if availability or zero-downtime
 requirements change.
-

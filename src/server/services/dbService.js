@@ -1,9 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const QRCode = require('qrcode');
-const { addLabelToQR } = require('../utils/qrWithLabel');
 const { hashPassword, verifyPassword, isPasswordHashed } = require('./passwordService');
+const {
+  qrImagePath,
+  renderQrImage,
+  stageFileReplacement
+} = require('./qrImageService');
 const {
   publicQrDomainSha256FromSource
 } = require('../../../scripts/database/importer/domain-markers');
@@ -592,57 +595,6 @@ function buildDatabaseTempFile() {
   const basename = path.basename(dataFile);
   const nonce = crypto.randomBytes(6).toString('hex');
   return path.join(path.dirname(dataFile), `.${basename}.${process.pid}.${Date.now()}.${nonce}.tmp`);
-}
-
-function buildSiblingTempFile(targetFile) {
-  const nonce = crypto.randomBytes(6).toString('hex');
-  return path.join(
-    path.dirname(targetFile),
-    `.${path.basename(targetFile)}.${process.pid}.${Date.now()}.${nonce}.tmp`
-  );
-}
-
-function stageFileReplacement(targetFile, content) {
-  const tempFile = buildSiblingTempFile(targetFile);
-  const backupFile = buildSiblingTempFile(targetFile);
-  let descriptor = null;
-  let hasBackup = false;
-  try {
-    descriptor = fs.openSync(tempFile, 'wx', 0o600);
-    fs.writeFileSync(descriptor, content);
-    fs.fsyncSync(descriptor);
-    fs.closeSync(descriptor);
-    descriptor = null;
-    if (fs.existsSync(targetFile)) {
-      fs.renameSync(targetFile, backupFile);
-      hasBackup = true;
-    }
-    fs.renameSync(tempFile, targetFile);
-    return {
-      commit() {
-        if (hasBackup) unlinkTempFile(backupFile);
-      },
-      rollback() {
-        unlinkTempFile(targetFile);
-        if (hasBackup && fs.existsSync(backupFile)) {
-          fs.renameSync(backupFile, targetFile);
-        }
-      }
-    };
-  } catch (error) {
-    if (descriptor !== null) {
-      try {
-        fs.closeSync(descriptor);
-      } catch (_closeError) {
-        // Preserve the original image write error.
-      }
-    }
-    unlinkTempFile(tempFile);
-    if (hasBackup && fs.existsSync(backupFile) && !fs.existsSync(targetFile)) {
-      fs.renameSync(backupFile, targetFile);
-    }
-    throw error;
-  }
 }
 
 function writeSerializedDatabaseAtomically(serialized, { beforeRename } = {}) {
@@ -2509,26 +2461,20 @@ async function generateQRCodes({ prefix, count, batchId }) {
 
   // 生成二维码 PNG 图片
   const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-  const qrImageDir = path.join(__dirname, '..', '..', '..', 'public', 'qrcodes');
   const imageArtifacts = [];
 
   for (let i = 0; i < ids.length; i += 1) {
     const qrId = ids[i];
     const token = records[i].qr_access_token;
-    const qrContent = `${baseUrl}/record.html?t=${encodeURIComponent(token)}`;
-
     try {
-      const rawPngBuffer = await QRCode.toBuffer(qrContent, {
-        type: 'png',
-        width: 300,
-        margin: 2,
-        errorCorrectionLevel: 'M'
+      const labeledPngBuffer = await renderQrImage({
+        baseUrl,
+        qrId,
+        accessToken: token
       });
-      // 在二维码下方拼接序号标签（如 OSSC00001），一次成型
-      const labeledPngBuffer = addLabelToQR(rawPngBuffer, qrId, { scale: 3 });
       imageArtifacts.push({
         recordIndex: i,
-        finalPath: path.join(qrImageDir, `${qrId}.png`),
+        finalPath: qrImagePath(qrId),
         content: labeledPngBuffer
       });
     } catch (_err) {
@@ -2537,10 +2483,6 @@ async function generateQRCodes({ prefix, count, batchId }) {
   }
 
   assertDatabaseSourceHash(sourceHash);
-  if (!fs.existsSync(qrImageDir)) {
-    fs.mkdirSync(qrImageDir, { recursive: true });
-  }
-
   const stagedImages = [];
   try {
     imageArtifacts.forEach((artifact) => {

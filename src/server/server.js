@@ -23,6 +23,9 @@ const {
   closeIdentityAuthorityRuntime
 } = require('./services/postgres/identityAuthorityRuntime');
 const {
+  closeQrIssuanceAuthorityRuntime
+} = require('./services/postgres/qrIssuanceAuthorityRuntime');
+const {
   closeRecordProofRuntime,
   startRecordProofRuntime
 } = require('./services/postgres/recordProofRuntime');
@@ -39,6 +42,7 @@ function closeShadowRuntimes() {
     closePersonalRecordPrimaryReadRuntime(),
     closeIdentityShadowRuntime(),
     closeIdentityAuthorityRuntime(),
+    closeQrIssuanceAuthorityRuntime(),
     closeRecordProofRuntime()
   ]);
 }

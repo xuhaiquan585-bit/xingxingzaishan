@@ -1,9 +1,7 @@
 const express = require('express');
-const path = require('path');
 const fs = require('fs');
 const {
   getQRCode,
-  findQRByToken,
   findPublicQrReadContextByKey,
   activateQRByKey,
   startCoCreationByKey,
@@ -16,6 +14,7 @@ const { listBatches } = require('../services/dbService');
 const { getSignedUrl, getStorageMode } = require('../services/storageService');
 const { chainPublicPayload } = require('../services/chainViewService');
 const { createPublicQrAssetResolver } = require('../services/publicQrAssetResolver');
+const { qrImagePath } = require('../services/qrImageService');
 const {
   registerPublicQrShadowObservation
 } = require('../services/postgres/publicQrShadowRuntime');
@@ -676,8 +675,27 @@ router.post('/:qrId/finalize', requireUserSession, async (req, res) => {
 });
 
 // 通过 token 安全访问二维码图片（防枚举攻击）
-router.get('/image/:token', (req, res) => {
-  const qr = findQRByToken(req.params.token);
+router.get('/image/:token', async (req, res) => {
+  const token = String(req.params.token || '').trim();
+  const context = findPublicQrReadContextByKey(token);
+  let qr = context.qr;
+
+  try {
+    const primaryRead = await readPublicQrPrimary({
+      key: token,
+      publicQrId: qr && qr.id,
+      domainHash: context.publicQrDomainHash,
+      channel: 'h5',
+      viewer: { accountId: '', phoneBound: false },
+      assetResolver: createPublicQrAssetResolver()
+    });
+    if (primaryRead.selected) qr = primaryRead.dto;
+  } catch (error) {
+    const response = publicQrPrimaryReadHttpError(error);
+    return res.status(response.status).json({
+      status: 'error', code: response.code, message: response.message
+    });
+  }
 
   if (!qr) {
     return res.status(404).json({
@@ -687,7 +705,7 @@ router.get('/image/:token', (req, res) => {
     });
   }
 
-  const pngPath = path.join(__dirname, '..', '..', '..', 'public', 'qrcodes', `${qr.id}.png`);
+  const pngPath = qrImagePath(qr.id);
   if (!fs.existsSync(pngPath)) {
     return res.status(404).json({
       status: 'error',

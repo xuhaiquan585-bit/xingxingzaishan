@@ -38,6 +38,10 @@ const {
   getArchiveSystemStatus,
   rebuildRecordArchive
 } = require('../services/archiveService');
+const {
+  issueQrCodes,
+  qrIssuanceAuthorityHttpError
+} = require('../services/postgres/qrIssuanceAuthorityRuntime');
 
 const router = express.Router();
 
@@ -583,12 +587,32 @@ router.post('/qr/generate', requireAdmin, async (req, res, next) => {
 
   let result;
   try {
-    result = await generateQRCodes({
+    const authority = await issueQrCodes({
       prefix: normalizedPrefix,
       count: normalizedCount,
-      batchId: batchId ? String(batchId).trim() : null
+      batchId: batchId ? String(batchId).trim() : null,
+      baseUrl: process.env.BASE_URL || 'http://localhost:3000'
     });
+    result = authority.selected
+      ? authority.result
+      : await generateQRCodes({
+        prefix: normalizedPrefix,
+        count: normalizedCount,
+        batchId: batchId ? String(batchId).trim() : null
+      });
   } catch (error) {
+    if (error && String(error.code || '').startsWith('QR_ISSUANCE')) {
+      const response = qrIssuanceAuthorityHttpError(error);
+      return res.status(response.status).json({
+        status: 'error', code: response.code, message: response.message
+      });
+    }
+    if (error && ['BATCH_NOT_FOUND', 'QR_SEQUENCE_EXCEEDED'].includes(error.code)) {
+      const response = qrIssuanceAuthorityHttpError(error);
+      return res.status(response.status).json({
+        status: 'error', code: response.code, message: response.message
+      });
+    }
     return next(error);
   }
 

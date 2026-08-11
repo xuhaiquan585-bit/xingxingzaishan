@@ -67,6 +67,7 @@ const {
   ProofRepository,
   PublicQrProvenanceRepository,
   QrBatchRepository,
+  QrIssuanceRepository,
   QrRepository,
   RecordRepository
 } = require('../src/server/repositories');
@@ -1720,6 +1721,52 @@ test('public QR batch repository exposes only the fields required by the public 
   assert.equal(result.note, undefined);
 });
 
+test('QR issuance repository locks prefixes and inserts only issued unactivated rows', async () => {
+  const row = {
+    id: 'NEW00008',
+    issue_status: 'issued',
+    lifecycle_status: 'unactivated',
+    hidden: false,
+    batch_id: 'BATCH_PUBLIC',
+    print_batch_id: null,
+    qr_image_url_snapshot: '/api/qr/image/token',
+    access_token: 'token',
+    created_at: '2026-08-12T01:02:03.000Z',
+    updated_at: '2026-08-12T01:02:03.000Z'
+  };
+  const harness = createRepositoryContext([
+    { rows: [], rowCount: 1 },
+    { rows: [{ max_sequence: 7 }], rowCount: 1 },
+    { rows: [{ id: 'BATCH_PUBLIC' }], rowCount: 1 },
+    { rows: [row], rowCount: 1 }
+  ]);
+  const repository = new QrIssuanceRepository(harness.context);
+  await repository.lockPrefix('NEW');
+  assert.equal(await repository.findMaxSequence('NEW'), 7);
+  assert.equal(await repository.batchExists('BATCH_PUBLIC'), true);
+  assert.deepEqual(await repository.insertIssued({
+    id: row.id,
+    batch_id: row.batch_id,
+    qr_image_url_snapshot: row.qr_image_url_snapshot,
+    access_token: row.access_token,
+    created_at: row.created_at
+  }), row);
+
+  assert.match(harness.calls[0].sql, /pg_advisory_xact_lock/);
+  assert.deepEqual(harness.calls[0].params, ['NEW']);
+  assert.match(harness.calls[1].sql, /right\(id, 5\)/);
+  assert.doesNotMatch(harness.calls[1].sql, /NEW/);
+  assert.match(harness.calls[2].sql, /FOR KEY SHARE/);
+  assert.match(harness.calls[3].sql, /'issued', 'unactivated'/);
+  assert.deepEqual(harness.calls[3].params, [
+    row.id,
+    row.batch_id,
+    row.qr_image_url_snapshot,
+    row.access_token,
+    row.created_at
+  ]);
+});
+
 test('co-creation repository exposes stable source position without UUID ordering', async () => {
   const row = {
     id: '00000000-0000-0000-0000-000000000201',
@@ -2331,10 +2378,13 @@ test('stable-scope integration runner is disposable, serialized, and production-
   assert.match(source, /PRODUCTION_DATABASE_SELECTED=NO/);
   assert.match(source, /PRODUCTION_JSON_UNCHANGED=YES/);
   assert.match(source, /POSTGRES_ONLY_IDENTITY_AUTHORITY=PASS/);
+  assert.match(source, /POSTGRES_ONLY_QR_ISSUANCE=PASS/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_ENABLED/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_SOURCE_SHA256/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_DOMAIN_SHA256/);
-  assert.match(source, /NEXT_ACTION=IMPLEMENT_POSTGRES_QR_ISSUANCE/);
+  assert.match(source, /QR_ISSUANCE_POSTGRES_AUTHORITY_SOURCE_SHA256/);
+  assert.match(source, /QR_ISSUANCE_POSTGRES_AUTHORITY_DOMAIN_SHA256/);
+  assert.match(source, /NEXT_ACTION=VALIDATE_PROOF_OUTBOX_WORKER/);
   assert.equal(
     packageJson.scripts['test:postgres:stable-scope'],
     'bash scripts/database/run-stable-scope-integration.sh'

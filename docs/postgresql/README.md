@@ -472,6 +472,29 @@ close the separate Shadow Read execution gates documented in
   co-creation with `QR_NOT_ISSUED`; import validation blocks the same invalid
   issue/lifecycle combination.
 
+### Runtime QR issuance authority boundary
+
+- `qrIssuanceAuthorityRuntime.js` is the default-off PostgreSQL authority for
+  `POST /api/admin/qr/generate`. Selection requires explicit `scope=all`, the
+  exact source SHA-256, and the public-QR domain SHA-256 from the same passed
+  import. Static allowlists are forbidden because newly allocated IDs cannot
+  be enumerated safely in advance.
+- The write transaction verifies provenance and canonical migrations, takes a
+  transaction advisory lock for the normalized prefix, calculates the next
+  five-digit suffix, validates any referenced PostgreSQL batch, and inserts
+  issued/unactivated rows with unique random access tokens. It never writes the
+  JSON snapshot after PostgreSQL authority is selected.
+- QR PNGs are rendered and staged before the database commit. A database or
+  staging failure rolls staged files back; rendering failure preserves the
+  legacy behavior of issuing the QR without an image URL. The protected image
+  endpoint can resolve PostgreSQL-only tokens through the primary read runtime.
+- A batch supplied during PostgreSQL issuance must already exist in
+  `app.qr_batches`; a JSON-only batch fails explicitly. Creating and managing
+  new batches remains a separate pre-cutover business gate if operations need
+  that workflow after PostgreSQL becomes authoritative.
+- The runtime is lazy, bounded, drains active issuance on shutdown, and is not
+  enabled or saved in production by this implementation.
+
 ### Runtime identity write transaction boundary
 
 - `identityWriteService.js` defines transaction-scoped PostgreSQL operations
@@ -705,8 +728,9 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   database owner, empty `app` schema, zero active connections, environment
   target, and file permissions. Partial or inconsistent resources fail closed.
 - The integration covers PostgreSQL-only H5 and miniapp identity creation and
-  merge, public H5/miniapp reads, lifecycle activation, and authenticated
-  personal list/detail reads. The protected JSON hash must remain unchanged.
+  merge, admin QR issuance and protected PNG access, public H5/miniapp reads,
+  lifecycle activation, and authenticated personal list/detail reads. The
+  protected JSON hash must remain unchanged.
 - An exit trap terminates test connections and removes the disposable database
   and environment on success or ordinary failure. A root-only, value-free test
   log remains under `/root/stable-scope-integration-audit-20260812/`.
