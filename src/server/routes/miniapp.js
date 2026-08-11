@@ -100,6 +100,14 @@ function getMiniappAccountId(user) {
   return user && user.account_id ? String(user.account_id) : '';
 }
 
+function respondContentPrivacyRejected(res) {
+  return res.status(400).json({
+    status: 'error',
+    code: 'CONTENT_PRIVACY_REJECTED',
+    message: '\u8bf7\u52ff\u5728\u516c\u5f00\u8bb0\u5f55\u6216\u7559\u8a00\u4e2d\u586b\u5199\u4ed6\u4eba\u7684\u5b8c\u6574\u624b\u673a\u53f7\u3002'
+  });
+}
+
 async function selectPostgresLifecycleWrite({ key, operation, payload, req }) {
   const { qr, publicQrDomainHash } = findPublicQrReadContextByKey(key);
   return writeQrLifecycle({
@@ -1022,6 +1030,9 @@ router.post('/qr/:key/record', requireMiniappAuth, requireMiniappPhone, async (r
   if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
     return respondMiniappAccountContextRequired(res);
   }
+  if (result.error === 'CONTENT_PRIVACY_REJECTED') {
+    return respondContentPrivacyRejected(res);
+  }
 
   if (result.error === 'QR_NOT_FOUND') {
     return res.status(404).json({
@@ -1120,6 +1131,9 @@ router.post('/qr/:key/comments', requireMiniappAuth, requireMiniappPhone, async 
     : addCoCreationCommentByKey(req.params.key, payload);
   if (result.error === 'ACCOUNT_CONTEXT_REQUIRED') {
     return respondMiniappAccountContextRequired(res);
+  }
+  if (result.error === 'CONTENT_PRIVACY_REJECTED') {
+    return respondContentPrivacyRejected(res);
   }
   if (result.error === 'QR_NOT_FOUND') {
     return res.status(404).json({ status: 'error', code: 'QR_NOT_FOUND', message: '未找到这颗星，请确认二维码是否正确。' });

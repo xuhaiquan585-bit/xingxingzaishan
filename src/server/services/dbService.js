@@ -10,6 +10,9 @@ const {
 const {
   publicQrDomainSha256FromSource
 } = require('../../../scripts/database/importer/domain-markers');
+const {
+  hasCrossAccountPhoneReference
+} = require('./contentPrivacyService');
 
 const dataDir = process.env.DB_DIR
   ? path.resolve(process.env.DB_DIR)
@@ -203,6 +206,14 @@ function normalizeAccountId(value) {
 
 function payloadAccountId(payload) {
   return normalizeAccountId(payload && payload.account_id);
+}
+
+function violatesContentPrivacy(db, accountId, content) {
+  return hasCrossAccountPhoneReference({
+    content,
+    ownerAccountId: accountId,
+    identities: db.users
+  });
 }
 
 function findUniqueUserByPhone(db, phone) {
@@ -1184,6 +1195,9 @@ function activateQRCodeOnce(qrId, payload) {
   if (qrCode.activation_status !== 'unactivated') {
     return { error: 'QR_ALREADY_ACTIVATED', data: qrCode };
   }
+  if (violatesContentPrivacy(db, accountId, payload.content)) {
+    return { error: 'CONTENT_PRIVACY_REJECTED' };
+  }
 
   const showBrandDisclosure = payload.show_brand_disclosure === true;
   const batch = qrCode.batch_id ? db.batches.find((item) => item.id === qrCode.batch_id) : null;
@@ -1243,6 +1257,9 @@ function startCoCreationOnce(qrId, payload) {
   }
   if (qrCode.activation_status !== 'unactivated') {
     return { error: 'QR_ALREADY_ACTIVATED', data: qrCode };
+  }
+  if (violatesContentPrivacy(db, accountId, payload.content)) {
+    return { error: 'CONTENT_PRIVACY_REJECTED' };
   }
   const showBrandDisclosure = payload.show_brand_disclosure === true;
   const batch = qrCode.batch_id ? db.batches.find((item) => item.id === qrCode.batch_id) : null;
@@ -1304,6 +1321,9 @@ function addCoCreationCommentByKey(key, { phone, account_id: accountIdValue, aut
   }
   if (activeComments.length >= CO_CREATION_COMMENT_LIMIT) {
     return { error: 'CO_CREATION_COMMENT_LIMIT_REACHED' };
+  }
+  if (violatesContentPrivacy(db, accountId, content)) {
+    return { error: 'CONTENT_PRIVACY_REJECTED' };
   }
 
   const comment = {

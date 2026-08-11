@@ -9,6 +9,7 @@ const BUSINESS_ERROR_CODES = new Set([
   'CO_CREATION_CLOSED',
   'CO_CREATION_COMMENT_EXISTS',
   'CO_CREATION_COMMENT_LIMIT_REACHED',
+  'CONTENT_PRIVACY_REJECTED',
   'FORBIDDEN',
   'QR_ALREADY_ACTIVATED',
   'QR_NOT_ISSUED',
@@ -72,6 +73,7 @@ class QrLifecycleWriteTransaction {
     batchRepository,
     recordRepository,
     coCreationRepository,
+    identityRepository,
     outboxRepository,
     clock = () => new Date(),
     randomUUID = crypto.randomUUID
@@ -96,6 +98,10 @@ class QrLifecycleWriteTransaction {
     this.insertComment = requireMethod(coCreationRepository, 'insertComment');
     this.deleteComment = requireMethod(coCreationRepository, 'deleteEffectiveComment');
     this.finalizeCoCreation = requireMethod(coCreationRepository, 'finalize');
+    this.hasCrossAccountPhoneReference = requireMethod(
+      identityRepository,
+      'hasCrossAccountPhoneReference'
+    );
     this.insertOutboxJob = requireMethod(outboxRepository, 'insertPending');
     if (typeof clock !== 'function' || typeof randomUUID !== 'function') {
       throw new QrLifecycleWriteError('QR_LIFECYCLE_WRITE_GENERATOR_REQUIRED');
@@ -107,6 +113,7 @@ class QrLifecycleWriteTransaction {
   async activateByKey({ key, payload } = {}) {
     const input = normalizedPayload(payload);
     const qr = await this.#requireUnactivatedQr(key);
+    await this.#assertContentPrivacy(input.accountId, input.content);
     const timestamp = operationTimestamp(this.clock);
     const disclosure = await this.#disclosureSnapshot(qr, input.showBrandDisclosure);
     await this.#requireNoLifecycleRows(qr.id);
@@ -138,6 +145,7 @@ class QrLifecycleWriteTransaction {
   async startCoCreationByKey({ key, payload } = {}) {
     const input = normalizedPayload(payload);
     const qr = await this.#requireUnactivatedQr(key);
+    await this.#assertContentPrivacy(input.accountId, input.content);
     const timestamp = operationTimestamp(this.clock);
     const disclosure = await this.#disclosureSnapshot(qr, input.showBrandDisclosure);
     await this.#requireNoLifecycleRows(qr.id);
@@ -189,6 +197,7 @@ class QrLifecycleWriteTransaction {
     if (comments.length >= CO_CREATION_COMMENT_LIMIT) {
       throw new QrLifecycleWriteError('CO_CREATION_COMMENT_LIMIT_REACHED');
     }
+    await this.#assertContentPrivacy(accountId, normalizedText(payload.content));
     const timestamp = operationTimestamp(this.clock);
     const comment = await this.insertComment({
       id: operationUuid(this.randomUUID),
@@ -273,6 +282,16 @@ class QrLifecycleWriteTransaction {
     if (!job) throw new QrLifecycleWriteError('QR_LIFECYCLE_WRITE_CONFLICT');
   }
 
+  async #assertContentPrivacy(accountId, content) {
+    const hasReference = await this.hasCrossAccountPhoneReference({
+      accountId,
+      content
+    });
+    if (hasReference) {
+      throw new QrLifecycleWriteError('CONTENT_PRIVACY_REJECTED');
+    }
+  }
+
   async #requireUnactivatedQr(key) {
     const qr = await this.findQrByKeyForUpdate(normalizedText(key));
     if (!qr) throw new QrLifecycleWriteError('QR_NOT_FOUND');
@@ -351,6 +370,7 @@ function createQrLifecycleWriteService({
           batchRepository: new repositories.QrBatchRepository(transactionContext),
           recordRepository: new repositories.RecordRepository(transactionContext),
           coCreationRepository: new repositories.CoCreationRepository(transactionContext),
+          identityRepository: new repositories.IdentityRepository(transactionContext),
           outboxRepository: new repositories.OutboxRepository(transactionContext),
           clock,
           randomUUID

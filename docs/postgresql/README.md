@@ -749,3 +749,30 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
 - The runner is an integration gate only. Passing it does not enable stable
   authority; producer authority, privacy remediation, the authority/rollback
   contract, and coordinated soak remain required.
+
+### Cross-account phone content privacy gate
+
+- New direct records, co-creation records, and co-creation comments reject an
+  exact full phone number that belongs to another canonical account. The
+  owner's own full phone remains permitted by the recorded policy. H5 and
+  miniapp return `400 CONTENT_PRIVACY_REJECTED` without mutating lifecycle or
+  comment state.
+- The JSON path evaluates the policy against the current identity snapshot.
+  The PostgreSQL path performs a parameterized boolean `EXISTS` check inside
+  the lifecycle transaction and never returns another account's phone to the
+  application.
+- `npm run privacy:audit -- --dry-run --input=<absolute-protected-snapshot>
+  --expected-source-sha256=<sha256>` performs the historical discovery pass.
+  It refuses the live runtime `db.json`, symlinks, relative paths, missing
+  hashes, and source changes during execution.
+- Audit output contains QR identifiers, counts, and before/after content
+  fingerprints only. It never persists raw phone numbers, identity values,
+  business content, or the protected snapshot path.
+- This gate prevents recurrence but does not rewrite historical rows. A
+  separate exact-target, resumable JSON/PostgreSQL correction must be produced
+  only after the protected production snapshot confirms the expected finding
+  set and hashes.
+- On the production host, `npm run privacy:audit:production-snapshot` wraps the
+  generic scanner with the approved protected snapshot, exact three-QR finding
+  set, root-only evidence directory, default-off runtime checks, and source
+  immutability checks. It does not connect to PostgreSQL or restart PM2.

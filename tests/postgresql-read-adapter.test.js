@@ -599,7 +599,8 @@ function makeQrLifecycleWriteHarness({
   lifecycleStatus = 'unactivated',
   issueStatus = 'issued',
   ownerAccountId = 'ACC_OWNER',
-  comments = []
+  comments = [],
+  privacyViolation = false
 } = {}) {
   const state = {
     qr: {
@@ -715,9 +716,15 @@ function makeQrLifecycleWriteHarness({
       return saved;
     }
   };
+  const identityRepository = {
+    async hasCrossAccountPhoneReference() {
+      return privacyViolation;
+    }
+  };
   return {
     batchRepository,
     coCreationRepository,
+    identityRepository,
     outboxRepository,
     qrRepository,
     recordRepository,
@@ -877,6 +884,35 @@ test('QR lifecycle write enforces the effective comment limit before insertion',
   assert.equal(harness.state.comments.length, 12);
 });
 
+test('QR lifecycle write rejects cross-account full phones before durable mutations', async () => {
+  for (const operation of ['activateByKey', 'startCoCreationByKey']) {
+    const harness = makeQrLifecycleWriteHarness({ privacyViolation: true });
+    const before = structuredClone(harness.state);
+    await assert.rejects(
+      makeQrLifecycleWriteTransaction(harness)[operation]({
+        key: 'QR_WRITE',
+        payload: { account_id: 'ACC_OWNER', content: 'private fixture content' }
+      }),
+      (error) => error.code === 'CONTENT_PRIVACY_REJECTED'
+    );
+    assert.deepEqual(harness.state, before);
+  }
+
+  const commentHarness = makeQrLifecycleWriteHarness({
+    lifecycleStatus: 'co_creating',
+    privacyViolation: true
+  });
+  const beforeComment = structuredClone(commentHarness.state);
+  await assert.rejects(
+    makeQrLifecycleWriteTransaction(commentHarness).addCommentByKey({
+      key: 'QR_WRITE',
+      payload: { account_id: 'ACC_PARTICIPANT', content: 'private fixture comment' }
+    }),
+    (error) => error.code === 'CONTENT_PRIVACY_REJECTED'
+  );
+  assert.deepEqual(commentHarness.state, beforeComment);
+});
+
 test('QR lifecycle write service owns one transaction and translates route business errors', async () => {
   const harness = makeQrLifecycleWriteHarness();
   const calls = [];
@@ -886,6 +922,7 @@ test('QR lifecycle write service owns one transaction and translates route busin
     QrBatchRepository: class { constructor() { return harness.batchRepository; } },
     RecordRepository: class { constructor() { return harness.recordRepository; } },
     CoCreationRepository: class { constructor() { return harness.coCreationRepository; } },
+    IdentityRepository: class { constructor() { return harness.identityRepository; } },
     OutboxRepository: class { constructor() { return harness.outboxRepository; } }
   };
   const service = createQrLifecycleWriteService({
@@ -907,7 +944,18 @@ test('QR lifecycle write service owns one transaction and translates route busin
     await service.activateQRByKey('token-write', { account_id: 'ACC_OWNER' }),
     { error: 'QR_NOT_ISSUED' }
   );
+  harness.state.qr.issue_status = 'issued';
+  harness.identityRepository.hasCrossAccountPhoneReference = async () => true;
+  assert.deepEqual(
+    await service.activateQRByKey('token-write', {
+      account_id: 'ACC_OWNER', content: 'private fixture content'
+    }),
+    { error: 'CONTENT_PRIVACY_REJECTED' }
+  );
   assert.deepEqual(calls, [{
+    currentPool: pool,
+    options: { isolationLevel: 'read committed' }
+  }, {
     currentPool: pool,
     options: { isolationLevel: 'read committed' }
   }, {
@@ -930,6 +978,7 @@ test('QR lifecycle write never reports success when durable proof work cannot be
       QrBatchRepository: class { constructor() { return harness.batchRepository; } },
       RecordRepository: class { constructor() { return harness.recordRepository; } },
       CoCreationRepository: class { constructor() { return harness.coCreationRepository; } },
+      IdentityRepository: class { constructor() { return harness.identityRepository; } },
       OutboxRepository: class { constructor() { return harness.outboxRepository; } }
     },
     async transactionRunner(_pool, callback) {

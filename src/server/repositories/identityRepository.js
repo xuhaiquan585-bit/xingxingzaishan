@@ -63,6 +63,21 @@ class IdentityRepository {
     return Number(result.rows[0] ? result.rows[0].count : 0);
   }
 
+  async hasCrossAccountPhoneReference({ accountId, content }) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `SELECT EXISTS (
+         SELECT 1
+         FROM app.users
+         WHERE account_id <> $1
+           AND phone ~ '^1[0-9]{10}$'
+           AND position(phone IN $2) > 0
+       ) AS has_reference`,
+      [accountId, String(content || '')]
+    );
+    return result.rows[0] ? result.rows[0].has_reference === true : false;
+  }
+
   async lockIdentityKeys(keys) {
     const normalizedKeys = [...new Set(
       (Array.isArray(keys) ? keys : [])

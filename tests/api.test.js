@@ -2193,6 +2193,84 @@ test('POST /api/qr/:id/record should validate image_url required', async () => {
   assert.equal(res.body.code, 'VALIDATION_ERROR');
 });
 
+test('record and comment routes reject another account full phone without JSON mutations', async () => {
+  const ownerPhone = '13800138981';
+  const otherPhone = '13800138982';
+  const h5Cookie = await loginUserAndGetCookie(ownerPhone);
+  await loginUserAndGetCookie(otherPhone);
+  const miniappToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'privacy-owner-miniapp',
+    phone: ownerPhone
+  });
+
+  const dbFile = process.env.DB_FILE;
+  const db = JSON.parse(fs.readFileSync(dbFile, 'utf8'));
+  const owner = db.users.find((user) => user.phone === ownerPhone);
+  assert.ok(owner && owner.account_id);
+  const timestamp = '2026-08-12T00:00:00.000Z';
+  db.qr_codes.push(
+    {
+      id: 'PRIVACY_H5_RECORD', qr_access_token: 'privacy-h5-record-token',
+      issue_status: 'issued', activation_status: 'unactivated', hidden: false,
+      co_creation_enabled: false, co_creation_comments: [],
+      created_at: timestamp, updated_at: timestamp
+    },
+    {
+      id: 'PRIVACY_MINI_RECORD', qr_access_token: 'privacy-mini-record-token',
+      issue_status: 'issued', activation_status: 'unactivated', hidden: false,
+      co_creation_enabled: false, co_creation_comments: [],
+      created_at: timestamp, updated_at: timestamp
+    },
+    {
+      id: 'PRIVACY_H5_COMMENT', qr_access_token: 'privacy-h5-comment-token',
+      issue_status: 'issued', activation_status: 'co_creating', hidden: false,
+      account_id: owner.account_id, phone: ownerPhone,
+      content: 'owner content', image_url: 'https://example.com/privacy-owner.jpg',
+      co_creation_enabled: true,
+      co_creation_owner_account_id: owner.account_id,
+      co_creation_owner_phone: ownerPhone,
+      co_creation_comments: [], co_creation_started_at: timestamp,
+      created_at: timestamp, updated_at: timestamp
+    }
+  );
+  fs.writeFileSync(dbFile, JSON.stringify(db, null, 2), 'utf8');
+
+  const h5Record = await postJsonWithCookie('/api/qr/privacy-h5-record-token/record', {
+    content: `contact ${otherPhone}`,
+    image_url: 'https://example.com/privacy-h5.jpg'
+  }, h5Cookie);
+  assert.equal(h5Record.status, 400);
+  assert.equal(h5Record.body.code, 'CONTENT_PRIVACY_REJECTED');
+
+  const miniappRecord = await postJson('/api/miniapp/qr/privacy-mini-record-token/record', {
+    content: `contact ${otherPhone}`,
+    image_url: 'https://example.com/privacy-mini.jpg'
+  }, miniappToken);
+  assert.equal(miniappRecord.status, 400);
+  assert.equal(miniappRecord.body.code, 'CONTENT_PRIVACY_REJECTED');
+
+  const h5Comment = await postJsonWithCookie('/api/qr/privacy-h5-comment-token/comments', {
+    author_name: 'Owner',
+    content: `call ${otherPhone}`
+  }, h5Cookie);
+  assert.equal(h5Comment.status, 400);
+  assert.equal(h5Comment.body.code, 'CONTENT_PRIVACY_REJECTED');
+
+  const after = JSON.parse(fs.readFileSync(dbFile, 'utf8'));
+  assert.equal(
+    after.qr_codes.find((qr) => qr.id === 'PRIVACY_H5_RECORD').activation_status,
+    'unactivated'
+  );
+  assert.equal(
+    after.qr_codes.find((qr) => qr.id === 'PRIVACY_MINI_RECORD').activation_status,
+    'unactivated'
+  );
+  assert.deepEqual(
+    after.qr_codes.find((qr) => qr.id === 'PRIVACY_H5_COMMENT').co_creation_comments,
+    []
+  );
+});
+
 test('unissued QR codes cannot be activated or enter co-creation from H5 or miniapp', async () => {
   const adminLogin = await postJson('/api/admin/login', {
     username: 'admin',

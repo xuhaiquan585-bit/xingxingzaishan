@@ -726,6 +726,16 @@ test('manual PostgreSQL public QR adapter integration', {
       pool,
       clock: () => new Date('2026-07-01T12:30:00.000Z')
     });
+    assert.deepEqual(
+      await qrWriteService.activateQRByKey('token-write-direct', {
+        account_id: concurrentWebIdentities[0].account_id,
+        phone: concurrentWebIdentities[0].phone,
+        content: `Cross-account phone ${blockedWebIdentity.phone}`,
+        image_url: 'https://fixture.invalid/privacy-rejected.jpg',
+        show_brand_disclosure: false
+      }),
+      { error: 'CONTENT_PRIVACY_REJECTED' }
+    );
     const directWrite = await qrWriteService.activateQRByKey('token-write-direct', {
       account_id: concurrentWebIdentities[0].account_id,
       phone: concurrentWebIdentities[0].phone,
@@ -750,6 +760,15 @@ test('manual PostgreSQL public QR adapter integration', {
       show_brand_disclosure: false
     });
     assert.equal(coWrite.data.qr.lifecycle_status, 'co_creating');
+    assert.deepEqual(
+      await qrWriteService.addCoCreationCommentByKey('token-write-co', {
+        account_id: blockedWebIdentity.account_id,
+        phone: blockedWebIdentity.phone,
+        authorName: 'Integration witness',
+        content: `Cross-account phone ${concurrentWebIdentities[0].phone}`
+      }),
+      { error: 'CONTENT_PRIVACY_REJECTED' }
+    );
     const commentWrite = await qrWriteService.addCoCreationCommentByKey(
       'token-write-co',
       {

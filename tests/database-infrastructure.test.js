@@ -1673,6 +1673,22 @@ test('identity write repositories lock canonical keys and expose bounded mutatio
   );
 });
 
+test('identity repository checks cross-account phone references without returning identities', async () => {
+  const content = 'private fixture content';
+  const harness = createRepositoryContext([
+    { rows: [{ has_reference: true }], rowCount: 1 }
+  ]);
+  const result = await new IdentityRepository(harness.context)
+    .hasCrossAccountPhoneReference({ accountId: 'ACC_OWNER', content });
+
+  assert.equal(result, true);
+  assert.deepEqual(harness.calls[0].params, ['ACC_OWNER', content]);
+  assert.match(harness.calls[0].sql, /SELECT EXISTS/);
+  assert.match(harness.calls[0].sql, /account_id <> \$1/);
+  assert.match(harness.calls[0].sql, /position\(phone IN \$2\) > 0/);
+  assert.equal(harness.calls[0].sql.includes(content), false);
+});
+
 test('identity reference repository checks account and nested identity references', async () => {
   const harness = createRepositoryContext([
     { rows: [{ has_references: true }], rowCount: 1 }
@@ -2420,6 +2436,7 @@ test('stable-scope integration runner is disposable, serialized, and production-
   assert.match(source, /POSTGRES_ONLY_IDENTITY_AUTHORITY=PASS/);
   assert.match(source, /POSTGRES_ONLY_QR_ISSUANCE=PASS/);
   assert.match(source, /POSTGRES_PROOF_ALL_SCOPE_WORKER=PASS/);
+  assert.match(source, /CROSS_ACCOUNT_PHONE_WRITE_GATES=PASS/);
   assert.match(source, /POSTGRES_PROOF_BACKLOG_MONITOR=PASS/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_ENABLED/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_SOURCE_SHA256/);
@@ -2432,4 +2449,18 @@ test('stable-scope integration runner is disposable, serialized, and production-
     packageJson.scripts['test:postgres:stable-scope'],
     'bash scripts/database/run-stable-scope-integration.sh'
   );
+});
+
+test('production privacy snapshot runner is read-only, exact-targeted, and value-free', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/run-content-privacy-audit.sh'),
+    'utf8'
+  );
+  assert.match(source, /production-db-source\.json/);
+  assert.match(source, /EXPECTED_SOURCE_SHA=/);
+  assert.match(source, /FINDINGS_CONFIRMED/);
+  assert.match(source, /\['SSS00003', 'SSS00008', 'SSS00009'\]/);
+  assert.match(source, /PRODUCTION_DATABASE_ACCESS=NONE/);
+  assert.match(source, /PRODUCTION_RUNTIME_RESTARTED=NO/);
+  assert.doesNotMatch(source, /\bpsql\b|\bpm2 restart\b|\brm\b|\bsed -i\b/);
 });
