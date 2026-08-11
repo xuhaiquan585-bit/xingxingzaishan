@@ -2466,3 +2466,31 @@ test('production privacy snapshot runner is read-only, exact-targeted, and value
   assert.match(source, /PRODUCTION_RUNTIME_RESTARTED=NO/);
   assert.doesNotMatch(source, /\bpsql\b|\bpm2 restart\b|\brm\b|\bsed -i\b/);
 });
+
+test('production privacy remediation preparation is protected and write-free', () => {
+  const packageJson = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '../package.json'),
+    'utf8'
+  ));
+  const source = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/database/run-content-privacy-remediation-prepare.sh'
+    ),
+    'utf8'
+  );
+  assert.match(source, /EXPECTED_QR_IDS=SSS00003,SSS00008,SSS00009/);
+  assert.match(source, /PRELAUNCH_TEST_DATA_REDACT_AND_REPROOF/);
+  assert.match(source, /CANDIDATE_PRIVACY_FINDINGS=0/);
+  assert.match(source, /PRODUCTION_DATABASE_ACCESS=NONE/);
+  assert.match(source, /PRODUCTION_JSON_WRITE=NONE/);
+  assert.match(source, /OSS_ACCESS=NONE/);
+  assert.doesNotMatch(
+    source,
+    /\bpsql\b|\bpm2 restart\b|\bsed -i\b|src\/server\/data\/db\.json\s*>/
+  );
+  assert.equal(
+    packageJson.scripts['privacy:prepare:production-snapshot'],
+    'bash scripts/database/run-content-privacy-remediation-prepare.sh'
+  );
+});

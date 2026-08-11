@@ -779,3 +779,10 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   generic scanner with the approved protected snapshot, exact three-QR finding
   set, root-only evidence directory, default-off runtime checks, and source
   immutability checks. It does not connect to PostgreSQL or restart PM2.
+- Because the three confirmed findings are pre-launch test records with old
+  immutable proof dependencies, `npm run privacy:prepare:production-snapshot`
+  creates a root-only candidate for the explicit
+  `PRELAUNCH_TEST_DATA_REDACT_AND_REPROOF` strategy. The candidate redacts only
+  the approved records, detaches their old proof/archive references, preserves
+  value-free evidence fingerprints, and must contain zero privacy findings.
+  Preparation never writes the live JSON file, PostgreSQL, OSS, or PM2 state.

@@ -16,6 +16,10 @@ const {
   parseArguments,
   sha256
 } = require('../scripts/database/audit-cross-account-phone-content');
+const {
+  prepareFiles,
+  prepareSource
+} = require('../scripts/database/prepare-content-privacy-remediation');
 
 const OWNER_PHONE = '13800000001';
 const OTHER_PHONE = '13900000002';
@@ -81,6 +85,34 @@ function writeFixture(directory) {
   const bytes = Buffer.from(JSON.stringify(sourceFixture()), 'utf8');
   fs.writeFileSync(filePath, bytes);
   return { filePath, sourceHash: sha256(bytes) };
+}
+
+function remediationSourceFixture() {
+  const timestamp = '2026-08-12T00:00:00.000Z';
+  const source = sourceFixture();
+  source.qr_codes = ['SSS00003', 'SSS00008', 'SSS00009'].map((id, index) => ({
+    id,
+    issue_status: 'issued',
+    activation_status: 'activated',
+    account_id: 'ACC_OWNER',
+    phone: OWNER_PHONE,
+    content: `${PRIVATE_PHRASE} ${index} ${OTHER_PHONE}`,
+    chain_provider: 'avata_wenchang',
+    chain_status: 'confirmed',
+    chain_operation_id: `operation-${index}`,
+    manifest_object_key: `stars/${id}/record_manifest.json`,
+    manifest_hash: String(index + 1).repeat(64),
+    chain_tx_hash: `transaction-${index}`,
+    chain_record_id: `provider-record-${index}`,
+    chain_confirmed_at: timestamp,
+    archive_index_object_key: index > 0 ? `indexes/by-star/${id}.json` : null,
+    archive_status: index > 0 ? 'ready' : 'not_started',
+    archive_updated_at: index > 0 ? timestamp : null,
+    activated_at: timestamp,
+    created_at: timestamp,
+    updated_at: timestamp
+  }));
+  return source;
 }
 
 test('privacy policy allows an owner phone and rejects another account full phone', () => {
@@ -202,6 +234,89 @@ test('privacy audit CLI output stays sanitized', () => {
     assert.equal(stdout.includes(OTHER_PHONE), false);
     assert.equal(stdout.includes(PRIVATE_PHRASE), false);
     assert.equal(JSON.parse(stdout).finding_count, 2);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('privacy remediation preparation redacts only the exact approved records', () => {
+  const source = remediationSourceFixture();
+  const sourceBytes = Buffer.from(JSON.stringify(source), 'utf8');
+  const before = JSON.stringify(source);
+  const prepared = prepareSource({
+    source,
+    sourceHash: sha256(sourceBytes),
+    expectedQrIds: ['SSS00003', 'SSS00008', 'SSS00009'],
+    remediatedAt: '2026-08-12T01:02:03.000Z'
+  });
+  const candidate = JSON.parse(prepared.serialized);
+
+  assert.equal(JSON.stringify(source), before);
+  assert.equal(prepared.report.status, 'READY');
+  assert.equal(prepared.report.apply_performed, false);
+  assert.equal(prepared.report.candidate_privacy_finding_count, 0);
+  assert.equal(prepared.report.proof_rows_removed_from_candidate, 3);
+  assert.equal(prepared.report.archive_rows_removed_from_candidate, 2);
+  assert.equal(prepared.report.record_count_before, 3);
+  assert.equal(prepared.report.record_count_after, 3);
+  assert.equal(prepared.report.revisions.length, 3);
+  assert.equal(JSON.stringify(prepared.report).includes(OWNER_PHONE), false);
+  assert.equal(JSON.stringify(prepared.report).includes(OTHER_PHONE), false);
+  assert.equal(JSON.stringify(prepared.report).includes(PRIVATE_PHRASE), false);
+  for (const row of candidate.qr_codes) {
+    assert.match(row.content, /139\*\*\*\*0002/);
+    assert.equal(row.content.includes(OTHER_PHONE), false);
+    assert.equal(row.chain_status, 'not_started');
+    assert.equal(row.manifest_hash, null);
+    assert.equal(row.chain_tx_hash, null);
+    assert.equal(row.archive_status, 'not_started');
+    assert.equal(row.updated_at, '2026-08-12T01:02:03.000Z');
+  }
+
+  assert.throws(
+    () => prepareSource({
+      source,
+      sourceHash: sha256(sourceBytes),
+      expectedQrIds: ['SSS00003'],
+      remediatedAt: '2026-08-12T01:02:03.000Z'
+    }),
+    (error) => error.code === 'CONTENT_PRIVACY_REMEDIATION_FINDING_SET_MISMATCH'
+  );
+});
+
+test('privacy remediation preparation writes protected outputs without changing input', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'privacy-remediation-'));
+  try {
+    const input = path.join(directory, 'protected-source.json');
+    const candidate = path.join(directory, 'candidate.json');
+    const report = path.join(directory, 'report.json');
+    const inputBytes = Buffer.from(JSON.stringify(remediationSourceFixture()), 'utf8');
+    fs.writeFileSync(input, inputBytes);
+    const result = prepareFiles({
+      inputPath: input,
+      expectedSourceSha256: sha256(inputBytes),
+      expectedQrIds: ['SSS00003', 'SSS00008', 'SSS00009'],
+      remediatedAt: '2026-08-12T01:02:03.000Z',
+      candidateOutput: candidate,
+      reportOutput: report
+    });
+
+    assert.equal(result.status, 'READY');
+    assert.equal(fs.existsSync(candidate), true);
+    assert.equal(fs.existsSync(report), true);
+    assert.equal(sha256(fs.readFileSync(input)), sha256(inputBytes));
+    assert.equal(JSON.parse(fs.readFileSync(report, 'utf8')).apply_performed, false);
+    assert.throws(
+      () => prepareFiles({
+        inputPath: input,
+        expectedSourceSha256: sha256(inputBytes),
+        expectedQrIds: ['SSS00003', 'SSS00008', 'SSS00009'],
+        remediatedAt: '2026-08-12T01:02:03.000Z',
+        candidateOutput: candidate,
+        reportOutput: report
+      }),
+      (error) => error.code === 'CONTENT_PRIVACY_REMEDIATION_OUTPUT_EXISTS'
+    );
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
