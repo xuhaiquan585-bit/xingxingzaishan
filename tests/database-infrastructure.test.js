@@ -2290,3 +2290,39 @@ test('all Phase 2C-1 repositories execute through the injected context with para
   );
   assert.deepEqual(harness.calls[11].params, ['QR_TEST']);
 });
+
+test('stable-scope integration runner is disposable, serialized, and production-safe', () => {
+  const scriptPath = path.join(
+    __dirname,
+    '..',
+    'scripts',
+    'database',
+    'run-stable-scope-integration.sh'
+  );
+  const source = fs.readFileSync(scriptPath, 'utf8');
+  const packageJson = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'package.json'),
+    'utf8'
+  ));
+
+  assert.match(source, /^#!\/usr\/bin\/env bash\nset -Eeuo pipefail/m);
+  assert.match(source, /TEST_DB=xingxing_stable_scope_20260812_test/);
+  assert.match(source, /PRODUCTION_DB=xingxing_retry_20260803_staging/);
+  assert.match(source, /\[ "\$TEST_DB" != "\$PRODUCTION_DB" \]/);
+  assert.match(source, /\[\[ "\$TEST_DB" == \*_test \]\]/);
+  assert.match(source, /flock -n 9/);
+  assert.match(source, /trap cleanup EXIT/);
+  assert.match(
+    source,
+    /node --test tests\/postgresql-read-adapter\.integration\.test\.js/
+  );
+  assert.match(source, /dropdb \\\n+      --if-exists "\$TEST_DB"/);
+  assert.doesNotMatch(source, /dropdb[^\n]*PRODUCTION_DB/);
+  assert.doesNotMatch(source, /pm2\s+(?:restart|reload|save)/);
+  assert.match(source, /PRODUCTION_DATABASE_SELECTED=NO/);
+  assert.match(source, /PRODUCTION_JSON_UNCHANGED=YES/);
+  assert.equal(
+    packageJson.scripts['test:postgres:stable-scope'],
+    'bash scripts/database/run-stable-scope-integration.sh'
+  );
+});

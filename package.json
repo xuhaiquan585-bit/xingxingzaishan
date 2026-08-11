@@ -10,6 +10,7 @@
     "db:migrate:dry": "node scripts/database/migrate.js --dry-run",
     "db:migrate": "node scripts/database/migrate.js --apply",
     "db:register-public-qr-domain": "node scripts/database/register-public-qr-domain-marker.js",
+    "test:postgres:stable-scope": "bash scripts/database/run-stable-scope-integration.sh",
     "migrate:oss": "node scripts/migrate-local-to-oss.js",
     "migrate:oss:dry": "node scripts/migrate-local-to-oss.js --dry-run",
     "accounts:audit": "node scripts/accounts-foundation.js --dry-run",

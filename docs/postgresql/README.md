@@ -674,3 +674,22 @@ close the separate Shadow Read execution gates documented in
   PostgreSQL-only QR/record fixtures, coordinated read/write soak, and one
   unified auto-off/rollback path are required before PM2 saves any all-scope
   setting.
+
+### Stable all-scope isolated integration runner
+
+- `npm run test:postgres:stable-scope` is the root-only production-host runner
+  for the disposable all-scope integration database. It never restarts PM2 or
+  enables a production runtime boundary.
+- The runner creates its fixed `_test` database and root-only environment when
+  both are absent. It can also reuse that exact pair only after verifying the
+  database owner, empty `app` schema, zero active connections, environment
+  target, and file permissions. Partial or inconsistent resources fail closed.
+- The integration covers PostgreSQL-only public H5/miniapp reads, lifecycle
+  activation, and authenticated personal list/detail reads. The protected JSON
+  hash must remain unchanged.
+- An exit trap terminates test connections and removes the disposable database
+  and environment on success or ordinary failure. A root-only, value-free test
+  log remains under `/root/stable-scope-integration-audit-20260812/`.
+- The runner is an integration gate only. Passing it does not enable stable
+  authority; producer authority, privacy remediation, the authority/rollback
+  contract, and coordinated soak remain required.
