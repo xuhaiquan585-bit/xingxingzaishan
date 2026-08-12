@@ -2438,7 +2438,7 @@ test('stable-scope integration runner is disposable, serialized, and production-
   assert.match(source, /POSTGRES_PROOF_ALL_SCOPE_WORKER=PASS/);
   assert.match(source, /CROSS_ACCOUNT_PHONE_WRITE_GATES=PASS/);
   assert.match(source, /CONTENT_PRIVACY_RESUMABLE_APPLY=PASS/);
-  assert.match(source, /CONTENT_PRIVACY_CONTROLLED_REPROOF=PASS/);
+  assert.match(source, /CONTENT_PRIVACY_REPROOF_ISOLATED=PASS/);
   assert.match(source, /POSTGRES_PROOF_BACKLOG_MONITOR=PASS/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_ENABLED/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_SOURCE_SHA256/);
@@ -2507,6 +2507,56 @@ test('clean PostgreSQL baseline planner is exact-scope, read-only, and value-fre
   assert.equal(
     packageJson.scripts['baseline:plan:clean-postgres'],
     'bash scripts/database/run-clean-postgres-baseline-plan.sh'
+  );
+});
+
+test('clean PostgreSQL baseline rebuild creates only a new guarded staging database', () => {
+  const packageJson = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'package.json'),
+    'utf8'
+  ));
+  const materializer = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/database/materialize-clean-postgres-baseline.js'
+    ),
+    'utf8'
+  );
+  const runner = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/database/run-clean-postgres-baseline-rebuild.sh'
+    ),
+    'utf8'
+  );
+
+  assert.match(materializer, /CLEAN_BASELINE_MATERIALIZE_CONFIRMATION_REQUIRED/);
+  assert.match(materializer, /CLEAN_BASELINE_APPROVED_REPORT_CONTENT_MISMATCH/);
+  assert.match(materializer, /fs\.openSync\(filePath, 'wx', 0o600\)/);
+  assert.match(materializer, /fs\.fsyncSync/);
+  assert.doesNotMatch(
+    materializer,
+    /child_process|createPostgresPool|\bpsql\b|ali-oss|avataService|fs\.renameSync/
+  );
+
+  assert.match(runner, /TARGET_DB=xingxing_clean_baseline_20260812_staging/);
+  assert.match(runner, /PRODUCTION_DB=xingxing_retry_20260803_staging/);
+  assert.match(runner, /\[ "\$TARGET_DB" != "\$PRODUCTION_DB" \]/);
+  assert.match(runner, /TARGET_DATABASE_ALREADY_EXISTS/);
+  assert.match(runner, /--expected-approved-plan-report-sha256=/);
+  assert.match(runner, /scripts\/database\/migrate\.js --apply/);
+  assert.match(runner, /scripts\/database\/import-staging\.js/);
+  assert.match(runner, /CLEAN_POSTGRES_BASELINE_REBUILD_RESULT_GATE=PASS/);
+  assert.match(runner, /TARGET_DATABASE_READY_FOR_POSTGRES_ONLY_E2E=YES/);
+  assert.match(runner, /PRODUCTION_DATABASE_SELECTED=NO/);
+  assert.match(runner, /PRODUCTION_DATABASE_WRITE=NONE/);
+  assert.match(runner, /PRODUCTION_JSON_WRITE=NONE/);
+  assert.doesNotMatch(runner, /pm2\s+(?:stop|restart|reload|save)/);
+  assert.doesNotMatch(runner, /dropdb[^\n]*PRODUCTION_DB/);
+  assert.doesNotMatch(runner, /AVATA_API_KEY=|AVATA_API_SECRET=/);
+  assert.equal(
+    packageJson.scripts['baseline:rebuild:clean-postgres'],
+    'bash scripts/database/run-clean-postgres-baseline-rebuild.sh'
   );
 });
 

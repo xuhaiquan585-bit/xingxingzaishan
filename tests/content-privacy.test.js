@@ -42,6 +42,10 @@ const {
   buildCleanBaseline,
   parseArguments: parseCleanBaselineArguments
 } = require('../scripts/database/plan-clean-postgres-baseline');
+const {
+  materializeFiles: materializeCleanBaselineFiles,
+  parseArguments: parseCleanMaterializeArguments
+} = require('../scripts/database/materialize-clean-postgres-baseline');
 const { mapSourceToPlan } = require('../scripts/database/importer/mapping');
 
 const OWNER_PHONE = '13800000001';
@@ -824,4 +828,89 @@ test('clean baseline plan removes the invalid test QR and proves import readines
     }),
     (error) => error.code === 'CLEAN_BASELINE_SCOPE_OVERLAP'
   );
+});
+
+test('clean baseline materialization requires the exact approved value-free plan', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'clean-baseline-'));
+  try {
+    const source = cleanBaselineSourceFixture();
+    const sourceBytes = Buffer.from(JSON.stringify(source), 'utf8');
+    const sourceHash = sha256(sourceBytes);
+    const prepared = prepareSource({
+      source,
+      sourceHash,
+      expectedQrIds: ['SSS00003', 'SSS00008', 'SSS00009'],
+      remediatedAt: '2026-08-12T01:02:03.000Z'
+    });
+    const candidate = JSON.parse(prepared.serialized);
+    const approvedPlan = buildCleanBaseline({
+      source,
+      candidate,
+      preparationReport: prepared.report,
+      expectedSourceSha256: sourceHash,
+      expectedCandidateSha256: prepared.report.candidate_source_sha256,
+      expectedCandidateDomainSha256:
+        prepared.report.candidate_public_qr_domain_sha256,
+      excludedQrIds: ['STAR0001'],
+      retainedPrivacyQrIds: ['SSS00003', 'SSS00008', 'SSS00009']
+    });
+    const sourcePath = path.join(directory, 'source.json');
+    const candidatePath = path.join(directory, 'candidate.json');
+    const preparationPath = path.join(directory, 'preparation.json');
+    const approvedPath = path.join(directory, 'approved-plan.json');
+    const outputPath = path.join(directory, 'target.json');
+    const approvedBytes = Buffer.from(
+      `${JSON.stringify(approvedPlan, null, 2)}\n`,
+      'utf8'
+    );
+    fs.writeFileSync(sourcePath, sourceBytes);
+    fs.writeFileSync(candidatePath, prepared.serialized);
+    fs.writeFileSync(preparationPath, JSON.stringify(prepared.report));
+    fs.writeFileSync(approvedPath, approvedBytes);
+
+    assert.throws(
+      () => parseCleanMaterializeArguments([]),
+      (error) => error.code === 'CLEAN_BASELINE_MATERIALIZE_CONFIRMATION_REQUIRED'
+    );
+    const options = parseCleanMaterializeArguments([
+      '--materialize',
+      `--source=${sourcePath}`,
+      `--candidate=${candidatePath}`,
+      `--preparation-report=${preparationPath}`,
+      `--approved-plan-report=${approvedPath}`,
+      `--output=${outputPath}`,
+      `--expected-source-sha256=${sourceHash}`,
+      `--expected-candidate-sha256=${prepared.report.candidate_source_sha256}`,
+      `--expected-candidate-domain-sha256=${prepared.report.candidate_public_qr_domain_sha256}`,
+      `--expected-approved-plan-report-sha256=${sha256(approvedBytes)}`,
+      `--expected-target-source-sha256=${approvedPlan.target_source_sha256}`,
+      `--expected-target-plan-sha256=${approvedPlan.target_plan_sha256}`,
+      `--expected-target-domain-sha256=${approvedPlan.target_public_qr_domain_sha256}`,
+      '--exclude-qr-ids=STAR0001',
+      '--retained-privacy-qr-ids=SSS00003,SSS00008,SSS00009'
+    ]);
+    const result = materializeCleanBaselineFiles(options);
+    const target = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+
+    assert.equal(result.status, 'MATERIALIZED');
+    assert.equal(result.target_qr_count, 3);
+    assert.equal(result.target_record_count, 3);
+    assert.equal(sha256(fs.readFileSync(outputPath)), approvedPlan.target_source_sha256);
+    assert.deepEqual(target.qr_codes.map((row) => row.id).sort(), [
+      'SSS00003', 'SSS00008', 'SSS00009'
+    ]);
+    assert.equal(sha256(fs.readFileSync(sourcePath)), sourceHash);
+    assert.equal(
+      sha256(fs.readFileSync(candidatePath)),
+      prepared.report.candidate_source_sha256
+    );
+    assert.doesNotMatch(JSON.stringify(result), new RegExp(OTHER_PHONE));
+    assert.doesNotMatch(JSON.stringify(result), new RegExp(PRIVATE_PHRASE));
+    assert.throws(
+      () => materializeCleanBaselineFiles(options),
+      (error) => error.code === 'CLEAN_BASELINE_MATERIALIZE_OUTPUT_INVALID'
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });

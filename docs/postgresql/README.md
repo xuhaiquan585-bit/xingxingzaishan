@@ -854,3 +854,11 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   PostgreSQL database, validate parity, and keep the JSON runtime default-off.
   A newly issued PostgreSQL-only QR must pass the complete H5, miniapp,
   lifecycle, personal-record, and proof-worker path before coordinated cutover.
+- `npm run baseline:rebuild:clean-postgres` materializes only the exact approved
+  target hash into a root-owned audit directory, creates the new fixed
+  `xingxing_clean_baseline_20260812_staging` candidate database, applies all
+  canonical migrations, and imports and verifies the 103-QR/55-record plan.
+  It refuses an existing or partial target, never selects or modifies the old
+  staging database, and removes only a target database that the same invocation
+  created when ordinary failure occurs. The successful candidate remains
+  disconnected from PM2 for the PostgreSQL-only new-QR end-to-end gate.

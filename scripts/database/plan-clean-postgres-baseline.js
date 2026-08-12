@@ -151,7 +151,7 @@ function countAssetLocators(source) {
   });
 }
 
-function buildCleanBaseline({
+function buildCleanBaselineArtifact({
   source,
   candidate,
   preparationReport,
@@ -248,7 +248,7 @@ function buildCleanBaseline({
   );
   const removedSourceRows = excludedQrIds.map((id) => sourceRows.get(id));
   const removedCandidateRows = excludedQrIds.map((id) => candidateRows.get(id));
-  return Object.freeze({
+  const report = Object.freeze({
     schema_version: 1,
     mode: 'plan-only',
     status: 'READY',
@@ -298,9 +298,14 @@ function buildCleanBaseline({
     external_provider_calls: 'NONE',
     target_baseline_persisted: false
   });
+  return Object.freeze({ report, serialized });
 }
 
-function planFiles(options) {
+function buildCleanBaseline(options) {
+  return buildCleanBaselineArtifact(options).report;
+}
+
+function loadCleanBaselineArtifact(options) {
   const source = readSourceSnapshot({
     inputPath: options.sourcePath,
     expectedSha256: options.expectedSourceSha256
@@ -316,7 +321,7 @@ function planFiles(options) {
   const preparationReportSha256 = sha256(
     fs.readFileSync(options.preparationReportPath)
   );
-  const result = buildCleanBaseline({
+  const artifact = buildCleanBaselineArtifact({
     source: source.data,
     candidate: candidate.data,
     preparationReport,
@@ -332,7 +337,11 @@ function planFiles(options) {
       !== preparationReportSha256) {
     throw baselineError('CLEAN_BASELINE_PREPARATION_REPORT_CHANGED');
   }
-  return result;
+  return artifact;
+}
+
+function planFiles(options) {
+  return loadCleanBaselineArtifact(options).report;
 }
 
 function main(argv = process.argv.slice(2), io = process) {
@@ -357,6 +366,8 @@ module.exports = {
   DEFAULT_EXCLUDED_QR_IDS,
   DEFAULT_RETAINED_PRIVACY_QR_IDS,
   buildCleanBaseline,
+  buildCleanBaselineArtifact,
+  loadCleanBaselineArtifact,
   main,
   parseArguments,
   planFiles
