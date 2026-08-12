@@ -3184,6 +3184,9 @@ test('stable forward resume only accepts committed freeze and never restores JSO
   assert.match(runner, /RESUME_POSTGRES_AUTHORITY_COMMITTED_FORWARD_ONLY/);
   assert.match(runner, /STATE_PHASE_NOT_COMMITTED_FROZEN/);
   assert.match(runner, /AUTHORITY_COMMIT_POINT_CROSSED.*YES/);
+  assert.match(runner, /git merge-base --is-ancestor/);
+  assert.match(runner, /RECOVERY_CHANGESET_INVALID/);
+  assert.match(runner, /EXPECTED_RECOVERY_CHANGED_FILES/);
   assert.match(runner, /ensure_forward_freeze/);
   assert.match(runner, /POSTGRES_AUTHORITY_COMMITTED_FROZEN/);
   assert.match(runner, /POSTGRES_AUTHORITY_COMMITTED/);
@@ -3192,6 +3195,8 @@ test('stable forward resume only accepts committed freeze and never restores JSO
   assert.match(runner, /\/usr\/bin\/env \\\n+    -u DATABASE_URL/);
   assert.match(runner, /PM2_DATABASE_PASSWORD_PERSISTED=NO/);
   assert.match(runner, /JSON_FALLBACK_ALLOWED=NO/);
+  assert.match(runner, /EXPECTED_HEAD=" head/);
+  assert.match(runner, /EXPECTED_TREE=" tree/);
   assert.match(runner, /RECORD_PROOF_RUNTIME_ENABLED=false/);
   assert.match(runner, /AVATA_CONFIGURATION_LOADED=NO/);
   assert.doesNotMatch(runner, /load_json_environment/);

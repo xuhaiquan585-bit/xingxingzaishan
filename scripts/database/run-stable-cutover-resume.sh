@@ -173,16 +173,23 @@ persist_current_pm2() {
 update_state_phase() {
   local phase="$1"
   local state_temp="${STATE_FILE}.tmp.$$"
-  awk -F= -v phase="$phase" '
-    BEGIN { phase_seen = 0; point_seen = 0 }
+  local current_head current_tree
+  current_head="$(git rev-parse HEAD)" || return 1
+  current_tree="$(git rev-parse 'HEAD^{tree}')" || return 1
+  awk -F= -v phase="$phase" -v head="$current_head" -v tree="$current_tree" '
+    BEGIN { phase_seen = 0; point_seen = 0; head_seen = 0; tree_seen = 0 }
     $1 == "PHASE" { print "PHASE=" phase; phase_seen = 1; next }
     $1 == "AUTHORITY_COMMIT_POINT_CROSSED" {
       print "AUTHORITY_COMMIT_POINT_CROSSED=YES"; point_seen = 1; next
     }
+    $1 == "EXPECTED_HEAD" { print "EXPECTED_HEAD=" head; head_seen = 1; next }
+    $1 == "EXPECTED_TREE" { print "EXPECTED_TREE=" tree; tree_seen = 1; next }
     { print }
     END {
       if (!phase_seen) print "PHASE=" phase
       if (!point_seen) print "AUTHORITY_COMMIT_POINT_CROSSED=YES"
+      if (!head_seen) print "EXPECTED_HEAD=" head
+      if (!tree_seen) print "EXPECTED_TREE=" tree
     }
   ' "$STATE_FILE" > "$state_temp"
   printf '%s\n' "RESUMED_AT_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$state_temp"
@@ -282,8 +289,14 @@ flock -n 9 || fail CUTOVER_OPERATION_ALREADY_RUNNING
 cd "$REPO"
 [ -z "$(git status --porcelain --untracked-files=no)" ] || \
   fail TRACKED_WORKTREE_DIRTY
-[ "$(git rev-parse HEAD)" = "$EXPECTED_HEAD" ] || fail HEAD_CHANGED
-[ "$(git rev-parse 'HEAD^{tree}')" = "$EXPECTED_TREE" ] || fail TREE_CHANGED
+CURRENT_HEAD="$(git rev-parse HEAD)"
+CURRENT_TREE="$(git rev-parse 'HEAD^{tree}')"
+git merge-base --is-ancestor "$EXPECTED_HEAD" "$CURRENT_HEAD" || \
+  fail COMMITTED_HEAD_NOT_ANCESTOR
+RECOVERY_CHANGED_FILES="$(git diff --name-only "$EXPECTED_HEAD..$CURRENT_HEAD")"
+EXPECTED_RECOVERY_CHANGED_FILES=$'docs/postgresql/README.md\ndocs/postgresql/authority-and-rollback-contract.md\nscripts/database/run-stable-cutover-commit.sh\nscripts/database/run-stable-cutover-resume.sh\ntests/database-infrastructure.test.js'
+[ "$RECOVERY_CHANGED_FILES" = "$EXPECTED_RECOVERY_CHANGED_FILES" ] || \
+  fail RECOVERY_CHANGESET_INVALID
 
 install -d -o root -g root -m 0700 "$AUDIT_DIR"
 validate_pm2_dump true "$AUDIT_DIR/pm2-entry-frozen-validation.json"
@@ -394,8 +407,9 @@ printf '%s\n' \
   'JSON_FALLBACK_ALLOWED=NO' \
   "APP_PID_STABLE=$APP_PID_STABLE" \
   'APP_HTTP=200' \
-  "VALIDATED_HEAD=$EXPECTED_HEAD" \
-  "VALIDATED_TREE=$EXPECTED_TREE" \
+  "AUTHORITY_COMMITTED_HEAD=$EXPECTED_HEAD" \
+  "VALIDATED_HEAD=$CURRENT_HEAD" \
+  "VALIDATED_TREE=$CURRENT_TREE" \
   "COMMITTED_AT_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   'NEXT_ACTION=RUN_STABLE_POST_COMMIT_OBSERVATION' \
   > "$SUMMARY"

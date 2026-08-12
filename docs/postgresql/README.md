@@ -1008,3 +1008,7 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   candidate immutability, public parity, PM2 secret safety, and legacy database
   non-selection before reopening writes. Any failure after it touches the
   runtime re-engages and persists the PostgreSQL write freeze.
+- Because the recovery code is necessarily newer than the committed authority
+  state, the runner requires the committed HEAD to be an ancestor and accepts
+  only the exact reviewed recovery changeset. It then advances the protected
+  state file to the recovery HEAD and tree atomically.
