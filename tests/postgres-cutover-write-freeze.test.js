@@ -2,6 +2,8 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const http = require('node:http');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
@@ -9,6 +11,11 @@ const {
   createPostgresCutoverWriteFreeze,
   readPostgresCutoverWriteFreezeConfig
 } = require('../src/server/middlewares/postgresCutoverWriteFreeze');
+const {
+  main: capturePublicFingerprints,
+  normalizeDto,
+  normalizeUrl
+} = require('../scripts/database/capture-stable-cutover-public-fingerprints');
 
 function responseHarness() {
   return {
@@ -93,4 +100,70 @@ test('application wires the write freeze before parsers, sessions, and routes', 
   assert.ok(parserIndex > freezeIndex);
   assert.ok(sessionIndex > freezeIndex);
   assert.ok(routeIndex > freezeIndex);
+});
+
+test('stable cutover fingerprints ignore signed URL churn and key order', () => {
+  const first = normalizeDto({
+    message: 'unchanged',
+    image_url: 'https://example.test/object.jpg?token=old#preview',
+    nested: { z: 2, a: 1 }
+  });
+  const second = normalizeDto({
+    nested: { a: 1, z: 2 },
+    image_url: 'https://example.test/object.jpg?token=new',
+    message: 'unchanged'
+  });
+
+  assert.deepEqual(first, second);
+  assert.equal(
+    normalizeUrl('https://example.test/object.jpg?token=secret#preview'),
+    'https://example.test/object.jpg'
+  );
+  assert.equal(normalizeUrl('not-a-url'), 'not-a-url');
+});
+
+test('stable cutover fingerprint capture persists hashes without raw DTOs', async (t) => {
+  const temporaryRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'cutover-fingerprint-')
+  );
+  const output = path.join(temporaryRoot, 'fingerprints.json');
+  const server = http.createServer((request, response) => {
+    response.setHeader('Content-Type', 'application/json');
+    response.end(JSON.stringify({
+      status: 'success',
+      data: {
+        id: 'A00001',
+        message: 'raw-business-content-must-not-persist',
+        image_url: `https://example.test/image.jpg?route=${request.url}`
+      }
+    }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => {
+    server.close();
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  const report = await capturePublicFingerprints([
+    `--base-url=http://127.0.0.1:${port}/`,
+    '--qr-id=A00001',
+    `--output=${output}`
+  ]);
+  const persisted = fs.readFileSync(output, 'utf8');
+
+  assert.equal(report.status, 'PASS');
+  assert.equal(report.route_count, 2);
+  assert.equal(report.raw_dto_persisted, false);
+  assert.equal(typeof report.combined_sha256, 'string');
+  assert.doesNotMatch(persisted, /raw-business-content|example\.test/);
+  assert.match(persisted, /"raw_dto_persisted": false/);
+  await assert.rejects(
+    capturePublicFingerprints([
+      '--base-url=https://example.test/',
+      '--qr-id=A00001',
+      `--output=${path.join(temporaryRoot, 'forbidden.json')}`
+    ]),
+    error => error && error.code === 'CUTOVER_FINGERPRINT_BASE_URL_INVALID'
+  );
 });

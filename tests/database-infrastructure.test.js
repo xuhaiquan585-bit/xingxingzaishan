@@ -2794,6 +2794,7 @@ test('maintenance cutover preparation is read-only and cannot enter prewrite', (
   assert.match(runner, /POSTGRES_ONLY_PROOF_OUTBOX=PASS/);
   assert.match(runner, /PROOF_WORKER_RUNTIME=DISABLED/);
   assert.match(runner, /default_transaction_read_only=on/);
+  assert.match(runner, /CANDIDATE_ENVIRONMENT_SHA256=/);
   assert.match(runner, /READ_ONLY_TRANSACTION_XID/);
   assert.match(runner, /AUTO_OFF_CAPABILITY=PASS/);
   assert.match(runner, /ROLLBACK_BEFORE_COMMIT=JSON_ALLOWED/);
@@ -2815,6 +2816,63 @@ test('maintenance cutover preparation is read-only and cannot enter prewrite', (
     packageJson.scripts['cutover:prepare:maintenance'],
     'bash scripts/database/run-stable-cutover-maintenance-prepare.sh --prepare'
   );
+});
+
+test('stable cutover prewrite is explicit, frozen, fingerprinted, and auto-off', () => {
+  const runner = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/run-stable-cutover-prewrite.sh'),
+    'utf8'
+  );
+  const autoOff = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/database/run-stable-cutover-prewrite-auto-off.sh'
+    ),
+    'utf8'
+  );
+  const fingerprint = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/database/capture-stable-cutover-public-fingerprints.js'
+    ),
+    'utf8'
+  );
+
+  assert.match(runner, /ENTER_POSTGRES_AUTHORITY_PREWRITE_WITH_AUTO_OFF/);
+  assert.match(runner, /EXPLICIT_PREWRITE_MODE_REQUIRED/);
+  assert.match(runner, /EXPLICIT_CONFIRMATION_REQUIRED/);
+  assert.match(runner, /systemd-run[\s\S]+--on-active=15m/);
+  assert.match(
+    runner,
+    /systemd-run[\s\S]+AUTO_OFF_ARMED=true[\s\S]+pm2 restart/
+  );
+  assert.match(runner, /POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED=true/);
+  assert.match(runner, /RECORD_PROOF_RUNTIME_ENABLED=false/);
+  assert.match(runner, /POSTGRES_AUTHORITY_BOUNDARY_COUNT=5/);
+  assert.match(runner, /CANDIDATE_MUTATION_DETECTED_KEEP_POSTGRES_FROZEN/);
+  assert.match(runner, /STABLE_CUTOVER_PREWRITE_PUBLIC_PARITY=PASS/);
+  assert.match(runner, /PM2_CONFIGURATION_SAVED=NO/);
+  assert.match(runner, /AUTHORITY_COMMIT_POINT_CROSSED=NO/);
+  assert.doesNotMatch(runner, /\bpm2 save\b/);
+
+  assert.match(autoOff, /EXPECTED_DATABASE_STATE_SHA256/);
+  assert.match(autoOff, /CANDIDATE_ENVIRONMENT_SHA256/);
+  assert.match(autoOff, /AUTO_OFF_SCRIPT_SHA256/);
+  assert.match(autoOff, /CANDIDATE_MUTATION_DETECTED_KEEP_POSTGRES_FROZEN/);
+  assert.match(autoOff, /RUNTIME_STATE=PARTIAL_RUNTIME_RECOVERY/);
+  assert.match(autoOff, /RUNTIME_STATE=POSTGRES_AUTHORITY_PREWRITE/);
+  assert.match(autoOff, /RUNTIME_STATE=JSON_AUTHORITY_FROZEN/);
+  assert.match(autoOff, /POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED=true/);
+  assert.match(autoOff, /POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED=false/);
+  assert.match(autoOff, /PHASE=JSON_AUTHORITY_ABORTED/);
+  assert.match(autoOff, /AUTHORITY_COMMIT_POINT_CROSSED=NO/);
+  assert.doesNotMatch(autoOff, /\bpm2 save\b/);
+
+  assert.match(fingerprint, /raw_dto_persisted: false/);
+  assert.match(fingerprint, /normalized_url_queries: true/);
+  assert.match(fingerprint, /127\.0\.0\.1/);
+  assert.match(fingerprint, /flag: 'wx'/);
+  assert.doesNotMatch(fingerprint, /JSON\.stringify\(body\.data\).*writeFileSync/s);
 });
 
 test('production privacy snapshot runner is read-only, exact-targeted, and value-free', () => {

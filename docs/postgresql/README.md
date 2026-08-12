@@ -913,7 +913,7 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
 - `npm run cutover:prepare:maintenance` is a second root-only, read-only gate.
   It binds the current Git commit and tree to the latest successful stable
   preflight, coordinated joint rehearsal, candidate backup, JSON authority
-  snapshot, and five-boundary selector proposal.
+  snapshot, candidate environment hash, and five-boundary selector proposal.
 - The command opens the candidate only with
   `default_transaction_read_only=on`, proves that no transaction ID was
   assigned, verifies that PM2 remains in JSON authority with no database
@@ -928,3 +928,28 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   separate prewrite/auto-off runner. Entering prewrite and removing the freeze
   remain explicit later operations; neither is exposed through this npm
   preparation command.
+
+### Stable cutover prewrite rehearsal
+
+- The reviewed prewrite runner is intentionally not exposed as an npm shortcut.
+  It requires root, the exact protected `prewrite-plan.env`, the explicit
+  `--enter-prewrite` mode, and the full confirmation phrase. Updating the code
+  invalidates the old plan, so stable preflight and maintenance preparation
+  must be rerun after deployment.
+- Before PM2 changes, the runner captures value-free normalized fingerprints
+  for one public H5 and miniapp QR response. It persists only SHA-256 values,
+  strips signed URL query churn, schedules a 15-minute systemd auto-off, and
+  only then restarts PM2 with the five `scope=all` PostgreSQL boundaries.
+- `POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED=true` is mandatory throughout
+  prewrite. Reads are compared with the JSON fingerprints while all mutating
+  HTTP methods return `503 POSTGRES_CUTOVER_WRITE_FROZEN`. The proof runtime and
+  AVATA remain disabled, and the command never calls `pm2 save`.
+- The auto-off runner proves the exact candidate state before any JSON fallback.
+  If a PostgreSQL business mutation or partial boundary state is detected, it
+  refuses fallback and keeps the application frozen. With an unchanged
+  candidate, it first disables all PostgreSQL boundaries while retaining the
+  freeze, verifies that secrets and connections are gone, and only then removes
+  the freeze to restore JSON authority.
+- A successful prewrite entry is still before the authority commit point. The
+  next operation is a manual auto-off rehearsal; stable enablement requires a
+  separate, later command and explicit operator confirmation.
