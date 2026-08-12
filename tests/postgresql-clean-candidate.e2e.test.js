@@ -208,6 +208,10 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
       `SELECT
          (SELECT count(*)::integer FROM app.qr_codes) AS qr_count,
          (SELECT count(*)::integer FROM app.records) AS record_count,
+         (SELECT count(*)::integer FROM app.qr_codes
+          WHERE issue_status = 'issued') AS issued_count,
+         (SELECT count(*)::integer FROM app.qr_codes
+          WHERE lifecycle_status = 'activated') AS activated_count,
          (SELECT count(*)::integer FROM app.outbox_jobs) AS outbox_count,
          (SELECT count(*)::integer FROM app.import_runs
           WHERE status = 'passed') AS passed_import_count,
@@ -229,6 +233,8 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
     assert.deepEqual(baseline.rows, [{
       qr_count: 103,
       record_count: 55,
+      issued_count: 103,
+      activated_count: 54,
       outbox_count: 0,
       passed_import_count: 1,
       source_sha256: EXPECTED_SOURCE_SHA256,
@@ -507,8 +513,14 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
       headers: { Authorization: `Bearer ${adminToken}` }
     });
     assert.equal(adminDashboard.status, 200);
-    assert.equal(adminDashboard.body.data.total_issued, 104);
-    assert.equal(adminDashboard.body.data.total_activated, 56);
+    assert.equal(
+      adminDashboard.body.data.total_issued,
+      baseline.rows[0].issued_count + 1
+    );
+    assert.equal(
+      adminDashboard.body.data.total_activated,
+      baseline.rows[0].activated_count + 1
+    );
 
     for (const requestPath of [
       `/api/qr/${issued.qr_access_token}`,
