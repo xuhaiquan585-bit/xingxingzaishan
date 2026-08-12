@@ -38,6 +38,10 @@ const {
   parseArguments: parseReproofArguments,
   runtimeConfig: readControlledReproofConfig
 } = require('../scripts/database/run-content-privacy-reproof');
+const {
+  buildCleanBaseline,
+  parseArguments: parseCleanBaselineArguments
+} = require('../scripts/database/plan-clean-postgres-baseline');
 const { mapSourceToPlan } = require('../scripts/database/importer/mapping');
 
 const OWNER_PHONE = '13800000001';
@@ -131,6 +135,41 @@ function remediationSourceFixture() {
     created_at: timestamp,
     updated_at: timestamp
   }));
+  return source;
+}
+
+function cleanBaselineSourceFixture() {
+  const source = remediationSourceFixture();
+  for (const account of source.accounts) account.created_from = 'migration';
+  Object.assign(source, {
+    meta: { schema_version: 'json-runtime-v1' },
+    miniapp_content: {},
+    admins: [],
+    quality_check_logs: [],
+    batches: [],
+    products: [],
+    content_pages: [],
+    banners: [],
+    orders: [],
+    payment_logs: []
+  });
+  source.qr_codes.push({
+    id: 'STAR0001',
+    issue_status: 'unissued',
+    activation_status: 'activated',
+    account_id: 'ACC_OWNER',
+    phone: OWNER_PHONE,
+    content: 'legacy test record',
+    image_object_key: 'fixtures/STAR0001/source.jpg',
+    blockchain_hash: 'legacy-star-proof',
+    chain_status: 'confirmed',
+    manifest_object_key: 'fixtures/STAR0001/manifest.json',
+    archive_index_object_key: 'fixtures/STAR0001/index.json',
+    archive_status: 'ready',
+    activated_at: '2026-08-12T00:00:00.000Z',
+    created_at: '2026-08-12T00:00:00.000Z',
+    updated_at: '2026-08-12T00:00:00.000Z'
+  });
   return source;
 }
 
@@ -699,4 +738,90 @@ test('controlled privacy reproof requires exact provider and provenance gates', 
   assert.equal(config.enabled, true);
   assert.equal(config.scope, 'allowlist');
   assert.deepEqual([...config.allowlist].sort(), options.qrIds);
+});
+
+test('clean baseline planning is explicit and path/hash guarded', () => {
+  assert.throws(
+    () => parseCleanBaselineArguments([]),
+    (error) => error.code === 'CLEAN_BASELINE_PLAN_ONLY_REQUIRED'
+  );
+  assert.throws(
+    () => parseCleanBaselineArguments(['--plan-only']),
+    (error) => error.code === 'CLEAN_BASELINE_ABSOLUTE_PATH_REQUIRED'
+  );
+  const options = parseCleanBaselineArguments([
+    '--plan-only',
+    '--source=/tmp/source.json',
+    '--candidate=/tmp/candidate.json',
+    '--preparation-report=/tmp/preparation.json',
+    `--expected-source-sha256=${'1'.repeat(64)}`,
+    `--expected-candidate-sha256=${'2'.repeat(64)}`,
+    `--expected-candidate-domain-sha256=${'3'.repeat(64)}`,
+    '--exclude-qr-ids=STAR0001',
+    '--retained-privacy-qr-ids=SSS00003,SSS00008,SSS00009'
+  ]);
+  assert.deepEqual(options.excludedQrIds, ['STAR0001']);
+  assert.deepEqual(options.retainedPrivacyQrIds, [
+    'SSS00003', 'SSS00008', 'SSS00009'
+  ]);
+});
+
+test('clean baseline plan removes the invalid test QR and proves import readiness', () => {
+  const source = cleanBaselineSourceFixture();
+  const sourceHash = sha256(Buffer.from(JSON.stringify(source), 'utf8'));
+  const prepared = prepareSource({
+    source,
+    sourceHash,
+    expectedQrIds: ['SSS00003', 'SSS00008', 'SSS00009'],
+    remediatedAt: '2026-08-12T01:02:03.000Z'
+  });
+  const candidate = JSON.parse(prepared.serialized);
+  const report = buildCleanBaseline({
+    source,
+    candidate,
+    preparationReport: prepared.report,
+    expectedSourceSha256: sourceHash,
+    expectedCandidateSha256: prepared.report.candidate_source_sha256,
+    expectedCandidateDomainSha256:
+      prepared.report.candidate_public_qr_domain_sha256,
+    excludedQrIds: ['STAR0001'],
+    retainedPrivacyQrIds: ['SSS00003', 'SSS00008', 'SSS00009']
+  });
+
+  assert.equal(report.status, 'READY');
+  assert.equal(report.mode, 'plan-only');
+  assert.deepEqual(report.excluded_qr_ids, ['STAR0001']);
+  assert.equal(report.candidate_counts.qr_codes, 4);
+  assert.equal(report.target_counts.qr_codes, 3);
+  assert.equal(report.removed_counts.qr_codes, 1);
+  assert.equal(report.removed_counts.records, 1);
+  assert.equal(report.removed_counts.record_proofs, 1);
+  assert.equal(report.removed_counts.record_archives, 1);
+  assert.equal(report.target_import_status, 'READY');
+  assert.deepEqual(report.target_blocked_reasons, []);
+  assert.equal(report.target_privacy_finding_count, 0);
+  assert.equal(report.rollback_requirements.current_postgres_backup_required_before_apply, true);
+  assert.equal(report.rollback_requirements.live_json_backup_required_before_apply, true);
+  assert.equal(report.rollback_requirements.provider_reproof_planned, false);
+  assert.equal(report.production_database_access, 'NONE');
+  assert.equal(report.target_baseline_persisted, false);
+  const serializedReport = JSON.stringify(report);
+  assert.doesNotMatch(serializedReport, new RegExp(OTHER_PHONE));
+  assert.doesNotMatch(serializedReport, new RegExp(PRIVATE_PHRASE));
+  assert.doesNotMatch(serializedReport, /fixtures\/STAR0001/);
+
+  assert.throws(
+    () => buildCleanBaseline({
+      source,
+      candidate,
+      preparationReport: prepared.report,
+      expectedSourceSha256: sourceHash,
+      expectedCandidateSha256: prepared.report.candidate_source_sha256,
+      expectedCandidateDomainSha256:
+        prepared.report.candidate_public_qr_domain_sha256,
+      excludedQrIds: ['SSS00003'],
+      retainedPrivacyQrIds: ['SSS00003', 'SSS00008', 'SSS00009']
+    }),
+    (error) => error.code === 'CLEAN_BASELINE_SCOPE_OVERLAP'
+  );
 });

@@ -2446,10 +2446,67 @@ test('stable-scope integration runner is disposable, serialized, and production-
   assert.match(source, /QR_ISSUANCE_POSTGRES_AUTHORITY_SOURCE_SHA256/);
   assert.match(source, /QR_ISSUANCE_POSTGRES_AUTHORITY_DOMAIN_SHA256/);
   assert.match(source, /RECORD_PROOF_RUNTIME_DOMAIN_SHA256/);
-  assert.match(source, /NEXT_ACTION=RUN_CONTROLLED_PRIVACY_APPLY_AND_REPROOF/);
+  assert.match(source, /NEXT_ACTION=RUN_CLEAN_POSTGRES_BASELINE_PLAN/);
   assert.equal(
     packageJson.scripts['test:postgres:stable-scope'],
     'bash scripts/database/run-stable-scope-integration.sh'
+  );
+});
+
+test('clean PostgreSQL baseline planner is exact-scope, read-only, and value-free', () => {
+  const packageJson = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'package.json'),
+    'utf8'
+  ));
+  const planner = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/database/plan-clean-postgres-baseline.js'
+    ),
+    'utf8'
+  );
+  const runner = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/database/run-clean-postgres-baseline-plan.sh'
+    ),
+    'utf8'
+  );
+
+  assert.match(planner, /DEFAULT_EXCLUDED_QR_IDS = Object\.freeze\(\['STAR0001'\]\)/);
+  assert.match(planner, /'SSS00003',[\s\S]*'SSS00008',[\s\S]*'SSS00009'/);
+  assert.match(planner, /CLEAN_BASELINE_PLAN_ONLY_REQUIRED/);
+  assert.match(planner, /target_baseline_persisted: false/);
+  assert.match(planner, /production_database_access: 'NONE'/);
+  assert.match(planner, /external_provider_calls: 'NONE'/);
+  assert.doesNotMatch(
+    planner,
+    /child_process|createPostgresPool|\bpsql\b|ali-oss|avataService|fs\.renameSync/
+  );
+
+  assert.match(
+    runner,
+    /EXPECTED_SOURCE_SHA=f263df13b5c19f91b0f86d93960f6b26896f3ed605318c73dd8546d110b06cfd/
+  );
+  assert.match(
+    runner,
+    /EXPECTED_CANDIDATE_SHA=93def24ee6dd4de63fd4ebf776a0a2056d2563df492727231b8f6de08ec0c7ee/
+  );
+  assert.match(runner, /EXPECTED_EXCLUDED_QR_IDS=STAR0001/);
+  assert.match(runner, /EXPECTED_PRIVACY_QR_IDS=SSS00003,SSS00008,SSS00009/);
+  assert.match(runner, /--plan-only/);
+  assert.match(runner, /target_counts\.qr_codes, 103/);
+  assert.match(runner, /PRODUCTION_DATABASE_ACCESS=NONE/);
+  assert.match(runner, /PRODUCTION_JSON_WRITE=NONE/);
+  assert.match(runner, /EXTERNAL_PROVIDER_CALLS=NONE/);
+  assert.match(runner, /NEXT_ACTION=REVIEW_CLEAN_BASELINE_PLAN/);
+  assert.doesNotMatch(
+    runner,
+    /\bpsql\b|pm2\s+(?:stop|restart|reload|save)|dropdb|createdb|AVATA_API_KEY=|AVATA_API_SECRET=/
+  );
+  assert.equal(
+    packageJson.scripts['baseline:plan:clean-postgres'],
+    'bash scripts/database/run-clean-postgres-baseline-plan.sh'
   );
 });
 

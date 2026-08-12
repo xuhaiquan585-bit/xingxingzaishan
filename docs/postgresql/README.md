@@ -831,3 +831,26 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   complete and resumes without deleting attempts or resubmitting completed
   jobs. External side effects are not described as rollbackable; deterministic
   manifest/operation IDs and durable outbox state provide idempotent recovery.
+
+### Selected clean PostgreSQL baseline route
+
+- The selected pre-launch route does not reproof the three historical test
+  records in production. The controlled apply/reproof runner remains available
+  for a future requirement to preserve their complete proof history, but it is
+  not the current migration action.
+- `npm run baseline:plan:clean-postgres` is the root-only, plan-only gate. It
+  reads the immutable production snapshot, the exact privacy-clean candidate,
+  and its preparation report. It does not connect to PostgreSQL, write the live
+  JSON file, access OSS, call the proof provider, or restart PM2.
+- The plan retains the redacted `SSS00003`, `SSS00008`, and `SSS00009` records
+  without their superseded proof/archive references and excludes only the
+  invalid unissued/lifecycle test row `STAR0001`. It then proves the resulting
+  103-QR source is import-ready, privacy-clean, and domain-hash reproducible.
+- The plan persists only a root-owned, mode-`600`, value-free report containing
+  exact scope, collection counts, fingerprints, target hashes, and backup
+  requirements. It never persists the generated target source.
+- A reviewed plan is followed by a separate guarded rebuild command: take
+  immutable JSON and PostgreSQL backups, import the planned source into a clean
+  PostgreSQL database, validate parity, and keep the JSON runtime default-off.
+  A newly issued PostgreSQL-only QR must pass the complete H5, miniapp,
+  lifecycle, personal-record, and proof-worker path before coordinated cutover.
