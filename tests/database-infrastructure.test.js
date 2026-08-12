@@ -2788,6 +2788,9 @@ test('maintenance cutover preparation is read-only and cannot enter prewrite', (
   assert.match(runner, /TARGET_STATE=POSTGRES_AUTHORITY_PREWRITE/);
   assert.match(runner, /CURRENT_PREFLIGHT_SUMMARY_NOT_FOUND/);
   assert.match(runner, /CURRENT_JOINT_SUMMARY_NOT_FOUND/);
+  assert.match(runner, /git merge-base --is-ancestor "\$JOINT_HEAD" HEAD/);
+  assert.match(runner, /JOINT_EVIDENCE_STALE/);
+  assert.match(runner, /\^\(src\/server\//);
   assert.match(runner, /POSTGRES_ONLY_PROOF_OUTBOX=PASS/);
   assert.match(runner, /PROOF_WORKER_RUNTIME=DISABLED/);
   assert.match(runner, /default_transaction_read_only=on/);

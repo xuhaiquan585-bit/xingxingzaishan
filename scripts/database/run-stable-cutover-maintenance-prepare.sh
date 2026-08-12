@@ -86,6 +86,25 @@ latest_matching_summary() {
   return 1
 }
 
+latest_joint_summary() {
+  local file
+  while IFS= read -r file; do
+    if grep -qx 'CLEAN_CANDIDATE_COORDINATED_JOINT_REHEARSAL=PASS' "$file" &&
+       grep -qx "VALIDATED_SOURCE_SHA256=$EXPECTED_SOURCE_SHA" "$file" &&
+       grep -qx "VALIDATED_PLAN_SHA256=$EXPECTED_PLAN_SHA" "$file" &&
+       grep -qx "VALIDATED_DOMAIN_SHA256=$EXPECTED_DOMAIN_SHA" "$file"; then
+      printf '%s\n' "$file"
+      return 0
+    fi
+  done < <(
+    find "$JOINT_ROOT" -mindepth 2 -maxdepth 2 -type f \
+      -name validation-summary.txt -printf '%T@|%p\n' |
+      sort -nr |
+      cut -d'|' -f2-
+  )
+  return 1
+}
+
 assert_protected_file() {
   local file="$1"
   [ -f "$file" ] && [ ! -L "$file" ] || return 1
@@ -138,10 +157,7 @@ PREFLIGHT_SUMMARY="$(latest_matching_summary \
   "$PREFLIGHT_ROOT" \
   'STABLE_CUTOVER_PREFLIGHT_STATUS=READY_FOR_POSTGRES_MAINTENANCE_WINDOW' \
   "$HEAD")" || fail CURRENT_PREFLIGHT_SUMMARY_NOT_FOUND
-JOINT_SUMMARY="$(latest_matching_summary \
-  "$JOINT_ROOT" \
-  'CLEAN_CANDIDATE_COORDINATED_JOINT_REHEARSAL=PASS' \
-  "$HEAD")" || fail CURRENT_JOINT_SUMMARY_NOT_FOUND
+JOINT_SUMMARY="$(latest_joint_summary)" || fail CURRENT_JOINT_SUMMARY_NOT_FOUND
 for FILE in "$PREFLIGHT_SUMMARY" "$JOINT_SUMMARY"; do
   assert_protected_file "$FILE" || fail EVIDENCE_FILE_INVALID
 done
@@ -159,6 +175,14 @@ grep -qx 'PROOF_WORKER_RUNTIME=DISABLED' "$JOINT_SUMMARY" || \
   fail JOINT_PROOF_RUNTIME_INVALID
 grep -qx 'EXTERNAL_PROVIDER_CALLS=NONE' "$JOINT_SUMMARY" || \
   fail JOINT_EXTERNAL_PROVIDER_INVALID
+JOINT_HEAD="$(summary_value VALIDATED_HEAD "$JOINT_SUMMARY")"
+[ -n "$JOINT_HEAD" ] || fail JOINT_HEAD_MISSING
+git cat-file -e "${JOINT_HEAD}^{commit}" || fail JOINT_HEAD_INVALID
+git merge-base --is-ancestor "$JOINT_HEAD" HEAD || fail JOINT_HEAD_NOT_ANCESTOR
+if git diff --name-only "$JOINT_HEAD"..HEAD |
+   grep -Eq '^(src/server/|scripts/database/run-clean-postgres-candidate-e2e\.sh$|tests/postgresql-clean-candidate\.e2e\.test\.js$)'; then
+  fail JOINT_EVIDENCE_STALE
+fi
 
 PREFLIGHT_DIR="$(dirname "$PREFLIGHT_SUMMARY")"
 DATABASE_BACKUP="$PREFLIGHT_DIR/clean-candidate.dump"
