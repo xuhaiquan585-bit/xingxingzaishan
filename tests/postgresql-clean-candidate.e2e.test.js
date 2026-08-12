@@ -300,7 +300,7 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
     const preProofState = await pool.query(
       `SELECT
          qr.lifecycle_status,
-         record.owner_account_id,
+         record.account_id AS owner_account_id,
          proof.status AS proof_status,
          job.status AS outbox_status,
          identity.openid
@@ -308,7 +308,7 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
        JOIN app.records record ON record.qr_id = qr.id
        JOIN app.record_proofs proof ON proof.record_qr_id = qr.id
        JOIN app.outbox_jobs job ON job.aggregate_id = qr.id
-       JOIN app.users identity ON identity.account_id = record.owner_account_id
+       JOIN app.users identity ON identity.account_id = record.account_id
        WHERE qr.id = $1`,
       [TEST_QR_ID]
     );
