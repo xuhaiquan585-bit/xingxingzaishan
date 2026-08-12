@@ -19,6 +19,7 @@ RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 AUDIT_DIR="$AUDIT_ROOT/$RUN_ID"
 TEST_LOG="$AUDIT_DIR/postgresql-candidate-e2e.log"
 SUMMARY="$AUDIT_DIR/validation-summary.txt"
+JSON_BASELINE="$AUDIT_DIR/json-authority-baseline.json"
 RUNTIME_ROOT="$AUDIT_DIR/runtime-storage"
 QR_IMAGE_DIR="$RUNTIME_ROOT/public/qrcodes"
 LOCK_FILE=/run/lock/xingxingzaishan-clean-candidate-e2e.lock
@@ -92,6 +93,18 @@ candidate_state() {
            ORDER BY completed_at DESC LIMIT 1);"
 }
 
+public_domain_hash() {
+  /usr/local/bin/node - "$1" <<'NODE'
+const fs = require('node:fs');
+const {
+  publicQrDomainSha256FromSource
+} = require('./scripts/database/importer/domain-markers');
+
+const source = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+process.stdout.write(publicQrDomainSha256FromSource(source));
+NODE
+}
+
 cleanup_runtime_storage() {
   if [ -d "$RUNTIME_ROOT" ]; then
     find "$RUNTIME_ROOT" -type f -delete
@@ -113,6 +126,7 @@ cleanup() {
   unset RUN_CLEAN_POSTGRES_CANDIDATE_E2E DB_FILE AUTH_SECRET STORAGE_MODE
   unset PUBLIC_QR_POSTGRES_READ_ENABLED PUBLIC_QR_POSTGRES_READ_SCOPE
   unset PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256
+  unset POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256
   unset QR_LIFECYCLE_POSTGRES_WRITE_ENABLED QR_LIFECYCLE_POSTGRES_WRITE_SCOPE
   unset QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256
   unset PERSONAL_RECORD_POSTGRES_READ_ENABLED PERSONAL_RECORD_POSTGRES_READ_SCOPE
@@ -131,6 +145,8 @@ cleanup() {
   unset CLEAN_CANDIDATE_EXPECTED_SOURCE_SHA256
   unset CLEAN_CANDIDATE_EXPECTED_PLAN_SHA256
   unset CLEAN_CANDIDATE_EXPECTED_DOMAIN_SHA256
+  unset CLEAN_CANDIDATE_EXPECTED_BASELINE_SOURCE_SHA256
+  unset CLEAN_CANDIDATE_EXPECTED_BASELINE_DOMAIN_SHA256
 
   if [ "$RESOURCES_OWNED" = true ]; then
     runuser -u postgres -- /usr/pgsql-15/bin/psql -X -d postgres \
@@ -165,6 +181,8 @@ cleanup() {
     "$EXPECTED_JSON_SHA" ] || cleanup_status=1
   [ "$(sha256sum "$SOURCE_ARTIFACT" | awk '{print $1}')" = \
     "$EXPECTED_SOURCE_SHA" ] || cleanup_status=1
+  [ "$(sha256sum "$JSON_BASELINE" | awk '{print $1}')" = \
+    "$EXPECTED_JSON_SHA" ] || cleanup_status=1
 
   app_pid_after="$(pm2 pid xingxingzaishan | tail -n 1)"
   [ -n "$app_pid_after" ] || cleanup_status=1
@@ -198,6 +216,8 @@ cleanup() {
       "VALIDATED_SOURCE_SHA256=$EXPECTED_SOURCE_SHA" \
       "VALIDATED_PLAN_SHA256=$EXPECTED_PLAN_SHA" \
       "VALIDATED_DOMAIN_SHA256=$EXPECTED_DOMAIN_SHA" \
+      "VALIDATED_BASELINE_SOURCE_SHA256=$EXPECTED_JSON_SHA" \
+      "VALIDATED_BASELINE_DOMAIN_SHA256=$BASELINE_DOMAIN_SHA" \
       "TEST_LOG_SHA256=$(sha256sum "$TEST_LOG" | awk '{print $1}')" \
       "VALIDATED_AT_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       > "$SUMMARY"
@@ -276,6 +296,12 @@ install -d -o root -g root -m 0700 \
   "$AUDIT_ROOT" "$AUDIT_DIR" "$RUNTIME_ROOT" \
   "$RUNTIME_ROOT/public" "$QR_IMAGE_DIR"
 install -o root -g root -m 0600 /dev/null "$TEST_LOG"
+install -o root -g root -m 0600 src/server/data/db.json "$JSON_BASELINE"
+BASELINE_DOMAIN_SHA="$(public_domain_hash "$JSON_BASELINE")"
+[[ "$BASELINE_DOMAIN_SHA" =~ ^[a-f0-9]{64}$ ]] || \
+  fail BASELINE_DOMAIN_HASH_INVALID
+[ "$BASELINE_DOMAIN_SHA" != "$EXPECTED_DOMAIN_SHA" ] || \
+  fail HANDOFF_DOMAINS_MUST_DIFFER
 exec 9>"$LOCK_FILE"
 flock -n 9 || fail ALREADY_RUNNING
 
@@ -309,7 +335,7 @@ set +a
 
 export NODE_ENV=test
 export RUN_CLEAN_POSTGRES_CANDIDATE_E2E=true
-export DB_FILE="$SOURCE_ARTIFACT"
+export DB_FILE="$JSON_BASELINE"
 export AUTH_SECRET=clean-candidate-e2e-secret
 export STORAGE_MODE=local
 export BASE_URL=https://clean-candidate.invalid
@@ -319,6 +345,7 @@ export IDENTITY_SHADOW_READ_ENABLED=false
 export PUBLIC_QR_POSTGRES_READ_ENABLED=true
 export PUBLIC_QR_POSTGRES_READ_SCOPE=all
 export PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256="$EXPECTED_DOMAIN_SHA"
+export POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256="$BASELINE_DOMAIN_SHA"
 export QR_LIFECYCLE_POSTGRES_WRITE_ENABLED=true
 export QR_LIFECYCLE_POSTGRES_WRITE_SCOPE=all
 export QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256="$EXPECTED_DOMAIN_SHA"
@@ -344,6 +371,8 @@ unset AVATA_IDENTITY_NAME AVATA_IDENTITY_NUM
 export CLEAN_CANDIDATE_EXPECTED_SOURCE_SHA256="$EXPECTED_SOURCE_SHA"
 export CLEAN_CANDIDATE_EXPECTED_PLAN_SHA256="$EXPECTED_PLAN_SHA"
 export CLEAN_CANDIDATE_EXPECTED_DOMAIN_SHA256="$EXPECTED_DOMAIN_SHA"
+export CLEAN_CANDIDATE_EXPECTED_BASELINE_SOURCE_SHA256="$EXPECTED_JSON_SHA"
+export CLEAN_CANDIDATE_EXPECTED_BASELINE_DOMAIN_SHA256="$BASELINE_DOMAIN_SHA"
 unset WECHAT_MINIAPP_APPID WECHAT_MINIAPP_SECRET
 
 node --test tests/postgresql-clean-candidate.e2e.test.js > "$TEST_LOG" 2>&1

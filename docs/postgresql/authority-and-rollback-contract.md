@@ -48,6 +48,12 @@ The coordinated PostgreSQL runtime is enabled, but no PostgreSQL-only business
 write has committed. Existing H5 and miniapp routes must pass the complete
 read-only acceptance suite.
 
+During this state, the checked-out mapping code pins two independent hashes:
+the current JSON authority baseline and the clean PostgreSQL target domain.
+Route context must match the former, while PostgreSQL provenance and canonical
+migrations must match the latter. An intentional privacy or legacy-data delta
+therefore does not weaken either check or require the two domains to be equal.
+
 Rollback to `JSON_AUTHORITY` is still allowed in this state because JSON has not
 missed a committed business mutation.
 
@@ -115,6 +121,11 @@ Stable `scope=all` settings must not carry a static allowlist. While AVATA is
 outside the PostgreSQL migration scope, the same file must explicitly set
 `RECORD_PROOF_RUNTIME_ENABLED=false` and must not include proof-worker scope,
 provider credentials, or callback configuration.
+
+The file must also contain the preflight-pinned
+`POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256`. Public read, personal read, and
+lifecycle write compare JSON-derived route context to that baseline; their
+individual domain selectors continue to identify the PostgreSQL target.
 
 The stable configuration must never be assembled by mixing old controlled
 cohort files. PM2 saves it only after the coordinated acceptance passes.

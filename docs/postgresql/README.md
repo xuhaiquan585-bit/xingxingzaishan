@@ -894,6 +894,13 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   successful joint-rehearsal evidence, and the still-default-off production
   runtime. Candidate access uses a read-only session with a bounded statement
   timeout.
+- The current JSON authority domain and the clean PostgreSQL candidate domain
+  are separate transition invariants. The preflight calculates the JSON
+  baseline with the checked-out mapping code, pins it as
+  `POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256`, and independently pins the clean
+  candidate domain on each PostgreSQL boundary. A route must match the former;
+  PostgreSQL provenance and migrations must match the latter. Neither check is
+  relaxed when the two domains intentionally differ.
 - It creates a root-owned candidate `pg_dump`, validates its `pg_restore --list`
   inventory, snapshots the current JSON authority, and writes a separate
   value-free selector proposal. The proposal enables public read, personal
@@ -940,6 +947,10 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   for one public H5 and miniapp QR response. It persists only SHA-256 values,
   strips signed URL query churn, schedules a 15-minute systemd auto-off, and
   only then restarts PM2 with the five `scope=all` PostgreSQL boundaries.
+- The protected plan carries both the JSON baseline domain and PostgreSQL
+  target domain. The runner recomputes the live JSON baseline before entry,
+  verifies the shared baseline selector in the restarted process, and reports
+  a failing fingerprint channel/status without persisting its response body.
 - `POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED=true` is mandatory throughout
   prewrite. Reads are compared with the JSON fingerprints while all mutating
   HTTP methods return `503 POSTGRES_CUTOVER_WRITE_FROZEN`. The proof runtime and

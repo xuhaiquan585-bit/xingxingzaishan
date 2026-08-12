@@ -16,6 +16,7 @@ const {
 } = require('../src/server/services/postgres/personalRecordPrimaryReadRuntime');
 
 const DOMAIN_HASH = 'a'.repeat(64);
+const BASELINE_DOMAIN_HASH = 'c'.repeat(64);
 
 function enabledConfig(overrides = {}) {
   return {
@@ -25,6 +26,7 @@ function enabledConfig(overrides = {}) {
     scope: 'allowlist',
     allowlist: new Set(['ACC000002']),
     domainHash: DOMAIN_HASH,
+    baselineDomainHash: DOMAIN_HASH,
     timeoutMs: 500,
     ...overrides
   };
@@ -68,6 +70,12 @@ test('personal record primary config is strict, account-scoped, and default-off'
     PERSONAL_RECORD_POSTGRES_READ_ALLOWLIST: 'ACC000002',
     PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH
   }).reason, 'ALLOWLIST_FORBIDDEN_FOR_ALL_SCOPE');
+  assert.equal(readPersonalRecordPrimaryReadConfig({
+    PERSONAL_RECORD_POSTGRES_READ_ENABLED: 'true',
+    PERSONAL_RECORD_POSTGRES_READ_SCOPE: 'all',
+    PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH,
+    POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256: 'invalid'
+  }).reason, 'BASELINE_DOMAIN_SHA256_INVALID');
 
   const config = readPersonalRecordPrimaryReadConfig({
     PERSONAL_RECORD_POSTGRES_READ_ENABLED: 'true',
@@ -78,18 +86,21 @@ test('personal record primary config is strict, account-scoped, and default-off'
   assert.equal(config.scope, 'allowlist');
   assert.deepEqual([...config.allowlist], ['ACC000002', 'ACC000003']);
   assert.equal(config.domainHash, DOMAIN_HASH);
+  assert.equal(config.baselineDomainHash, DOMAIN_HASH);
 });
 
 test('personal record primary all scope is explicit and needs no static account list', () => {
   const config = readPersonalRecordPrimaryReadConfig({
     PERSONAL_RECORD_POSTGRES_READ_ENABLED: 'true',
     PERSONAL_RECORD_POSTGRES_READ_SCOPE: 'all',
-    PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH
+    PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH,
+    POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256: BASELINE_DOMAIN_HASH
   });
   assert.equal(config.enabled, true);
   assert.equal(config.scope, 'all');
   assert.equal(config.allowlist.size, 0);
   assert.equal(config.domainHash, DOMAIN_HASH);
+  assert.equal(config.baselineDomainHash, BASELINE_DOMAIN_HASH);
 });
 
 test('personal primary controller stays lazy for default-off and account misses', async () => {
@@ -116,7 +127,11 @@ test('personal primary controller stays lazy for default-off and account misses'
 test('personal primary all scope selects a future canonical account ID', async () => {
   let runtimeCalls = 0;
   const controller = createPersonalRecordPrimaryReadController({
-    readConfig: () => enabledConfig({ scope: 'all', allowlist: new Set() }),
+    readConfig: () => enabledConfig({
+      scope: 'all',
+      allowlist: new Set(),
+      baselineDomainHash: BASELINE_DOMAIN_HASH
+    }),
     runtimeFactory: (config) => {
       runtimeCalls += 1;
       assert.equal(config.scope, 'all');
@@ -128,7 +143,7 @@ test('personal primary all scope selects a future canonical account ID', async (
   });
   assert.deepEqual(await controller.read({
     accountId: 'ACC_FUTURE_0001',
-    domainHash: DOMAIN_HASH,
+    domainHash: BASELINE_DOMAIN_HASH,
     readKind: 'list'
   }), {
     selected: true,

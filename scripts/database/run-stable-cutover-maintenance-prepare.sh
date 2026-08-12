@@ -118,6 +118,18 @@ summary_value() {
   sed -n "s/^${key}=//p" "$file" | tail -n 1
 }
 
+public_domain_hash() {
+  /usr/local/bin/node - "$1" <<'NODE'
+const fs = require('node:fs');
+const {
+  publicQrDomainSha256FromSource
+} = require('./scripts/database/importer/domain-markers');
+
+const source = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+process.stdout.write(publicQrDomainSha256FromSource(source));
+NODE
+}
+
 [ "${1:-}" = --prepare ] || fail EXPLICIT_PREPARE_MODE_REQUIRED
 [ "$#" -eq 1 ] || fail ARGUMENT_INVALID
 [ "$(id -u)" -eq 0 ] || fail ROOT_REQUIRED
@@ -198,11 +210,20 @@ done
 DATABASE_BACKUP_SHA="$(summary_value CANDIDATE_DATABASE_BACKUP_SHA256 "$PREFLIGHT_SUMMARY")"
 JSON_BACKUP_SHA="$(summary_value JSON_AUTHORITY_BACKUP_SHA256 "$PREFLIGHT_SUMMARY")"
 SELECTOR_CONFIG_SHA="$(summary_value STABLE_SELECTOR_CONFIG_SHA256 "$PREFLIGHT_SUMMARY")"
+BASELINE_DOMAIN_SHA="$(
+  summary_value JSON_AUTHORITY_BASELINE_DOMAIN_SHA256 "$PREFLIGHT_SUMMARY"
+)"
+[[ "$BASELINE_DOMAIN_SHA" =~ ^[a-f0-9]{64}$ ]] || \
+  fail BASELINE_DOMAIN_HASH_INVALID
 [ "$(sha256sum "$DATABASE_BACKUP" | awk '{print $1}')" = "$DATABASE_BACKUP_SHA" ] || \
   fail DATABASE_BACKUP_HASH_MISMATCH
 [ "$(sha256sum "$JSON_BACKUP" | awk '{print $1}')" = "$JSON_BACKUP_SHA" ] || \
   fail JSON_BACKUP_HASH_MISMATCH
 [ "$JSON_BACKUP_SHA" = "$EXPECTED_JSON_SHA" ] || fail JSON_BACKUP_SOURCE_MISMATCH
+[ "$(public_domain_hash "$JSON_BACKUP")" = "$BASELINE_DOMAIN_SHA" ] || \
+  fail JSON_BACKUP_BASELINE_DOMAIN_MISMATCH
+[ "$(public_domain_hash src/server/data/db.json)" = "$BASELINE_DOMAIN_SHA" ] || \
+  fail LIVE_JSON_BASELINE_DOMAIN_MISMATCH
 [ "$(sha256sum "$SELECTOR_CONFIG" | awk '{print $1}')" = "$SELECTOR_CONFIG_SHA" ] || \
   fail SELECTOR_CONFIG_HASH_MISMATCH
 grep -q 'TABLE DATA app qr_codes' "$BACKUP_LIST" || fail BACKUP_QR_DATA_MISSING
@@ -212,6 +233,7 @@ grep -q 'TABLE DATA app records' "$BACKUP_LIST" || fail BACKUP_RECORD_DATA_MISSI
   --config="$SELECTOR_CONFIG" \
   --expected-source-sha256="$EXPECTED_SOURCE_SHA" \
   --expected-domain-sha256="$EXPECTED_DOMAIN_SHA" \
+  --expected-baseline-domain-sha256="$BASELINE_DOMAIN_SHA" \
   >/dev/null
 
 unset DATABASE_URL PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE
@@ -267,7 +289,7 @@ done
 
 PREPARED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 cat > "$PLAN_FILE" <<EOF
-PLAN_VERSION=1
+PLAN_VERSION=2
 PLAN_ID=$RUN_ID
 START_STATE=JSON_AUTHORITY
 TARGET_STATE=POSTGRES_AUTHORITY_PREWRITE
@@ -277,6 +299,7 @@ EXPECTED_JSON_SHA256=$EXPECTED_JSON_SHA
 EXPECTED_SOURCE_SHA256=$EXPECTED_SOURCE_SHA
 EXPECTED_PLAN_SHA256=$EXPECTED_PLAN_SHA
 EXPECTED_DOMAIN_SHA256=$EXPECTED_DOMAIN_SHA
+EXPECTED_BASELINE_DOMAIN_SHA256=$BASELINE_DOMAIN_SHA
 CANDIDATE_DATABASE=$CANDIDATE_DB
 CANDIDATE_ENVIRONMENT=$CANDIDATE_ENV
 CANDIDATE_ENVIRONMENT_SHA256=$(sha256sum "$CANDIDATE_ENV" | awk '{print $1}')
@@ -303,6 +326,7 @@ printf '%s\n' \
   'AUTO_OFF_CAPABILITY=PASS' \
   'ROLLBACK_BEFORE_COMMIT=JSON_ALLOWED' \
   'POSTGRES_AUTHORITY_BOUNDARY_COUNT=5' \
+  "JSON_AUTHORITY_BASELINE_DOMAIN_SHA256=$BASELINE_DOMAIN_SHA" \
   'RECORD_PROOF_RUNTIME_ENABLED=false' \
   'AVATA_CONFIGURATION_LOADED=NO' \
   'EXTERNAL_PROVIDER_CALLS=NONE' \

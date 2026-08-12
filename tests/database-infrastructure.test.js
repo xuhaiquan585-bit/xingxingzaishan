@@ -2593,6 +2593,9 @@ test('clean candidate E2E uses a disposable clone and forbids external providers
   assert.match(runner, /CLEAN_CANDIDATE_EXISTING_H5_ROUTES=PASS/);
   assert.match(runner, /CLEAN_CANDIDATE_EXISTING_MINIAPP_ROUTES=PASS/);
   assert.match(runner, /CLEAN_CANDIDATE_EXISTING_DATA_UNCHANGED=PASS/);
+  assert.match(runner, /json-authority-baseline\.json/);
+  assert.match(runner, /POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256/);
+  assert.match(runner, /HANDOFF_DOMAINS_MUST_DIFFER/);
   assert.match(runner, /NEXT_ACTION=PREPARE_STABLE_CUTOVER_PREFLIGHT/);
   assert.match(e2e, /EXTERNAL_FETCH_FORBIDDEN_IN_CANDIDATE_E2E/);
   assert.match(e2e, /CLEAN_CANDIDATE_EXTERNAL_FETCH_CALLS=0/);
@@ -2600,6 +2603,7 @@ test('clean candidate E2E uses a disposable clone and forbids external providers
   assert.match(e2e, /CLEAN_CANDIDATE_EXISTING_MINIAPP_ROUTES=PASS/);
   assert.match(e2e, /CLEAN_CANDIDATE_EXISTING_DATA_UNCHANGED=PASS/);
   assert.match(e2e, /CLEAN_CANDIDATE_COORDINATED_JOINT_REHEARSAL=PASS/);
+  assert.match(e2e, /EXPECTED_BASELINE_DOMAIN_SHA256/);
   assert.match(e2e, /qr\.access_token AS qr_access_token/);
   assert.doesNotMatch(e2e, /qr\.qr_access_token/);
   assert.match(e2e, /\/api\/admin\/qr\/generate/);
@@ -2651,6 +2655,7 @@ test('stable cutover preflight is read-only, unified, and authority-commit safe'
   assert.match(runner, /QR_LIFECYCLE_POSTGRES_WRITE_SCOPE=all/);
   assert.match(runner, /IDENTITY_POSTGRES_AUTHORITY_SCOPE=all/);
   assert.match(runner, /QR_ISSUANCE_POSTGRES_AUTHORITY_SCOPE=all/);
+  assert.match(runner, /POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256=/);
   assert.match(runner, /RECORD_PROOF_RUNTIME_ENABLED=false/);
   assert.doesNotMatch(runner, /RECORD_PROOF_RUNTIME_SCOPE=/);
   assert.doesNotMatch(runner, /RECORD_PROOF_WORKER_ID=/);
@@ -2691,10 +2696,12 @@ test('stable cutover selector validator requires five database boundaries and di
   const configPath = path.join(temporaryRoot, 'stable-selectors.env');
   const sourceHash = 'a'.repeat(64);
   const domainHash = 'b'.repeat(64);
+  const baselineDomainHash = 'c'.repeat(64);
   const config = [
     'PUBLIC_QR_SHADOW_READ_ENABLED=false',
     'PERSONAL_RECORD_SHADOW_READ_ENABLED=false',
     'IDENTITY_SHADOW_READ_ENABLED=false',
+    `POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256=${baselineDomainHash}`,
     'PUBLIC_QR_POSTGRES_READ_ENABLED=true',
     'PUBLIC_QR_POSTGRES_READ_SCOPE=all',
     `PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256=${domainHash}`,
@@ -2724,7 +2731,8 @@ test('stable cutover selector validator requires five database boundaries and di
     command,
     `--config=${configPath}`,
     `--expected-source-sha256=${sourceHash}`,
-    `--expected-domain-sha256=${domainHash}`
+    `--expected-domain-sha256=${domainHash}`,
+    `--expected-baseline-domain-sha256=${baselineDomainHash}`
   ];
   const ready = spawnSync(process.execPath, args, {
     encoding: 'utf8',
@@ -2737,6 +2745,10 @@ test('stable cutover selector validator requires five database boundaries and di
   assert.equal(readyReport.all_scope_count, 5);
   assert.equal(readyReport.disabled_external_runtime_count, 1);
   assert.equal(readyReport.allowlist_count, 0);
+  assert.equal(
+    readyReport.json_authority_baseline_domain_sha256,
+    baselineDomainHash
+  );
   assert.equal(readyReport.record_proof_runtime_enabled, false);
   assert.equal(readyReport.avata_in_migration_scope, false);
   assert.equal(readyReport.external_provider_required, false);
@@ -2795,6 +2807,7 @@ test('maintenance cutover preparation is read-only and cannot enter prewrite', (
   assert.match(runner, /PROOF_WORKER_RUNTIME=DISABLED/);
   assert.match(runner, /default_transaction_read_only=on/);
   assert.match(runner, /CANDIDATE_ENVIRONMENT_SHA256=/);
+  assert.match(runner, /EXPECTED_BASELINE_DOMAIN_SHA256=/);
   assert.match(runner, /READ_ONLY_TRANSACTION_XID/);
   assert.match(runner, /AUTO_OFF_CAPABILITY=PASS/);
   assert.match(runner, /ROLLBACK_BEFORE_COMMIT=JSON_ALLOWED/);
@@ -2849,6 +2862,7 @@ test('stable cutover prewrite is explicit, frozen, fingerprinted, and auto-off',
   assert.match(runner, /POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED=true/);
   assert.match(runner, /RECORD_PROOF_RUNTIME_ENABLED=false/);
   assert.match(runner, /POSTGRES_AUTHORITY_BOUNDARY_COUNT=5/);
+  assert.match(runner, /POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256/);
   assert.match(runner, /CANDIDATE_MUTATION_DETECTED_KEEP_POSTGRES_FROZEN/);
   assert.match(runner, /STABLE_CUTOVER_PREWRITE_PUBLIC_PARITY=PASS/);
   assert.match(runner, /PM2_CONFIGURATION_SAVED=NO/);

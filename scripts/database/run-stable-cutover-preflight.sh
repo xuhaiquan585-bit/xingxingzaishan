@@ -93,6 +93,18 @@ candidate_state() {
             WHERE status = 'passed' ORDER BY completed_at DESC LIMIT 1);"
 }
 
+public_domain_hash() {
+  /usr/local/bin/node - "$1" <<'NODE'
+const fs = require('node:fs');
+const {
+  publicQrDomainSha256FromSource
+} = require('./scripts/database/importer/domain-markers');
+
+const source = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+process.stdout.write(publicQrDomainSha256FromSource(source));
+NODE
+}
+
 [ "$(id -u)" -eq 0 ] || fail ROOT_REQUIRED
 [ "$CANDIDATE_DB" != "$LEGACY_DB" ] || fail CANDIDATE_IS_LEGACY_DATABASE
 [ "$(database_count "$CANDIDATE_DB")" = 1 ] || fail CANDIDATE_DATABASE_MISSING
@@ -112,6 +124,7 @@ grep -qx "PGDATABASE=$CANDIDATE_DB" "$CANDIDATE_ENV" || fail CANDIDATE_ENV_DATAB
 command -v flock >/dev/null 2>&1 || fail FLOCK_REQUIRED
 command -v /usr/pgsql-15/bin/pg_dump >/dev/null 2>&1 || fail PG_DUMP_REQUIRED
 command -v /usr/pgsql-15/bin/pg_restore >/dev/null 2>&1 || fail PG_RESTORE_REQUIRED
+command -v /usr/local/bin/node >/dev/null 2>&1 || fail NODE_REQUIRED
 exec 9>"$LOCK_FILE"
 flock -n 9 || fail PREFLIGHT_ALREADY_RUNNING
 
@@ -119,6 +132,8 @@ cd "$REPO"
 [ -z "$(git status --porcelain --untracked-files=no)" ] || fail TRACKED_WORKTREE_DIRTY
 [ "$(sha256sum src/server/data/db.json | awk '{print $1}')" = "$EXPECTED_JSON_SHA" ] || \
   fail LIVE_JSON_HASH_MISMATCH
+BASELINE_DOMAIN_SHA="$(public_domain_hash src/server/data/db.json)"
+[[ "$BASELINE_DOMAIN_SHA" =~ ^[a-f0-9]{64}$ ]] || fail BASELINE_DOMAIN_HASH_INVALID
 
 APP_PID="$(pm2 pid xingxingzaishan | tail -n 1)"
 [ -n "$APP_PID" ] && [ "$APP_PID" != 0 ] || fail APP_PID_MISSING
@@ -182,6 +197,8 @@ do
 done
 
 install -o root -g root -m 0600 src/server/data/db.json "$JSON_BACKUP"
+[ "$(public_domain_hash "$JSON_BACKUP")" = "$BASELINE_DOMAIN_SHA" ] || \
+  fail JSON_BACKUP_BASELINE_DOMAIN_MISMATCH
 runuser -u postgres -- /usr/pgsql-15/bin/pg_dump \
   -Fc --no-owner --no-privileges -d "$CANDIDATE_DB" > "$DATABASE_BACKUP"
 chmod 0600 "$DATABASE_BACKUP"
@@ -232,6 +249,7 @@ cat > "$SELECTOR_CONFIG" <<EOF
 PUBLIC_QR_SHADOW_READ_ENABLED=false
 PERSONAL_RECORD_SHADOW_READ_ENABLED=false
 IDENTITY_SHADOW_READ_ENABLED=false
+POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256=$BASELINE_DOMAIN_SHA
 PUBLIC_QR_POSTGRES_READ_ENABLED=true
 PUBLIC_QR_POSTGRES_READ_SCOPE=all
 PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256=$EXPECTED_DOMAIN_SHA
@@ -257,7 +275,8 @@ VALIDATOR_ARGS=(
   scripts/database/validate-stable-cutover-config.js
   --config="$SELECTOR_CONFIG" \
   --expected-source-sha256="$EXPECTED_SOURCE_SHA" \
-  --expected-domain-sha256="$EXPECTED_DOMAIN_SHA"
+  --expected-domain-sha256="$EXPECTED_DOMAIN_SHA" \
+  --expected-baseline-domain-sha256="$BASELINE_DOMAIN_SHA"
 )
 /usr/local/bin/node "${VALIDATOR_ARGS[@]}" > "$CONFIG_REPORT"
 chmod 0600 "$CONFIG_REPORT"
@@ -318,6 +337,7 @@ printf '%s\n' \
   'EXTERNAL_PROVIDER_CALLS=NONE' \
   "CANDIDATE_DATABASE_BACKUP_SHA256=$(sha256sum "$DATABASE_BACKUP" | awk '{print $1}')" \
   "JSON_AUTHORITY_BACKUP_SHA256=$(sha256sum "$JSON_BACKUP" | awk '{print $1}')" \
+  "JSON_AUTHORITY_BASELINE_DOMAIN_SHA256=$BASELINE_DOMAIN_SHA" \
   "STABLE_SELECTOR_CONFIG_SHA256=$(sha256sum "$SELECTOR_CONFIG" | awk '{print $1}')" \
   'PRODUCTION_RUNTIME_RESTARTED=NO' \
   'PRODUCTION_DATABASE_WRITE=NONE' \
@@ -342,6 +362,7 @@ echo "CANDIDATE_CONNECTIONS_BEFORE=$CANDIDATE_CONNECTIONS_BEFORE"
 echo "PREFLIGHT_REMAINING_CONNECTIONS=$REMAINING_CONNECTIONS"
 echo "APP_PID=$APP_PID"
 echo "APP_HTTP=$HTTP_CODE"
+echo "JSON_AUTHORITY_BASELINE_DOMAIN_SHA256=$BASELINE_DOMAIN_SHA"
 echo "STABLE_CUTOVER_PREFLIGHT_STATUS=$PREFLIGHT_STATUS"
 echo 'STABLE_CUTOVER_READ_ONLY_PREFLIGHT=PASS'
 echo 'PRODUCTION_RUNTIME_RESTARTED=NO'

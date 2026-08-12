@@ -40,6 +40,10 @@ const EXPECTED_PLAN_SHA256 =
   process.env.CLEAN_CANDIDATE_EXPECTED_PLAN_SHA256 || '';
 const EXPECTED_DOMAIN_SHA256 =
   process.env.CLEAN_CANDIDATE_EXPECTED_DOMAIN_SHA256 || '';
+const EXPECTED_BASELINE_SOURCE_SHA256 =
+  process.env.CLEAN_CANDIDATE_EXPECTED_BASELINE_SOURCE_SHA256 || '';
+const EXPECTED_BASELINE_DOMAIN_SHA256 =
+  process.env.CLEAN_CANDIDATE_EXPECTED_BASELINE_DOMAIN_SHA256 || '';
 const TEST_PREFIX = 'PGE2E';
 const TEST_QR_ID = `${TEST_PREFIX}00001`;
 const TEST_PHONE = '13900000992';
@@ -166,6 +170,13 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
   assert.match(EXPECTED_SOURCE_SHA256, /^[0-9a-f]{64}$/);
   assert.match(EXPECTED_PLAN_SHA256, /^[0-9a-f]{64}$/);
   assert.match(EXPECTED_DOMAIN_SHA256, /^[0-9a-f]{64}$/);
+  assert.match(EXPECTED_BASELINE_SOURCE_SHA256, /^[0-9a-f]{64}$/);
+  assert.match(EXPECTED_BASELINE_DOMAIN_SHA256, /^[0-9a-f]{64}$/);
+  assert.notEqual(EXPECTED_BASELINE_DOMAIN_SHA256, EXPECTED_DOMAIN_SHA256);
+  assert.equal(
+    process.env.POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256,
+    EXPECTED_BASELINE_DOMAIN_SHA256
+  );
   assert.equal(process.env.PUBLIC_QR_POSTGRES_READ_SCOPE, 'all');
   assert.equal(process.env.QR_LIFECYCLE_POSTGRES_WRITE_SCOPE, 'all');
   assert.equal(process.env.PERSONAL_RECORD_POSTGRES_READ_SCOPE, 'all');
@@ -178,7 +189,7 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
   assert.equal(Boolean(process.env.AVATA_API_SECRET), false);
 
   const sourceHashBefore = sha256(fs.readFileSync(process.env.DB_FILE));
-  assert.equal(sourceHashBefore, EXPECTED_SOURCE_SHA256);
+  assert.equal(sourceHashBefore, EXPECTED_BASELINE_SOURCE_SHA256);
 
   const pool = createPostgresPool({ config: readPostgresConfig(process.env) });
   const originalFetch = global.fetch;
@@ -225,7 +236,7 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
       test_prefix_count: 0,
       test_identity_count: 0
     }]);
-    const existingFixture = await loadExistingFixture(pool);
+    const existingFixture = await loadExistingFixture(pool, 'A00001');
     assert.ok(existingFixture);
     assert.match(existingFixture.id, /^[A-Z0-9]+$/);
     assert.match(existingFixture.account_id, /^ACC\d{6}$/);

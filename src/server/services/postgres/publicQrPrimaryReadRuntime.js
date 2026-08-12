@@ -154,7 +154,8 @@ function createPublicQrPrimaryReadController({
     const publicQrId = String(input.publicQrId || '').trim();
     const selectionKey = config.scope === 'all' ? input.key : publicQrId;
     if (!isSelectedByPrimaryScope(config, selectionKey)) return { selected: false };
-    if (String(input.domainHash || '') !== config.domainHash) {
+    const baselineDomainHash = config.baselineDomainHash || config.domainHash;
+    if (String(input.domainHash || '') !== baselineDomainHash) {
       throw primaryReadError('PUBLIC_QR_POSTGRES_READ_DOMAIN_MISMATCH');
     }
     if (closed) throw primaryReadError('PUBLIC_QR_POSTGRES_READ_CLOSED');

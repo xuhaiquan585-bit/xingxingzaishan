@@ -1,9 +1,13 @@
 'use strict';
 
 const { readPrimarySelectionScope } = require('./primarySelectionScope');
+const {
+  DOMAIN_HASH_PATTERN,
+  readAuthorityBaselineDomain
+} = require('./authorityBaselineDomain');
 
 const DEFAULT_TIMEOUT_MS = 500;
-const SOURCE_HASH_PATTERN = /^[a-f0-9]{64}$/;
+const SOURCE_HASH_PATTERN = DOMAIN_HASH_PATTERN;
 const PUBLIC_QR_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 function disabled(reason, { requested = false } = {}) {
@@ -14,6 +18,7 @@ function disabled(reason, { requested = false } = {}) {
     scope: null,
     allowlist: new Set(),
     domainHash: null,
+    baselineDomainHash: null,
     timeoutMs: DEFAULT_TIMEOUT_MS
   });
 }
@@ -41,6 +46,8 @@ function readPublicQrPrimaryReadConfig(env = process.env) {
   if (!SOURCE_HASH_PATTERN.test(domainHash)) {
     return disabled('DOMAIN_SHA256_REQUIRED', { requested: true });
   }
+  const baseline = readAuthorityBaselineDomain(env, domainHash);
+  if (baseline.error) return disabled(baseline.error, { requested: true });
 
   return Object.freeze({
     enabled: true,
@@ -49,6 +56,7 @@ function readPublicQrPrimaryReadConfig(env = process.env) {
     scope: selection.scope,
     allowlist: selection.allowlist,
     domainHash,
+    baselineDomainHash: baseline.baselineDomainHash,
     timeoutMs: DEFAULT_TIMEOUT_MS
   });
 }

@@ -153,7 +153,8 @@ function createPersonalRecordPrimaryReadController({
 
     const accountId = String(input.accountId || '').trim();
     if (!isSelectedByPrimaryScope(config, accountId)) return { selected: false };
-    if (String(input.domainHash || '') !== config.domainHash) {
+    const baselineDomainHash = config.baselineDomainHash || config.domainHash;
+    if (String(input.domainHash || '') !== baselineDomainHash) {
       throw primaryReadError('PERSONAL_RECORD_POSTGRES_READ_DOMAIN_MISMATCH');
     }
     if (closed) throw primaryReadError('PERSONAL_RECORD_POSTGRES_READ_CLOSED');

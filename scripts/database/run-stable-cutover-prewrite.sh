@@ -93,6 +93,18 @@ database_state() {
             WHERE status = 'passed' ORDER BY completed_at DESC LIMIT 1);"
 }
 
+public_domain_hash() {
+  /usr/local/bin/node - "$1" <<'NODE'
+const fs = require('node:fs');
+const {
+  publicQrDomainSha256FromSource
+} = require('./scripts/database/importer/domain-markers');
+
+const source = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+process.stdout.write(publicQrDomainSha256FromSource(source));
+NODE
+}
+
 ENTER_MODE=false
 PLAN_FILE=''
 CONFIRM_VALUE=''
@@ -120,13 +132,15 @@ fi
 
 # The read-only preparation runner writes only validated key/value assignments.
 . "$PLAN_FILE"
-[ "${PLAN_VERSION:-}" = 1 ] || fail PLAN_VERSION_INVALID
+[ "${PLAN_VERSION:-}" = 2 ] || fail PLAN_VERSION_INVALID
 [ "${START_STATE:-}" = JSON_AUTHORITY ] || fail PLAN_START_STATE_INVALID
 [ "${TARGET_STATE:-}" = POSTGRES_AUTHORITY_PREWRITE ] || fail PLAN_TARGET_STATE_INVALID
 [ "${EXPECTED_JSON_SHA256:-}" = "$EXPECTED_JSON_SHA" ] || fail PLAN_JSON_INVALID
 [ "${EXPECTED_SOURCE_SHA256:-}" = "$EXPECTED_SOURCE_SHA" ] || fail PLAN_SOURCE_INVALID
 [ "${EXPECTED_PLAN_SHA256:-}" = "$EXPECTED_PLAN_SHA" ] || fail PLAN_HASH_INVALID
 [ "${EXPECTED_DOMAIN_SHA256:-}" = "$EXPECTED_DOMAIN_SHA" ] || fail PLAN_DOMAIN_INVALID
+[[ "${EXPECTED_BASELINE_DOMAIN_SHA256:-}" =~ ^[a-f0-9]{64}$ ]] || \
+  fail PLAN_BASELINE_DOMAIN_INVALID
 [ "${CANDIDATE_DATABASE:-}" = "$CANDIDATE_DB" ] || fail PLAN_DATABASE_INVALID
 
 for command in flock pm2 curl systemd-run systemctl ss sha256sum; do
@@ -143,6 +157,8 @@ cd "$REPO"
 [ "$(git rev-parse 'HEAD^{tree}')" = "$EXPECTED_TREE" ] || fail TREE_CHANGED
 [ "$(sha256sum src/server/data/db.json | awk '{print $1}')" = \
   "$EXPECTED_JSON_SHA" ] || fail LIVE_JSON_CHANGED
+[ "$(public_domain_hash src/server/data/db.json)" = \
+  "$EXPECTED_BASELINE_DOMAIN_SHA256" ] || fail LIVE_BASELINE_DOMAIN_CHANGED
 
 for FILE in \
   "$PREFLIGHT_SUMMARY" \
@@ -175,6 +191,7 @@ grep -qx "PGDATABASE=$CANDIDATE_DB" "$CANDIDATE_ENVIRONMENT" || \
   --config="$SELECTOR_CONFIG" \
   --expected-source-sha256="$EXPECTED_SOURCE_SHA" \
   --expected-domain-sha256="$EXPECTED_DOMAIN_SHA" \
+  --expected-baseline-domain-sha256="$EXPECTED_BASELINE_DOMAIN_SHA256" \
   >/dev/null
 
 APP_PID_BEFORE="$(pm2 pid "$APP_NAME" | tail -n 1)"
@@ -233,6 +250,7 @@ PLAN_FILE_SHA256=$(sha256sum "$PLAN_FILE" | awk '{print $1}')
 EXPECTED_HEAD=$EXPECTED_HEAD
 EXPECTED_TREE=$EXPECTED_TREE
 EXPECTED_JSON_SHA256=$EXPECTED_JSON_SHA
+EXPECTED_BASELINE_DOMAIN_SHA256=$EXPECTED_BASELINE_DOMAIN_SHA256
 CANDIDATE_DATABASE=$CANDIDATE_DB
 CANDIDATE_ENVIRONMENT=$CANDIDATE_ENVIRONMENT
 CANDIDATE_ENVIRONMENT_SHA256=$CANDIDATE_ENVIRONMENT_SHA256
@@ -307,6 +325,9 @@ do
   [ "$(runtime_value "$APP_PID_PREWRITE" "$FLAG")" = true ] || \
     fail PREWRITE_BOUNDARY_NOT_ACTIVE
 done
+[ "$(runtime_value "$APP_PID_PREWRITE" \
+  POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256)" = \
+  "$EXPECTED_BASELINE_DOMAIN_SHA256" ] || fail PREWRITE_BASELINE_DOMAIN_INVALID
 for FLAG in \
   PUBLIC_QR_POSTGRES_READ_SCOPE \
   PERSONAL_RECORD_POSTGRES_READ_SCOPE \
@@ -409,6 +430,7 @@ printf '%s\n' \
   'CURRENT_STATE=POSTGRES_AUTHORITY_PREWRITE' \
   'POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED=true' \
   'POSTGRES_AUTHORITY_BOUNDARY_COUNT=5' \
+  "JSON_AUTHORITY_BASELINE_DOMAIN_SHA256=$EXPECTED_BASELINE_DOMAIN_SHA256" \
   'PUBLIC_FINGERPRINT_PARITY=PASS' \
   'CANDIDATE_DATABASE_MUTATION=NONE' \
   'RECORD_PROOF_RUNTIME_ENABLED=false' \
@@ -438,6 +460,7 @@ echo 'STABLE_CUTOVER_PREWRITE_ENTRY=PASS'
 echo 'CURRENT_STATE=POSTGRES_AUTHORITY_PREWRITE'
 echo 'POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED=true'
 echo 'POSTGRES_AUTHORITY_BOUNDARY_COUNT=5'
+echo "JSON_AUTHORITY_BASELINE_DOMAIN_SHA256=$EXPECTED_BASELINE_DOMAIN_SHA256"
 echo 'PUBLIC_FINGERPRINT_PARITY=PASS'
 echo 'CANDIDATE_DATABASE_MUTATION=NONE'
 echo 'RECORD_PROOF_RUNTIME_ENABLED=false'

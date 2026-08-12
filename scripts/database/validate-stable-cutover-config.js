@@ -57,7 +57,7 @@ function parseEnvironment(bytes) {
   return env;
 }
 
-function assertConfig(config, name) {
+function assertConfig(config, name, baselineDomainHash = null) {
   if (!config || config.enabled !== true) {
     fail(`STABLE_CUTOVER_${name}_${config?.reason || 'INVALID'}`);
   }
@@ -65,9 +65,12 @@ function assertConfig(config, name) {
   if (config.allowlist instanceof Set && config.allowlist.size !== 0) {
     fail(`STABLE_CUTOVER_${name}_ALLOWLIST_FORBIDDEN`);
   }
+  if (baselineDomainHash && config.baselineDomainHash !== baselineDomainHash) {
+    fail(`STABLE_CUTOVER_${name}_BASELINE_DOMAIN_INVALID`);
+  }
 }
 
-function assertExactSelectors(env, sourceHash, domainHash) {
+function assertExactSelectors(env, sourceHash, domainHash, baselineDomainHash) {
   const expected = {
     PUBLIC_QR_POSTGRES_READ_ENABLED: 'true',
     PUBLIC_QR_POSTGRES_READ_SCOPE: 'all',
@@ -89,7 +92,8 @@ function assertExactSelectors(env, sourceHash, domainHash) {
     RECORD_PROOF_RUNTIME_ENABLED: 'false',
     PUBLIC_QR_SHADOW_READ_ENABLED: 'false',
     PERSONAL_RECORD_SHADOW_READ_ENABLED: 'false',
-    IDENTITY_SHADOW_READ_ENABLED: 'false'
+    IDENTITY_SHADOW_READ_ENABLED: 'false',
+    POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256: baselineDomainHash
   };
   for (const [key, value] of Object.entries(expected)) {
     if (env[key] !== value) fail(`STABLE_CUTOVER_CONFIG_VALUE_INVALID_${key}`);
@@ -110,16 +114,31 @@ function main(argv = process.argv.slice(2)) {
   const file = text(args.config);
   const sourceHash = text(args['expected-source-sha256']).toLowerCase();
   const domainHash = text(args['expected-domain-sha256']).toLowerCase();
-  if (!file || !sourceHash || !domainHash) {
+  const baselineDomainHash = text(
+    args['expected-baseline-domain-sha256']
+  ).toLowerCase();
+  if (!file || !sourceHash || !domainHash || !baselineDomainHash) {
     fail('STABLE_CUTOVER_CONFIG_ARGUMENT_REQUIRED');
   }
 
   const env = parseEnvironment(fs.readFileSync(file, 'utf8'));
-  assertExactSelectors(env, sourceHash, domainHash);
+  assertExactSelectors(env, sourceHash, domainHash, baselineDomainHash);
 
-  assertConfig(readPublicQrPrimaryReadConfig(env), 'PUBLIC_READ');
-  assertConfig(readPersonalRecordPrimaryReadConfig(env), 'PERSONAL_READ');
-  assertConfig(readQrLifecycleWriteConfig(env), 'LIFECYCLE_WRITE');
+  assertConfig(
+    readPublicQrPrimaryReadConfig(env),
+    'PUBLIC_READ',
+    baselineDomainHash
+  );
+  assertConfig(
+    readPersonalRecordPrimaryReadConfig(env),
+    'PERSONAL_READ',
+    baselineDomainHash
+  );
+  assertConfig(
+    readQrLifecycleWriteConfig(env),
+    'LIFECYCLE_WRITE',
+    baselineDomainHash
+  );
   assertConfig(readIdentityAuthorityConfig(env), 'IDENTITY_AUTHORITY');
   assertConfig(readQrIssuanceAuthorityConfig(env), 'QR_ISSUANCE');
 
@@ -131,6 +150,7 @@ function main(argv = process.argv.slice(2)) {
     allowlist_count: 0,
     source_sha256: sourceHash,
     public_qr_domain_sha256: domainHash,
+    json_authority_baseline_domain_sha256: baselineDomainHash,
     record_proof_runtime_enabled: false,
     avata_in_migration_scope: false,
     external_provider_required: false,

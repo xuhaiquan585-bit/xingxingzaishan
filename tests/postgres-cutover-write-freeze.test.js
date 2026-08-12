@@ -167,3 +167,30 @@ test('stable cutover fingerprint capture persists hashes without raw DTOs', asyn
     error => error && error.code === 'CUTOVER_FINGERPRINT_BASE_URL_INVALID'
   );
 });
+
+test('stable cutover fingerprint failures identify the route without persisting bodies', async (t) => {
+  const temporaryRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'cutover-fingerprint-failure-')
+  );
+  const output = path.join(temporaryRoot, 'fingerprints.json');
+  const server = http.createServer((_request, response) => {
+    response.statusCode = 503;
+    response.end('sensitive-response-must-not-persist');
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => {
+    server.close();
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const { port } = server.address();
+  await assert.rejects(
+    capturePublicFingerprints([
+      `--base-url=http://127.0.0.1:${port}/`,
+      '--qr-id=A00001',
+      `--output=${output}`
+    ]),
+    error => error && error.code === 'CUTOVER_FINGERPRINT_HTTP_INVALID_H5_503'
+  );
+  assert.equal(fs.existsSync(output), false);
+});

@@ -5,6 +5,9 @@ const {
   PUBLIC_QR_ID_PATTERN,
   SOURCE_HASH_PATTERN
 } = require('./publicQrPrimaryReadConfig');
+const {
+  readAuthorityBaselineDomain
+} = require('./authorityBaselineDomain');
 
 const DEFAULT_TIMEOUT_MS = 2_000;
 
@@ -16,6 +19,7 @@ function disabled(reason, { requested = false } = {}) {
     scope: null,
     allowlist: new Set(),
     domainHash: null,
+    baselineDomainHash: null,
     timeoutMs: DEFAULT_TIMEOUT_MS
   });
 }
@@ -43,6 +47,8 @@ function readQrLifecycleWriteConfig(env = process.env) {
   if (!SOURCE_HASH_PATTERN.test(domainHash)) {
     return disabled('DOMAIN_SHA256_REQUIRED', { requested: true });
   }
+  const baseline = readAuthorityBaselineDomain(env, domainHash);
+  if (baseline.error) return disabled(baseline.error, { requested: true });
 
   return Object.freeze({
     enabled: true,
@@ -51,6 +57,7 @@ function readQrLifecycleWriteConfig(env = process.env) {
     scope: selection.scope,
     allowlist: selection.allowlist,
     domainHash,
+    baselineDomainHash: baseline.baselineDomainHash,
     timeoutMs: DEFAULT_TIMEOUT_MS
   });
 }

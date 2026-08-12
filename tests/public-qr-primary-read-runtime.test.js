@@ -19,6 +19,7 @@ const {
 } = require('../src/server/services/postgres/publicQrPrimaryReadRuntime');
 
 const DOMAIN_HASH = 'a'.repeat(64);
+const BASELINE_DOMAIN_HASH = 'c'.repeat(64);
 
 function enabledConfig(overrides = {}) {
   return {
@@ -28,6 +29,7 @@ function enabledConfig(overrides = {}) {
     scope: 'allowlist',
     allowlist: new Set(['SSS00004']),
     domainHash: DOMAIN_HASH,
+    baselineDomainHash: DOMAIN_HASH,
     timeoutMs: 500,
     ...overrides
   };
@@ -97,6 +99,12 @@ test('public QR primary read config is strictly default-off and rejects partial 
     PUBLIC_QR_POSTGRES_READ_ALLOWLIST: 'SSS00004',
     PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH
   }).reason, 'ALLOWLIST_FORBIDDEN_FOR_ALL_SCOPE');
+  assert.equal(readPublicQrPrimaryReadConfig({
+    PUBLIC_QR_POSTGRES_READ_ENABLED: 'true',
+    PUBLIC_QR_POSTGRES_READ_SCOPE: 'all',
+    PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH,
+    POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256: 'invalid'
+  }).reason, 'BASELINE_DOMAIN_SHA256_INVALID');
 });
 
 test('public QR primary read config accepts only a canonical QR allowlist and domain hash', () => {
@@ -109,6 +117,7 @@ test('public QR primary read config accepts only a canonical QR allowlist and do
   assert.equal(config.requested, true);
   assert.equal(config.scope, 'allowlist');
   assert.equal(config.domainHash, DOMAIN_HASH);
+  assert.equal(config.baselineDomainHash, DOMAIN_HASH);
   assert.deepEqual([...config.allowlist], ['SSS00004', 'CS1X00003']);
 });
 
@@ -116,12 +125,14 @@ test('public QR primary read all scope is explicit and needs no static QR list',
   const config = readPublicQrPrimaryReadConfig({
     PUBLIC_QR_POSTGRES_READ_ENABLED: 'true',
     PUBLIC_QR_POSTGRES_READ_SCOPE: 'all',
-    PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH
+    PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256: DOMAIN_HASH,
+    POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256: BASELINE_DOMAIN_HASH
   });
   assert.equal(config.enabled, true);
   assert.equal(config.scope, 'all');
   assert.equal(config.allowlist.size, 0);
   assert.equal(config.domainHash, DOMAIN_HASH);
+  assert.equal(config.baselineDomainHash, BASELINE_DOMAIN_HASH);
 });
 
 test('primary read controller stays lazy for default-off and allowlist misses', async () => {
@@ -148,7 +159,11 @@ test('primary read controller stays lazy for default-off and allowlist misses', 
 test('public QR primary all scope selects a future canonical QR ID', async () => {
   let runtimeCalls = 0;
   const controller = createPublicQrPrimaryReadController({
-    readConfig: () => enabledConfig({ scope: 'all', allowlist: new Set() }),
+    readConfig: () => enabledConfig({
+      scope: 'all',
+      allowlist: new Set(),
+      baselineDomainHash: BASELINE_DOMAIN_HASH
+    }),
     runtimeFactory: (config) => {
       runtimeCalls += 1;
       assert.equal(config.scope, 'all');
@@ -163,7 +178,7 @@ test('public QR primary all scope selects a future canonical QR ID', async () =>
   });
   assert.deepEqual(await controller.read({
     key: 'future-public-token',
-    domainHash: DOMAIN_HASH
+    domainHash: BASELINE_DOMAIN_HASH
   }), {
     selected: true,
     dto: { key: 'future-public-token', jsonResolvedId: '' },

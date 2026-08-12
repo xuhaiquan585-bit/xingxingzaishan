@@ -19,6 +19,7 @@ const {
 } = require('../src/server/services/postgres/qrLifecycleWriteRuntime');
 
 const DOMAIN_HASH = 'a'.repeat(64);
+const BASELINE_DOMAIN_HASH = 'c'.repeat(64);
 
 function enabledConfig(overrides = {}) {
   return {
@@ -28,6 +29,7 @@ function enabledConfig(overrides = {}) {
     scope: 'allowlist',
     allowlist: new Set(['SSS00004']),
     domainHash: DOMAIN_HASH,
+    baselineDomainHash: DOMAIN_HASH,
     timeoutMs: 2_000,
     ...overrides
   };
@@ -71,6 +73,12 @@ test('QR lifecycle PostgreSQL write config is strict and default-off', () => {
     QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST: 'SSS00004',
     QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256: DOMAIN_HASH
   }).reason, 'ALLOWLIST_FORBIDDEN_FOR_ALL_SCOPE');
+  assert.equal(readQrLifecycleWriteConfig({
+    QR_LIFECYCLE_POSTGRES_WRITE_ENABLED: 'true',
+    QR_LIFECYCLE_POSTGRES_WRITE_SCOPE: 'all',
+    QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256: DOMAIN_HASH,
+    POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256: 'invalid'
+  }).reason, 'BASELINE_DOMAIN_SHA256_INVALID');
 });
 
 test('QR lifecycle PostgreSQL write config accepts a canonical allowlist and domain hash', () => {
@@ -82,6 +90,7 @@ test('QR lifecycle PostgreSQL write config accepts a canonical allowlist and dom
   assert.equal(config.enabled, true);
   assert.equal(config.scope, 'allowlist');
   assert.equal(config.domainHash, DOMAIN_HASH);
+  assert.equal(config.baselineDomainHash, DOMAIN_HASH);
   assert.deepEqual([...config.allowlist], ['SSS00004', 'A00002']);
 });
 
@@ -89,12 +98,14 @@ test('QR lifecycle PostgreSQL write all scope is explicit and list-free', () => 
   const config = readQrLifecycleWriteConfig({
     QR_LIFECYCLE_POSTGRES_WRITE_ENABLED: 'true',
     QR_LIFECYCLE_POSTGRES_WRITE_SCOPE: 'all',
-    QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256: DOMAIN_HASH
+    QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256: DOMAIN_HASH,
+    POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256: BASELINE_DOMAIN_HASH
   });
   assert.equal(config.enabled, true);
   assert.equal(config.scope, 'all');
   assert.equal(config.allowlist.size, 0);
   assert.equal(config.domainHash, DOMAIN_HASH);
+  assert.equal(config.baselineDomainHash, BASELINE_DOMAIN_HASH);
 });
 
 test('write controller remains lazy while disabled or outside the allowlist', async () => {
@@ -121,7 +132,11 @@ test('write controller remains lazy while disabled or outside the allowlist', as
 test('QR lifecycle all scope selects a future canonical QR ID', async () => {
   let runtimeCalls = 0;
   const controller = createQrLifecycleWriteController({
-    readConfig: () => enabledConfig({ scope: 'all', allowlist: new Set() }),
+    readConfig: () => enabledConfig({
+      scope: 'all',
+      allowlist: new Set(),
+      baselineDomainHash: BASELINE_DOMAIN_HASH
+    }),
     runtimeFactory: (config) => {
       runtimeCalls += 1;
       assert.equal(config.scope, 'all');
@@ -141,7 +156,7 @@ test('QR lifecycle all scope selects a future canonical QR ID', async () => {
   assert.deepEqual(await controller.write({
     operation: 'activate',
     key: 'future-public-token',
-    domainHash: DOMAIN_HASH
+    domainHash: BASELINE_DOMAIN_HASH
   }), {
     selected: true,
     result: { data: { qr: { id: 'FUTURE_QR_0001' } } },

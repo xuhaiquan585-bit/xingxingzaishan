@@ -62,7 +62,7 @@ function normalizeDto(value, key = '') {
   return value;
 }
 
-function requestJson(url) {
+function requestJson(url, channel) {
   return new Promise((resolve, reject) => {
     const request = http.get(url, {
       headers: { Accept: 'application/json' }
@@ -79,7 +79,9 @@ function requestJson(url) {
       });
       response.on('end', () => {
         if (response.statusCode !== 200) {
-          reject(failure('CUTOVER_FINGERPRINT_HTTP_INVALID'));
+          reject(failure(
+            `CUTOVER_FINGERPRINT_HTTP_INVALID_${channel.toUpperCase()}_${response.statusCode}`
+          ));
           return;
         }
         try {
@@ -120,7 +122,7 @@ async function main(argv = process.argv.slice(2)) {
   };
   const hashes = {};
   for (const [channel, route] of Object.entries(routes)) {
-    const body = await requestJson(new URL(route, parsedBase));
+    const body = await requestJson(new URL(route, parsedBase), channel);
     if (!body || body.status !== 'success' || body.data?.id !== qrId) {
       fail('CUTOVER_FINGERPRINT_RESPONSE_CONTRACT_INVALID');
     }

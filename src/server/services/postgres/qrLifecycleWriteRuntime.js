@@ -187,7 +187,8 @@ function createQrLifecycleWriteController({
     const publicQrId = String(input.publicQrId || '').trim();
     const selectionKey = config.scope === 'all' ? input.key : publicQrId;
     if (!isSelectedByPrimaryScope(config, selectionKey)) return { selected: false };
-    if (String(input.domainHash || '') !== config.domainHash) {
+    const baselineDomainHash = config.baselineDomainHash || config.domainHash;
+    if (String(input.domainHash || '') !== baselineDomainHash) {
       throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_MISMATCH');
     }
     if (closed) throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_CLOSED');
