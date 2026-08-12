@@ -32,7 +32,8 @@ state, the operator must capture and verify:
 - `pg_restore --list` readability for the backup;
 - canonical migrations and public QR domain provenance;
 - zero unexpected PostgreSQL connections and zero active proof work;
-- all stable selectors configured as `scope=all` without allowlists;
+- all in-scope PostgreSQL authority selectors configured as `scope=all`
+  without allowlists, with out-of-scope external runtimes explicitly disabled;
 - producer, privacy, monitoring, auto-off, and rollback gates.
 
 No long-term JSON/PostgreSQL dual-write is required. The maintenance freeze is
@@ -78,10 +79,13 @@ PostgreSQL:
 2. H5 and miniapp identity creation, phone/OpenID binding, and authenticated
    identity lookup use PostgreSQL authority.
 3. QR activation, co-creation, comment, and finalization writes use PostgreSQL.
-4. Direct activation and finalization enqueue proof work atomically.
-5. The outbox worker uses explicit `scope=all`, claims future proof jobs,
-   retries and acknowledges them, and reports value-free backlog, stale-lock,
-   failure, and attempt counts.
+4. Direct activation and finalization enqueue proof work atomically. The
+   durable outbox row is part of the PostgreSQL migration; external proof
+   submission is not.
+5. The proof worker remains explicitly disabled while AVATA is outside the
+   migration scope. Pending proof jobs are preserved for a separate provider
+   enablement project and no placeholder credentials or mock confirmations are
+   allowed in production.
 6. Personal and public read routes use PostgreSQL for current and future
    entities under explicit `scope=all` configuration.
 
@@ -103,8 +107,11 @@ itself does not satisfy this gate.
 
 Stable configuration is one root-owned `0600` environment file. Public QR
 primary read, personal record primary read, lifecycle write, identity authority,
-and proof runtime settings are reviewed and activated as one release operation.
-Stable `scope=all` settings must not carry a static allowlist.
+and QR issuance authority are reviewed and activated as one release operation.
+Stable `scope=all` settings must not carry a static allowlist. While AVATA is
+outside the PostgreSQL migration scope, the same file must explicitly set
+`RECORD_PROOF_RUNTIME_ENABLED=false` and must not include proof-worker scope,
+provider credentials, or callback configuration.
 
 The stable configuration must never be assembled by mixing old controlled
 cohort files. PM2 saves it only after the coordinated acceptance passes.
@@ -118,7 +125,8 @@ prewrite auto-off:
 - DTO identity or ownership mismatch;
 - unexpected JSON mutation;
 - PostgreSQL connection or statement timeout errors above the accepted gate;
-- outbox backlog, exhausted retries, or proof callback conflict;
+- unexpected outbox state, exhausted retries, or proof callback conflict when
+  the separately authorized proof runtime is enabled;
 - privacy gate failure;
 - asset accessibility failure;
 - inability to verify the backup or rollback target.

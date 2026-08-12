@@ -17,9 +17,6 @@ const {
 const {
   readQrLifecycleWriteConfig
 } = require('../../src/server/services/postgres/qrLifecycleWriteConfig');
-const {
-  readRecordProofRuntimeConfig
-} = require('../../src/server/services/postgres/recordProofRuntimeConfig');
 
 function fail(code) {
   const error = new Error(code);
@@ -70,38 +67,6 @@ function assertConfig(config, name) {
   }
 }
 
-function normalizeProviderEnvironment(value) {
-  const normalized = text(value).toLowerCase();
-  if (normalized === 'production') return 'prod';
-  if (normalized === 'staging') return 'stage';
-  if (normalized === 'prod' || normalized === 'stage') return normalized;
-  fail('STABLE_CUTOVER_PROVIDER_ENVIRONMENT_INVALID');
-}
-
-function assertProviderOrigin(processEnv, expectedEnvironment, expectedOriginValue) {
-  const actualEnvironment = normalizeProviderEnvironment(processEnv.AVATA_ENV);
-  if (actualEnvironment !== expectedEnvironment) {
-    fail('STABLE_CUTOVER_PROVIDER_ENVIRONMENT_MISMATCH');
-  }
-  const fallback = actualEnvironment === 'prod'
-    ? 'https://apis.avata.bianjie.ai'
-    : 'https://stage.apis.avata.bianjie.ai';
-  let actual;
-  let expected;
-  try {
-    actual = new URL(text(processEnv.AVATA_API_BASE) || fallback);
-    expected = new URL(expectedOriginValue);
-  } catch (_error) {
-    fail('STABLE_CUTOVER_PROVIDER_ORIGIN_INVALID');
-  }
-  if (actual.protocol !== 'https:' || actual.username || actual.password
-      || expected.protocol !== 'https:' || expected.username || expected.password
-      || expected.pathname !== '/' || expected.search || expected.hash
-      || actual.origin !== expected.origin) {
-    fail('STABLE_CUTOVER_PROVIDER_ORIGIN_MISMATCH');
-  }
-}
-
 function assertExactSelectors(env, sourceHash, domainHash) {
   const expected = {
     PUBLIC_QR_POSTGRES_READ_ENABLED: 'true',
@@ -121,10 +86,7 @@ function assertExactSelectors(env, sourceHash, domainHash) {
     QR_ISSUANCE_POSTGRES_AUTHORITY_SCOPE: 'all',
     QR_ISSUANCE_POSTGRES_AUTHORITY_SOURCE_SHA256: sourceHash,
     QR_ISSUANCE_POSTGRES_AUTHORITY_DOMAIN_SHA256: domainHash,
-    RECORD_PROOF_RUNTIME_ENABLED: 'true',
-    RECORD_PROOF_RUNTIME_SCOPE: 'all',
-    RECORD_PROOF_RUNTIME_SOURCE_SHA256: sourceHash,
-    RECORD_PROOF_RUNTIME_DOMAIN_SHA256: domainHash,
+    RECORD_PROOF_RUNTIME_ENABLED: 'false',
     PUBLIC_QR_SHADOW_READ_ENABLED: 'false',
     PERSONAL_RECORD_SHADOW_READ_ENABLED: 'false',
     IDENTITY_SHADOW_READ_ENABLED: 'false'
@@ -137,21 +99,13 @@ function assertExactSelectors(env, sourceHash, domainHash) {
     fail('STABLE_CUTOVER_ALLOWLIST_FORBIDDEN');
   }
 
-  const knownSelectorKeys = new Set([
-    ...Object.keys(expected),
-    'RECORD_PROOF_WORKER_ID',
-    'RECORD_PROOF_WORKER_INTERVAL_MS',
-    'RECORD_PROOF_WORKER_BATCH_SIZE',
-    'RECORD_PROOF_WORKER_MAX_ATTEMPTS',
-    'RECORD_PROOF_WORKER_RETRY_BASE_MS',
-    'RECORD_PROOF_WORKER_LOCK_TIMEOUT_MS'
-  ]);
+  const knownSelectorKeys = new Set(Object.keys(expected));
   if (Object.keys(env).some(key => !knownSelectorKeys.has(key))) {
     fail('STABLE_CUTOVER_CONFIG_UNKNOWN_KEY');
   }
 }
 
-function main(argv = process.argv.slice(2), processEnv = process.env) {
+function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   const file = text(args.config);
   const sourceHash = text(args['expected-source-sha256']).toLowerCase();
@@ -169,53 +123,17 @@ function main(argv = process.argv.slice(2), processEnv = process.env) {
   assertConfig(readIdentityAuthorityConfig(env), 'IDENTITY_AUTHORITY');
   assertConfig(readQrIssuanceAuthorityConfig(env), 'QR_ISSUANCE');
 
-  const providerKeys = [
-    'AVATA_API_KEY',
-    'AVATA_API_SECRET',
-    'AVATA_IDENTITY_NAME',
-    'AVATA_IDENTITY_NUM',
-    'CHAIN_CALLBACK_URL'
-  ];
-  const providerPresence = providerKeys.map(key => Boolean(text(processEnv[key])));
-  if (providerPresence.some(Boolean) && !providerPresence.every(Boolean)) {
-    fail('STABLE_CUTOVER_PROVIDER_CONFIG_PARTIAL');
-  }
-  const providerConfigured = providerPresence.every(Boolean);
-  if (providerConfigured) {
-    const expectedProviderEnvironment = text(
-      args['expected-provider-environment']
-    ).toLowerCase();
-    const expectedProviderOrigin = text(args['expected-provider-origin']);
-    if (!['stage', 'prod'].includes(expectedProviderEnvironment)
-        || !expectedProviderOrigin) {
-      fail('STABLE_CUTOVER_PROVIDER_CONFIRMATION_REQUIRED');
-    }
-    assertProviderOrigin(
-      processEnv,
-      expectedProviderEnvironment,
-      expectedProviderOrigin
-    );
-    assertConfig(
-      readRecordProofRuntimeConfig({
-        ...processEnv,
-        ...env,
-        CHAIN_ENABLED: 'true'
-      }),
-      'PROOF_RUNTIME'
-    );
-  }
-
   const result = Object.freeze({
-    status: providerConfigured ? 'READY' : 'READY_PENDING_PROVIDER_CONFIG',
-    selector_count: 6,
-    all_scope_count: 6,
+    status: 'READY_FOR_POSTGRES_MAINTENANCE_WINDOW',
+    postgres_authority_boundary_count: 5,
+    all_scope_count: 5,
+    disabled_external_runtime_count: 1,
     allowlist_count: 0,
     source_sha256: sourceHash,
     public_qr_domain_sha256: domainHash,
-    provider_configuration_validated: providerConfigured,
-    provider_environment: providerConfigured
-      ? normalizeProviderEnvironment(processEnv.AVATA_ENV)
-      : null,
+    record_proof_runtime_enabled: false,
+    avata_in_migration_scope: false,
+    external_provider_required: false,
     contains_database_secret: false,
     contains_provider_secret: false
   });

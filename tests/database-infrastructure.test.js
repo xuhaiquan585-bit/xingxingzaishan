@@ -2646,10 +2646,14 @@ test('stable cutover preflight is read-only, unified, and authority-commit safe'
   assert.match(runner, /QR_LIFECYCLE_POSTGRES_WRITE_SCOPE=all/);
   assert.match(runner, /IDENTITY_POSTGRES_AUTHORITY_SCOPE=all/);
   assert.match(runner, /QR_ISSUANCE_POSTGRES_AUTHORITY_SCOPE=all/);
-  assert.match(runner, /RECORD_PROOF_RUNTIME_SCOPE=all/);
+  assert.match(runner, /RECORD_PROOF_RUNTIME_ENABLED=false/);
+  assert.doesNotMatch(runner, /RECORD_PROOF_RUNTIME_SCOPE=/);
+  assert.doesNotMatch(runner, /RECORD_PROOF_WORKER_ID=/);
   assert.doesNotMatch(runner, /_ALLOWLIST=/);
-  assert.match(runner, /READY_PENDING_PROVIDER_CONFIG/);
-  assert.match(runner, /READY_FOR_MAINTENANCE_WINDOW/);
+  assert.match(runner, /READY_FOR_POSTGRES_MAINTENANCE_WINDOW/);
+  assert.match(runner, /AVATA_MIGRATION_SCOPE=DEFERRED/);
+  assert.match(runner, /EXTERNAL_PROVIDER_CALLS=NONE/);
+  assert.doesNotMatch(runner, /STABLE_CUTOVER_PROVIDER_ENV/);
   assert.match(runner, /PM2_CONFIGURATION_LOADED=NO/);
   assert.match(runner, /AUTHORITY_COMMIT_POINT_CROSSED=NO/);
   assert.match(runner, /PRODUCTION_DATABASE_WRITE=NONE/);
@@ -2663,11 +2667,10 @@ test('stable cutover preflight is read-only, unified, and authority-commit safe'
   assert.match(validator, /readQrLifecycleWriteConfig/);
   assert.match(validator, /readIdentityAuthorityConfig/);
   assert.match(validator, /readQrIssuanceAuthorityConfig/);
-  assert.match(validator, /readRecordProofRuntimeConfig/);
   assert.match(validator, /STABLE_CUTOVER_ALLOWLIST_FORBIDDEN/);
-  assert.match(validator, /STABLE_CUTOVER_PROVIDER_CONFIG_PARTIAL/);
-  assert.match(validator, /STABLE_CUTOVER_PROVIDER_ORIGIN_MISMATCH/);
-  assert.match(validator, /provider_configuration_validated/);
+  assert.match(validator, /record_proof_runtime_enabled: false/);
+  assert.match(validator, /avata_in_migration_scope: false/);
+  assert.doesNotMatch(validator, /AVATA_API_KEY|AVATA_API_SECRET/);
   assert.match(validator, /contains_database_secret: false/);
   assert.match(validator, /contains_provider_secret: false/);
   assert.equal(
@@ -2676,7 +2679,7 @@ test('stable cutover preflight is read-only, unified, and authority-commit safe'
   );
 });
 
-test('stable cutover selector validator requires six all-scope boundaries', () => {
+test('stable cutover selector validator requires five database boundaries and disables AVATA', () => {
   const temporaryRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), 'stable-cutover-validator-')
   );
@@ -2704,11 +2707,7 @@ test('stable cutover selector validator requires six all-scope boundaries', () =
     'QR_ISSUANCE_POSTGRES_AUTHORITY_SCOPE=all',
     `QR_ISSUANCE_POSTGRES_AUTHORITY_SOURCE_SHA256=${sourceHash}`,
     `QR_ISSUANCE_POSTGRES_AUTHORITY_DOMAIN_SHA256=${domainHash}`,
-    'RECORD_PROOF_RUNTIME_ENABLED=true',
-    'RECORD_PROOF_RUNTIME_SCOPE=all',
-    `RECORD_PROOF_RUNTIME_SOURCE_SHA256=${sourceHash}`,
-    `RECORD_PROOF_RUNTIME_DOMAIN_SHA256=${domainHash}`,
-    'RECORD_PROOF_WORKER_ID=xingxingzaishan-stable-primary'
+    'RECORD_PROOF_RUNTIME_ENABLED=false'
   ].join('\n');
   fs.writeFileSync(configPath, `${config}\n`, { mode: 0o600 });
 
@@ -2722,36 +2721,20 @@ test('stable cutover selector validator requires six all-scope boundaries', () =
     `--expected-source-sha256=${sourceHash}`,
     `--expected-domain-sha256=${domainHash}`
   ];
-  const pending = spawnSync(process.execPath, args, {
+  const ready = spawnSync(process.execPath, args, {
     encoding: 'utf8',
     env: {}
   });
-  assert.equal(pending.status, 0, pending.stderr);
-  assert.equal(JSON.parse(pending.stdout).status, 'READY_PENDING_PROVIDER_CONFIG');
-
-  const ready = spawnSync(process.execPath, [
-    ...args,
-    '--expected-provider-environment=stage',
-    '--expected-provider-origin=https://stage.apis.avata.bianjie.ai'
-  ], {
-    encoding: 'utf8',
-    env: {
-      AVATA_API_KEY: 'test-key',
-      AVATA_API_SECRET: 'test-secret',
-      AVATA_IDENTITY_NAME: 'test-name',
-      AVATA_IDENTITY_NUM: 'test-number',
-      CHAIN_CALLBACK_URL: 'https://example.invalid/api/chain/callback',
-      AVATA_ENV: 'stage',
-      AVATA_API_BASE: 'https://stage.apis.avata.bianjie.ai'
-    }
-  });
   assert.equal(ready.status, 0, ready.stderr);
   const readyReport = JSON.parse(ready.stdout);
-  assert.equal(readyReport.status, 'READY');
-  assert.equal(readyReport.selector_count, 6);
-  assert.equal(readyReport.all_scope_count, 6);
+  assert.equal(readyReport.status, 'READY_FOR_POSTGRES_MAINTENANCE_WINDOW');
+  assert.equal(readyReport.postgres_authority_boundary_count, 5);
+  assert.equal(readyReport.all_scope_count, 5);
+  assert.equal(readyReport.disabled_external_runtime_count, 1);
   assert.equal(readyReport.allowlist_count, 0);
-  assert.equal(readyReport.provider_configuration_validated, true);
+  assert.equal(readyReport.record_proof_runtime_enabled, false);
+  assert.equal(readyReport.avata_in_migration_scope, false);
+  assert.equal(readyReport.external_provider_required, false);
 
   fs.appendFileSync(configPath, 'PUBLIC_QR_POSTGRES_READ_ALLOWLIST=A00001\n');
   const rejected = spawnSync(process.execPath, args, {
@@ -2760,6 +2743,24 @@ test('stable cutover selector validator requires six all-scope boundaries', () =
   });
   assert.notEqual(rejected.status, 0);
   assert.match(rejected.stderr, /STABLE_CUTOVER_ALLOWLIST_FORBIDDEN/);
+
+  fs.writeFileSync(
+    configPath,
+    `${config.replace(
+      'RECORD_PROOF_RUNTIME_ENABLED=false',
+      'RECORD_PROOF_RUNTIME_ENABLED=true'
+    )}\n`,
+    { mode: 0o600 }
+  );
+  const proofRuntimeRejected = spawnSync(process.execPath, args, {
+    encoding: 'utf8',
+    env: {}
+  });
+  assert.notEqual(proofRuntimeRejected.status, 0);
+  assert.match(
+    proofRuntimeRejected.stderr,
+    /STABLE_CUTOVER_CONFIG_VALUE_INVALID_RECORD_PROOF_RUNTIME_ENABLED/
+  );
 
   fs.rmSync(temporaryRoot, { recursive: true, force: true });
 });

@@ -582,12 +582,12 @@ close the separate Shadow Read execution gates documented in
   and an HTTPS callback URL. Existing controlled validation can use
   `scope=allowlist`; stable authority uses `scope=all` and forbids an allowlist
   so newly issued QR records are covered automatically.
-- Stable activation therefore sets `RECORD_PROOF_RUNTIME_ENABLED=true`,
-  `RECORD_PROOF_RUNTIME_SCOPE=all`,
-  `RECORD_PROOF_RUNTIME_SOURCE_SHA256`,
-  `RECORD_PROOF_RUNTIME_DOMAIN_SHA256`, and `RECORD_PROOF_WORKER_ID`, while
-  leaving `RECORD_PROOF_RUNTIME_ALLOWLIST` absent. Provider and callback gates
-  remain mandatory and are never written to status or audit output.
+- The current PostgreSQL migration explicitly defers AVATA and stable proof
+  processing. Its coordinated selector file sets
+  `RECORD_PROOF_RUNTIME_ENABLED=false` and contains no proof scope, worker, or
+  provider settings. Lifecycle transactions still enqueue durable proof work;
+  those pending jobs remain available to a separate, later provider-enablement
+  project. Placeholder credentials and mock confirmations are forbidden.
 - Worker claims and stale-lock recovery are always scoped in SQL to the proof
   job type. Controlled mode additionally applies the QR allowlist; all scope
   passes no aggregate filter. Provider callback and query results apply the
@@ -603,10 +603,11 @@ close the separate Shadow Read execution gates documented in
 - Interrupted attempts are closed before idempotent resubmission. Existing
   submitted or confirmed proofs do not submit twice, and imported legacy proof
   evidence fails closed instead of being overwritten.
-- The worker remains disabled in PM2 and production until coordinated stable
-  activation. Disposable integration exercises a PostgreSQL-only newly issued
-  and activated QR through all-scope claim, proof preparation, confirmation,
-  acknowledgement, and backlog inspection without external OSS or AVATA calls.
+- The worker remains disabled in PM2 and production until a separately approved
+  AVATA activation. Disposable integration exercises a PostgreSQL-only newly
+  issued and activated QR through all-scope claim, proof preparation,
+  confirmation, acknowledgement, and backlog inspection without external OSS
+  or AVATA calls.
 
 ### Public QR controlled PostgreSQL primary read boundary
 
@@ -891,14 +892,12 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
 - It creates a root-owned candidate `pg_dump`, validates its `pg_restore --list`
   inventory, snapshots the current JSON authority, and writes a separate
   value-free selector proposal. The proposal enables public read, personal
-  read, lifecycle write, identity authority, QR issuance authority, and the
-  proof worker together under explicit `scope=all`; static allowlists are
-  forbidden.
-- Provider credentials are never copied into the selector proposal or audit
-  report. Without an explicit root-owned provider environment and matching
-  AVATA environment/origin confirmations, the successful result is
-  `READY_PENDING_PROVIDER_CONFIG`. With a valid provider configuration it is
-  `READY_FOR_MAINTENANCE_WINDOW`. Neither result loads the proposal into PM2.
+  read, lifecycle write, identity authority, and QR issuance authority together
+  under explicit `scope=all`; static allowlists are forbidden. The proof runtime
+  is explicitly `false` and carries no scope or provider configuration.
+- AVATA is outside this migration scope and is not a preflight dependency. The
+  successful result is `READY_FOR_POSTGRES_MAINTENANCE_WINDOW`; it confirms
+  `EXTERNAL_PROVIDER_CALLS=NONE` and does not load the proposal into PM2.
 - Passing this preflight permits review and construction of the separate
   maintenance-window runner. It does not authorize an operator to mix old
   cohort files, enable only part of the producer set, or fall back to JSON after
