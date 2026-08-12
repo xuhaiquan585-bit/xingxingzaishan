@@ -907,3 +907,24 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   maintenance-window runner. It does not authorize an operator to mix old
   cohort files, enable only part of the producer set, or fall back to JSON after
   the first PostgreSQL-only business mutation commits.
+
+### Maintenance-window preparation
+
+- `npm run cutover:prepare:maintenance` is a second root-only, read-only gate.
+  It binds the current Git commit and tree to the latest successful stable
+  preflight, coordinated joint rehearsal, candidate backup, JSON authority
+  snapshot, and five-boundary selector proposal.
+- The command opens the candidate only with
+  `default_transaction_read_only=on`, proves that no transaction ID was
+  assigned, verifies that PM2 remains in JSON authority with no database
+  connection, and checks that the host can later schedule the bounded
+  prewrite auto-off timer.
+- Its only new artifacts are a root-owned mode-`600` value-free plan and
+  summary. The plan contains paths and SHA-256 evidence but no database or
+  provider secret. It does not load PM2 configuration, schedule a timer,
+  restart the application, enable the write freeze, or enter
+  `POSTGRES_AUTHORITY_PREWRITE`.
+- A passing preparation result authorizes implementation and review of the
+  separate prewrite/auto-off runner. Entering prewrite and removing the freeze
+  remain explicit later operations; neither is exposed through this npm
+  preparation command.

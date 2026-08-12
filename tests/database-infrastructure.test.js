@@ -2770,6 +2770,50 @@ test('stable cutover selector validator requires five database boundaries and di
   fs.rmSync(temporaryRoot, { recursive: true, force: true });
 });
 
+test('maintenance cutover preparation is read-only and cannot enter prewrite', () => {
+  const packageJson = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '../package.json'),
+    'utf8'
+  ));
+  const runner = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/database/run-stable-cutover-maintenance-prepare.sh'
+    ),
+    'utf8'
+  );
+
+  assert.match(runner, /EXPLICIT_PREPARE_MODE_REQUIRED/);
+  assert.match(runner, /START_STATE=JSON_AUTHORITY/);
+  assert.match(runner, /TARGET_STATE=POSTGRES_AUTHORITY_PREWRITE/);
+  assert.match(runner, /CURRENT_PREFLIGHT_SUMMARY_NOT_FOUND/);
+  assert.match(runner, /CURRENT_JOINT_SUMMARY_NOT_FOUND/);
+  assert.match(runner, /POSTGRES_ONLY_PROOF_OUTBOX=PASS/);
+  assert.match(runner, /PROOF_WORKER_RUNTIME=DISABLED/);
+  assert.match(runner, /default_transaction_read_only=on/);
+  assert.match(runner, /READ_ONLY_TRANSACTION_XID/);
+  assert.match(runner, /AUTO_OFF_CAPABILITY=PASS/);
+  assert.match(runner, /ROLLBACK_BEFORE_COMMIT=JSON_ALLOWED/);
+  assert.match(runner, /AVATA_CONFIGURATION_LOADED=NO/);
+  assert.match(runner, /AUTHORITY_COMMIT_POINT_CROSSED=NO/);
+  assert.match(runner, /PRODUCTION_RUNTIME_RESTARTED=NO/);
+  assert.match(runner, /PRODUCTION_DATABASE_WRITE=NONE/);
+  assert.match(runner, /CANDIDATE_DATABASE_WRITE=NONE/);
+  assert.match(runner, /NEXT_ACTION=REVIEW_PREWRITE_PLAN_AND_IMPLEMENT_AUTO_OFF_RUNNER/);
+  assert.doesNotMatch(runner, /pm2\s+(?:stop|restart|reload|save)/);
+  assert.doesNotMatch(runner, /systemd-run\s+--/);
+  assert.doesNotMatch(runner, /dropdb|createdb|pg_restore\s+--clean/);
+  assert.doesNotMatch(
+    runner,
+    /-c\s+"(?:INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|GRANT|REVOKE)/
+  );
+  assert.doesNotMatch(runner, /AVATA_API_KEY=|AVATA_API_SECRET=/);
+  assert.equal(
+    packageJson.scripts['cutover:prepare:maintenance'],
+    'bash scripts/database/run-stable-cutover-maintenance-prepare.sh --prepare'
+  );
+});
+
 test('production privacy snapshot runner is read-only, exact-targeted, and value-free', () => {
   const source = fs.readFileSync(
     path.join(__dirname, '../scripts/database/run-content-privacy-audit.sh'),
