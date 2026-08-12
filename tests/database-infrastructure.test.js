@@ -66,6 +66,7 @@ const {
   PaymentRepository,
   ProofRepository,
   PublicQrProvenanceRepository,
+  QrAdministrationRepository,
   QrBatchRepository,
   QrIssuanceRepository,
   QrRepository,
@@ -1783,6 +1784,49 @@ test('QR issuance repository locks prefixes and inserts only issued unactivated 
   ]);
 });
 
+test('QR administration repository keeps management reads and writes transaction-scoped', async () => {
+  const harness = createRepositoryContext([
+    { rows: [], rowCount: 1 },
+    { rows: [{ id: 'BATCH_20260813_001' }], rowCount: 1 },
+    { rows: [{ id: 'QR_TEST' }], rowCount: 1 }
+  ]);
+  const repository = new QrAdministrationRepository(harness.context);
+  await repository.lockBatchDay('20260813');
+  assert.deepEqual(
+    await repository.listBatchIdsForDay('20260813'),
+    ['BATCH_20260813_001']
+  );
+  assert.deepEqual(
+    await repository.setHidden(
+      ['QR_TEST'], true, '2026-08-13T00:00:00.000Z'
+    ),
+    ['QR_TEST']
+  );
+  assert.match(harness.calls[0].sql, /pg_advisory_xact_lock/);
+  assert.deepEqual(harness.calls[0].params, ['20260813']);
+  assert.match(harness.calls[1].sql, /WHERE id LIKE \$1/);
+  assert.deepEqual(harness.calls[2].params, [
+    ['QR_TEST'], true, '2026-08-13T00:00:00.000Z'
+  ]);
+});
+
+test('admin, quality, and NFT QR routes share the issuance authority boundary', () => {
+  const readRoute = (name) => fs.readFileSync(
+    path.join(__dirname, `../src/server/routes/${name}.js`),
+    'utf8'
+  );
+  const adminRoute = readRoute('admin');
+  const qualityRoute = readRoute('qc');
+  const nftRoute = readRoute('nft');
+
+  assert.match(adminRoute, /administerQrs/);
+  assert.match(adminRoute, /selectQrAdministration/);
+  assert.match(adminRoute, /OPERATION_DISABLED_DURING_POSTGRES_AUTHORITY/);
+  assert.match(qualityRoute, /administerQrs/);
+  assert.match(qualityRoute, /selectQualityOperation/);
+  assert.match(nftRoute, /administerQrs\('getRecord'/);
+});
+
 test('co-creation repository exposes stable source position without UUID ordering', async () => {
   const row = {
     id: '00000000-0000-0000-0000-000000000201',
@@ -2593,6 +2637,14 @@ test('clean candidate E2E uses a disposable clone and forbids external providers
   assert.match(runner, /CLEAN_CANDIDATE_EXISTING_H5_ROUTES=PASS/);
   assert.match(runner, /CLEAN_CANDIDATE_EXISTING_MINIAPP_ROUTES=PASS/);
   assert.match(runner, /CLEAN_CANDIDATE_EXISTING_DATA_UNCHANGED=PASS/);
+  assert.match(runner, /CLEAN_CANDIDATE_POSTGRES_ONLY_BATCH_ADMINISTRATION=PASS/);
+  assert.match(runner, /CLEAN_CANDIDATE_POSTGRES_ONLY_QUALITY_CHECK=PASS/);
+  assert.match(runner, /CLEAN_CANDIDATE_POSTGRES_ONLY_ADMIN_VISIBILITY=PASS/);
+  assert.match(runner, /CLEAN_CANDIDATE_POSTGRES_ONLY_NFT_READ=PASS/);
+  assert.match(runner, /POSTGRES_ONLY_BATCH_ADMINISTRATION=PASS/);
+  assert.match(runner, /POSTGRES_ONLY_QUALITY_CHECK=PASS/);
+  assert.match(runner, /POSTGRES_ONLY_ADMIN_VISIBILITY=PASS/);
+  assert.match(runner, /POSTGRES_ONLY_NFT_READ=PASS/);
   assert.match(runner, /json-authority-baseline\.json/);
   assert.match(runner, /POSTGRES_AUTHORITY_BASELINE_DOMAIN_SHA256/);
   assert.match(runner, /HANDOFF_DOMAINS_MUST_DIFFER/);
@@ -2602,6 +2654,10 @@ test('clean candidate E2E uses a disposable clone and forbids external providers
   assert.match(e2e, /CLEAN_CANDIDATE_EXISTING_H5_ROUTES=PASS/);
   assert.match(e2e, /CLEAN_CANDIDATE_EXISTING_MINIAPP_ROUTES=PASS/);
   assert.match(e2e, /CLEAN_CANDIDATE_EXISTING_DATA_UNCHANGED=PASS/);
+  assert.match(e2e, /CLEAN_CANDIDATE_POSTGRES_ONLY_BATCH_ADMINISTRATION=PASS/);
+  assert.match(e2e, /CLEAN_CANDIDATE_POSTGRES_ONLY_QUALITY_CHECK=PASS/);
+  assert.match(e2e, /CLEAN_CANDIDATE_POSTGRES_ONLY_ADMIN_VISIBILITY=PASS/);
+  assert.match(e2e, /CLEAN_CANDIDATE_POSTGRES_ONLY_NFT_READ=PASS/);
   assert.match(e2e, /CLEAN_CANDIDATE_COORDINATED_JOINT_REHEARSAL=PASS/);
   assert.match(e2e, /EXPECTED_BASELINE_DOMAIN_SHA256/);
   assert.match(e2e, /qr\.access_token AS qr_access_token/);
@@ -2663,6 +2719,11 @@ test('stable cutover preflight is read-only, unified, and authority-commit safe'
   assert.match(runner, /READY_FOR_POSTGRES_MAINTENANCE_WINDOW/);
   assert.match(runner, /AVATA_MIGRATION_SCOPE=DEFERRED/);
   assert.match(runner, /EXTERNAL_PROVIDER_CALLS=NONE/);
+  assert.match(runner, /JOINT_QR_ADMINISTRATION_GATE=PASS/);
+  assert.match(runner, /JOINT_BATCH_ADMINISTRATION_NOT_PASSED/);
+  assert.match(runner, /JOINT_QUALITY_CHECK_NOT_PASSED/);
+  assert.match(runner, /JOINT_ADMIN_VISIBILITY_NOT_PASSED/);
+  assert.match(runner, /JOINT_NFT_READ_NOT_PASSED/);
   assert.doesNotMatch(runner, /STABLE_CUTOVER_PROVIDER_ENV/);
   assert.match(runner, /PM2_CONFIGURATION_LOADED=NO/);
   assert.match(runner, /AUTHORITY_COMMIT_POINT_CROSSED=NO/);
@@ -2804,6 +2865,10 @@ test('maintenance cutover preparation is read-only and cannot enter prewrite', (
   assert.match(runner, /JOINT_EVIDENCE_STALE/);
   assert.match(runner, /\^\(src\/server\//);
   assert.match(runner, /POSTGRES_ONLY_PROOF_OUTBOX=PASS/);
+  assert.match(runner, /JOINT_BATCH_ADMINISTRATION_INVALID/);
+  assert.match(runner, /JOINT_QUALITY_CHECK_INVALID/);
+  assert.match(runner, /JOINT_ADMIN_VISIBILITY_INVALID/);
+  assert.match(runner, /JOINT_NFT_READ_INVALID/);
   assert.match(runner, /PROOF_WORKER_RUNTIME=DISABLED/);
   assert.match(runner, /default_transaction_read_only=on/);
   assert.match(runner, /CANDIDATE_ENVIRONMENT_SHA256=/);

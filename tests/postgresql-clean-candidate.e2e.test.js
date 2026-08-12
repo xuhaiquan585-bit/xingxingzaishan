@@ -49,6 +49,7 @@ const TEST_QR_ID = `${TEST_PREFIX}00001`;
 const TEST_PHONE = '13900000992';
 const TEST_OPENID = 'mock-openid-clean-candidate-e2e';
 const TEST_CONTENT = 'Clean PostgreSQL candidate end-to-end record';
+const TEST_BATCH_NAME = 'Clean candidate PostgreSQL batch';
 
 function request({ port, method, requestPath, body = null, headers = {} }) {
   const payload = body === null ? null : Buffer.from(JSON.stringify(body));
@@ -328,19 +329,106 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
     console.log('CLEAN_CANDIDATE_EXISTING_MINIAPP_ROUTES=PASS');
     console.log('CLEAN_CANDIDATE_COORDINATED_PREWRITE=PASS');
 
+    const createdBatchResponse = await request({
+      port,
+      method: 'POST',
+      requestPath: '/api/admin/batches',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: {
+        name: TEST_BATCH_NAME,
+        brand_name: 'Clean candidate brand',
+        brand_disclosure_text: 'Clean candidate disclosure',
+        brand_disclosure_default: true
+      }
+    });
+    assert.equal(createdBatchResponse.status, 200);
+    const testBatch = createdBatchResponse.body.data;
+    assert.match(testBatch.id, /^BATCH_\d{8}_\d{3}$/);
+    assert.equal(testBatch.name, TEST_BATCH_NAME);
+
+    const batchListResponse = await request({
+      port,
+      method: 'GET',
+      requestPath: '/api/admin/batches',
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    assert.equal(batchListResponse.status, 200);
+    assert.ok(batchListResponse.body.data.batches.some(
+      (batch) => batch.id === testBatch.id
+    ));
+
     const issuance = await request({
       port,
       method: 'POST',
       requestPath: '/api/admin/qr/generate',
       headers: { Authorization: `Bearer ${adminToken}` },
-      body: { prefix: TEST_PREFIX, count: 1 }
+      body: { prefix: TEST_PREFIX, count: 1, batch_id: testBatch.id }
     });
     assert.equal(issuance.status, 200);
     const issued = issuance.body.data.records[0];
     assert.equal(issued.id, TEST_QR_ID);
     assert.equal(issued.issue_status, 'issued');
     assert.equal(issued.activation_status, 'unactivated');
+    assert.equal(issued.batch_id, testBatch.id);
     assert.match(issued.qr_access_token, /^[0-9a-f]{32}$/);
+
+    const adminListBeforeActivation = await request({
+      port,
+      method: 'GET',
+      requestPath: `/api/admin/records?id_prefix=${TEST_PREFIX}`,
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    assert.equal(adminListBeforeActivation.status, 200);
+    assert.equal(adminListBeforeActivation.body.data.total, 1);
+    assert.equal(adminListBeforeActivation.body.data.records[0].id, TEST_QR_ID);
+
+    const qcToken = generateToken({
+      id: 2,
+      username: 'clean-candidate-e2e-qc',
+      role: 'qc',
+      name: 'Clean candidate E2E QC'
+    });
+    const firstQc = await request({
+      port,
+      method: 'POST',
+      requestPath: '/api/qc/check',
+      headers: { Authorization: `Bearer ${qcToken}` },
+      body: { qr_id: TEST_QR_ID }
+    });
+    assert.equal(firstQc.status, 200);
+    assert.equal(firstQc.body.data.result, 'pass');
+    const duplicateQc = await request({
+      port,
+      method: 'POST',
+      requestPath: '/api/qc/check',
+      headers: { Authorization: `Bearer ${qcToken}` },
+      body: { qr_id: TEST_QR_ID }
+    });
+    assert.equal(duplicateQc.status, 200);
+    assert.equal(duplicateQc.body.data.result, 'duplicate');
+
+    const hide = await request({
+      port,
+      method: 'POST',
+      requestPath: `/api/admin/records/${TEST_QR_ID}/hide`,
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    assert.equal(hide.status, 200);
+    assert.equal(hide.body.data.hidden, true);
+    const hiddenPublic = await request({
+      port,
+      method: 'GET',
+      requestPath: `/api/qr/${issued.qr_access_token}`
+    });
+    assert.equal(hiddenPublic.status, 403);
+    const show = await request({
+      port,
+      method: 'POST',
+      requestPath: `/api/admin/records/${TEST_QR_ID}/show`,
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    assert.equal(show.status, 200);
+    assert.equal(show.body.data.hidden, false);
 
     const image = await request({
       port,
@@ -393,6 +481,34 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
     assert.equal(save.body.data.id, TEST_QR_ID);
     assert.equal(save.body.data.activation_status, 'activated');
     assert.equal(save.body.data.content, TEST_CONTENT);
+
+    const nftShare = await request({
+      port,
+      method: 'GET',
+      requestPath: `/api/nft/${TEST_QR_ID}/share-meta`
+    });
+    assert.equal(nftShare.status, 200);
+    assert.equal(nftShare.body.data.text, TEST_CONTENT);
+
+    const boundQc = await request({
+      port,
+      method: 'POST',
+      requestPath: '/api/qc/check',
+      headers: { Authorization: `Bearer ${qcToken}` },
+      body: { qr_id: TEST_QR_ID }
+    });
+    assert.equal(boundQc.status, 200);
+    assert.equal(boundQc.body.data.result, 'bound');
+
+    const adminDashboard = await request({
+      port,
+      method: 'GET',
+      requestPath: '/api/admin/dashboard',
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    assert.equal(adminDashboard.status, 200);
+    assert.equal(adminDashboard.body.data.total_issued, 104);
+    assert.equal(adminDashboard.body.data.total_activated, 56);
 
     for (const requestPath of [
       `/api/qr/${issued.qr_access_token}`,
@@ -510,6 +626,10 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
     assert.equal(externalFetchCalls, 0);
 
     console.log('CLEAN_CANDIDATE_EXISTING_DATA_UNCHANGED=PASS');
+    console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_BATCH_ADMINISTRATION=PASS');
+    console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_QUALITY_CHECK=PASS');
+    console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_ADMIN_VISIBILITY=PASS');
+    console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_NFT_READ=PASS');
     console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_QR_ISSUANCE=PASS');
     console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_IDENTITY=PASS');
     console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_LIFECYCLE=PASS');

@@ -39,6 +39,7 @@ const {
   rebuildRecordArchive
 } = require('../services/archiveService');
 const {
+  administerQrs,
   issueQrCodes,
   qrIssuanceAuthorityHttpError
 } = require('../services/postgres/qrIssuanceAuthorityRuntime');
@@ -47,6 +48,56 @@ const {
 } = require('../services/postgres/recordProofRuntime');
 
 const router = express.Router();
+
+async function selectQrAdministration(operation, input, fallback) {
+  const authority = await administerQrs(operation, input);
+  return authority.selected ? authority.result : fallback();
+}
+
+function sendQrAuthorityError(res, error) {
+  const response = qrIssuanceAuthorityHttpError(error);
+  return res.status(response.status).json({
+    status: 'error',
+    code: response.code,
+    message: response.message
+  });
+}
+
+async function blockLegacyQrMutationWhenPostgresSelected(qrId, res) {
+  const authority = await administerQrs('getRecord', { qrId });
+  if (!authority.selected) return false;
+  res.status(503).json({
+    status: 'error',
+    code: 'OPERATION_DISABLED_DURING_POSTGRES_AUTHORITY',
+    message: '该操作在当前 PostgreSQL 迁移范围内暂未开放。'
+  });
+  return true;
+}
+
+function batchCsv(detail) {
+  const header = [
+    'id', 'batch_id', 'issue_status', 'activation_status', 'hidden',
+    'phone', 'activated_at', 'created_at', 'qr_image_url'
+  ];
+  const rows = detail.records.map((item) => [
+    item.id,
+    item.batch_id || '',
+    item.issue_status,
+    item.activation_status,
+    item.hidden ? 'true' : 'false',
+    item.phone || '',
+    item.activated_at || '',
+    item.created_at || '',
+    item.qr_image_url
+      ? `${process.env.BASE_URL || 'http://localhost:3000'}${item.qr_image_url}`
+      : ''
+  ]);
+  return [header, ...rows]
+    .map((row) => row.map(
+      (value) => `"${String(value).replace(/"/g, '""')}"`
+    ).join(','))
+    .join('\n');
+}
 
 const imageUpload = multer({
   storage: multer.memoryStorage(),
@@ -125,9 +176,25 @@ router.post('/login', (req, res) => {
   });
 });
 
-router.get('/dashboard', requireAdmin, (req, res) => {
+router.get('/dashboard', requireAdmin, async (req, res) => {
   const { date_from: dateFrom, date_to: dateTo } = req.query;
-  const stats = getDashboardStats({ dateFrom, dateTo });
+  const legacyStats = () => getDashboardStats({ dateFrom, dateTo });
+  let stats;
+  try {
+    stats = await selectQrAdministration(
+      'getDashboardStats',
+      { dateFrom, dateTo },
+      legacyStats
+    );
+    if (stats.published_products === null) {
+      stats = {
+        ...stats,
+        published_products: legacyStats().published_products
+      };
+    }
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
+  }
   return res.json({
     status: 'success',
     code: 'OK',
@@ -241,7 +308,7 @@ router.post('/operators/:id/change-password', requireAdmin, (req, res) => {
   });
 });
 
-router.post('/batches', requireAdmin, (req, res) => {
+router.post('/batches', requireAdmin, async (req, res) => {
   const { name, brand_name: brandName, note, brand_disclosure_text: brandDisclosureText, brand_disclosure_default: brandDisclosureDefault } = req.body;
   if (!name || !String(name).trim()) {
     return res.status(400).json({
@@ -251,14 +318,24 @@ router.post('/batches', requireAdmin, (req, res) => {
     });
   }
 
-  const batch = createBatch({
+  const input = {
     name: String(name).trim(),
     brandName: String(brandName || '').trim(),
     note: String(note || '').trim(),
     brandDisclosureText: String(brandDisclosureText || '').trim(),
     brandDisclosureDefault: brandDisclosureDefault === true,
     createdBy: req.operator.username
-  });
+  };
+  let batch;
+  try {
+    batch = await selectQrAdministration(
+      'createBatch',
+      input,
+      () => createBatch(input)
+    );
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
+  }
 
   return res.json({
     status: 'success',
@@ -267,8 +344,13 @@ router.post('/batches', requireAdmin, (req, res) => {
   });
 });
 
-router.get('/batches', requireAdmin, (_req, res) => {
-  const batches = listBatches();
+router.get('/batches', requireAdmin, async (_req, res) => {
+  let batches;
+  try {
+    batches = await selectQrAdministration('listBatches', {}, listBatches);
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
+  }
   return res.json({
     status: 'success',
     code: 'OK',
@@ -279,8 +361,17 @@ router.get('/batches', requireAdmin, (_req, res) => {
   });
 });
 
-router.get('/batches/:batchId', requireAdmin, (req, res) => {
-  const detail = getBatchDetail(req.params.batchId);
+router.get('/batches/:batchId', requireAdmin, async (req, res) => {
+  let detail;
+  try {
+    detail = await selectQrAdministration(
+      'getBatchDetail',
+      { batchId: req.params.batchId },
+      () => getBatchDetail(req.params.batchId)
+    );
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
+  }
   if (!detail) {
     return res.status(404).json({
       status: 'error',
@@ -296,7 +387,7 @@ router.get('/batches/:batchId', requireAdmin, (req, res) => {
   });
 });
 
-router.post('/batches/:batchId/assign', requireAdmin, (req, res) => {
+router.post('/batches/:batchId/assign', requireAdmin, async (req, res) => {
   const ids = Array.isArray(req.body.ids) ? req.body.ids : [];
   if (ids.length === 0) {
     return res.status(400).json({
@@ -306,30 +397,61 @@ router.post('/batches/:batchId/assign', requireAdmin, (req, res) => {
     });
   }
 
-  const result = assignBatchToQRCodes({ batchId: req.params.batchId, ids });
-  if (result.error === 'BATCH_NOT_FOUND') {
-    return res.status(404).json({
-      status: 'error',
-      code: 'BATCH_NOT_FOUND',
-      message: '未找到该批次。'
-    });
+  let data;
+  try {
+    data = await selectQrAdministration(
+      'assignBatch',
+      { batchId: req.params.batchId, ids },
+      () => {
+        const result = assignBatchToQRCodes({
+          batchId: req.params.batchId,
+          ids
+        });
+        if (result.error) {
+          const error = new Error(result.error);
+          error.code = result.error;
+          throw error;
+        }
+        return result.data;
+      }
+    );
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
   }
 
   return res.json({
     status: 'success',
     code: 'OK',
-    data: result.data
+    data
   });
 });
 
-router.get('/batches/:batchId/export', requireAdmin, (req, res) => {
-  const result = exportBatchCSV(req.params.batchId);
-  if (result.error === 'BATCH_NOT_FOUND') {
-    return res.status(404).json({
-      status: 'error',
-      code: 'BATCH_NOT_FOUND',
-      message: '未找到该批次。'
+router.get('/batches/:batchId/export', requireAdmin, async (req, res) => {
+  let result;
+  try {
+    const authority = await administerQrs('getBatchDetail', {
+      batchId: req.params.batchId
     });
+    if (authority.selected) {
+      if (!authority.result) {
+        const error = new Error('BATCH_NOT_FOUND');
+        error.code = 'BATCH_NOT_FOUND';
+        throw error;
+      }
+      result = {
+        data: batchCsv(authority.result),
+        filename: `batch-${req.params.batchId}-${Date.now()}.csv`
+      };
+    } else {
+      result = exportBatchCSV(req.params.batchId);
+      if (result.error) {
+        const error = new Error(result.error);
+        error.code = result.error;
+        throw error;
+      }
+    }
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
   }
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -656,7 +778,7 @@ router.post('/qr/generate', requireAdmin, async (req, res, next) => {
   });
 });
 
-router.get('/records', requireAdmin, (req, res) => {
+router.get('/records', requireAdmin, async (req, res) => {
   const {
     issue_status: issueStatus,
     activation_status: activationStatus,
@@ -669,7 +791,7 @@ router.get('/records', requireAdmin, (req, res) => {
     limit = 20
   } = req.query;
 
-  const data = listQRRecords({
+  const input = {
     issueStatus,
     activationStatus,
     hidden,
@@ -679,7 +801,17 @@ router.get('/records', requireAdmin, (req, res) => {
     dateTo,
     page,
     limit
-  });
+  };
+  let data;
+  try {
+    data = await selectQrAdministration(
+      'listRecords',
+      input,
+      () => listQRRecords(input)
+    );
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
+  }
   const records = data.records.map((record) => ({
     ...record,
     chain_certificate_object_url: record.chain_certificate_object_key
@@ -698,6 +830,13 @@ router.get('/records', requireAdmin, (req, res) => {
 });
 
 router.post('/records/:qrId/chain/query', requireAdmin, async (req, res) => {
+  try {
+    if (await blockLegacyQrMutationWhenPostgresSelected(req.params.qrId, res)) {
+      return undefined;
+    }
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
+  }
   const result = await queryRecordChainProof(req.params.qrId);
   if (result.error === 'CHAIN_OPERATION_NOT_FOUND') {
     return res.status(404).json({
@@ -714,6 +853,13 @@ router.post('/records/:qrId/chain/query', requireAdmin, async (req, res) => {
 });
 
 router.post('/records/:qrId/chain/retry', requireAdmin, async (req, res) => {
+  try {
+    if (await blockLegacyQrMutationWhenPostgresSelected(req.params.qrId, res)) {
+      return undefined;
+    }
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
+  }
   const result = await retryRecordChainProof(req.params.qrId);
   if (result.error === 'QR_NOT_FOUND') {
     return res.status(404).json({
@@ -737,6 +883,13 @@ router.post('/records/:qrId/chain/retry', requireAdmin, async (req, res) => {
 });
 
 router.post('/records/:qrId/archive/rebuild', requireAdmin, async (req, res) => {
+  try {
+    if (await blockLegacyQrMutationWhenPostgresSelected(req.params.qrId, res)) {
+      return undefined;
+    }
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
+  }
   const result = await rebuildRecordArchive(req.params.qrId);
   if (result.error === 'QR_NOT_FOUND') {
     return res.status(404).json({
@@ -759,9 +912,18 @@ router.post('/records/:qrId/archive/rebuild', requireAdmin, async (req, res) => 
   });
 });
 
-router.post('/records/batch-hide', requireAdmin, (req, res) => {
+router.post('/records/batch-hide', requireAdmin, async (req, res) => {
   const ids = Array.isArray(req.body.ids) ? req.body.ids : [];
-  const updated = setQRHiddenStatusBatch(ids, true);
+  let updated;
+  try {
+    updated = await selectQrAdministration(
+      'setHidden',
+      { ids, hidden: true },
+      () => setQRHiddenStatusBatch(ids, true)
+    );
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
+  }
   return res.json({
     status: 'success',
     code: 'OK',
@@ -769,9 +931,18 @@ router.post('/records/batch-hide', requireAdmin, (req, res) => {
   });
 });
 
-router.post('/records/batch-show', requireAdmin, (req, res) => {
+router.post('/records/batch-show', requireAdmin, async (req, res) => {
   const ids = Array.isArray(req.body.ids) ? req.body.ids : [];
-  const updated = setQRHiddenStatusBatch(ids, false);
+  let updated;
+  try {
+    updated = await selectQrAdministration(
+      'setHidden',
+      { ids, hidden: false },
+      () => setQRHiddenStatusBatch(ids, false)
+    );
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
+  }
   return res.json({
     status: 'success',
     code: 'OK',
@@ -779,7 +950,7 @@ router.post('/records/batch-show', requireAdmin, (req, res) => {
   });
 });
 
-router.post('/records/export', requireAdmin, (req, res) => {
+router.post('/records/export', requireAdmin, async (req, res) => {
   const ids = Array.isArray(req.body.ids) ? req.body.ids : [];
   if (ids.length === 0) {
     return res.status(400).json({
@@ -789,9 +960,21 @@ router.post('/records/export', requireAdmin, (req, res) => {
     });
   }
 
-  const data = listQRRecords({ page: 1, limit: 100000 }).records.filter((item) => ids.includes(item.id));
+  let data;
+  try {
+    data = await selectQrAdministration(
+      'listRecords',
+      { ids, page: 1, limit: 100000 },
+      () => ({
+        records: listQRRecords({ page: 1, limit: 100000 }).records
+          .filter((item) => ids.includes(item.id))
+      })
+    );
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
+  }
   const header = ['id', 'issue_status', 'activation_status', 'hidden', 'batch_id', 'phone', 'activated_at', 'created_at'];
-  const rows = data.map((item) => [
+  const rows = data.records.map((item) => [
     item.id,
     item.issue_status,
     item.activation_status,
@@ -808,8 +991,21 @@ router.post('/records/export', requireAdmin, (req, res) => {
   return res.send(`\uFEFF${csv}`);
 });
 
-router.post('/records/:qrId/hide', requireAdmin, (req, res) => {
-  const updated = setQRHiddenStatus(req.params.qrId, true);
+router.post('/records/:qrId/hide', requireAdmin, async (req, res) => {
+  let updated;
+  try {
+    const records = await selectQrAdministration(
+      'setHidden',
+      { ids: [req.params.qrId], hidden: true },
+      () => {
+        const record = setQRHiddenStatus(req.params.qrId, true);
+        return record ? [record] : [];
+      }
+    );
+    [updated] = records;
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
+  }
   if (!updated) {
     return res.status(404).json({
       status: 'error',
@@ -825,8 +1021,21 @@ router.post('/records/:qrId/hide', requireAdmin, (req, res) => {
   });
 });
 
-router.post('/records/:qrId/show', requireAdmin, (req, res) => {
-  const updated = setQRHiddenStatus(req.params.qrId, false);
+router.post('/records/:qrId/show', requireAdmin, async (req, res) => {
+  let updated;
+  try {
+    const records = await selectQrAdministration(
+      'setHidden',
+      { ids: [req.params.qrId], hidden: false },
+      () => {
+        const record = setQRHiddenStatus(req.params.qrId, false);
+        return record ? [record] : [];
+      }
+    );
+    [updated] = records;
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
+  }
   if (!updated) {
     return res.status(404).json({
       status: 'error',

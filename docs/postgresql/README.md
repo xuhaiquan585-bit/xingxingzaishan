@@ -475,7 +475,8 @@ close the separate Shadow Read execution gates documented in
 ### Runtime QR issuance authority boundary
 
 - `qrIssuanceAuthorityRuntime.js` is the default-off PostgreSQL authority for
-  `POST /api/admin/qr/generate`. Selection requires explicit `scope=all`, the
+  QR issuance and the in-scope QR administration surface. Selection requires
+  explicit `scope=all`, the
   exact source SHA-256, and the public-QR domain SHA-256 from the same passed
   import. Static allowlists are forbidden because newly allocated IDs cannot
   be enumerated safely in advance.
@@ -488,12 +489,21 @@ close the separate Shadow Read execution gates documented in
   staging failure rolls staged files back; rendering failure preserves the
   legacy behavior of issuing the QR without an image URL. The protected image
   endpoint can resolve PostgreSQL-only tokens through the primary read runtime.
-- A batch supplied during PostgreSQL issuance must already exist in
-  `app.qr_batches`; a JSON-only batch fails explicitly. Creating and managing
-  new batches remains a separate pre-cutover business gate if operations need
-  that workflow after PostgreSQL becomes authoritative.
+- The same authority now owns batch create/list/detail/assign/export,
+  administrative QR list/hide/show/export, QR dashboard counts, quality-check
+  writes/logs/stats, and NFT download/share record lookup. Default-off keeps
+  every existing JSON route unchanged. Once selected, these routes use only
+  PostgreSQL and cannot split a new batch or QR row back into JSON.
+- AVATA chain query/retry and archive rebuild fail closed while this authority
+  is selected because AVATA remains outside the current migration. Products,
+  orders, payments, operator management, and miniapp content remain explicitly
+  outside this QR/identity/record authority domain.
 - The runtime is lazy, bounded, drains active issuance on shutdown, and is not
   enabled or saved in production by this implementation.
+- The disposable clean-candidate rehearsal creates a PostgreSQL-only batch,
+  issues and quality-checks a QR in that batch, verifies admin visibility and
+  hide/show behavior, activates the record, verifies NFT sharing and dashboard
+  counts, and removes the cloned test database afterward.
 
 ### Runtime identity write transaction boundary
 

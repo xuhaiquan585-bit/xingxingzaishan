@@ -59,8 +59,9 @@ missed a committed business mutation.
 
 ### 4. POSTGRES_AUTHORITY_COMMITTED
 
-The first committed PostgreSQL-only identity, QR issuance, lifecycle, record,
-or proof mutation is the authority commit point. From that instant:
+The first committed PostgreSQL-only identity, QR issuance or administration,
+lifecycle, record, or proof mutation is the authority commit point. From that
+instant:
 
 - PostgreSQL is the durable business authority;
 - JSON must not be re-enabled as a complete primary source;
@@ -82,9 +83,11 @@ not as a live fallback authority.
 The authority commit point is blocked until all producers are durable in
 PostgreSQL:
 
-1. Admin QR issuance creates issued QR rows and access tokens in PostgreSQL.
-   A referenced batch must already be PostgreSQL-authoritative; stable use of
-   newly created batches additionally requires the batch-management producer.
+1. The QR issuance authority also owns QR batch creation and assignment,
+   administrative QR listing/hide/show/export, quality-check logs and stats,
+   dashboard QR counts, and NFT record lookup. A selected route never falls
+   back to JSON. This keeps newly created batches and PostgreSQL-only QR rows
+   visible to every in-scope operator workflow.
 2. H5 and miniapp identity creation, phone/OpenID binding, and authenticated
    identity lookup use PostgreSQL authority.
 3. QR activation, co-creation, comment, and finalization writes use PostgreSQL.
@@ -97,6 +100,13 @@ PostgreSQL:
    allowed in production.
 6. Personal and public read routes use PostgreSQL for current and future
    entities under explicit `scope=all` configuration.
+
+This authority contract is intentionally domain-scoped. Products, orders,
+payments, operator administration, and miniapp content remain JSON-authoritative
+until separately migrated. AVATA chain query/retry and archive rebuild remain
+disabled while PostgreSQL QR authority is selected and AVATA is outside the
+migration scope; they must not mutate the historical JSON copy of an
+authoritative PostgreSQL record.
 
 Producer completion is proven by repository tests, disposable PostgreSQL
 integration, and a coordinated production-host rehearsal. A code deployment by
@@ -116,7 +126,8 @@ itself does not satisfy this gate.
 
 Stable configuration is one root-owned `0600` environment file. Public QR
 primary read, personal record primary read, lifecycle write, identity authority,
-and QR issuance authority are reviewed and activated as one release operation.
+and QR issuance/administration authority are reviewed and activated as one
+release operation.
 Stable `scope=all` settings must not carry a static allowlist. While AVATA is
 outside the PostgreSQL migration scope, the same file must explicitly set
 `RECORD_PROOF_RUNTIME_ENABLED=false` and must not include proof-worker scope,

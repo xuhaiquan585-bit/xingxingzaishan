@@ -2,12 +2,33 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { getQRCode } = require('../services/dbService');
+const {
+  administerQrs,
+  qrIssuanceAuthorityHttpError
+} = require('../services/postgres/qrIssuanceAuthorityRuntime');
 const { getStorageMode, getSignedUrl, getLocalObjectPath } = require('../services/storageService');
 
 const router = express.Router();
 
-router.get('/:qrId/download', (req, res) => {
-  const qr = getQRCode(req.params.qrId);
+async function getNftRecord(qrId) {
+  const authority = await administerQrs('getRecord', { qrId });
+  return authority.selected ? authority.result : getQRCode(qrId);
+}
+
+function sendAuthorityError(res, error) {
+  const response = qrIssuanceAuthorityHttpError(error);
+  return res.status(response.status).json({
+    status: 'error', code: response.code, message: response.message
+  });
+}
+
+router.get('/:qrId/download', async (req, res) => {
+  let qr;
+  try {
+    qr = await getNftRecord(req.params.qrId);
+  } catch (error) {
+    return sendAuthorityError(res, error);
+  }
   if (!qr || qr.activation_status !== 'activated') {
     return res.status(404).json({
       status: 'error',
@@ -65,8 +86,13 @@ router.get('/:qrId/download', (req, res) => {
   });
 });
 
-router.get('/:qrId/share-meta', (req, res) => {
-  const qr = getQRCode(req.params.qrId);
+router.get('/:qrId/share-meta', async (req, res) => {
+  let qr;
+  try {
+    qr = await getNftRecord(req.params.qrId);
+  } catch (error) {
+    return sendAuthorityError(res, error);
+  }
   if (!qr || qr.activation_status !== 'activated') {
     return res.status(404).json({
       status: 'error',

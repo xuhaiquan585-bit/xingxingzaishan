@@ -181,6 +181,7 @@ test('QR issuance authority verifies provenance inside the write transaction', a
     migrationsLoader: () => migrations,
     repositoryTypes: {
       PublicQrProvenanceRepository: EmptyRepository,
+      QrAdministrationRepository: EmptyRepository,
       QrIssuanceRepository: EmptyRepository
     },
     freshnessChecker: async (input) => {
@@ -195,7 +196,8 @@ test('QR issuance authority verifies provenance inside the write transaction', a
           return { data: { count: 1, ids: ['NEW00001'], records: [] } };
         }
       };
-    }
+    },
+    administrationServiceFactory: () => ({})
   });
   assert.equal((await runtime.issue({ prefix: 'NEW', count: 1 })).data.count, 1);
   assert.equal(calls.length, 1);
@@ -224,6 +226,7 @@ test('QR issuance controller stays lazy and drains selected operations', async (
       runtimeCount += 1;
       return {
         issue: () => new Promise((resolve) => { finish = resolve; }),
+        administer: async () => ({ total: 0, records: [] }),
         close: async () => { closeCount += 1; }
       };
     }
@@ -238,4 +241,33 @@ test('QR issuance controller stays lazy and drains selected operations', async (
   await closing;
   assert.equal(runtimeCount, 1);
   assert.equal(closeCount, 1);
+});
+
+test('QR administration shares the issuance authority runtime and remains default-off', async () => {
+  let runtimeCount = 0;
+  const disabled = createQrIssuanceAuthorityController({
+    readConfig: () => readQrIssuanceAuthorityConfig({}),
+    runtimeFactory: () => { runtimeCount += 1; }
+  });
+  assert.deepEqual(await disabled.administer('listRecords', {}), {
+    selected: false
+  });
+  assert.equal(runtimeCount, 0);
+
+  const operations = [];
+  const controller = createQrIssuanceAuthorityController({
+    readConfig: () => enabledConfig(),
+    runtimeFactory: () => ({
+      administer: async (operation, input) => {
+        operations.push({ operation, input });
+        return { total: 0, records: [] };
+      },
+      issue: async () => ({ data: { count: 0 } }),
+      close: async () => {}
+    })
+  });
+  const result = await controller.administer('listRecords', { page: 1 });
+  assert.equal(result.selected, true);
+  assert.deepEqual(operations, [{ operation: 'listRecords', input: { page: 1 } }]);
+  await controller.close();
 });

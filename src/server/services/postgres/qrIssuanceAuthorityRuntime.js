@@ -5,6 +5,7 @@ const {
   readQrIssuanceAuthorityConfig
 } = require('./qrIssuanceAuthorityConfig');
 const { QrIssuanceError } = require('./qrIssuanceService');
+const { QrAdministrationError } = require('./qrAdministrationService');
 
 class QrIssuanceAuthorityError extends Error {
   constructor(code, message) {
@@ -38,6 +39,7 @@ function createQrIssuanceAuthorityRuntime(config, {
   migrationsLoader,
   repositoryTypes,
   issuanceServiceFactory,
+  administrationServiceFactory,
   freshnessChecker = checkSourceAndDomainFreshness
 } = {}) {
   assertEnabledConfig(config);
@@ -50,6 +52,8 @@ function createQrIssuanceAuthorityRuntime(config, {
     : require('../../../../scripts/database/migrate');
   const createService = issuanceServiceFactory
     || require('./qrIssuanceService').createQrIssuanceService;
+  const createAdministrationService = administrationServiceFactory
+    || require('./qrAdministrationService').createQrAdministrationService;
 
   const postgresConfig = databaseConfig.readPostgresConfig(env);
   const poolFactory = createPool || connection.createPostgresPool;
@@ -98,10 +102,24 @@ function createQrIssuanceAuthorityRuntime(config, {
     beforeOperation: ({ transactionContext }) => assertEligible(transactionContext),
     env
   });
+  const administrationService = createAdministrationService({
+    pool,
+    transactionRunner: runTransaction,
+    repositoryType: repositories.QrAdministrationRepository,
+    beforeOperation: ({ transactionContext }) => assertEligible(transactionContext)
+  });
 
   async function issue(input) {
     if (closed) throw authorityError('QR_ISSUANCE_POSTGRES_AUTHORITY_CLOSED');
     return service.issue(input);
+  }
+
+  async function administer(operation, input) {
+    if (closed) throw authorityError('QR_ISSUANCE_POSTGRES_AUTHORITY_CLOSED');
+    if (!operation || typeof administrationService[operation] !== 'function') {
+      throw authorityError('QR_ISSUANCE_POSTGRES_AUTHORITY_OPERATION_INVALID');
+    }
+    return administrationService[operation](input || {});
   }
 
   async function close() {
@@ -110,7 +128,7 @@ function createQrIssuanceAuthorityRuntime(config, {
     await poolCloser(pool);
   }
 
-  return Object.freeze({ issue, close });
+  return Object.freeze({ administer, issue, close });
 }
 
 function createQrIssuanceAuthorityController({
@@ -122,7 +140,7 @@ function createQrIssuanceAuthorityController({
   let closed = false;
   const activeOperations = new Set();
 
-  async function issue(input = {}) {
+  async function execute(operation, input = {}) {
     const config = readConfig(env);
     if (!config || config.requested !== true) return { selected: false };
     if (config.enabled !== true) {
@@ -144,12 +162,17 @@ function createQrIssuanceAuthorityController({
         : authorityError('QR_ISSUANCE_POSTGRES_AUTHORITY_START_FAILED', error);
     }
 
-    const active = Promise.resolve().then(() => runtime.issue(input));
+    const active = Promise.resolve().then(() => (
+      operation === 'issue'
+        ? runtime.issue(input)
+        : runtime.administer(operation, input)
+    ));
     activeOperations.add(active);
     try {
       return { selected: true, result: await active };
     } catch (error) {
       if (error instanceof QrIssuanceError
+        || error instanceof QrAdministrationError
         || error instanceof QrIssuanceAuthorityError) {
         throw error;
       }
@@ -157,6 +180,14 @@ function createQrIssuanceAuthorityController({
     } finally {
       activeOperations.delete(active);
     }
+  }
+
+  function issue(input = {}) {
+    return execute('issue', input);
+  }
+
+  function administer(operation, input = {}) {
+    return execute(operation, input);
   }
 
   async function close() {
@@ -168,7 +199,7 @@ function createQrIssuanceAuthorityController({
     if (runtime && typeof runtime.close === 'function') await runtime.close();
   }
 
-  return Object.freeze({ issue, close });
+  return Object.freeze({ administer, issue, close });
 }
 
 function qrIssuanceAuthorityHttpError(error) {
@@ -182,10 +213,21 @@ function qrIssuanceAuthorityHttpError(error) {
   if (error && error.code === 'BATCH_NOT_FOUND') {
     return { status: 404, code: 'BATCH_NOT_FOUND', message: '未找到该批次。' };
   }
+  if (error && error.code === 'QR_NOT_FOUND') {
+    return { status: 404, code: 'QR_NOT_FOUND', message: '未找到该二维码。' };
+  }
+  if (error && [
+    'BATCH_NAME_REQUIRED',
+    'QR_ADMINISTRATION_IDS_INVALID',
+    'QR_ADMINISTRATION_PAGINATION_INVALID',
+    'QR_ADMINISTRATION_DATE_INVALID'
+  ].includes(error.code)) {
+    return { status: 400, code: 'VALIDATION_ERROR', message: '请求参数无效。' };
+  }
   return {
     status: 503,
     code: 'QR_ISSUANCE_UNAVAILABLE',
-    message: '二维码暂时无法生成，请稍后重试。'
+    message: '二维码服务暂时不可用，请稍后重试。'
   };
 }
 
@@ -195,12 +237,17 @@ function issueQrCodes(input) {
   return defaultController.issue(input);
 }
 
+function administerQrs(operation, input) {
+  return defaultController.administer(operation, input);
+}
+
 function closeQrIssuanceAuthorityRuntime() {
   return defaultController.close();
 }
 
 module.exports = {
   QrIssuanceAuthorityError,
+  administerQrs,
   closeQrIssuanceAuthorityRuntime,
   createQrIssuanceAuthorityController,
   createQrIssuanceAuthorityRuntime,

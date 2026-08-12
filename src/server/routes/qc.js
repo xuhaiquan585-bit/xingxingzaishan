@@ -1,6 +1,10 @@
 const express = require('express');
 const { verifyToken } = require('../services/authService');
 const { runQualityCheck, getQualityCheckLogs, getQualityCheckStats } = require('../services/dbService');
+const {
+  administerQrs,
+  qrIssuanceAuthorityHttpError
+} = require('../services/postgres/qrIssuanceAuthorityRuntime');
 
 const router = express.Router();
 
@@ -35,7 +39,19 @@ function requireQC(req, res, next) {
   return next();
 }
 
-router.post('/check', requireQC, (req, res) => {
+async function selectQualityOperation(operation, input, fallback) {
+  const authority = await administerQrs(operation, input);
+  return authority.selected ? authority.result : fallback();
+}
+
+function sendAuthorityError(res, error) {
+  const response = qrIssuanceAuthorityHttpError(error);
+  return res.status(response.status).json({
+    status: 'error', code: response.code, message: response.message
+  });
+}
+
+router.post('/check', requireQC, async (req, res) => {
   const qrId = (req.body.qr_id || '').trim();
   if (!qrId) {
     return res.status(400).json({
@@ -45,29 +61,26 @@ router.post('/check', requireQC, (req, res) => {
     });
   }
 
-  const result = runQualityCheck({
-    qrId,
-    checkedBy: req.operator.name || req.operator.username
-  });
-
-  if (result.error === 'QR_NOT_FOUND') {
-    return res.status(404).json({
-      status: 'error',
-      code: 'QR_NOT_FOUND',
-      message: '未找到该二维码，请确认后重试。'
-    });
+  const checkedBy = req.operator.name || req.operator.username;
+  let data;
+  try {
+    data = await selectQualityOperation(
+      'runQualityCheck',
+      { qrId, checkedBy },
+      () => {
+        const result = runQualityCheck({ qrId, checkedBy });
+        if (result.error) {
+          const error = new Error(result.error);
+          error.code = result.error;
+          throw error;
+        }
+        return result.data;
+      }
+    );
+  } catch (error) {
+    return sendAuthorityError(res, error);
   }
 
-  return res.json({
-    status: 'success',
-    code: 'OK',
-    data: result.data
-  });
-});
-
-router.get('/logs', requireQC, (req, res) => {
-  const { page = 1, limit = 20 } = req.query;
-  const data = getQualityCheckLogs({ page, limit });
   return res.json({
     status: 'success',
     code: 'OK',
@@ -75,8 +88,36 @@ router.get('/logs', requireQC, (req, res) => {
   });
 });
 
-router.get('/stats', requireQC, (_req, res) => {
-  const data = getQualityCheckStats();
+router.get('/logs', requireQC, async (req, res) => {
+  const { page = 1, limit = 20 } = req.query;
+  let data;
+  try {
+    data = await selectQualityOperation(
+      'listQualityCheckLogs',
+      { page, limit },
+      () => getQualityCheckLogs({ page, limit })
+    );
+  } catch (error) {
+    return sendAuthorityError(res, error);
+  }
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data
+  });
+});
+
+router.get('/stats', requireQC, async (_req, res) => {
+  let data;
+  try {
+    data = await selectQualityOperation(
+      'getQualityCheckStats',
+      {},
+      getQualityCheckStats
+    );
+  } catch (error) {
+    return sendAuthorityError(res, error);
+  }
   return res.json({
     status: 'success',
     code: 'OK',
