@@ -2604,7 +2604,12 @@ test('clean candidate E2E uses a disposable clone and forbids external providers
   assert.doesNotMatch(e2e, /qr\.qr_access_token/);
   assert.match(e2e, /\/api\/admin\/qr\/generate/);
   assert.match(e2e, /\/api\/miniapp\/auth\/bind-phone/);
-  assert.match(e2e, /createRecordProofRuntime/);
+  assert.match(runner, /RECORD_PROOF_RUNTIME_ENABLED=false/);
+  assert.doesNotMatch(runner, /RECORD_PROOF_RUNTIME_SCOPE=/);
+  assert.doesNotMatch(runner, /AVATA_API_KEY=|AVATA_API_SECRET=/);
+  assert.match(e2e, /CLEAN_CANDIDATE_POSTGRES_ONLY_PROOF_OUTBOX=PASS/);
+  assert.match(e2e, /CLEAN_CANDIDATE_PROOF_WORKER_RUNTIME=DISABLED/);
+  assert.doesNotMatch(e2e, /createRecordProofRuntime/);
   assert.equal(
     packageJson.scripts['test:postgres:clean-candidate-e2e'],
     'bash scripts/database/run-clean-postgres-candidate-e2e.sh'

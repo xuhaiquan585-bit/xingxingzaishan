@@ -854,7 +854,9 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   immutable JSON and PostgreSQL backups, import the planned source into a clean
   PostgreSQL database, validate parity, and keep the JSON runtime default-off.
   A newly issued PostgreSQL-only QR must pass the complete H5, miniapp,
-  lifecycle, personal-record, and proof-worker path before coordinated cutover.
+  lifecycle, and personal-record path before coordinated cutover. The lifecycle
+  write must enqueue one untouched pending proof job while the proof worker and
+  all provider configuration remain disabled.
 - `npm run baseline:rebuild:clean-postgres` materializes only the exact approved
   target hash into a root-owned audit directory, creates the new fixed
   `xingxing_clean_baseline_20260812_staging` candidate database, applies all
@@ -866,17 +868,20 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
 - `npm run test:postgres:clean-candidate-e2e` clones that exact candidate into
   the fixed disposable `_test` database, then creates a future QR and identity
   that exist only in PostgreSQL. It exercises QR image access, H5 and miniapp
-  identity merge, lifecycle activation, public and personal reads, and a local
-  proof-worker adapter. External fetches are forbidden. The clone, environment,
-  and generated image are removed on ordinary success or failure; the clean
-  candidate, legacy staging database, JSON source, and PM2 process are unchanged.
+  identity merge, lifecycle activation, public and personal reads, and durable
+  proof-outbox enqueueing. The proof runtime is explicitly disabled, no AVATA
+  fields are supplied, and external fetches are forbidden. The clone,
+  environment, and generated image are removed on ordinary success or failure;
+  the clean candidate, legacy staging database, JSON source, and PM2 process are
+  unchanged.
 - The same command is the coordinated joint-rehearsal entry point. Before the
   PostgreSQL-only write, it selects one existing activated record whose account
   has both H5 and miniapp identities and verifies public plus authenticated
-  list/detail routes in both channels. After the new QR completes proof work,
-  the existing fixture fingerprint must remain unchanged. All selectors share
-  one child-process `scope=all` configuration and close together; PM2 remains
-  default-off throughout. Audit output records only gates, counts, and hashes.
+  list/detail routes in both channels. After the new QR leaves one pending,
+  unclaimed proof job, the existing fixture fingerprint must remain unchanged.
+  All five PostgreSQL authority selectors share one child-process `scope=all`
+  configuration and close together; PM2 remains default-off throughout. Audit
+  output records only gates, counts, and hashes.
 
 ### Stable cutover read-only preflight
 

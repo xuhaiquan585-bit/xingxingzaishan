@@ -30,13 +30,6 @@ const {
 const {
   closeQrLifecycleWriteRuntime
 } = require('../src/server/services/postgres/qrLifecycleWriteRuntime');
-const {
-  closeRecordProofRuntime,
-  createRecordProofRuntime
-} = require('../src/server/services/postgres/recordProofRuntime');
-const {
-  readRecordProofRuntimeConfig
-} = require('../src/server/services/postgres/recordProofRuntimeConfig');
 const { sha256 } = require('../scripts/database/importer/reader');
 
 const RUN_E2E =
@@ -109,8 +102,7 @@ async function closeApplicationRuntimes() {
     closeQrLifecycleWriteRuntime(),
     closePersonalRecordPrimaryReadRuntime(),
     closeIdentityAuthorityRuntime(),
-    closeQrIssuanceAuthorityRuntime(),
-    closeRecordProofRuntime()
+    closeQrIssuanceAuthorityRuntime()
   ]);
 }
 
@@ -179,7 +171,11 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
   assert.equal(process.env.PERSONAL_RECORD_POSTGRES_READ_SCOPE, 'all');
   assert.equal(process.env.IDENTITY_POSTGRES_AUTHORITY_SCOPE, 'all');
   assert.equal(process.env.QR_ISSUANCE_POSTGRES_AUTHORITY_SCOPE, 'all');
-  assert.equal(process.env.RECORD_PROOF_RUNTIME_SCOPE, 'all');
+  assert.equal(process.env.RECORD_PROOF_RUNTIME_ENABLED, 'false');
+  assert.equal(Boolean(process.env.RECORD_PROOF_RUNTIME_SCOPE), false);
+  assert.equal(Boolean(process.env.RECORD_PROOF_WORKER_ID), false);
+  assert.equal(Boolean(process.env.AVATA_API_KEY), false);
+  assert.equal(Boolean(process.env.AVATA_API_SECRET), false);
 
   const sourceHashBefore = sha256(fs.readFileSync(process.env.DB_FILE));
   assert.equal(sourceHashBefore, EXPECTED_SOURCE_SHA256);
@@ -187,7 +183,6 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
   const pool = createPostgresPool({ config: readPostgresConfig(process.env) });
   const originalFetch = global.fetch;
   let externalFetchCalls = 0;
-  let proofRuntime = null;
   let server = null;
   let port = null;
 
@@ -432,7 +427,7 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
       assert.equal(record.content, TEST_CONTENT);
     }
 
-    const preProofState = await pool.query(
+    const durableProofWork = await pool.query(
       `SELECT
          (SELECT lifecycle_status FROM app.qr_codes
           WHERE id = $1) AS lifecycle_status,
@@ -440,77 +435,56 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
           WHERE qr_id = $1) AS owner_account_id,
          (SELECT count(*)::integer FROM app.record_proofs
           WHERE record_qr_id = $1) AS proof_count,
+         (SELECT count(*)::integer FROM app.proof_attempts attempt
+          JOIN app.record_proofs proof ON proof.id = attempt.proof_id
+          WHERE proof.record_qr_id = $1) AS proof_attempt_count,
+         (SELECT job_type FROM app.outbox_jobs
+          WHERE aggregate_id = $1) AS outbox_job_type,
          (SELECT status FROM app.outbox_jobs
           WHERE aggregate_id = $1) AS outbox_status,
+         (SELECT attempt_count FROM app.outbox_jobs
+          WHERE aggregate_id = $1) AS outbox_attempt_count,
+         (SELECT locked_at IS NULL AND locked_by IS NULL
+          FROM app.outbox_jobs
+          WHERE aggregate_id = $1) AS outbox_unlocked,
          (SELECT identity.openid
           FROM app.users identity
           JOIN app.records record ON record.account_id = identity.account_id
           WHERE record.qr_id = $1 AND identity.openid IS NOT NULL) AS openid`,
       [TEST_QR_ID]
     );
-    assert.deepEqual(preProofState.rows, [{
+    assert.deepEqual(durableProofWork.rows, [{
       lifecycle_status: 'activated',
-      owner_account_id: preProofState.rows[0].owner_account_id,
+      owner_account_id: durableProofWork.rows[0].owner_account_id,
       proof_count: 0,
+      proof_attempt_count: 0,
+      outbox_job_type: 'record_proof_prepare_submit',
       outbox_status: 'pending',
+      outbox_attempt_count: 0,
+      outbox_unlocked: true,
       openid: TEST_OPENID
     }]);
-    assert.match(preProofState.rows[0].owner_account_id, /^ACC\d{6}$/);
-
-    const proofConfig = readRecordProofRuntimeConfig(process.env);
-    assert.equal(proofConfig.enabled, true);
-    assert.equal(proofConfig.scope, 'all');
-    proofRuntime = createRecordProofRuntime(proofConfig, {
-      env: process.env,
-      externalAdapterFactory: () => ({
-        async prepareRecord({ record }) {
-          return {
-            manifest_hash: sha256(`candidate-manifest:${record.id}`),
-            manifest_object_key: `records/${record.id}/record_manifest.json`,
-            image_sha256: null,
-            index_object_key: `indexes/by-star/${record.id}.json`
-          };
-        },
-        async submitRecord(input) {
-          return {
-            status: 'confirmed',
-            transaction_hash: `candidate-tx-${input.record_qr_id}`,
-            block_height: 301,
-            provider_record_id: `candidate-provider-${input.record_qr_id}`,
-            confirmed_at: '2026-08-12T05:30:00.000Z'
-          };
-        },
-        normalizeRecordResult: (value) => value
-      })
-    });
-    assert.deepEqual(await proofRuntime.runOnce(), {
-      recovered: 0,
-      claimed: 1,
-      succeeded: 1,
-      retried: 0,
-      failed: 0
-    });
+    assert.match(durableProofWork.rows[0].owner_account_id, /^ACC\d{6}$/);
 
     const finalState = await pool.query(
       `SELECT
          (SELECT count(*)::integer FROM app.qr_codes) AS qr_count,
          (SELECT count(*)::integer FROM app.records) AS record_count,
-         (SELECT status FROM app.record_proofs
-          WHERE record_qr_id = $1) AS proof_status,
+         (SELECT count(*)::integer FROM app.record_proofs
+          WHERE record_qr_id = $1) AS proof_count,
          (SELECT status FROM app.outbox_jobs
           WHERE aggregate_id = $1) AS outbox_status,
          (SELECT count(*)::integer FROM app.proof_attempts attempt
           JOIN app.record_proofs proof ON proof.id = attempt.proof_id
-          WHERE proof.record_qr_id = $1
-            AND attempt.result_status = 'succeeded') AS succeeded_attempts`,
+          WHERE proof.record_qr_id = $1) AS proof_attempt_count`,
       [TEST_QR_ID]
     );
     assert.deepEqual(finalState.rows, [{
       qr_count: 104,
       record_count: 56,
-      proof_status: 'confirmed',
-      outbox_status: 'succeeded',
-      succeeded_attempts: 1
+      proof_count: 0,
+      outbox_status: 'pending',
+      proof_attempt_count: 0
     }]);
     const existingFixtureAfter = await loadExistingFixture(
       pool,
@@ -530,12 +504,12 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
     console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_LIFECYCLE=PASS');
     console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_PUBLIC_READ=PASS');
     console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_PERSONAL_READ=PASS');
-    console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_PROOF_WORKER=PASS');
+    console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_PROOF_OUTBOX=PASS');
+    console.log('CLEAN_CANDIDATE_PROOF_WORKER_RUNTIME=DISABLED');
     console.log('CLEAN_CANDIDATE_EXTERNAL_FETCH_CALLS=0');
     console.log('CLEAN_CANDIDATE_COORDINATED_JOINT_REHEARSAL=PASS');
   } finally {
     global.fetch = originalFetch;
-    if (proofRuntime) await proofRuntime.close();
     if (server) await stopServer(server);
     await closeApplicationRuntimes();
     await closePostgresPool(pool);
