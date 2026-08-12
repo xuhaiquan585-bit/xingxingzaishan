@@ -299,23 +299,24 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
 
     const preProofState = await pool.query(
       `SELECT
-         qr.lifecycle_status,
-         record.account_id AS owner_account_id,
-         proof.status AS proof_status,
-         job.status AS outbox_status,
-         identity.openid
-       FROM app.qr_codes qr
-       JOIN app.records record ON record.qr_id = qr.id
-       JOIN app.record_proofs proof ON proof.record_qr_id = qr.id
-       JOIN app.outbox_jobs job ON job.aggregate_id = qr.id
-       JOIN app.users identity ON identity.account_id = record.account_id
-       WHERE qr.id = $1`,
+         (SELECT lifecycle_status FROM app.qr_codes
+          WHERE id = $1) AS lifecycle_status,
+         (SELECT account_id FROM app.records
+          WHERE qr_id = $1) AS owner_account_id,
+         (SELECT count(*)::integer FROM app.record_proofs
+          WHERE record_qr_id = $1) AS proof_count,
+         (SELECT status FROM app.outbox_jobs
+          WHERE aggregate_id = $1) AS outbox_status,
+         (SELECT identity.openid
+          FROM app.users identity
+          JOIN app.records record ON record.account_id = identity.account_id
+          WHERE record.qr_id = $1 AND identity.openid IS NOT NULL) AS openid`,
       [TEST_QR_ID]
     );
     assert.deepEqual(preProofState.rows, [{
       lifecycle_status: 'activated',
       owner_account_id: preProofState.rows[0].owner_account_id,
-      proof_status: 'pending',
+      proof_count: 0,
       outbox_status: 'pending',
       openid: TEST_OPENID
     }]);
