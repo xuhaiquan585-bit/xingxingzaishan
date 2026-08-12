@@ -869,3 +869,10 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   proof-worker adapter. External fetches are forbidden. The clone, environment,
   and generated image are removed on ordinary success or failure; the clean
   candidate, legacy staging database, JSON source, and PM2 process are unchanged.
+- The same command is the coordinated joint-rehearsal entry point. Before the
+  PostgreSQL-only write, it selects one existing activated record whose account
+  has both H5 and miniapp identities and verifies public plus authenticated
+  list/detail routes in both channels. After the new QR completes proof work,
+  the existing fixture fingerprint must remain unchanged. All selectors share
+  one child-process `scope=all` configuration and close together; PM2 remains
+  default-off throughout. Audit output records only gates, counts, and hashes.

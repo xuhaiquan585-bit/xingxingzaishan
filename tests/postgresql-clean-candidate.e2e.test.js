@@ -13,6 +13,9 @@ const { readPostgresConfig } = require('../src/server/database/config');
 const { createApp } = require('../src/server/app');
 const { generateToken } = require('../src/server/services/authService');
 const {
+  generateMiniappToken
+} = require('../src/server/services/miniappAuthService');
+const {
   closeIdentityAuthorityRuntime
 } = require('../src/server/services/postgres/identityAuthorityRuntime');
 const {
@@ -111,6 +114,55 @@ async function closeApplicationRuntimes() {
   ]);
 }
 
+async function loadExistingFixture(pool, qrId = null) {
+  const result = await pool.query(
+    `SELECT
+       qr.id,
+       qr.qr_access_token,
+       qr.issue_status,
+       qr.lifecycle_status,
+       record.account_id,
+       record.content,
+       record.image_object_key,
+       record.sealed_at::text,
+       phone_identity.id AS phone_identity_id,
+       phone_identity.phone,
+       mini_identity.id AS mini_identity_id,
+       mini_identity.openid,
+       mini_identity.phone AS mini_identity_phone
+     FROM app.qr_codes qr
+     JOIN app.records record ON record.qr_id = qr.id
+     JOIN LATERAL (
+       SELECT id, phone
+       FROM app.users
+       WHERE account_id = record.account_id
+         AND phone IS NOT NULL AND phone <> ''
+       ORDER BY id
+       LIMIT 1
+     ) phone_identity ON true
+     JOIN LATERAL (
+       SELECT id, openid, phone
+       FROM app.users
+       WHERE account_id = record.account_id
+         AND openid IS NOT NULL AND openid <> ''
+         AND phone IS NOT NULL AND phone <> ''
+       ORDER BY id
+       LIMIT 1
+     ) mini_identity ON true
+     WHERE qr.issue_status = 'issued'
+       AND qr.lifecycle_status = 'activated'
+       AND ($1::text IS NULL OR qr.id = $1)
+     ORDER BY qr.id
+     LIMIT 1`,
+    [qrId]
+  );
+  return result.rows[0] || null;
+}
+
+function contentFingerprint(value) {
+  return sha256(String(value || ''));
+}
+
 test('clean candidate supports one PostgreSQL-only QR end-to-end', {
   skip: RUN_E2E
     ? false
@@ -178,6 +230,12 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
       test_prefix_count: 0,
       test_identity_count: 0
     }]);
+    const existingFixture = await loadExistingFixture(pool);
+    assert.ok(existingFixture);
+    assert.match(existingFixture.id, /^[A-Z0-9]+$/);
+    assert.match(existingFixture.account_id, /^ACC\d{6}$/);
+    assert.equal(String(existingFixture.qr_access_token || '').length, 32);
+    const existingFixtureFingerprint = sha256(JSON.stringify(existingFixture));
 
     ({ server, port } = await startServer(createApp()));
     const adminToken = generateToken({
@@ -186,6 +244,83 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
       role: 'admin',
       name: 'Clean candidate E2E admin'
     });
+
+    const existingH5Login = await request({
+      port,
+      method: 'POST',
+      requestPath: '/api/user/login',
+      body: { phone: existingFixture.phone }
+    });
+    assert.equal(existingH5Login.status, 200);
+    const existingH5Cookie = String(
+      existingH5Login.headers['set-cookie'][0] || ''
+    ).split(';')[0];
+    assert.match(existingH5Cookie, /^user_session_id=/);
+    const existingMiniappToken = generateMiniappToken({
+      id: existingFixture.mini_identity_id,
+      openid: existingFixture.openid,
+      account_id: existingFixture.account_id,
+      phone: existingFixture.mini_identity_phone
+    });
+
+    for (const requestPath of [
+      `/api/qr/${existingFixture.qr_access_token}`,
+      `/api/miniapp/qr/${existingFixture.qr_access_token}`
+    ]) {
+      const response = await request({ port, method: 'GET', requestPath });
+      assert.equal(response.status, 200);
+      assert.equal(response.body.data.id, existingFixture.id);
+      assert.equal(
+        contentFingerprint(response.body.data.content),
+        contentFingerprint(existingFixture.content)
+      );
+    }
+
+    const existingPersonalCases = [
+      {
+        path: '/api/user/records',
+        headers: { Cookie: existingH5Cookie },
+        detail: false
+      },
+      {
+        path: `/api/user/records/${existingFixture.id}`,
+        headers: { Cookie: existingH5Cookie },
+        detail: true
+      },
+      {
+        path: '/api/miniapp/user/records',
+        headers: { Authorization: `Bearer ${existingMiniappToken}` },
+        detail: false
+      },
+      {
+        path: `/api/miniapp/user/records/${existingFixture.id}`,
+        headers: { Authorization: `Bearer ${existingMiniappToken}` },
+        detail: true
+      }
+    ];
+    for (const current of existingPersonalCases) {
+      const response = await request({
+        port,
+        method: 'GET',
+        requestPath: current.path,
+        headers: current.headers
+      });
+      assert.equal(response.status, 200);
+      const record = current.detail
+        ? response.body.data
+        : response.body.data.records.find(
+          (item) => item.id === existingFixture.id
+        );
+      assert.ok(record);
+      assert.equal(record.id, existingFixture.id);
+      assert.equal(
+        contentFingerprint(record.content),
+        contentFingerprint(existingFixture.content)
+      );
+    }
+    console.log('CLEAN_CANDIDATE_EXISTING_H5_ROUTES=PASS');
+    console.log('CLEAN_CANDIDATE_EXISTING_MINIAPP_ROUTES=PASS');
+    console.log('CLEAN_CANDIDATE_COORDINATED_PREWRITE=PASS');
 
     const issuance = await request({
       port,
@@ -377,9 +512,19 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
       outbox_status: 'succeeded',
       succeeded_attempts: 1
     }]);
+    const existingFixtureAfter = await loadExistingFixture(
+      pool,
+      existingFixture.id
+    );
+    assert.ok(existingFixtureAfter);
+    assert.equal(
+      sha256(JSON.stringify(existingFixtureAfter)),
+      existingFixtureFingerprint
+    );
     assert.equal(sha256(fs.readFileSync(process.env.DB_FILE)), sourceHashBefore);
     assert.equal(externalFetchCalls, 0);
 
+    console.log('CLEAN_CANDIDATE_EXISTING_DATA_UNCHANGED=PASS');
     console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_QR_ISSUANCE=PASS');
     console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_IDENTITY=PASS');
     console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_LIFECYCLE=PASS');
@@ -387,6 +532,7 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
     console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_PERSONAL_READ=PASS');
     console.log('CLEAN_CANDIDATE_POSTGRES_ONLY_PROOF_WORKER=PASS');
     console.log('CLEAN_CANDIDATE_EXTERNAL_FETCH_CALLS=0');
+    console.log('CLEAN_CANDIDATE_COORDINATED_JOINT_REHEARSAL=PASS');
   } finally {
     global.fetch = originalFetch;
     if (proofRuntime) await proofRuntime.close();

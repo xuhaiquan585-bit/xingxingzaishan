@@ -2590,8 +2590,16 @@ test('clean candidate E2E uses a disposable clone and forbids external providers
   assert.match(runner, /CANDIDATE_DATABASE_WRITE=NONE/);
   assert.match(runner, /DISPOSABLE_CLONE_REMOVED=YES/);
   assert.match(runner, /EXTERNAL_PROVIDER_CALLS=NONE/);
+  assert.match(runner, /CLEAN_CANDIDATE_EXISTING_H5_ROUTES=PASS/);
+  assert.match(runner, /CLEAN_CANDIDATE_EXISTING_MINIAPP_ROUTES=PASS/);
+  assert.match(runner, /CLEAN_CANDIDATE_EXISTING_DATA_UNCHANGED=PASS/);
+  assert.match(runner, /NEXT_ACTION=PREPARE_STABLE_CUTOVER_PREFLIGHT/);
   assert.match(e2e, /EXTERNAL_FETCH_FORBIDDEN_IN_CANDIDATE_E2E/);
   assert.match(e2e, /CLEAN_CANDIDATE_EXTERNAL_FETCH_CALLS=0/);
+  assert.match(e2e, /CLEAN_CANDIDATE_EXISTING_H5_ROUTES=PASS/);
+  assert.match(e2e, /CLEAN_CANDIDATE_EXISTING_MINIAPP_ROUTES=PASS/);
+  assert.match(e2e, /CLEAN_CANDIDATE_EXISTING_DATA_UNCHANGED=PASS/);
+  assert.match(e2e, /CLEAN_CANDIDATE_COORDINATED_JOINT_REHEARSAL=PASS/);
   assert.match(e2e, /\/api\/admin\/qr\/generate/);
   assert.match(e2e, /\/api\/miniapp\/auth\/bind-phone/);
   assert.match(e2e, /createRecordProofRuntime/);
