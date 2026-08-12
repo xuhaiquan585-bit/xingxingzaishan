@@ -18,6 +18,7 @@
     "baseline:plan:clean-postgres": "bash scripts/database/run-clean-postgres-baseline-plan.sh",
     "baseline:rebuild:clean-postgres": "bash scripts/database/run-clean-postgres-baseline-rebuild.sh",
     "test:postgres:clean-candidate-e2e": "bash scripts/database/run-clean-postgres-candidate-e2e.sh",
+    "cutover:preflight:stable": "bash scripts/database/run-stable-cutover-preflight.sh",
     "test:postgres:stable-scope": "bash scripts/database/run-stable-scope-integration.sh",
     "migrate:oss": "node scripts/migrate-local-to-oss.js",
     "migrate:oss:dry": "node scripts/migrate-local-to-oss.js --dry-run",

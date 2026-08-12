@@ -2611,6 +2611,159 @@ test('clean candidate E2E uses a disposable clone and forbids external providers
   );
 });
 
+test('stable cutover preflight is read-only, unified, and authority-commit safe', () => {
+  const packageJson = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'package.json'),
+    'utf8'
+  ));
+  const validator = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/database/validate-stable-cutover-config.js'
+    ),
+    'utf8'
+  );
+  const runner = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/database/run-stable-cutover-preflight.sh'
+    ),
+    'utf8'
+  );
+
+  assert.match(runner, /CANDIDATE_DB=xingxing_clean_baseline_20260812_staging/);
+  assert.match(runner, /EXPECTED_SOURCE_SHA=fc13e36e/);
+  assert.match(runner, /EXPECTED_PLAN_SHA=2eadabbe/);
+  assert.match(runner, /EXPECTED_DOMAIN_SHA=f55db6ac/);
+  assert.match(runner, /pg_dump \\\n+  -Fc --no-owner --no-privileges/);
+  assert.match(runner, /pg_restore --list/);
+  assert.match(runner, /default_transaction_read_only=on/);
+  assert.match(runner, /xingxing_staging_app\|UTF8\|C\.utf8\|C\.utf8/);
+  assert.match(runner, /CANDIDATE_CONNECTION_IDENTITY_INVALID/);
+  assert.match(runner, /CANDIDATE_DATABASE_CHANGED/);
+  assert.match(runner, /PUBLIC_QR_POSTGRES_READ_SCOPE=all/);
+  assert.match(runner, /PERSONAL_RECORD_POSTGRES_READ_SCOPE=all/);
+  assert.match(runner, /QR_LIFECYCLE_POSTGRES_WRITE_SCOPE=all/);
+  assert.match(runner, /IDENTITY_POSTGRES_AUTHORITY_SCOPE=all/);
+  assert.match(runner, /QR_ISSUANCE_POSTGRES_AUTHORITY_SCOPE=all/);
+  assert.match(runner, /RECORD_PROOF_RUNTIME_SCOPE=all/);
+  assert.doesNotMatch(runner, /_ALLOWLIST=/);
+  assert.match(runner, /READY_PENDING_PROVIDER_CONFIG/);
+  assert.match(runner, /READY_FOR_MAINTENANCE_WINDOW/);
+  assert.match(runner, /PM2_CONFIGURATION_LOADED=NO/);
+  assert.match(runner, /AUTHORITY_COMMIT_POINT_CROSSED=NO/);
+  assert.match(runner, /PRODUCTION_DATABASE_WRITE=NONE/);
+  assert.match(runner, /CANDIDATE_DATABASE_WRITE=NONE/);
+  assert.doesNotMatch(runner, /pm2\s+(?:stop|restart|reload|save)/);
+  assert.doesNotMatch(runner, /dropdb|createdb/);
+  assert.doesNotMatch(runner, /AVATA_API_KEY=|AVATA_API_SECRET=/);
+
+  assert.match(validator, /readPublicQrPrimaryReadConfig/);
+  assert.match(validator, /readPersonalRecordPrimaryReadConfig/);
+  assert.match(validator, /readQrLifecycleWriteConfig/);
+  assert.match(validator, /readIdentityAuthorityConfig/);
+  assert.match(validator, /readQrIssuanceAuthorityConfig/);
+  assert.match(validator, /readRecordProofRuntimeConfig/);
+  assert.match(validator, /STABLE_CUTOVER_ALLOWLIST_FORBIDDEN/);
+  assert.match(validator, /STABLE_CUTOVER_PROVIDER_CONFIG_PARTIAL/);
+  assert.match(validator, /STABLE_CUTOVER_PROVIDER_ORIGIN_MISMATCH/);
+  assert.match(validator, /provider_configuration_validated/);
+  assert.match(validator, /contains_database_secret: false/);
+  assert.match(validator, /contains_provider_secret: false/);
+  assert.equal(
+    packageJson.scripts['cutover:preflight:stable'],
+    'bash scripts/database/run-stable-cutover-preflight.sh'
+  );
+});
+
+test('stable cutover selector validator requires six all-scope boundaries', () => {
+  const temporaryRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'stable-cutover-validator-')
+  );
+  const configPath = path.join(temporaryRoot, 'stable-selectors.env');
+  const sourceHash = 'a'.repeat(64);
+  const domainHash = 'b'.repeat(64);
+  const config = [
+    'PUBLIC_QR_SHADOW_READ_ENABLED=false',
+    'PERSONAL_RECORD_SHADOW_READ_ENABLED=false',
+    'IDENTITY_SHADOW_READ_ENABLED=false',
+    'PUBLIC_QR_POSTGRES_READ_ENABLED=true',
+    'PUBLIC_QR_POSTGRES_READ_SCOPE=all',
+    `PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256=${domainHash}`,
+    'PERSONAL_RECORD_POSTGRES_READ_ENABLED=true',
+    'PERSONAL_RECORD_POSTGRES_READ_SCOPE=all',
+    `PERSONAL_RECORD_POSTGRES_READ_DOMAIN_SHA256=${domainHash}`,
+    'QR_LIFECYCLE_POSTGRES_WRITE_ENABLED=true',
+    'QR_LIFECYCLE_POSTGRES_WRITE_SCOPE=all',
+    `QR_LIFECYCLE_POSTGRES_WRITE_DOMAIN_SHA256=${domainHash}`,
+    'IDENTITY_POSTGRES_AUTHORITY_ENABLED=true',
+    'IDENTITY_POSTGRES_AUTHORITY_SCOPE=all',
+    `IDENTITY_POSTGRES_AUTHORITY_SOURCE_SHA256=${sourceHash}`,
+    `IDENTITY_POSTGRES_AUTHORITY_DOMAIN_SHA256=${domainHash}`,
+    'QR_ISSUANCE_POSTGRES_AUTHORITY_ENABLED=true',
+    'QR_ISSUANCE_POSTGRES_AUTHORITY_SCOPE=all',
+    `QR_ISSUANCE_POSTGRES_AUTHORITY_SOURCE_SHA256=${sourceHash}`,
+    `QR_ISSUANCE_POSTGRES_AUTHORITY_DOMAIN_SHA256=${domainHash}`,
+    'RECORD_PROOF_RUNTIME_ENABLED=true',
+    'RECORD_PROOF_RUNTIME_SCOPE=all',
+    `RECORD_PROOF_RUNTIME_SOURCE_SHA256=${sourceHash}`,
+    `RECORD_PROOF_RUNTIME_DOMAIN_SHA256=${domainHash}`,
+    'RECORD_PROOF_WORKER_ID=xingxingzaishan-stable-primary'
+  ].join('\n');
+  fs.writeFileSync(configPath, `${config}\n`, { mode: 0o600 });
+
+  const command = path.join(
+    __dirname,
+    '../scripts/database/validate-stable-cutover-config.js'
+  );
+  const args = [
+    command,
+    `--config=${configPath}`,
+    `--expected-source-sha256=${sourceHash}`,
+    `--expected-domain-sha256=${domainHash}`
+  ];
+  const pending = spawnSync(process.execPath, args, {
+    encoding: 'utf8',
+    env: {}
+  });
+  assert.equal(pending.status, 0, pending.stderr);
+  assert.equal(JSON.parse(pending.stdout).status, 'READY_PENDING_PROVIDER_CONFIG');
+
+  const ready = spawnSync(process.execPath, [
+    ...args,
+    '--expected-provider-environment=stage',
+    '--expected-provider-origin=https://stage.apis.avata.bianjie.ai'
+  ], {
+    encoding: 'utf8',
+    env: {
+      AVATA_API_KEY: 'test-key',
+      AVATA_API_SECRET: 'test-secret',
+      AVATA_IDENTITY_NAME: 'test-name',
+      AVATA_IDENTITY_NUM: 'test-number',
+      CHAIN_CALLBACK_URL: 'https://example.invalid/api/chain/callback',
+      AVATA_ENV: 'stage',
+      AVATA_API_BASE: 'https://stage.apis.avata.bianjie.ai'
+    }
+  });
+  assert.equal(ready.status, 0, ready.stderr);
+  const readyReport = JSON.parse(ready.stdout);
+  assert.equal(readyReport.status, 'READY');
+  assert.equal(readyReport.selector_count, 6);
+  assert.equal(readyReport.all_scope_count, 6);
+  assert.equal(readyReport.allowlist_count, 0);
+  assert.equal(readyReport.provider_configuration_validated, true);
+
+  fs.appendFileSync(configPath, 'PUBLIC_QR_POSTGRES_READ_ALLOWLIST=A00001\n');
+  const rejected = spawnSync(process.execPath, args, {
+    encoding: 'utf8',
+    env: {}
+  });
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /STABLE_CUTOVER_ALLOWLIST_FORBIDDEN/);
+
+  fs.rmSync(temporaryRoot, { recursive: true, force: true });
+});
+
 test('production privacy snapshot runner is read-only, exact-targeted, and value-free', () => {
   const source = fs.readFileSync(
     path.join(__dirname, '../scripts/database/run-content-privacy-audit.sh'),

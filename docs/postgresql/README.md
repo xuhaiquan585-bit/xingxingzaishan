@@ -876,3 +876,30 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   the existing fixture fingerprint must remain unchanged. All selectors share
   one child-process `scope=all` configuration and close together; PM2 remains
   default-off throughout. Audit output records only gates, counts, and hashes.
+
+### Stable cutover read-only preflight
+
+- `npm run cutover:preflight:stable` is the root-only gate between the
+  coordinated joint rehearsal and the maintenance-window cutover. It does not
+  restart or save PM2, create business rows, select the legacy staging database
+  as the target, or cross the PostgreSQL authority commit point.
+- The preflight verifies the exact clean candidate database, canonical
+  migrations, source/plan/public-domain hashes, zero outbox backlog, the latest
+  successful joint-rehearsal evidence, and the still-default-off production
+  runtime. Candidate access uses a read-only session with a bounded statement
+  timeout.
+- It creates a root-owned candidate `pg_dump`, validates its `pg_restore --list`
+  inventory, snapshots the current JSON authority, and writes a separate
+  value-free selector proposal. The proposal enables public read, personal
+  read, lifecycle write, identity authority, QR issuance authority, and the
+  proof worker together under explicit `scope=all`; static allowlists are
+  forbidden.
+- Provider credentials are never copied into the selector proposal or audit
+  report. Without an explicit root-owned provider environment and matching
+  AVATA environment/origin confirmations, the successful result is
+  `READY_PENDING_PROVIDER_CONFIG`. With a valid provider configuration it is
+  `READY_FOR_MAINTENANCE_WINDOW`. Neither result loads the proposal into PM2.
+- Passing this preflight permits review and construction of the separate
+  maintenance-window runner. It does not authorize an operator to mix old
+  cohort files, enable only part of the producer set, or fall back to JSON after
+  the first PostgreSQL-only business mutation commits.
