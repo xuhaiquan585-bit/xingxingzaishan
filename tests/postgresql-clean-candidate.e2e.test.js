@@ -118,7 +118,7 @@ async function loadExistingFixture(pool, qrId = null) {
   const result = await pool.query(
     `SELECT
        qr.id,
-       qr.qr_access_token,
+       qr.access_token AS qr_access_token,
        qr.issue_status,
        qr.lifecycle_status,
        record.account_id,

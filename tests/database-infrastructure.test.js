@@ -2600,6 +2600,8 @@ test('clean candidate E2E uses a disposable clone and forbids external providers
   assert.match(e2e, /CLEAN_CANDIDATE_EXISTING_MINIAPP_ROUTES=PASS/);
   assert.match(e2e, /CLEAN_CANDIDATE_EXISTING_DATA_UNCHANGED=PASS/);
   assert.match(e2e, /CLEAN_CANDIDATE_COORDINATED_JOINT_REHEARSAL=PASS/);
+  assert.match(e2e, /qr\.access_token AS qr_access_token/);
+  assert.doesNotMatch(e2e, /qr\.qr_access_token/);
   assert.match(e2e, /\/api\/admin\/qr\/generate/);
   assert.match(e2e, /\/api\/miniapp\/auth\/bind-phone/);
   assert.match(e2e, /createRecordProofRuntime/);
