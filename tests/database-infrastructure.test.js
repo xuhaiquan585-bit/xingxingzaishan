@@ -55,6 +55,9 @@ const {
   registerPublicQrDomainMarker
 } = require('../scripts/database/register-public-qr-domain-marker');
 const {
+  validateStablePm2State
+} = require('../scripts/database/validate-stable-pm2-state');
+const {
   AccountRepository,
   ArchiveRepository,
   AuditRepository,
@@ -171,6 +174,59 @@ test('PostgreSQL config is explicit, validates ambiguity, defaults production TL
   assert.equal(redacted.includes('postgres://'), false);
 });
 
+test('PostgreSQL config can load a password from one protected absolute file', () => {
+  const temporaryRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'xingxing-pg-password-')
+  );
+  const passwordFile = path.join(temporaryRoot, 'postgres.password');
+  fs.writeFileSync(passwordFile, 'file-only-secret', { mode: 0o600 });
+
+  try {
+    const config = readPostgresConfig({
+      PGHOST: '127.0.0.1',
+      PGPORT: '5432',
+      PGUSER: 'app',
+      PGDATABASE: 'app_test',
+      PGPASSWORD_FILE: passwordFile
+    });
+    assert.equal(config.password, 'file-only-secret');
+    assert.equal(JSON.stringify(redactPostgresConfig(config)).includes('file-only-secret'), false);
+
+    assert.throws(
+      () => readPostgresConfig({
+        PGHOST: '127.0.0.1',
+        PGUSER: 'app',
+        PGDATABASE: 'app_test',
+        PGPASSWORD: 'inline-secret',
+        PGPASSWORD_FILE: passwordFile
+      }),
+      (error) => error.code === 'POSTGRES_CONFIG_AMBIGUOUS'
+    );
+    assert.throws(
+      () => readPostgresConfig({
+        PGHOST: '127.0.0.1',
+        PGUSER: 'app',
+        PGDATABASE: 'app_test',
+        PGPASSWORD_FILE: 'relative.password'
+      }),
+      (error) => error.code === 'POSTGRES_CONFIG_INVALID'
+    );
+
+    fs.writeFileSync(passwordFile, 'first\nsecond', { mode: 0o600 });
+    assert.throws(
+      () => readPostgresConfig({
+        PGHOST: '127.0.0.1',
+        PGUSER: 'app',
+        PGDATABASE: 'app_test',
+        PGPASSWORD_FILE: passwordFile
+      }),
+      (error) => error.code === 'POSTGRES_CONFIG_INVALID'
+    );
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
 test('PostgreSQL pool creation is explicit and close is idempotent', async () => {
   let constructorCalls = 0;
   class FakePool {
@@ -190,6 +246,125 @@ test('PostgreSQL pool creation is explicit and close is idempotent', async () =>
   await Promise.all([closePostgresPool(pool), closePostgresPool(pool)]);
   assert.equal(pool.endCalls, 1);
   assert.equal(buildPoolOptions(makeConfig()).statement_timeout, 2000);
+});
+
+test('stable PM2 state persists file references but never database or provider secrets', () => {
+  const stableEnvironment = {
+    name: 'xingxingzaishan',
+    env: {
+      PUBLIC_QR_POSTGRES_READ_ENABLED: 'true',
+      PERSONAL_RECORD_POSTGRES_READ_ENABLED: 'true',
+      QR_LIFECYCLE_POSTGRES_WRITE_ENABLED: 'true',
+      IDENTITY_POSTGRES_AUTHORITY_ENABLED: 'true',
+      QR_ISSUANCE_POSTGRES_AUTHORITY_ENABLED: 'true',
+      PUBLIC_QR_POSTGRES_READ_SCOPE: 'all',
+      PERSONAL_RECORD_POSTGRES_READ_SCOPE: 'all',
+      QR_LIFECYCLE_POSTGRES_WRITE_SCOPE: 'all',
+      IDENTITY_POSTGRES_AUTHORITY_SCOPE: 'all',
+      QR_ISSUANCE_POSTGRES_AUTHORITY_SCOPE: 'all',
+      PGHOST: '127.0.0.1',
+      PGPORT: '5432',
+      PGUSER: 'app',
+      PGDATABASE: 'candidate',
+      PGPASSWORD_FILE: '/etc/xingxingzaishan/stable.password',
+      RECORD_PROOF_RUNTIME_ENABLED: 'false',
+      CHAIN_ENABLED: 'false',
+      POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED: 'true'
+    }
+  };
+  const expected = {
+    dump: [stableEnvironment],
+    app: 'xingxingzaishan',
+    passwordFile: '/etc/xingxingzaishan/stable.password',
+    database: 'candidate',
+    authority: 'postgres',
+    freeze: 'true'
+  };
+
+  const report = validateStablePm2State(expected);
+  assert.equal(report.status, 'PASS');
+  assert.equal(report.postgres_authority_boundary_count, 5);
+  assert.equal(report.database_secret_persisted, false);
+  assert.equal(report.write_freeze_enabled, true);
+
+  const jsonReport = validateStablePm2State({
+    ...expected,
+    authority: 'json',
+    freeze: 'false',
+    dump: [{
+      name: 'xingxingzaishan',
+      env: {
+        PUBLIC_QR_POSTGRES_READ_ENABLED: 'false',
+        PERSONAL_RECORD_POSTGRES_READ_ENABLED: 'false',
+        QR_LIFECYCLE_POSTGRES_WRITE_ENABLED: 'false',
+        IDENTITY_POSTGRES_AUTHORITY_ENABLED: 'false',
+        QR_ISSUANCE_POSTGRES_AUTHORITY_ENABLED: 'false',
+        PGHOST: '',
+        PGPORT: '',
+        PGUSER: '',
+        PGDATABASE: '',
+        PGPASSWORD_FILE: '',
+        RECORD_PROOF_RUNTIME_ENABLED: 'false',
+        CHAIN_ENABLED: 'false',
+        POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED: 'false'
+      }
+    }]
+  });
+  assert.equal(jsonReport.authority, 'json');
+  assert.equal(jsonReport.postgres_authority_boundary_count, 0);
+
+  const nestedReport = validateStablePm2State({
+    ...expected,
+    dump: [{
+      name: 'xingxingzaishan',
+      pm2_env: { env: stableEnvironment.env }
+    }]
+  });
+  assert.equal(nestedReport.status, 'PASS');
+
+  assert.throws(
+    () => validateStablePm2State({
+      ...expected,
+      dump: [{
+        ...stableEnvironment,
+        env: { ...stableEnvironment.env, PGPASSWORD: 'must-not-persist' }
+      }]
+    }),
+    (error) => error.code === 'STABLE_PM2_STATE_SECRET_PERSISTED'
+  );
+  assert.throws(
+    () => validateStablePm2State({
+      ...expected,
+      dump: [{
+        ...stableEnvironment,
+        env: {
+          ...stableEnvironment.env,
+          QR_ISSUANCE_POSTGRES_AUTHORITY_ENABLED: 'false'
+        }
+      }]
+    }),
+    (error) => error.code === 'STABLE_PM2_STATE_BOUNDARY_INVALID'
+  );
+  assert.throws(
+    () => validateStablePm2State({
+      ...expected,
+      dump: [{
+        ...stableEnvironment,
+        env: { ...stableEnvironment.env, PGHOST: '' }
+      }]
+    }),
+    (error) => error.code === 'STABLE_PM2_STATE_CONNECTION_FIELD_INVALID'
+  );
+  assert.throws(
+    () => validateStablePm2State({
+      ...expected,
+      dump: [{
+        ...stableEnvironment,
+        env: { ...stableEnvironment.env, AVATA_IDENTITY_NUM: 'loaded' }
+      }]
+    }),
+    (error) => error.code === 'STABLE_PM2_STATE_AVATA_CONFIGURATION_INVALID'
+  );
 });
 
 test('withTransaction commits success and rolls back failures while always releasing the client', async () => {
@@ -2483,6 +2658,9 @@ test('stable-scope integration runner is disposable, serialized, and production-
   assert.match(source, /CROSS_ACCOUNT_PHONE_WRITE_GATES=PASS/);
   assert.match(source, /CONTENT_PRIVACY_RESUMABLE_APPLY=PASS/);
   assert.match(source, /CONTENT_PRIVACY_REPROOF_ISOLATED=PASS/);
+  assert.match(source, /PGPASSWORD_FILE="\$TEST_PASSWORD_FILE"/);
+  assert.match(source, /POSTGRES_PASSWORD_FILE_CONNECTION=PASS/);
+  assert.match(source, /rm -f -- "\$TEST_ENV" "\$TEST_PASSWORD_FILE"/);
   assert.match(source, /POSTGRES_PROOF_BACKLOG_MONITOR=PASS/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_ENABLED/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_SOURCE_SHA256/);
@@ -2952,6 +3130,74 @@ test('stable cutover prewrite is explicit, frozen, fingerprinted, and auto-off',
   assert.match(fingerprint, /127\.0\.0\.1/);
   assert.match(fingerprint, /flag: 'wx'/);
   assert.doesNotMatch(fingerprint, /JSON\.stringify\(body\.data\).*writeFileSync/s);
+});
+
+test('stable commit runner protects secrets and distinguishes precommit rollback from forward freeze', () => {
+  const runner = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/run-stable-cutover-commit.sh'),
+    'utf8'
+  );
+  const validator = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/validate-stable-pm2-state.js'),
+    'utf8'
+  );
+
+  assert.match(runner, /COMMIT_POSTGRES_AUTHORITY_NO_JSON_FALLBACK/);
+  assert.match(runner, /EXPLICIT_COMMIT_MODE_REQUIRED/);
+  assert.match(runner, /EXPLICIT_CONFIRMATION_REQUIRED/);
+  assert.match(runner, /REHEARSAL_STATE_PHASE_INVALID/);
+  assert.match(runner, /PLAN_FILE_SHA256/);
+  assert.match(runner, /PHASE=\$phase/);
+  assert.match(runner, /POSTGRES_AUTHORITY_COMMITTING YES/);
+  assert.match(runner, /POSTGRES_AUTHORITY_COMMITTED YES/);
+  assert.match(runner, /AUTHORITY_COMMIT_POINT_CROSSED=YES/);
+  assert.match(runner, /JSON_FALLBACK_ALLOWED=NO/);
+  assert.match(runner, /restore_json_before_commit/);
+  assert.match(runner, /freeze_postgres_forward_only/);
+  assert.match(runner, /CANDIDATE_MUTATION_DETECTED_KEEP_POSTGRES_FROZEN/);
+  assert.match(runner, /PGPASSWORD_FILE=/);
+  assert.match(runner, /PM2_DATABASE_PASSWORD_PERSISTED=NO/);
+  assert.match(runner, /validate-stable-pm2-state\.js/);
+  assert.match(runner, /pm2 save --force/);
+  assert.match(runner, /RECORD_PROOF_RUNTIME_ENABLED=false/);
+  assert.match(runner, /AVATA_CONFIGURATION_LOADED=NO/);
+  assert.doesNotMatch(runner, /RECORD_PROOF_RUNTIME_ENABLED=true/);
+  assert.doesNotMatch(runner, /AVATA_API_KEY=[^']/);
+  assert.doesNotMatch(runner, /AVATA_API_SECRET=[^']/);
+
+  assert.match(validator, /STABLE_PM2_STATE_SECRET_PERSISTED/);
+  assert.match(validator, /expected-password-file/);
+  assert.match(validator, /expected-authority/);
+  assert.match(validator, /POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED/);
+  assert.doesNotMatch(validator, /console\.log\([^)]*env/);
+});
+
+test('stable post-commit observation is read-only, multi-cycle, and forward-only', () => {
+  const observer = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/run-stable-cutover-observation.sh'),
+    'utf8'
+  );
+
+  assert.match(observer, /OBSERVE_POSTGRES_AUTHORITY_COMMITTED/);
+  assert.match(observer, /OBSERVATION_CYCLES=3/);
+  assert.match(observer, /OBSERVATION_INTERVAL_SECONDS=10/);
+  assert.match(observer, /AUTHORITY_COMMIT_POINT_CROSSED=YES/);
+  assert.match(observer, /JSON_FALLBACK_ALLOWED=NO/);
+  assert.match(observer, /expected-authority=postgres/);
+  assert.match(observer, /expected-freeze=false/);
+  assert.match(observer, /default_transaction_read_only=on/);
+  assert.match(observer, /PUBLIC_FINGERPRINT_PARITY=PASS/);
+  assert.match(observer, /OUTBOX_PROCESSING/);
+  assert.match(observer, /OUTBOX_FAILED/);
+  assert.match(observer, /DATABASE_CHANGED_DURING_OBSERVATION/);
+  assert.match(observer, /RECORD_PROOF_RUNTIME_ENABLED=false/);
+  assert.match(observer, /AVATA_CONFIGURATION_LOADED=NO/);
+  assert.doesNotMatch(
+    observer,
+    /\b(?:INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE)\b/
+  );
+  assert.doesNotMatch(observer, /pm2\s+(?:restart|reload|save|stop)/);
+  assert.doesNotMatch(observer, /AVATA_API_KEY=|AVATA_API_SECRET=/);
 });
 
 test('production privacy snapshot runner is read-only, exact-targeted, and value-free', () => {

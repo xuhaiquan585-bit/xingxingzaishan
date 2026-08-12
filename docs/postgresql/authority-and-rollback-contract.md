@@ -59,9 +59,11 @@ missed a committed business mutation.
 
 ### 4. POSTGRES_AUTHORITY_COMMITTED
 
-The first committed PostgreSQL-only identity, QR issuance or administration,
-lifecycle, record, or proof mutation is the authority commit point. From that
-instant:
+The stable commit runner writes an irreversible authority marker after frozen
+PostgreSQL acceptance and PM2 persistence pass, immediately before it admits
+business writes. If a PostgreSQL-only identity, QR issuance or administration,
+lifecycle, record, or proof mutation commits first, that mutation is also an
+authority commit point. From the earliest of those instants:
 
 - PostgreSQL is the durable business authority;
 - JSON must not be re-enabled as a complete primary source;
@@ -140,6 +142,30 @@ individual domain selectors continue to identify the PostgreSQL target.
 
 The stable configuration must never be assembled by mixing old controlled
 cohort files. PM2 saves it only after the coordinated acceptance passes.
+Database authentication is persisted only as a path to a root-owned mode-`600`
+password file. `DATABASE_URL`, `PGPASSWORD`, AVATA credentials, and raw provider
+values are forbidden from the PM2 dump.
+
+## Stable commit protocol
+
+The reviewed stable commit runner is a separate explicit operation. It requires
+the exact protected maintenance plan, the successful manual prewrite auto-off
+summary bound to that plan, and the full no-JSON-fallback confirmation phrase.
+
+1. Capture JSON public fingerprints and verify the unchanged candidate state.
+2. Materialize one root-owned password file, load all five `scope=all`
+   PostgreSQL boundaries with the global write freeze still enabled, and verify
+   public parity, write blocking, provenance, database identity, and PM2 dump
+   secret safety.
+3. Persist the frozen PostgreSQL process state. Before the commit marker, any
+   failure may restore JSON only after proving that the candidate is unchanged.
+4. Write the authority commit marker, remove the write freeze, verify the stable
+   PostgreSQL process and public fingerprints, then persist the final PM2 state.
+5. After the marker, any failure keeps PostgreSQL authoritative and attempts to
+   persist a frozen PostgreSQL state. JSON fallback is prohibited.
+
+The proof runtime and AVATA remain disabled throughout this PostgreSQL-only
+commit. Provider enablement is a separate project.
 
 ## Failure handling
 

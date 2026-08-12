@@ -6,6 +6,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXPECTED_JSON_SHA=f263df13b5c19f91b0f86d93960f6b26896f3ed605318c73dd8546d110b06cfd
 TEST_DB=xingxing_stable_scope_20260812_test
 TEST_ENV=/etc/xingxingzaishan/postgresql-stable-scope-test-20260812.env
+TEST_PASSWORD_FILE=/etc/xingxingzaishan/postgresql-stable-scope-test-20260812.password
 SOURCE_ENV=/etc/xingxingzaishan/postgresql-staging-retry-20260803.env
 PRODUCTION_DB=xingxing_retry_20260803_staging
 AUDIT_ROOT=/root/stable-scope-integration-audit-20260812
@@ -66,7 +67,7 @@ assert_runtime_default_off() {
     [ "$issuance_authority_state" = false ] || return 1
 
   if tr '\0' '\n' < "/proc/$app_pid/environ" |
-     grep -Eq '^(DATABASE_URL|PGPASSWORD)=.+$'; then
+     grep -Eq '^(DATABASE_URL|PGPASSWORD|PGPASSWORD_FILE)=.+$'; then
     return 1
   fi
 
@@ -86,7 +87,7 @@ cleanup() {
   trap - EXIT INT TERM
   set +e
 
-  unset DATABASE_URL PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE
+  unset DATABASE_URL PGHOST PGPORT PGUSER PGPASSWORD PGPASSWORD_FILE PGDATABASE
   unset PGSSL PGSSLMODE PGOPTIONS PGAPPLICATION_NAME
   unset NODE_ENV RUN_POSTGRES_INTEGRATION
 
@@ -101,7 +102,7 @@ cleanup() {
 
     runuser -u postgres -- /usr/pgsql-15/bin/dropdb \
       --if-exists "$TEST_DB" >/dev/null 2>&1 || cleanup_status=1
-    rm -f -- "$TEST_ENV" || cleanup_status=1
+    rm -f -- "$TEST_ENV" "$TEST_PASSWORD_FILE" || cleanup_status=1
   fi
 
   test_database_count="$(database_count "$TEST_DB" 2>/dev/null)" || cleanup_status=1
@@ -109,6 +110,7 @@ cleanup() {
   [ "$test_database_count" = 0 ] || cleanup_status=1
   [ "$production_database_count" = 1 ] || cleanup_status=1
   [ ! -e "$TEST_ENV" ] || cleanup_status=1
+  [ ! -e "$TEST_PASSWORD_FILE" ] || cleanup_status=1
 
   [ "$(sha256sum "$REPO/src/server/data/db.json" | awk '{print $1}')" = \
     "$EXPECTED_JSON_SHA" ] || cleanup_status=1
@@ -136,6 +138,7 @@ cleanup() {
       'CROSS_ACCOUNT_PHONE_WRITE_GATES=PASS' \
       'CONTENT_PRIVACY_RESUMABLE_APPLY=PASS' \
       'CONTENT_PRIVACY_REPROOF_ISOLATED=PASS' \
+      'POSTGRES_PASSWORD_FILE_CONNECTION=PASS' \
       'TEMP_DATABASE_REMOVED=YES' \
       'TEMP_ENV_REMOVED=YES' \
       'PRODUCTION_RUNTIME_RESTARTED=NO' \
@@ -158,6 +161,7 @@ cleanup() {
     echo 'PRODUCTION_RUNTIME_RESTARTED=NO'
     echo 'PRODUCTION_DATABASE_SELECTED=NO'
     echo 'CONTENT_PRIVACY_REPROOF_ISOLATED=PASS'
+    echo 'POSTGRES_PASSWORD_FILE_CONNECTION=PASS'
     echo 'NEXT_ACTION=RUN_CLEAN_POSTGRES_BASELINE_PLAN'
     exit 0
   fi
@@ -176,6 +180,9 @@ cleanup() {
 [ "$TEST_ENV" = \
   /etc/xingxingzaishan/postgresql-stable-scope-test-20260812.env ] || \
   fail TEST_ENV_MISMATCH
+[ "$TEST_PASSWORD_FILE" = \
+  /etc/xingxingzaishan/postgresql-stable-scope-test-20260812.password ] || \
+  fail TEST_PASSWORD_FILE_MISMATCH
 [ -f "$SOURCE_ENV" ] || fail SOURCE_ENV_MISSING
 
 cd "$REPO"
@@ -194,7 +201,8 @@ APP_PID_BEFORE="$(pm2 pid xingxingzaishan | tail -n 1)"
 assert_runtime_default_off "$APP_PID_BEFORE" || fail PRODUCTION_RUNTIME_NOT_DEFAULT_OFF
 
 DB_COUNT="$(database_count "$TEST_DB")"
-if [ "$DB_COUNT" = 0 ] && [ ! -e "$TEST_ENV" ]; then
+if [ "$DB_COUNT" = 0 ] && [ ! -e "$TEST_ENV" ] && \
+   [ ! -e "$TEST_PASSWORD_FILE" ]; then
   RESOURCES_OWNED=true
   trap cleanup EXIT
   trap 'exit 130' INT
@@ -223,7 +231,8 @@ if [ "$DB_COUNT" = 0 ] && [ ! -e "$TEST_ENV" ]; then
       's/^PGAPPLICATION_NAME=.*/PGAPPLICATION_NAME=xingxingzaishan-stable-scope-test/' \
     "$TEST_ENV"
   echo 'TEST_RESOURCE_STATE=CREATED'
-elif [ "$DB_COUNT" = 1 ] && [ -f "$TEST_ENV" ]; then
+elif [ "$DB_COUNT" = 1 ] && [ -f "$TEST_ENV" ] && \
+     [ ! -e "$TEST_PASSWORD_FILE" ]; then
   DB_OWNER="$(runuser -u postgres -- /usr/pgsql-15/bin/psql \
     -X -At -d postgres \
     -c "SELECT pg_get_userbyid(datdba) FROM pg_database
@@ -256,7 +265,7 @@ else
   fail TEST_RESOURCE_STATE_INCONSISTENT
 fi
 
-unset DATABASE_URL PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE
+unset DATABASE_URL PGHOST PGPORT PGUSER PGPASSWORD PGPASSWORD_FILE PGDATABASE
 unset PGSSL PGSSLMODE PGOPTIONS PGAPPLICATION_NAME
 unset NODE_ENV RUN_POSTGRES_INTEGRATION DB_FILE AUTH_SECRET STORAGE_MODE
 unset PUBLIC_QR_SHADOW_READ_ENABLED PUBLIC_QR_SHADOW_READ_ALLOWLIST
@@ -289,6 +298,11 @@ set +a
 
 [ "$PGDATABASE" = "$TEST_DB" ] || fail LOADED_TEST_DB_MISMATCH
 [ "$PGDATABASE" != "$PRODUCTION_DB" ] || fail LOADED_PRODUCTION_DB_SELECTED
+[ -n "${PGPASSWORD:-}" ] || fail TEST_PASSWORD_MISSING
+install -o root -g root -m 0600 /dev/null "$TEST_PASSWORD_FILE"
+printf '%s' "$PGPASSWORD" > "$TEST_PASSWORD_FILE"
+unset PGPASSWORD
+export PGPASSWORD_FILE="$TEST_PASSWORD_FILE"
 export NODE_ENV=test
 export RUN_POSTGRES_INTEGRATION=true
 
@@ -302,10 +316,12 @@ grep -q '^# fail 0$' "$TEST_LOG"
 [ "$(sha256sum src/server/data/db.json | awk '{print $1}')" = \
   "$EXPECTED_JSON_SHA" ]
 
-RESIDUAL_SCHEMA_COUNT="$(/usr/pgsql-15/bin/psql -X -At -v ON_ERROR_STOP=1 \
+RESIDUAL_SCHEMA_COUNT="$(PGPASSWORD="$(<"$TEST_PASSWORD_FILE")" \
+  /usr/pgsql-15/bin/psql -X -At -v ON_ERROR_STOP=1 \
   -c "SELECT count(*) FROM information_schema.schemata
       WHERE schema_name = 'app';")"
-REMAINING_CONNECTIONS="$(/usr/pgsql-15/bin/psql -X -At -v ON_ERROR_STOP=1 \
+REMAINING_CONNECTIONS="$(PGPASSWORD="$(<"$TEST_PASSWORD_FILE")" \
+  /usr/pgsql-15/bin/psql -X -At -v ON_ERROR_STOP=1 \
   -c "SELECT count(*) FROM pg_stat_activity
       WHERE datname = '$TEST_DB'
         AND pid <> pg_backend_pid();")"

@@ -1,7 +1,18 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 const DATABASE_URL_PROTOCOLS = new Set(['postgres:', 'postgresql:']);
-const DISCRETE_CONNECTION_KEYS = ['PGHOST', 'PGPORT', 'PGUSER', 'PGPASSWORD', 'PGDATABASE'];
+const DISCRETE_CONNECTION_KEYS = [
+  'PGHOST',
+  'PGPORT',
+  'PGUSER',
+  'PGPASSWORD',
+  'PGPASSWORD_FILE',
+  'PGDATABASE'
+];
+const MAX_PASSWORD_FILE_BYTES = 4096;
 
 function postgresConfigError(code, message) {
   const error = new Error(message || code);
@@ -51,15 +62,72 @@ function parseDatabaseUrl(value) {
   return parsed;
 }
 
+function readPasswordFile(value) {
+  const filePath = optionalString(value);
+  if (!filePath) return '';
+  if (!path.isAbsolute(filePath)) {
+    throw postgresConfigError(
+      'POSTGRES_CONFIG_INVALID',
+      'PGPASSWORD_FILE must be an absolute path.'
+    );
+  }
+
+  let descriptor;
+  let stats;
+  let password;
+  try {
+    descriptor = fs.openSync(
+      filePath,
+      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0)
+    );
+    stats = fs.fstatSync(descriptor);
+    if (!stats.isFile()) {
+      throw new Error('not a regular file');
+    }
+    if (process.platform !== 'win32' && (stats.mode & 0o077) !== 0) {
+      throw new Error('permissions are too broad');
+    }
+    if (stats.size < 1 || stats.size > MAX_PASSWORD_FILE_BYTES) {
+      throw new Error('size is invalid');
+    }
+    password = fs.readFileSync(descriptor, 'utf8');
+  } catch (_error) {
+    throw postgresConfigError(
+      'POSTGRES_CONFIG_INVALID',
+      'PGPASSWORD_FILE must be a protected regular file.'
+    );
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+
+  if (!password || /[\r\n\0]/.test(password)) {
+    throw postgresConfigError(
+      'POSTGRES_CONFIG_INVALID',
+      'PGPASSWORD_FILE must contain exactly one non-empty password.'
+    );
+  }
+  return password;
+}
+
 function readPostgresConfig(env = process.env) {
   const sourceEnv = env && typeof env === 'object' ? env : {};
   const databaseUrl = optionalString(sourceEnv.DATABASE_URL);
+  const inlinePassword = sourceEnv.PGPASSWORD === undefined || sourceEnv.PGPASSWORD === null
+    ? ''
+    : String(sourceEnv.PGPASSWORD);
+  const passwordFile = optionalString(sourceEnv.PGPASSWORD_FILE);
   const hasDiscreteConnectionValue = DISCRETE_CONNECTION_KEYS.some((key) => optionalString(sourceEnv[key]));
 
   if (databaseUrl && hasDiscreteConnectionValue) {
     throw postgresConfigError(
       'POSTGRES_CONFIG_AMBIGUOUS',
-      'Use DATABASE_URL or the PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE fields, not both.'
+      'Use DATABASE_URL or the discrete PG fields, not both.'
+    );
+  }
+  if (inlinePassword && passwordFile) {
+    throw postgresConfigError(
+      'POSTGRES_CONFIG_AMBIGUOUS',
+      'Use PGPASSWORD or PGPASSWORD_FILE, not both.'
     );
   }
 
@@ -113,9 +181,7 @@ function readPostgresConfig(env = process.env) {
       key: 'PGPORT', min: 1, max: 65535
     }),
     user,
-    password: sourceEnv.PGPASSWORD === undefined || sourceEnv.PGPASSWORD === null
-      ? ''
-      : String(sourceEnv.PGPASSWORD),
+    password: passwordFile ? readPasswordFile(passwordFile) : inlinePassword,
     database,
     ...common
   };

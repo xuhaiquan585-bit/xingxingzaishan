@@ -11,7 +11,11 @@ const crypto = require('crypto');
 let server;
 let baseUrl;
 let basePort;
-let tmpDir;
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xingxingzaishan-'));
+const originalNodeEnv = process.env.NODE_ENV;
+process.env.NODE_ENV = 'test';
+process.env.AUDIT_LOG_DIR = path.join(tmpDir, 'logs');
+process.env.QR_ISSUANCE_TEST_IMAGE_DIR = path.join(tmpDir, 'qrcodes');
 
 test('record manifest should hash stably without identity secrets', () => {
   const { buildRecordManifest, hashManifest, stableStringify } = require('../src/server/services/manifestService');
@@ -594,7 +598,6 @@ function signWechatPayNotify({ rawBody, timestamp, nonce, privateKey }) {
 }
 
 test.before(async () => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xingxingzaishan-'));
   clearWechatPayEnv();
   process.env.DB_FILE = path.join(tmpDir, 'db.json');
   process.env.STORAGE_ROOT = path.join(tmpDir, 'storage');
@@ -637,6 +640,13 @@ test.after(async () => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
   delete process.env.DB_FILE;
   delete process.env.STORAGE_ROOT;
+  delete process.env.AUDIT_LOG_DIR;
+  delete process.env.QR_ISSUANCE_TEST_IMAGE_DIR;
+  if (originalNodeEnv === undefined) {
+    delete process.env.NODE_ENV;
+  } else {
+    process.env.NODE_ENV = originalNodeEnv;
+  }
   delete process.env.AUTH_SECRET;
   delete process.env.RATE_LIMIT_LOGIN_MAX;
   delete process.env.SMS_PROVIDER;
@@ -2734,8 +2744,12 @@ test('POST /api/admin/qr/generate should surface image staging failures', async 
 
   try {
     fs.openSync = function patchedOpenSync(target, ...args) {
-      const normalized = String(target).replace(/\\/g, '/');
-      if (/\/public\/qrcodes\/\.[^/]+\.tmp$/.test(normalized)) {
+      const normalized = path.resolve(String(target));
+      const imageDirectory = path.resolve(
+        process.env.QR_ISSUANCE_TEST_IMAGE_DIR
+      );
+      if (path.dirname(normalized) === imageDirectory
+        && /^\.[^.].*\.tmp$/.test(path.basename(normalized))) {
         const error = new Error('SIMULATED_QR_IMAGE_STAGE_FAILURE');
         error.code = 'EACCES';
         throw error;

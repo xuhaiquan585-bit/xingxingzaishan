@@ -974,3 +974,29 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
 - A successful prewrite entry is still before the authority commit point. The
   next operation is a manual auto-off rehearsal; stable enablement requires a
   separate, later command and explicit operator confirmation.
+
+### Stable PostgreSQL authority commit
+
+- `scripts/database/run-stable-cutover-commit.sh` is intentionally not an npm
+  shortcut. It requires root, the exact current `prewrite-plan.env`, the manual
+  auto-off summary bound to that plan, `--commit-stable`, and the full
+  `COMMIT_POSTGRES_AUTHORITY_NO_JSON_FALLBACK` confirmation phrase.
+- The runner first enters frozen PostgreSQL authority and repeats public parity,
+  candidate-state, connection, write-blocking, and PM2 persistence checks. A
+  failure before its explicit commit marker can restore JSON only when the
+  candidate is byte-for-byte equivalent at the guarded domain/count level.
+- Stable authentication uses
+  `/etc/xingxingzaishan/postgresql-clean-baseline-20260812.password`, a root-owned
+  mode-`600` regular file. PM2 persists only `PGPASSWORD_FILE`; its dump is
+  rejected if it contains `DATABASE_URL`, `PGPASSWORD`, or AVATA credentials.
+- The authority marker is written before business writes are reopened. From
+  that point onward JSON fallback is prohibited. A later failure freezes the
+  PostgreSQL runtime, persists that forward-only state, and requires repair or
+  restoration of PostgreSQL rather than re-enabling JSON.
+- `RECORD_PROOF_RUNTIME_ENABLED=false` and AVATA remain outside this operation.
+  A successful commit proceeds to a separate post-commit observation gate.
+- `scripts/database/run-stable-cutover-observation.sh` is the explicit read-only
+  post-commit gate. Across three spaced cycles it verifies the persisted PM2
+  state, five live authority boundaries, candidate provenance and monotonic
+  counts, zero processing/failed outbox jobs, and public H5/miniapp fingerprint
+  parity. It performs no PM2 action and no business or provider write.
