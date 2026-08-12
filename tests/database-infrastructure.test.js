@@ -3159,6 +3159,9 @@ test('stable commit runner protects secrets and distinguishes precommit rollback
   assert.match(runner, /PM2_DATABASE_PASSWORD_PERSISTED=NO/);
   assert.match(runner, /validate-stable-pm2-state\.js/);
   assert.match(runner, /pm2 save --force/);
+  assert.match(runner, /postgres_control_query/);
+  assert.match(runner, /\/usr\/bin\/env \\\n+    -u DATABASE_URL/);
+  assert.match(runner, /chmod 0600 "\$PM2_DUMP"/);
   assert.match(runner, /RECORD_PROOF_RUNTIME_ENABLED=false/);
   assert.match(runner, /AVATA_CONFIGURATION_LOADED=NO/);
   assert.doesNotMatch(runner, /RECORD_PROOF_RUNTIME_ENABLED=true/);
@@ -3170,6 +3173,30 @@ test('stable commit runner protects secrets and distinguishes precommit rollback
   assert.match(validator, /expected-authority/);
   assert.match(validator, /POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED/);
   assert.doesNotMatch(validator, /console\.log\([^)]*env/);
+});
+
+test('stable forward resume only accepts committed freeze and never restores JSON', () => {
+  const runner = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/run-stable-cutover-resume.sh'),
+    'utf8'
+  );
+
+  assert.match(runner, /RESUME_POSTGRES_AUTHORITY_COMMITTED_FORWARD_ONLY/);
+  assert.match(runner, /STATE_PHASE_NOT_COMMITTED_FROZEN/);
+  assert.match(runner, /AUTHORITY_COMMIT_POINT_CROSSED.*YES/);
+  assert.match(runner, /ensure_forward_freeze/);
+  assert.match(runner, /POSTGRES_AUTHORITY_COMMITTED_FROZEN/);
+  assert.match(runner, /POSTGRES_AUTHORITY_COMMITTED/);
+  assert.match(runner, /STABLE_CUTOVER_FORWARD_RESUME_PUBLIC_PARITY=PASS/);
+  assert.match(runner, /postgres_control_query/);
+  assert.match(runner, /\/usr\/bin\/env \\\n+    -u DATABASE_URL/);
+  assert.match(runner, /PM2_DATABASE_PASSWORD_PERSISTED=NO/);
+  assert.match(runner, /JSON_FALLBACK_ALLOWED=NO/);
+  assert.match(runner, /RECORD_PROOF_RUNTIME_ENABLED=false/);
+  assert.match(runner, /AVATA_CONFIGURATION_LOADED=NO/);
+  assert.doesNotMatch(runner, /load_json_environment/);
+  assert.doesNotMatch(runner, /FINAL_STATE=JSON_AUTHORITY/);
+  assert.doesNotMatch(runner, /RECORD_PROOF_RUNTIME_ENABLED=true/);
 });
 
 test('stable post-commit observation is read-only, multi-cycle, and forward-only', () => {

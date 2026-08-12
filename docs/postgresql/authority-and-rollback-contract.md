@@ -164,6 +164,13 @@ summary bound to that plan, and the full no-JSON-fallback confirmation phrase.
 5. After the marker, any failure keeps PostgreSQL authoritative and attempts to
    persist a frozen PostgreSQL state. JSON fallback is prohibited.
 
+An operator resumes a committed frozen state only through the dedicated
+forward-resume runner. The runner cannot accept a pre-commit or JSON phase and
+contains no JSON restoration path. It clears inherited libpq variables before
+control-plane queries run as the local `postgres` operating-system account,
+then revalidates the candidate, public fingerprints, PM2 dump, and legacy
+database non-selection before reopening writes.
+
 The proof runtime and AVATA remain disabled throughout this PostgreSQL-only
 commit. Provider enablement is a separate project.
 

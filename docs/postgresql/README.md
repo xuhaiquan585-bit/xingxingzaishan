@@ -1000,3 +1000,11 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   state, five live authority boundaries, candidate provenance and monotonic
   counts, zero processing/failed outbox jobs, and public H5/miniapp fingerprint
   parity. It performs no PM2 action and no business or provider write.
+- A failure after the authority marker may leave the process in
+  `POSTGRES_AUTHORITY_COMMITTED_FROZEN`. This is a protected forward-only state,
+  not a JSON rollback. `scripts/database/run-stable-cutover-resume.sh` accepts
+  only that state and an explicit
+  `RESUME_POSTGRES_AUTHORITY_COMMITTED_FORWARD_ONLY` confirmation. It verifies
+  candidate immutability, public parity, PM2 secret safety, and legacy database
+  non-selection before reopening writes. Any failure after it touches the
+  runtime re-engages and persists the PostgreSQL write freeze.

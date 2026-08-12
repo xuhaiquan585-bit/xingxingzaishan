@@ -268,7 +268,24 @@ EOF
 
 persist_current_pm2() {
   pm2 save --force >/dev/null
+  chmod 0600 "$PM2_DUMP"
   assert_protected_file "$PM2_DUMP" || return 1
+}
+
+postgres_control_query() {
+  runuser -u postgres -- /usr/bin/env \
+    -u DATABASE_URL \
+    -u PGHOST \
+    -u PGPORT \
+    -u PGUSER \
+    -u PGPASSWORD \
+    -u PGPASSWORD_FILE \
+    -u PGDATABASE \
+    -u PGSSL \
+    -u PGSSLMODE \
+    -u PGOPTIONS \
+    -u PGAPPLICATION_NAME \
+    /usr/pgsql-15/bin/psql -X -At -d postgres "$@"
 }
 
 freeze_postgres_forward_only() {
@@ -624,10 +641,10 @@ DATABASE_STATE_STABLE="$(database_state_with_password_file)"
   fail CANDIDATE_MUTATION_DETECTED_KEEP_POSTGRES_FROZEN
 unset PGOPTIONS PGAPPLICATION_NAME
 LEGACY_CONNECTION_COUNT="$(
-  runuser -u postgres -- /usr/pgsql-15/bin/psql -X -At -d postgres \
+  postgres_control_query \
     -c "SELECT count(*) FROM pg_stat_activity
         WHERE datname = '$LEGACY_DB'
-          AND application_name = 'xingxingzaishan-stable';"
+          AND application_name LIKE 'xingxingzaishan-stable%';"
 )"
 [ "$LEGACY_CONNECTION_COUNT" = 0 ] || fail LEGACY_DATABASE_SELECTED
 
