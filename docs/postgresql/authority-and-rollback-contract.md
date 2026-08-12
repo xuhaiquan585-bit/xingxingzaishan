@@ -37,7 +37,10 @@ state, the operator must capture and verify:
 - producer, privacy, monitoring, auto-off, and rollback gates.
 
 No long-term JSON/PostgreSQL dual-write is required. The maintenance freeze is
-the consistency boundary.
+the consistency boundary. The application enforces it with
+`POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED=true`: only `GET`, `HEAD`, and `OPTIONS`
+requests are admitted, while every other HTTP method fails with a generic
+maintenance response before body parsing, sessions, or business routes.
 
 ### 3. POSTGRES_AUTHORITY_PREWRITE
 

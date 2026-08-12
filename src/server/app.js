@@ -14,6 +14,10 @@ const paymentRoutes = require('./routes/payment');
 const { createRateLimiter } = require('./middlewares/rateLimit');
 const { auditLogger } = require('./middlewares/auditLogger');
 const { attachUserSession } = require('./middlewares/userSession');
+const {
+  createPostgresCutoverWriteFreeze,
+  readPostgresCutoverWriteFreezeConfig
+} = require('./middlewares/postgresCutoverWriteFreeze');
 const { assertRuntimeConfig, parseOrigins } = require('./services/configService');
 
 function corsMiddleware() {
@@ -53,11 +57,15 @@ function corsMiddleware() {
 
 function createApp() {
   assertRuntimeConfig();
+  const postgresCutoverWriteFreeze = createPostgresCutoverWriteFreeze(
+    readPostgresCutoverWriteFreezeConfig(process.env)
+  );
 
   const app = express();
 
   initializeDB();
 
+  app.use(postgresCutoverWriteFreeze);
   app.use(express.json({
     verify: (req, _res, buf) => {
       if (req.originalUrl && req.originalUrl.startsWith('/api/payment/wechat/notify')) {
