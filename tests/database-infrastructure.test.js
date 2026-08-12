@@ -2438,6 +2438,7 @@ test('stable-scope integration runner is disposable, serialized, and production-
   assert.match(source, /POSTGRES_PROOF_ALL_SCOPE_WORKER=PASS/);
   assert.match(source, /CROSS_ACCOUNT_PHONE_WRITE_GATES=PASS/);
   assert.match(source, /CONTENT_PRIVACY_RESUMABLE_APPLY=PASS/);
+  assert.match(source, /CONTENT_PRIVACY_CONTROLLED_REPROOF=PASS/);
   assert.match(source, /POSTGRES_PROOF_BACKLOG_MONITOR=PASS/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_ENABLED/);
   assert.match(source, /IDENTITY_POSTGRES_AUTHORITY_SOURCE_SHA256/);
@@ -2445,7 +2446,7 @@ test('stable-scope integration runner is disposable, serialized, and production-
   assert.match(source, /QR_ISSUANCE_POSTGRES_AUTHORITY_SOURCE_SHA256/);
   assert.match(source, /QR_ISSUANCE_POSTGRES_AUTHORITY_DOMAIN_SHA256/);
   assert.match(source, /RECORD_PROOF_RUNTIME_DOMAIN_SHA256/);
-  assert.match(source, /NEXT_ACTION=RUN_PRIVACY_APPLY_PREFLIGHT/);
+  assert.match(source, /NEXT_ACTION=RUN_CONTROLLED_PRIVACY_APPLY_AND_REPROOF/);
   assert.equal(
     packageJson.scripts['test:postgres:stable-scope'],
     'bash scripts/database/run-stable-scope-integration.sh'
@@ -2551,5 +2552,68 @@ test('production privacy remediation apply preflight is exact and read-only', ()
   assert.equal(
     packageJson.scripts['privacy:apply:preflight:production-snapshot'],
     'bash scripts/database/run-content-privacy-remediation-apply-preflight.sh'
+  );
+});
+
+test('controlled privacy apply and reproof runner is exact, resumable, and PM2-secret safe', () => {
+  const packageJson = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '../package.json'),
+    'utf8'
+  ));
+  const runner = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/database/run-content-privacy-remediation-controlled.sh'
+    ),
+    'utf8'
+  );
+  const reproof = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/run-content-privacy-reproof.js'),
+    'utf8'
+  );
+  const finalizer = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/content-privacy-reproof.js'),
+    'utf8'
+  );
+
+  assert.match(
+    runner,
+    /CONTENT_PRIVACY_PRODUCTION_APPLY_CONFIRMATION/
+  );
+  assert.match(runner, /CONTENT_PRIVACY_PROVIDER_ENV/);
+  assert.match(runner, /CONTENT_PRIVACY_EXPECTED_AVATA_ENV/);
+  assert.match(runner, /CONTENT_PRIVACY_EXPECTED_AVATA_ORIGIN/);
+  assert.match(runner, /PROVIDER_GATE_AVATA_ENV_EXPLICIT_REQUIRED/);
+  assert.match(runner, /PROVIDER_GATE_AVATA_ORIGIN_MISMATCH/);
+  assert.match(runner, /CONTROLLED_PROVIDER_ENVIRONMENT/);
+  assert.match(runner, /CONTROLLED_PROVIDER_ORIGIN/);
+  assert.match(runner, /EXPECTED_QR_IDS=SSS00003,SSS00008,SSS00009/);
+  assert.match(runner, /EXPECTED_CANDIDATE_SHA=93def24ee6dd4de63fd4ebf776a0a2056d2563df492727231b8f6de08ec0c7ee/);
+  assert.match(runner, /PROVIDER_ENV_MODE_INVALID/);
+  assert.match(runner, /--apply-production-snapshot/);
+  assert.match(runner, /--execute-controlled/);
+  assert.match(runner, /trap cleanup EXIT/);
+  assert.match(runner, /pm2 stop xingxingzaishan/);
+  assert.match(runner, /pm2 restart xingxingzaishan/);
+  assert.match(runner, /command -v timeout/);
+  assert.match(runner, /timeout --signal=TERM --kill-after=30s 1900s/);
+  assert.doesNotMatch(runner, /pm2 (?:save|restart .*--update-env)/);
+  assert.match(runner, /AVATA_API_KEY\|AVATA_API_SECRET/);
+  assert.match(runner, /PROOF_ATTEMPT_HISTORY_PRESERVED=YES/);
+
+  assert.match(reproof, /createOutboxWorker/);
+  assert.match(reproof, /queryProviderOperation/);
+  assert.match(reproof, /FINAL_JSON_PENDING/);
+  assert.match(reproof, /operational_proof_attempts_preserved: true/);
+  assert.doesNotMatch(reproof, /child_process|execSync|spawnSync/);
+
+  assert.match(finalizer, /public_qr_v1_and_operational_evidence_v1/);
+  assert.match(finalizer, /operational_proof_attempts_preserved: true/);
+  assert.match(finalizer, /verifyPublicDomainParity/);
+  assert.match(finalizer, /fs\.renameSync/);
+  assert.doesNotMatch(finalizer, /DELETE FROM app\.proof_attempts/);
+  assert.equal(
+    packageJson.scripts['privacy:apply:controlled:production-snapshot'],
+    'bash scripts/database/run-content-privacy-remediation-controlled.sh'
   );
 });

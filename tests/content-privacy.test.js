@@ -29,6 +29,15 @@ const {
   replaceLiveDatabase,
   validateArtifacts
 } = require('../scripts/database/apply-content-privacy-remediation');
+const {
+  buildFinalSource,
+  idempotencyKey,
+  replaceLiveDatabaseWithFinal
+} = require('../scripts/database/content-privacy-reproof');
+const {
+  parseArguments: parseReproofArguments,
+  runtimeConfig: readControlledReproofConfig
+} = require('../scripts/database/run-content-privacy-reproof');
 const { mapSourceToPlan } = require('../scripts/database/importer/mapping');
 
 const OWNER_PHONE = '13800000001';
@@ -538,4 +547,156 @@ test('privacy remediation live JSON replacement is atomic and resumable by hash'
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('privacy reproof final source preserves operational evidence and exact timestamps', () => {
+  const source = remediationSourceFixture();
+  const prepared = prepareSource({
+    source,
+    sourceHash: sha256(Buffer.from(JSON.stringify(source), 'utf8')),
+    expectedQrIds: ['SSS00003', 'SSS00008', 'SSS00009'],
+    remediatedAt: '2026-08-12T01:02:03.000Z'
+  });
+  const candidate = JSON.parse(prepared.serialized);
+  const candidatePlan = mapSourceToPlan(candidate).plan;
+  const qrIds = prepared.report.affected_qr_ids;
+  const qrs = new Map(candidatePlan.qr_codes
+    .filter((row) => qrIds.includes(row.id))
+    .map((row) => [row.id, row]));
+  const records = new Map(candidatePlan.records
+    .filter((row) => qrIds.includes(row.qr_id))
+    .map((row) => [row.qr_id, {
+      ...row,
+      image_sha256: '9'.repeat(64),
+      updated_at: '2026-08-12T01:03:00.000Z'
+    }]));
+  const proofs = new Map();
+  const archives = new Map();
+  const attempts = new Map();
+  const jobs = new Map();
+  qrIds.forEach((qrId, index) => {
+    const proofId = `00000000-0000-4000-a000-${String(index + 1).padStart(12, '0')}`;
+    proofs.set(qrId, {
+      id: proofId,
+      record_qr_id: qrId,
+      provider: 'avata_wenchang',
+      status: 'confirmed',
+      operation_id: `record_${qrId}_fixture`,
+      manifest_object_key: `records/${qrId}/manifest.json`,
+      manifest_hash: String(index + 1).repeat(64),
+      legacy_hash_snapshot: null,
+      transaction_hash: `tx-${qrId}`,
+      block_height: 100 + index,
+      provider_record_id: `provider-${qrId}`,
+      provider_certificate_url: `https://fixture.invalid/${qrId}.pdf`,
+      certificate_object_key: null,
+      certificate_object_url_snapshot: null,
+      confirmed_at: '2026-08-12T01:04:00.000Z',
+      callback_received_at: null,
+      retry_count: 1,
+      last_error: '',
+      created_at: '2026-08-12T01:02:30.000Z',
+      updated_at: '2026-08-12T01:04:00.000Z'
+    });
+    archives.set(qrId, {
+      record_qr_id: qrId,
+      manifest_object_key: `records/${qrId}/manifest.json`,
+      legacy_manifest_object_key: null,
+      index_object_key: `indexes/by-star/${qrId}.json`,
+      status: 'ready',
+      last_error: '',
+      created_at: '2026-08-12T01:02:40.000Z',
+      updated_at: '2026-08-12T01:02:40.000Z'
+    });
+    attempts.set(qrId, {
+      record_qr_id: qrId,
+      attempt_count: 1,
+      succeeded_count: 1,
+      pending_count: 0
+    });
+    jobs.set(qrId, {
+      aggregate_id: qrId,
+      status: 'succeeded',
+      locked_at: null,
+      locked_by: null
+    });
+  });
+  const final = buildFinalSource({
+    candidateSource: candidate,
+    evidence: { qrIds, qrs, records, proofs, archives, attempts, jobs }
+  });
+  const finalPlan = mapSourceToPlan(final.source).plan;
+  const finalProof = finalPlan.record_proofs.find(
+    (row) => row.record_qr_id === 'SSS00003'
+  );
+  const finalRecord = finalPlan.records.find((row) => row.qr_id === 'SSS00003');
+  assert.equal(finalProof.id, proofs.get('SSS00003').id);
+  assert.equal(finalProof.created_at, '2026-08-12T01:02:30.000Z');
+  assert.equal(finalProof.updated_at, '2026-08-12T01:04:00.000Z');
+  assert.equal(finalRecord.updated_at, '2026-08-12T01:03:00.000Z');
+  assert.equal(final.plan.proof_attempts.length, 0);
+  assert.equal(final.source.qr_codes.find(
+    (row) => row.id === 'SSS00003'
+  ).chain_proof_id, proofs.get('SSS00003').id);
+  assert.match(final.sourceHash, /^[0-9a-f]{64}$/);
+  assert.match(final.domainHash, /^[0-9a-f]{64}$/);
+});
+
+test('privacy reproof final JSON replacement is candidate-hash gated and resumable', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'privacy-reproof-json-'));
+  try {
+    const live = path.join(directory, 'live.json');
+    const candidateBytes = Buffer.from('{"state":"candidate"}\n');
+    const final = {
+      serialized: '{"state":"final"}\n',
+      sourceHash: sha256(Buffer.from('{"state":"final"}\n'))
+    };
+    const candidateHash = sha256(candidateBytes);
+    fs.writeFileSync(live, candidateBytes);
+    assert.deepEqual(replaceLiveDatabaseWithFinal({
+      liveDatabasePath: live,
+      candidateHash,
+      final
+    }), { applied: true, sourceHash: final.sourceHash });
+    assert.deepEqual(replaceLiveDatabaseWithFinal({
+      liveDatabasePath: live,
+      candidateHash,
+      final
+    }), { applied: false, sourceHash: final.sourceHash });
+    fs.writeFileSync(live, '{}');
+    assert.throws(
+      () => replaceLiveDatabaseWithFinal({ liveDatabasePath: live, candidateHash, final }),
+      (error) => error.code === 'CONTENT_PRIVACY_REPROOF_LIVE_DATABASE_DRIFT'
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('controlled privacy reproof requires exact provider and provenance gates', () => {
+  const options = parseReproofArguments([
+    '--preflight',
+    '--candidate=/tmp/candidate.json',
+    '--live-database=/tmp/live.json',
+    `--expected-candidate-sha256=${'1'.repeat(64)}`,
+    `--expected-candidate-domain-sha256=${'2'.repeat(64)}`,
+    '--expected-qr-ids=SSS00003,SSS00008,SSS00009',
+    '--expected-database=fixture_test'
+  ]);
+  assert.deepEqual(options.qrIds, ['SSS00003', 'SSS00008', 'SSS00009']);
+  assert.throws(
+    () => readControlledReproofConfig(options, {}),
+    (error) => error.code === 'CONTENT_PRIVACY_REPROOF_RUNTIME_CONFIG_INVALID'
+  );
+  const config = readControlledReproofConfig(options, {
+    CHAIN_ENABLED: 'true',
+    CHAIN_CALLBACK_URL: 'https://fixture.invalid/callback',
+    AVATA_API_KEY: 'fixture-key',
+    AVATA_API_SECRET: 'fixture-secret',
+    AVATA_IDENTITY_NAME: 'fixture-name',
+    AVATA_IDENTITY_NUM: 'fixture-number'
+  });
+  assert.equal(config.enabled, true);
+  assert.equal(config.scope, 'allowlist');
+  assert.deepEqual([...config.allowlist].sort(), options.qrIds);
 });

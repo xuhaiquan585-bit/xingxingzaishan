@@ -91,6 +91,10 @@ const {
 const {
   prepareSource
 } = require('../scripts/database/prepare-content-privacy-remediation');
+const {
+  executeReproof,
+  preflightReproof
+} = require('../scripts/database/run-content-privacy-reproof');
 
 const RUN_INTEGRATION = process.env.RUN_POSTGRES_INTEGRATION === 'true';
 const CREATED_AT = '2026-07-01T10:00:00.000Z';
@@ -695,6 +699,150 @@ test('manual PostgreSQL public QR adapter integration', {
       privacyState.rows[0].revised_content.includes(privacyFixture.users[1].phone),
       false
     );
+
+    const reproofOptions = Object.freeze({
+      candidatePath: privacyCandidatePath,
+      liveDatabasePath: privacyLivePath,
+      candidateHash: privacyPrepared.report.candidate_source_sha256,
+      candidateDomainHash:
+        privacyPrepared.report.candidate_public_qr_domain_sha256,
+      qrIds: Object.freeze(['QR_ACTIVATED_DIRECT']),
+      expectedDatabase: String(process.env.PGDATABASE),
+      maxSeconds: 5,
+      pollMs: 1
+    });
+    const reproofCandidate = Object.freeze({
+      source: JSON.parse(privacyPrepared.serialized),
+      plan: privacyArtifacts.candidatePlan
+    });
+    const controlledProviderEnv = {
+      CHAIN_ENABLED: 'true',
+      CHAIN_CALLBACK_URL: 'https://fixture.invalid/callback',
+      AVATA_API_KEY: 'fixture-key',
+      AVATA_API_SECRET: 'fixture-secret',
+      AVATA_IDENTITY_NAME: 'fixture-name',
+      AVATA_IDENTITY_NUM: 'fixture-number'
+    };
+    let reproofSubmissions = 0;
+    let reproofQueries = 0;
+    const externalAdapterFactory = () => ({
+      async prepareRecord({ record }) {
+        return {
+          manifest_hash: sha256(`privacy-manifest:${record.id}`),
+          manifest_object_key: `records/${record.id}/privacy-manifest.json`,
+          image_sha256: null,
+          legacy_manifest_object_key: null,
+          index_object_key: `indexes/by-star/${record.id}.json`
+        };
+      },
+      async submitRecord(input) {
+        reproofSubmissions += 1;
+        return {
+          status: 'submitted',
+          operation_id: input.operation_id,
+          transaction_hash: `privacy-tx-${input.record_qr_id}`,
+          block_height: 801,
+          provider_record_id: `privacy-provider-${input.record_qr_id}`,
+          provider_certificate_url: null
+        };
+      },
+      normalizeRecordResult(value) {
+        return value;
+      }
+    });
+    const runReproof = () => executeReproof({
+      options: reproofOptions,
+      pool,
+      candidate: reproofCandidate,
+      env: controlledProviderEnv,
+      externalAdapterFactory,
+      async queryProviderOperation(operationId) {
+        reproofQueries += 1;
+        return {
+          status: 'confirmed',
+          operation_id: operationId,
+          transaction_hash: 'privacy-tx-QR_ACTIVATED_DIRECT',
+          block_height: 801,
+          provider_record_id: 'privacy-provider-QR_ACTIVATED_DIRECT',
+          provider_certificate_url:
+            'https://fixture.invalid/QR_ACTIVATED_DIRECT.pdf'
+        };
+      },
+      wait: () => Promise.resolve()
+    });
+    const reproofPreflight = await preflightReproof({
+      options: reproofOptions,
+      pool,
+      candidate: reproofCandidate,
+      env: controlledProviderEnv
+    });
+    assert.deepEqual(reproofPreflight, {
+      mode: 'preflight',
+      status: 'READY',
+      phase: 'CANDIDATE_READY',
+      affected_qr_ids: ['QR_ACTIVATED_DIRECT'],
+      external_calls: 'NONE',
+      production_write: 'NONE'
+    });
+    const reproofCompleted = await runReproof();
+    assert.equal(reproofCompleted.status, 'COMPLETED');
+    assert.equal(reproofCompleted.final_marker_applied, true);
+    assert.equal(reproofCompleted.final_json_applied, true);
+    assert.equal(reproofSubmissions, 1);
+    assert.equal(reproofQueries, 1);
+    const finalPrivacySource = JSON.parse(fs.readFileSync(privacyLivePath, 'utf8'));
+    const finalPrivacyQr = finalPrivacySource.qr_codes.find(
+      (item) => item.id === 'QR_ACTIVATED_DIRECT'
+    );
+    assert.equal(finalPrivacyQr.chain_status, 'confirmed');
+    assert.equal(
+      finalPrivacyQr.chain_certificate_url,
+      'https://fixture.invalid/QR_ACTIVATED_DIRECT.pdf'
+    );
+    assert.match(finalPrivacyQr.chain_proof_id, /^[0-9a-f-]{36}$/);
+    const finalPrivacyState = await pool.query(
+      `SELECT
+         (SELECT count(*)::integer FROM app.import_runs
+          WHERE source_sha256 = $1 AND status = 'passed'
+            AND checksum_summary ->> 'verification_scope' =
+              'public_qr_v1_and_operational_evidence_v1') AS final_marker_count,
+         (SELECT count(*)::integer FROM app.import_runs
+          WHERE source_sha256 = $2 AND status = 'blocked'
+            AND checksum_summary ->> 'superseded_by_source_sha256' = $1)
+           AS candidate_superseded_count,
+         (SELECT count(*)::integer FROM app.proof_attempts attempt
+          JOIN app.record_proofs proof ON proof.id = attempt.proof_id
+          WHERE proof.record_qr_id = 'QR_ACTIVATED_DIRECT') AS attempt_count,
+         (SELECT count(*)::integer FROM app.outbox_jobs
+          WHERE aggregate_id = 'QR_ACTIVATED_DIRECT'
+            AND status = 'succeeded') AS succeeded_job_count`,
+      [
+        reproofCompleted.final_source_sha256,
+        privacyPrepared.report.candidate_source_sha256
+      ]
+    );
+    assert.deepEqual(finalPrivacyState.rows, [{
+      final_marker_count: 1,
+      candidate_superseded_count: 1,
+      attempt_count: 1,
+      succeeded_job_count: 1
+    }]);
+    const reproofRepeated = await runReproof();
+    assert.equal(reproofRepeated.status, 'ALREADY_COMPLETED');
+    assert.equal(reproofRepeated.final_marker_applied, false);
+    assert.equal(reproofRepeated.final_json_applied, false);
+    assert.equal(reproofSubmissions, 1);
+    assert.equal(reproofQueries, 1);
+    const completedReproofPreflight = await preflightReproof({
+      options: reproofOptions,
+      pool,
+      candidate: reproofCandidate,
+      env: controlledProviderEnv
+    });
+    assert.equal(completedReproofPreflight.status, 'ALREADY_COMPLETED');
+    assert.equal(completedReproofPreflight.phase, 'FINAL_COMPLETE');
+    assert.equal(completedReproofPreflight.external_calls, 'NONE');
+    assert.equal(completedReproofPreflight.production_write, 'NONE');
 
     await pool.query('DROP SCHEMA app CASCADE');
     const resetMigration = await runMigrations({ pool, apply: true, target: 'test' });

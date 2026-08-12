@@ -111,7 +111,11 @@ class RecordRepository {
     const result = await executeQuery(
       this.transactionContext,
       `UPDATE app.records
-       SET image_sha256 = $2, updated_at = $3
+       SET image_sha256 = $2,
+           updated_at = CASE
+             WHEN image_sha256 IS DISTINCT FROM $2 THEN $3
+             ELSE updated_at
+           END
        WHERE qr_id = $1
          AND (image_sha256 IS NULL OR image_sha256 = $2)
        RETURNING ${COLUMNS}`,

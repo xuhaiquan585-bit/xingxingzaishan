@@ -32,11 +32,14 @@ const ENTITY_FIELDS = {
   qr_codes: [
     'id', 'issue_status', 'activation_status', 'hidden', 'batch_id', 'print_batch_id', 'quality_check',
     'content', 'image_url', 'image_object_key', 'image_sha256', 'phone', 'account_id', 'activated_at',
+    'record_created_at', 'record_updated_at',
     'blockchain_hash', 'chain_provider', 'chain_status', 'chain_operation_id', 'manifest_object_key',
     'manifest_hash', 'chain_tx_hash', 'chain_block_height', 'chain_record_id', 'chain_certificate_url',
     'chain_certificate_object_key', 'chain_certificate_object_url', 'chain_confirmed_at',
-    'chain_callback_received_at', 'chain_last_error', 'chain_retry_count', 'legacy_manifest_object_key',
+    'chain_callback_received_at', 'chain_last_error', 'chain_retry_count', 'chain_proof_id',
+    'chain_created_at', 'chain_updated_at', 'legacy_manifest_object_key',
     'archive_index_object_key', 'archive_status', 'archive_last_error', 'archive_updated_at',
+    'archive_created_at',
     'co_creation_enabled', 'co_creation_owner_phone', 'co_creation_owner_account_id',
     'co_creation_comments', 'co_creation_started_at', 'show_brand_disclosure',
     'brand_disclosure_text_snapshot', 'qr_image_url', 'qr_access_token', 'created_at', 'updated_at'
@@ -256,8 +259,9 @@ function mapSourceToPlan(source) {
         sealed_at: item.activation_status === 'activated' ? item.activated_at : null,
         show_brand_disclosure: item.show_brand_disclosure === true,
         brand_disclosure_text_snapshot: item.brand_disclosure_text_snapshot || '',
-        created_at: item.co_creation_started_at || item.activated_at || createdAt,
-        updated_at: updatedAt
+        created_at:
+          item.record_created_at || item.co_creation_started_at || item.activated_at || createdAt,
+        updated_at: item.record_updated_at || updatedAt
       });
     }
 
@@ -305,7 +309,8 @@ function mapSourceToPlan(source) {
     }
 
     if (proofPresent) {
-      const proofId = deterministicUuid(`proof:${item.id}:${item.chain_provider || 'avata_wenchang'}`);
+      const proofId = item.chain_proof_id
+        || deterministicUuid(`proof:${item.id}:${item.chain_provider || 'avata_wenchang'}`);
       const proofHash = item.manifest_hash || item.blockchain_hash || null;
       plan.record_proofs.push({
         id: proofId,
@@ -326,8 +331,8 @@ function mapSourceToPlan(source) {
         callback_received_at: item.chain_callback_received_at || null,
         retry_count: Number(item.chain_retry_count || 0),
         last_error: item.chain_last_error || '',
-        created_at: createdAt,
-        updated_at: updatedAt
+        created_at: timestamp(item.chain_created_at, createdAt),
+        updated_at: timestamp(item.chain_updated_at, updatedAt)
       });
     }
 
@@ -339,7 +344,7 @@ function mapSourceToPlan(source) {
         index_object_key: textOrNull(item.archive_index_object_key),
         status: item.archive_status || 'not_started',
         last_error: item.archive_last_error || '',
-        created_at: createdAt,
+        created_at: timestamp(item.archive_created_at, createdAt),
         updated_at: timestamp(item.archive_updated_at, updatedAt)
       });
     }

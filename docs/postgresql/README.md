@@ -795,15 +795,39 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   parity. The wrapper uses a read-only PostgreSQL session, requires all runtime
   migration boundaries to remain off, and does not change JSON, PostgreSQL,
   OSS, or PM2.
-- The underlying apply state machine is deliberately not exposed as the next
-  production command until its isolated integration gate passes. Its write
-  phase uses one serializable advisory-locked transaction to revise only the
+- The underlying apply state machine uses one serializable advisory-locked
+  transaction to revise only the
   approved records, remove their superseded proof/archive rows, register the
   candidate source/domain marker, mark the old source as superseded so stale
   runtime configs fail closed, and enqueue one deterministic reproof job per
   record. The JSON replacement is hash-guarded and atomic. Re-running after an
   interruption recognizes the committed side and completes without duplicating
   the import marker or outbox work.
-- Actual OSS preparation and AVATA submission are a later controlled phase.
-  The privacy apply transaction performs no external calls, so an external
-  provider failure cannot leave the local database transaction half committed.
+- The controlled reproof state machine preserves proof attempts and outbox
+  history as operational evidence instead of forcing those tables to resemble
+  the JSON import plan. It synchronizes the final proof and archive fields back
+  into JSON, verifies exact `public_qr_v1` parity against PostgreSQL, registers
+  a new passed final marker, and supersedes the intermediate candidate marker.
+  Explicit record/proof/archive timestamps and the generated proof ID are
+  carried in the final JSON so the public domain remains reproducible; legacy
+  snapshots without those optional fields retain their existing mapping.
+- `npm run privacy:apply:controlled:production-snapshot` is the single guarded
+  production entry point. It requires the candidate SHA-256 as an explicit
+  confirmation, a root-owned mode-`600` provider environment path, and explicit
+  expected AVATA environment and HTTPS API origin values. The provider file
+  must set `AVATA_ENV` explicitly; the gate reports only the matched environment
+  and origin and never reports credentials. It
+  verifies default-off PM2 state, enters one maintenance window, applies the
+  exact candidate, processes only `SSS00003`, `SSS00008`, and `SSS00009`, polls
+  submitted provider operations to confirmation, and restarts the unchanged
+  default-off PM2 process. The command never calls `pm2 save` or imports
+  provider/database secrets into the PM2 environment.
+- The reproof child process has a system-level hard timeout slightly above its
+  bounded polling deadline. A hung provider request is terminated and the
+  shell recovery trap restores the default-off PM2 runtime.
+- A failed or interrupted run restarts the default-off JSON runtime and leaves
+  root-only audit evidence. Re-running the same command classifies the durable
+  state as candidate-ready, reproof-in-progress, final-JSON-pending, or already
+  complete and resumes without deleting attempts or resubmitting completed
+  jobs. External side effects are not described as rollbackable; deterministic
+  manifest/operation IDs and durable outbox state provide idempotent recovery.

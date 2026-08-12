@@ -223,7 +223,13 @@ function validateQrData(source, collector) {
     }
     if (qr && qr.batch_id && !batches.has(qr.batch_id)) collector.add('MISSING_REFERENCE', 'qr_codes', reference, 'batch_id');
     validateTimestamp(collector, qr && qr.created_at, 'qr_codes', reference, 'created_at', { required: true });
-    ['updated_at', 'activated_at', 'co_creation_started_at', 'chain_confirmed_at', 'chain_callback_received_at', 'archive_updated_at'].forEach((field) => {
+    [
+      'updated_at', 'activated_at', 'co_creation_started_at',
+      'record_created_at', 'record_updated_at',
+      'chain_confirmed_at', 'chain_callback_received_at',
+      'chain_created_at', 'chain_updated_at',
+      'archive_created_at', 'archive_updated_at'
+    ].forEach((field) => {
       validateTimestamp(collector, qr && qr[field], 'qr_codes', reference, field);
     });
     validateHash(collector, qr && qr.image_sha256, 'qr_codes', reference, 'image_sha256');
