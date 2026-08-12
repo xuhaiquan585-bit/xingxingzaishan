@@ -2560,6 +2560,47 @@ test('clean PostgreSQL baseline rebuild creates only a new guarded staging datab
   );
 });
 
+test('clean candidate E2E uses a disposable clone and forbids external providers', () => {
+  const packageJson = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'package.json'),
+    'utf8'
+  ));
+  const runner = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/database/run-clean-postgres-candidate-e2e.sh'
+    ),
+    'utf8'
+  );
+  const e2e = fs.readFileSync(
+    path.join(
+      __dirname,
+      'postgresql-clean-candidate.e2e.test.js'
+    ),
+    'utf8'
+  );
+
+  assert.match(runner, /SOURCE_DB=xingxing_clean_baseline_20260812_staging/);
+  assert.match(runner, /TEST_DB=xingxing_clean_baseline_e2e_20260812_test/);
+  assert.match(runner, /-T "\$SOURCE_DB" "\$TEST_DB"/);
+  assert.match(runner, /dropdb \\\n+      --if-exists "\$TEST_DB"/);
+  assert.doesNotMatch(runner, /dropdb[^\n]*SOURCE_DB/);
+  assert.doesNotMatch(runner, /dropdb[^\n]*PRODUCTION_DB/);
+  assert.doesNotMatch(runner, /pm2\s+(?:stop|restart|reload|save)/);
+  assert.match(runner, /CANDIDATE_DATABASE_WRITE=NONE/);
+  assert.match(runner, /DISPOSABLE_CLONE_REMOVED=YES/);
+  assert.match(runner, /EXTERNAL_PROVIDER_CALLS=NONE/);
+  assert.match(e2e, /EXTERNAL_FETCH_FORBIDDEN_IN_CANDIDATE_E2E/);
+  assert.match(e2e, /CLEAN_CANDIDATE_EXTERNAL_FETCH_CALLS=0/);
+  assert.match(e2e, /\/api\/admin\/qr\/generate/);
+  assert.match(e2e, /\/api\/miniapp\/auth\/bind-phone/);
+  assert.match(e2e, /createRecordProofRuntime/);
+  assert.equal(
+    packageJson.scripts['test:postgres:clean-candidate-e2e'],
+    'bash scripts/database/run-clean-postgres-candidate-e2e.sh'
+  );
+});
+
 test('production privacy snapshot runner is read-only, exact-targeted, and value-free', () => {
   const source = fs.readFileSync(
     path.join(__dirname, '../scripts/database/run-content-privacy-audit.sh'),

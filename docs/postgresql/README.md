@@ -862,3 +862,10 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   staging database, and removes only a target database that the same invocation
   created when ordinary failure occurs. The successful candidate remains
   disconnected from PM2 for the PostgreSQL-only new-QR end-to-end gate.
+- `npm run test:postgres:clean-candidate-e2e` clones that exact candidate into
+  the fixed disposable `_test` database, then creates a future QR and identity
+  that exist only in PostgreSQL. It exercises QR image access, H5 and miniapp
+  identity merge, lifecycle activation, public and personal reads, and a local
+  proof-worker adapter. External fetches are forbidden. The clone, environment,
+  and generated image are removed on ordinary success or failure; the clean
+  candidate, legacy staging database, JSON source, and PM2 process are unchanged.
