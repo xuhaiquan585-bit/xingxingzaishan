@@ -1727,29 +1727,7 @@ test('manual PostgreSQL public QR adapter integration', {
     process.env.PERSONAL_RECORD_POSTGRES_READ_ENABLED = 'false';
     process.env.IDENTITY_POSTGRES_AUTHORITY_ENABLED = 'false';
     process.env.QR_ISSUANCE_POSTGRES_AUTHORITY_ENABLED = 'false';
-    await pool.query(
-      `DELETE FROM app.proof_attempts
-       WHERE proof_id IN (
-         SELECT id FROM app.record_proofs WHERE record_qr_id = $1
-       )`,
-      [allScopeQrId]
-    );
-    await pool.query(
-      'DELETE FROM app.record_archives WHERE record_qr_id = $1',
-      [allScopeQrId]
-    );
-    await pool.query(
-      'DELETE FROM app.record_proofs WHERE record_qr_id = $1',
-      [allScopeQrId]
-    );
-    await pool.query(
-      'DELETE FROM app.outbox_jobs WHERE aggregate_id = $1',
-      [allScopeQrId]
-    );
-    await pool.query('DELETE FROM app.records WHERE qr_id = $1', [allScopeQrId]);
-    await pool.query('DELETE FROM app.qr_codes WHERE id = $1', [allScopeQrId]);
-    await pool.query('DELETE FROM app.users WHERE account_id = $1', [postgresOnlyAccountId]);
-    await pool.query('DELETE FROM app.accounts WHERE id = $1', [postgresOnlyAccountId]);
+    // Issued fixtures remain immutable until the disposable schema is dropped.
 
     const exactCases = [
       {
