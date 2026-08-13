@@ -3498,6 +3498,12 @@ test('production restore drill is fixed-source, isolated, retained, and non-dest
   assert.match(runner, /ALTER DATABASE "\$RESTORE_DB" CONNECTION LIMIT 0/);
   assert.match(runner, /SELECT rolcanlogin FROM pg_roles/);
   assert.match(runner, /SELECT datconnlimit FROM pg_database/);
+  assert.match(runner, /-v restore_role="\$RESTORE_ROLE" <<'SQL'/);
+  assert.match(runner, /-v restore_db="\$RESTORE_DB" <<'SQL'/);
+  assert.doesNotMatch(
+    runner,
+    /-c "SELECT (?:rolcanlogin|datconnlimit)[^\n]*:'restore_(?:role|db)'/
+  );
   assert.match(runner, /RESTORE_ROLE_NOT_SEALED/);
   assert.match(runner, /RESTORE_DATABASE_NOT_SEALED/);
   assert.match(runner, /RESTORE_RESOURCE_SEAL_FAILED/);

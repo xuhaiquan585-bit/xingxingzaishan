@@ -417,15 +417,19 @@ assert_authority_runtime "$APP_PID_AFTER" || fail POSTGRES_AUTHORITY_RUNTIME_CHA
 seal_resources COMPLETE
 FINAL_ROLE_LOGIN="$(runuser -u postgres -- "$PSQL" -X -At -d postgres \
   -v ON_ERROR_STOP=1 \
-  -v restore_role="$RESTORE_ROLE" \
-  -c "SELECT rolcanlogin FROM pg_roles WHERE rolname = :'restore_role';")"
+  -v restore_role="$RESTORE_ROLE" <<'SQL'
+SELECT rolcanlogin FROM pg_roles WHERE rolname = :'restore_role';
+SQL
+)"
 [ "$FINAL_ROLE_LOGIN" = f ] || fail RESTORE_ROLE_NOT_SEALED
 
 FINAL_DATABASE_CONNECTION_LIMIT="$(runuser -u postgres -- "$PSQL" -X -At \
   -d postgres \
   -v ON_ERROR_STOP=1 \
-  -v restore_db="$RESTORE_DB" \
-  -c "SELECT datconnlimit FROM pg_database WHERE datname = :'restore_db';")"
+  -v restore_db="$RESTORE_DB" <<'SQL'
+SELECT datconnlimit FROM pg_database WHERE datname = :'restore_db';
+SQL
+)"
 [ "$FINAL_DATABASE_CONNECTION_LIMIT" = 0 ] \
   || fail RESTORE_DATABASE_NOT_SEALED
 
