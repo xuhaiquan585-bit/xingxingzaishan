@@ -568,11 +568,11 @@ async function verifySourcePositionMigrationGuard(pool, directory) {
 async function verifyIssuedQrProtectionMigration(pool) {
   const client = await pool.connect();
   const at = '2026-07-01T09:00:00.000Z';
-  async function expectProtection(sql, savepoint) {
+  async function expectProtection(sql, savepoint, params = []) {
     await client.query(`SAVEPOINT ${savepoint}`);
     try {
       await assert.rejects(
-        client.query(sql),
+        client.query(sql, params),
         (error) => error.code === '23514'
           && error.constraint === 'qr_codes_issued_immutable'
       );
@@ -613,6 +613,23 @@ async function verifyIssuedQrProtectionMigration(pool) {
       'protect_status'
     );
     await expectProtection('TRUNCATE app.qr_codes', 'protect_truncate');
+    await expectProtection(
+      'DELETE FROM app.qr_codes WHERE id = ANY($1::varchar[])',
+      'protect_multi_delete',
+      [['QR_ISSUED_IMMUTABLE', 'QR_UNISSUED_DELETABLE']]
+    );
+
+    const retainedAfterMultiDelete = await client.query(
+      `SELECT id
+         FROM app.qr_codes
+        WHERE id = ANY($1::varchar[])
+        ORDER BY id`,
+      [['QR_ISSUED_IMMUTABLE', 'QR_UNISSUED_DELETABLE']]
+    );
+    assert.deepEqual(
+      retainedAfterMultiDelete.rows.map(({ id }) => id),
+      ['QR_ISSUED_IMMUTABLE', 'QR_UNISSUED_DELETABLE']
+    );
 
     const deleted = await client.query(
       "DELETE FROM app.qr_codes WHERE id = 'QR_UNISSUED_DELETABLE'"

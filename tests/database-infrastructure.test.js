@@ -3498,6 +3498,12 @@ test('issued QR production migration is fixed, narrow, and restart-free', () => 
   assert.match(runner, /RECORD_PROOF_RUNTIME_ENABLED/);
   assert.match(runner, /PGPASSWORD_FILE/);
   assert.match(runner, /xingxingzaishan-production-backup\.lock/);
+  assert.match(runner, /\/var\/lib\/xingxingzaishan-production-backup/);
+  assert.match(runner, /last-attempt\.env/);
+  assert.match(runner, /\/var\/log\/xingxingzaishan-production-backup/);
+  assert.match(runner, /BACKUP_STATE_DIRECTORY_UNSAFE/);
+  assert.match(runner, /BACKUP_ATTEMPT_FILE_UNSAFE/);
+  assert.match(runner, /PRODUCTION_JSON_FILE_UNSAFE/);
   assert.doesNotMatch(runner, /pm2\s+(?:stop|restart|reload|save)/);
   assert.doesNotMatch(runner, /--(?:database|migration|sql|password)=/);
 
@@ -3506,8 +3512,31 @@ test('issued QR production migration is fixed, narrow, and restart-free', () => 
   assert.match(implementation, /ISSUED_QR_PROTECTION_ARGUMENT_FORBIDDEN/);
   assert.match(implementation, /SET lock_timeout = '5s'/);
   assert.match(implementation, /SET statement_timeout = '30s'/);
-  assert.match(implementation, /SAVEPOINT issued_qr_delete_probe/);
-  assert.match(implementation, /ROLLBACK TO SAVEPOINT issued_qr_delete_probe/);
+  assert.match(implementation, /last-attempt\.env/);
+  assert.match(implementation, /MAX_BACKUP_AGE_MS = 2 \* 60 \* 60 \* 1000/);
+  assert.match(implementation, /RECENT_AUTOMATIC_BACKUP=PASS/);
+  assert.match(implementation, /STATUS !== 'PASS'/);
+  assert.match(implementation, /EXIT_CODE !== '0'/);
+  assert.match(implementation, /O_NOFOLLOW/);
+  assert.match(implementation, /fs\.fstatSync/);
+  assert.match(implementation, /PRODUCTION_JSON_VALID=YES/);
+  assert.doesNotMatch(
+    implementation,
+    /f263df13b5c19f91b0f86d93960f6b26896f3ed605318c73dd8546d110b06cfd/
+  );
+  assert.match(implementation, /BEGIN/);
+  assert.match(implementation, /COMMIT/);
+  assert.match(implementation, /ROLLBACK/);
+  assert.match(implementation, /LOCK TABLE app\.qr_codes IN ACCESS EXCLUSIVE MODE/);
+  assert.match(implementation, /SAVEPOINT \$\{savepoint\}/);
+  assert.match(implementation, /ROLLBACK TO SAVEPOINT \$\{savepoint\}/);
+  assert.match(implementation, /issued_qr_delete_probe/);
+  assert.match(implementation, /issued_qr_status_probe/);
+  assert.match(implementation, /issued_qr_truncate_probe/);
+  assert.match(implementation, /issued_qr_multi_delete_probe/);
+  assert.match(implementation, /ISSUED_QR_STATUS_DOWNGRADE=REJECTED_23514/);
+  assert.match(implementation, /ISSUED_QR_TRUNCATE=REJECTED_23514/);
+  assert.match(implementation, /ISSUED_QR_MULTI_DELETE=REJECTED_23514/);
   assert.doesNotMatch(implementation, /process\.env\.(?:PGDATABASE|DATABASE_URL)\s*=/);
 });
 

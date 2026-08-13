@@ -8,6 +8,10 @@ APP_NAME=xingxingzaishan
 EXPECTED_DATABASE=xingxing_clean_baseline_20260812_staging
 PROTECTION_SCRIPT="$REPO/scripts/database/apply-issued-qr-protection-production.js"
 LOCK_FILE=/run/lock/xingxingzaishan-production-backup.lock
+BACKUP_STATE_DIRECTORY=/var/lib/xingxingzaishan-production-backup
+BACKUP_ATTEMPT_FILE="$BACKUP_STATE_DIRECTORY/last-attempt.env"
+BACKUP_LOG_DIRECTORY=/var/log/xingxingzaishan-production-backup
+PRODUCTION_JSON="$REPO/src/server/data/db.json"
 
 fail() {
   printf 'ISSUED_QR_PRODUCTION_MIGRATION=FAIL\nERROR_CODE=%s\n' "$1" >&2
@@ -28,6 +32,24 @@ assert_root_private_regular_file() {
   [ ! -L "$file" ] || return 1
   [ "$(stat -c '%U:%G' "$file")" = root:root ] || return 1
   [ "$(stat -c '%a' "$file")" = 600 ] || return 1
+}
+
+assert_root_private_directory() {
+  local directory="$1"
+  [ -d "$directory" ] || return 1
+  [ ! -L "$directory" ] || return 1
+  [ "$(stat -c '%U:%G' "$directory")" = root:root ] || return 1
+  [ "$(stat -c '%a' "$directory")" = 700 ] || return 1
+}
+
+assert_root_controlled_regular_file() {
+  local file="$1"
+  local mode
+  [ -f "$file" ] || return 1
+  [ ! -L "$file" ] || return 1
+  [ "$(stat -c '%U:%G' "$file")" = root:root ] || return 1
+  mode="$(stat -c '%a' "$file")"
+  [ "$((8#$mode & 022))" -eq 0 ] || return 1
 }
 
 assert_authority_runtime() {
@@ -85,6 +107,11 @@ command -v /usr/local/bin/node >/dev/null 2>&1 || fail NODE_REQUIRED
 
 exec 9>"$LOCK_FILE"
 flock -n 9 || fail BACKUP_OR_MIGRATION_RUNNING
+
+assert_root_private_directory "$BACKUP_STATE_DIRECTORY" || fail BACKUP_STATE_DIRECTORY_UNSAFE
+assert_root_private_directory "$BACKUP_LOG_DIRECTORY" || fail BACKUP_LOG_DIRECTORY_UNSAFE
+assert_root_private_regular_file "$BACKUP_ATTEMPT_FILE" || fail BACKUP_ATTEMPT_FILE_UNSAFE
+assert_root_controlled_regular_file "$PRODUCTION_JSON" || fail PRODUCTION_JSON_FILE_UNSAFE
 
 APP_PID_BEFORE="$(pm2 pid "$APP_NAME" | tail -n 1)"
 [ -n "$APP_PID_BEFORE" ] || fail APP_PID_MISSING
