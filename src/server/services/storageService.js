@@ -1,5 +1,8 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('node:crypto');
+const { Transform } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 
 const rootDir = path.join(__dirname, '..');
 const storageRoot = process.env.STORAGE_ROOT ? path.resolve(process.env.STORAGE_ROOT) : rootDir;
@@ -216,6 +219,78 @@ async function uploadProtectedFileToOss({
   });
 }
 
+async function downloadProtectedObjectFromOss({
+  objectKey,
+  destinationPath,
+  client = null
+}) {
+  const safeObjectKey = sanitizeObjectKey(objectKey);
+  if (!safeObjectKey) throw new Error('OBJECT_KEY_REQUIRED');
+  if (!path.isAbsolute(String(destinationPath || ''))) {
+    throw new Error('OBJECT_DESTINATION_INVALID');
+  }
+
+  const activeClient = client || getOssClient();
+  let descriptor;
+  let output;
+  try {
+    descriptor = fs.openSync(
+      destinationPath,
+      fs.constants.O_WRONLY
+        | fs.constants.O_CREAT
+        | fs.constants.O_EXCL
+        | (fs.constants.O_NOFOLLOW || 0),
+      0o600
+    );
+    const result = await activeClient.getStream(safeObjectKey);
+    const status = Number(result?.res?.status || result?.status || 0);
+    if (status !== 200 || !result?.stream || typeof result.stream.pipe !== 'function') {
+      throw new Error('OSS_DOWNLOAD_RESPONSE_INVALID');
+    }
+
+    const hash = crypto.createHash('sha256');
+    let size = 0;
+    const digestStream = new Transform({
+      transform(chunk, _encoding, callback) {
+        size += chunk.length;
+        hash.update(chunk);
+        callback(null, chunk);
+      }
+    });
+    output = fs.createWriteStream(destinationPath, {
+      fd: descriptor,
+      autoClose: false
+    });
+    await pipeline(result.stream, digestStream, output);
+    fs.fsyncSync(descriptor);
+    fs.fchmodSync(descriptor, 0o600);
+
+    const headers = normalizeResponseHeaders(result);
+    return {
+      status,
+      path: destinationPath,
+      size,
+      sha256: hash.digest('hex'),
+      etag: String(headers.etag || '').replace(/^"|"$/g, '')
+    };
+  } catch (error) {
+    if (error && ['EEXIST', 'ELOOP'].includes(error.code)) {
+      throw new Error('OBJECT_DESTINATION_EXISTS');
+    }
+    if (error && String(error.message || '').startsWith('OBJECT_')) throw error;
+    throw new Error('OSS_PROTECTED_DOWNLOAD_FAILED');
+  } finally {
+    if (output && !output.destroyed) output.destroy();
+    if (descriptor !== undefined) {
+      try {
+        fs.closeSync(descriptor);
+      } catch (_error) {
+        // The protected file descriptor may already be closed by a stream failure.
+      }
+    }
+  }
+}
+
 
 function getLocalObjectPath(value) {
   const text = String(value || '').replace(/\\/g, '/');
@@ -421,5 +496,6 @@ module.exports = {
   getObjectPrefix,
   getLocalObjectPath,
   getProtectedObjectMetadata,
+  downloadProtectedObjectFromOss,
   uploadProtectedFileToOss
 };

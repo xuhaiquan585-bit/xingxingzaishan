@@ -3458,3 +3458,94 @@ test('manual production backup is non-destructive, secret-safe, and manually inv
   assert.match(storage, /meta: \{\s+sha256,/);
   assert.match(storage, /private, max-age=0, no-cache/);
 });
+
+test('production restore drill is fixed-source, isolated, retained, and non-destructive', () => {
+  const packageJson = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '../package.json'),
+    'utf8'
+  ));
+  const runner = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/run-production-restore-drill.sh'),
+    'utf8'
+  );
+  const implementation = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/production-restore-drill.js'),
+    'utf8'
+  );
+  const storage = fs.readFileSync(
+    path.join(__dirname, '../src/server/services/storageService.js'),
+    'utf8'
+  );
+
+  assert.equal(
+    packageJson.scripts['backup:restore:drill'],
+    'bash scripts/database/run-production-restore-drill.sh'
+  );
+  assert.match(runner, /\[ "\$#" = 0 \] \|\| fail RESTORE_ARGUMENT_INVALID/);
+  assert.match(runner, /PRODUCTION_DB=xingxing_clean_baseline_20260812_staging/);
+  assert.match(runner, /EXPECTED_PRODUCTION_JSON_SHA=f263df13b5c19f91b0f86d93960f6b26896f3ed605318c73dd8546d110b06cfd/);
+  assert.match(runner, /PRODUCTION_JSON_BASELINE_MISMATCH/);
+  assert.match(runner, /RESTORE_DB="xingxing_restore_drill_\$\{DATE_UTC\}_\$\{NONCE\}"/);
+  assert.match(implementation, /--single-transaction/);
+  assert.match(implementation, /--exit-on-error/);
+  assert.match(implementation, /--no-owner/);
+  assert.match(implementation, /--no-privileges/);
+  assert.match(runner, /NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT/);
+  assert.match(runner, /"\$PSQL" -X -1 -v ON_ERROR_STOP=1/);
+  assert.match(runner, /< "\$ROLE_SQL"/);
+  assert.doesNotMatch(runner, /-f "\$ROLE_SQL"/);
+  assert.match(runner, /ALTER ROLE "\$RESTORE_ROLE" NOLOGIN PASSWORD NULL/);
+  assert.match(runner, /ALTER DATABASE "\$RESTORE_DB" CONNECTION LIMIT 0/);
+  assert.match(runner, /SELECT rolcanlogin FROM pg_roles/);
+  assert.match(runner, /SELECT datconnlimit FROM pg_database/);
+  assert.match(runner, /RESTORE_ROLE_NOT_SEALED/);
+  assert.match(runner, /RESTORE_DATABASE_NOT_SEALED/);
+  assert.match(runner, /RESTORE_RESOURCE_SEAL_FAILED/);
+  assert.match(runner, /seal_resources INCOMPLETE \|\| seal_failed=1/);
+  assert.match(runner, /SELECT pg_terminate_backend\(pid\)/);
+  assert.match(runner, /SELECT count\(\*\) FROM pg_roles WHERE rolname/);
+  for (const privilege of ['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) {
+    assert.match(runner, new RegExp(`has_table_privilege\\([\\s\\S]*?, '${privilege}'\\)`));
+  }
+  assert.doesNotMatch(runner, /'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'/);
+  assert.match(runner, /PRODUCTION_DATABASE_RESTORE_CONNECTIONS=0/);
+  assert.match(runner, /TEMPORARY_DATABASE_RETAINED=YES/);
+  assert.match(runner, /trap cleanup EXIT/);
+  assert.match(runner, /assert_authority_runtime/);
+  assert.match(runner, /PM2_DUMP_SHA_BEFORE/);
+  assert.match(runner, /JSON_SHA_BEFORE/);
+  assert.match(runner, /unset DATABASE_URL PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE/);
+  assert.match(runner, /unset OSS_ACCESS_KEY_ID OSS_ACCESS_KEY_SECRET/);
+  assert.match(runner, /\|\| fail POSTGRES_RESTORE_FAILED/);
+  assert.doesNotMatch(
+    runner,
+    /(?:^|\s)(?:dropdb|DROP\s+DATABASE|DELETE\s+FROM|TRUNCATE\s+TABLE)(?:\s|$)/m
+  );
+  assert.doesNotMatch(runner, /pm2\s+(?:stop|restart|reload|save)/);
+  assert.doesNotMatch(runner, /systemctl\s+(?:enable|start)|crontab/);
+  assert.doesNotMatch(runner, /--create|--clean|--if-exists/);
+  assert.doesNotMatch(runner, /OSS_ACCESS_KEY_SECRET=|AVATA_API_(?:KEY|SECRET)=/);
+
+  assert.match(implementation, /BACKUP_RUN_ID = '20260813T110535Z-6586d9b1'/);
+  assert.match(implementation, /ea84e2fe7ff2e26e6c3fd85cdbeab4eb94aae6eeac356253db755a21175cc5f8/);
+  assert.match(implementation, /93324cbe855fb811f2ec523e95cc041e2ccc2035c4089aa870979cc4347c5785/);
+  assert.match(implementation, /f263df13b5c19f91b0f86d93960f6b26896f3ed605318c73dd8546d110b06cfd/);
+  assert.match(implementation, /loadMigrations/);
+  assert.match(implementation, /AS relations\(relation_name\)/);
+  assert.match(implementation, /'accounts_pkey'/);
+  assert.match(implementation, /AS identities/);
+  assert.match(implementation, /readOnly: true/);
+  assert.match(implementation, /new QrRepository/);
+  assert.match(implementation, /new RecordRepository/);
+  assert.match(implementation, /new AccountRepository/);
+  assert.match(implementation, /new IdentityRepository/);
+  assert.match(implementation, /new CoCreationRepository/);
+  assert.doesNotMatch(implementation, /uploadProtectedFileToOss|\.put\(|deleteObject|deleteMulti/);
+  assert.match(implementation, /spawnSync/);
+  assert.doesNotMatch(implementation, /execSync|execFileSync|shell:\s*true/);
+
+  assert.match(storage, /activeClient\.getStream\(safeObjectKey\)/);
+  assert.match(storage, /O_EXCL/);
+  assert.match(storage, /O_NOFOLLOW/);
+  assert.match(storage, /crypto\.createHash\('sha256'\)/);
+});
