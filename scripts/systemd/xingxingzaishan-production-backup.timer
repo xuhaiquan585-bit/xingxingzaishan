@@ -1,0 +1,13 @@
+# Managed-By: xingxingzaishan-production-backup
+[Unit]
+Description=Run Xingxingzaishan production offsite backup hourly
+
+[Timer]
+OnActiveSec=2min
+OnUnitActiveSec=1h
+AccuracySec=1min
+RandomizedDelaySec=0
+Unit=xingxingzaishan-production-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,21 @@
+# Managed-By: xingxingzaishan-production-backup
+[Unit]
+Description=Xingxingzaishan production offsite backup
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+WorkingDirectory=/www/wwwroot/xingxingzaishan
+Environment=HOME=/root
+Environment=PATH=/usr/local/bin:/usr/pgsql-15/bin:/usr/bin:/bin
+ExecStart=/usr/bin/bash /www/wwwroot/xingxingzaishan/scripts/database/run-production-backup-scheduled.sh
+TimeoutStartSec=45min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+StandardOutput=journal
+StandardError=journal

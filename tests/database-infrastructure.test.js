@@ -3459,6 +3459,106 @@ test('manual production backup is non-destructive, secret-safe, and manually inv
   assert.match(storage, /private, max-age=0, no-cache/);
 });
 
+test('hourly production backup scheduling is fixed, observable, and idempotent', () => {
+  const packageJson = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '../package.json'),
+    'utf8'
+  ));
+  const wrapper = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/run-production-backup-scheduled.sh'),
+    'utf8'
+  );
+  const installer = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/install-production-backup-systemd.sh'),
+    'utf8'
+  );
+  const stateWriter = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/production-backup-schedule-state.js'),
+    'utf8'
+  );
+  const service = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/systemd/xingxingzaishan-production-backup.service'
+    ),
+    'utf8'
+  );
+  const timer = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../scripts/systemd/xingxingzaishan-production-backup.timer'
+    ),
+    'utf8'
+  );
+
+  assert.equal(
+    packageJson.scripts['backup:production:install-systemd'],
+    'bash scripts/database/install-production-backup-systemd.sh'
+  );
+
+  assert.match(wrapper, /STATE_DIR=\/var\/lib\/xingxingzaishan-production-backup/);
+  assert.match(wrapper, /LOG_DIR=\/var\/log\/xingxingzaishan-production-backup/);
+  assert.match(wrapper, /"\$NPM" run backup:production:manual/);
+  assert.match(wrapper, /BACKUP_EXIT_CODE="\$\?"/);
+  assert.match(wrapper, /exit "\$BACKUP_EXIT_CODE"/);
+  assert.match(wrapper, /assert_directory_target_safe "\$STATE_DIR"/);
+  assert.match(wrapper, /assert_directory_target_safe "\$LOG_DIR"/);
+  assert.match(wrapper, /chmod 0600 "\$LOG_FILE"/);
+  assert.match(wrapper, /--run-id=\$RUN_ID/);
+  assert.doesNotMatch(wrapper, /\btee\b|pm2\s+(?:stop|restart|reload|save)/);
+  assert.doesNotMatch(wrapper, /crontab|systemctl|deleteObject|deleteMulti/);
+  assert.doesNotMatch(wrapper, /OSS_ACCESS_KEY_SECRET|AVATA_API_SECRET|PGPASSWORD=/);
+
+  assert.match(stateWriter, /last-attempt\.env/);
+  assert.match(stateWriter, /last-success\.env/);
+  assert.match(stateWriter, /last-failure\.env/);
+  assert.match(stateWriter, /O_EXCL/);
+  assert.match(stateWriter, /O_NOFOLLOW/);
+  assert.match(stateWriter, /fs\.renameSync\(temporaryPath, filePath\)/);
+  assert.doesNotMatch(stateWriter, /unlinkSync\(filePath\)/);
+
+  assert.match(service, /^\[Service\]$/m);
+  assert.match(service, /^# Managed-By: xingxingzaishan-production-backup$/m);
+  assert.match(service, /^Type=oneshot$/m);
+  assert.match(service, /^User=root$/m);
+  assert.match(service, /^Group=root$/m);
+  assert.match(service, /^UMask=0077$/m);
+  assert.match(service, /^Environment=HOME=\/root$/m);
+  assert.match(
+    service,
+    /^ExecStart=\/usr\/bin\/bash \/www\/wwwroot\/xingxingzaishan\/scripts\/database\/run-production-backup-scheduled\.sh$/m
+  );
+  assert.match(service, /^TimeoutStartSec=45min$/m);
+  assert.doesNotMatch(service, /EnvironmentFile|OSS_|AVATA_|PGPASSWORD/);
+
+  assert.match(timer, /^\[Timer\]$/m);
+  assert.match(timer, /^# Managed-By: xingxingzaishan-production-backup$/m);
+  assert.match(timer, /^OnActiveSec=2min$/m);
+  assert.match(timer, /^OnUnitActiveSec=1h$/m);
+  assert.match(timer, /^AccuracySec=1min$/m);
+  assert.match(timer, /^RandomizedDelaySec=0$/m);
+  assert.match(timer, /^Unit=xingxingzaishan-production-backup\.service$/m);
+  assert.equal((timer.match(/^OnActiveSec=/gm) || []).length, 1);
+  assert.equal((timer.match(/^OnUnitActiveSec=/gm) || []).length, 1);
+
+  assert.match(installer, /SERVICE=xingxingzaishan-production-backup\.service/);
+  assert.match(installer, /TIMER=xingxingzaishan-production-backup\.timer/);
+  assert.match(installer, /command -v systemd-analyze/);
+  assert.match(installer, /systemd-analyze verify/);
+  assert.match(installer, /SYSTEMD_UNIT_VERIFY_FAILED/);
+  assert.match(installer, /cmp -s -- "\$source" "\$target"/);
+  assert.match(installer, /grep -Fxq "\$MANAGED_MARKER" "\$target"/);
+  assert.match(installer, /UNIT_TARGET_UNMANAGED/);
+  assert.match(installer, /\[ ! -L "\$target" \] \|\| fail UNIT_TARGET_UNSAFE/);
+  assert.match(installer, /stat -c '%U:%G' "\$target"/);
+  assert.match(installer, /stat -c '%a' "\$target"/);
+  assert.match(installer, /if \[ "\$CHANGED" = YES \]/);
+  assert.match(installer, /if ! systemctl is-enabled --quiet "\$TIMER"/);
+  assert.match(installer, /if ! systemctl is-active --quiet "\$TIMER"/);
+  assert.doesNotMatch(installer, /systemctl\s+(?:restart|reenable)|enable\s+--now/);
+  assert.doesNotMatch(installer, /crontab|rm\s+-|find\s+.*-delete/);
+});
+
 test('production restore drill is fixed-source, isolated, retained, and non-destructive', () => {
   const packageJson = JSON.parse(fs.readFileSync(
     path.join(__dirname, '../package.json'),
