@@ -3191,6 +3191,11 @@ test('stable forward resume only accepts committed freeze and never restores JSO
   assert.match(runner, /POSTGRES_AUTHORITY_COMMITTED_FROZEN/);
   assert.match(runner, /POSTGRES_AUTHORITY_COMMITTED/);
   assert.match(runner, /STABLE_CUTOVER_FORWARD_RESUME_PUBLIC_PARITY=PASS/);
+  assert.match(
+    runner,
+    /STABLE_CUTOVER_FORWARD_RESUME_FROZEN_PUBLIC_PARITY=PASS/
+  );
+  assert.match(runner, /FROZEN_POSTGRES_CONNECTION_MISSING_AFTER_READ/);
   assert.match(runner, /postgres_control_query/);
   assert.match(runner, /\/usr\/bin\/env \\\n+    -u DATABASE_URL/);
   assert.match(runner, /PM2_DATABASE_PASSWORD_PERSISTED=NO/);

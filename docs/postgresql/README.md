@@ -1012,3 +1012,7 @@ defined in [PostgreSQL Authority and Rollback Contract](authority-and-rollback-c
   state, the runner requires the committed HEAD to be an ancestor and accepts
   only the exact reviewed recovery changeset. It then advances the protected
   state file to the recovery HEAD and tree atomically.
+- An idle frozen process may have no socket before its first PostgreSQL read
+  because the runtime pool is lazy. Forward recovery first proves the frozen
+  public fingerprint against the pre-commit JSON baseline; only after that read
+  must the process own a PostgreSQL connection.

@@ -261,6 +261,7 @@ AUDIT_DIR="$COMMIT_DIR/resume-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 BASELINE_FINGERPRINT="$COMMIT_DIR/json-public-fingerprints.json"
 SUMMARY="$COMMIT_DIR/stable-commit-summary.txt"
 RESUME_FINGERPRINT="$AUDIT_DIR/postgres-resumed-public-fingerprints.json"
+FROZEN_FINGERPRINT="$AUDIT_DIR/postgres-frozen-public-fingerprints.json"
 
 for FILE in \
   "$CANDIDATE_ENVIRONMENT" \
@@ -306,8 +307,25 @@ APP_PID_FROZEN="$(pm2 pid "$APP_NAME" | tail -n 1)"
   fail FROZEN_PID_MISSING
 [ "$(wait_for_http)" = 200 ] || fail FROZEN_HTTP_INVALID
 assert_postgres_runtime "$APP_PID_FROZEN" true || fail FROZEN_RUNTIME_INVALID
+
+/usr/local/bin/node scripts/database/capture-stable-cutover-public-fingerprints.js \
+  --base-url=http://127.0.0.1:3000/ \
+  --qr-id="$QR_ID" \
+  --output="$FROZEN_FINGERPRINT"
+/usr/local/bin/node - "$BASELINE_FINGERPRINT" "$FROZEN_FINGERPRINT" <<'NODE'
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const baseline = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const frozen = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+assert.equal(baseline.status, 'PASS');
+assert.equal(frozen.status, 'PASS');
+assert.deepEqual(frozen.route_sha256, baseline.route_sha256);
+assert.equal(frozen.combined_sha256, baseline.combined_sha256);
+console.log('STABLE_CUTOVER_FORWARD_RESUME_FROZEN_PUBLIC_PARITY=PASS');
+NODE
+
 if ! ss -tnp | grep ':5432' | grep -Fq "pid=$APP_PID_FROZEN,"; then
-  fail FROZEN_POSTGRES_CONNECTION_MISSING
+  fail FROZEN_POSTGRES_CONNECTION_MISSING_AFTER_READ
 fi
 
 load_postgres_environment
