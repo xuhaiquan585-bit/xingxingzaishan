@@ -612,7 +612,7 @@ async function verifyIssuedQrProtectionMigration(pool) {
       "UPDATE app.qr_codes SET issue_status = 'unissued' WHERE id = 'QR_ISSUED_IMMUTABLE'",
       'protect_status'
     );
-    await expectProtection('TRUNCATE app.qr_codes', 'protect_truncate');
+    await expectProtection('TRUNCATE app.qr_codes CASCADE', 'protect_truncate');
     await expectProtection(
       'DELETE FROM app.qr_codes WHERE id = ANY($1::varchar[])',
       'protect_multi_delete',

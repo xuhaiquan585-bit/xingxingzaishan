@@ -178,7 +178,10 @@ test('all issued QR probes require the exact protection error and preserve count
       true
     );
   }
-  assert.equal(queries.some(({ sql }) => sql === 'TRUNCATE app.qr_codes'), true);
+  assert.equal(
+    queries.some(({ sql }) => sql === 'TRUNCATE app.qr_codes CASCADE'),
+    true
+  );
   assert.deepEqual(
     queries.find(({ sql }) => sql.includes('DELETE FROM app.qr_codes WHERE id = ANY')).params,
     [['QR_ISSUED_1', 'QR_ISSUED_2']]

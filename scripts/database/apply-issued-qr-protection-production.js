@@ -305,7 +305,7 @@ async function verifyIssuedQrProtection(client, { transactionOpen = false } = {}
     });
     await expectIssuedQrProtection(client, {
       savepoint: 'issued_qr_truncate_probe',
-      sql: 'TRUNCATE app.qr_codes',
+      sql: 'TRUNCATE app.qr_codes CASCADE',
       invalidErrorCode: 'ISSUED_QR_PROTECTION_TRUNCATE_ERROR_INVALID'
     });
     await expectIssuedQrProtection(client, {

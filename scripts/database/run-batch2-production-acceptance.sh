@@ -157,7 +157,10 @@ export PGAPPLICATION_NAME=xingxingzaishan-issued-qr-007-integration
 export NODE_ENV=test
 export RUN_POSTGRES_INTEGRATION=true
 
-node --test tests/postgresql-read-adapter.integration.test.js > "$AUDIT_DIR/postgresql-integration.log" 2>&1
+if ! node --test tests/postgresql-read-adapter.integration.test.js > "$AUDIT_DIR/postgresql-integration.log" 2>&1; then
+  cat "$AUDIT_DIR/postgresql-integration.log"
+  fail POSTGRES_INTEGRATION_FAILED
+fi
 tail -n 25 "$AUDIT_DIR/postgresql-integration.log"
 grep -q '^# tests 1$' "$AUDIT_DIR/postgresql-integration.log" || fail POSTGRES_INTEGRATION_COUNT_INVALID
 grep -q '^# pass 1$' "$AUDIT_DIR/postgresql-integration.log" || fail POSTGRES_INTEGRATION_NOT_PASS

@@ -3567,6 +3567,7 @@ test('batch 2 production acceptance preserves backup, disposable integration, an
   assert.match(source, /BATCH2_TARGET_HEAD/);
   assert.match(source, /REMOTE_HEAD_INVALID/);
   assert.match(source, /\[ "\$\(database_count "\$TEST_DB"\)" = 0 \]/);
+  assert.match(source, /fail POSTGRES_INTEGRATION_FAILED/);
   assert.match(source, /PRODUCTION_MANUAL_OFFSITE_BACKUP_ACCEPTANCE=PASS/);
   assert.match(source, /ISSUED_QR_DIRECT_DELETE=REJECTED_23514/);
   assert.match(source, /ISSUED_QR_STATUS_DOWNGRADE=REJECTED_23514/);
