@@ -3401,3 +3401,59 @@ test('controlled privacy apply and reproof runner is exact, resumable, and PM2-s
     'bash scripts/database/run-content-privacy-remediation-controlled.sh'
   );
 });
+
+test('manual production backup is non-destructive, secret-safe, and manually invoked', () => {
+  const packageJson = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '../package.json'),
+    'utf8'
+  ));
+  const runner = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/run-production-backup.sh'),
+    'utf8'
+  );
+  const implementation = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/production-backup.js'),
+    'utf8'
+  );
+  const storage = fs.readFileSync(
+    path.join(__dirname, '../src/server/services/storageService.js'),
+    'utf8'
+  );
+
+  assert.equal(
+    packageJson.scripts['backup:production:manual'],
+    'bash scripts/database/run-production-backup.sh'
+  );
+  assert.match(runner, /EXPECTED_DATABASE=xingxing_clean_baseline_20260812_staging/);
+  assert.match(runner, /git diff --quiet/);
+  assert.match(runner, /git diff --cached --quiet/);
+  assert.match(runner, /assert_authority_runtime/);
+  assert.match(runner, /POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED/);
+  assert.match(runner, /RECORD_PROOF_RUNTIME_ENABLED/);
+  assert.match(runner, /OSS_ACCESS_KEY_ID\|OSS_ACCESS_KEY_SECRET/);
+  assert.match(runner, /APP_PID_CHANGED/);
+  assert.match(runner, /CRON_CONFIGURED=NO/);
+  assert.doesNotMatch(runner, /pm2\s+(?:stop|restart|reload|save)/);
+  assert.doesNotMatch(runner, /systemctl\s+(?:enable|start)|crontab/);
+  assert.doesNotMatch(runner, /dropdb|DROP DATABASE|DELETE FROM|TRUNCATE/);
+  assert.doesNotMatch(runner, /--password=|PGPASSWORD=[^'']+/);
+
+  assert.match(implementation, /--format=custom/);
+  assert.match(implementation, /--no-owner/);
+  assert.match(implementation, /--no-privileges/);
+  assert.match(implementation, /PGPASSFILE/);
+  assert.match(implementation, /O_NOFOLLOW/);
+  assert.match(implementation, /cross_store_transactional_snapshot: false/);
+  assert.match(implementation, /REMOTE_PARTIAL_OBJECTS_DELETED=NO/);
+  assert.doesNotMatch(
+    implementation,
+    /deleteObject|deleteMulti|dropdb|DROP DATABASE|DELETE FROM|TRUNCATE/
+  );
+  assert.doesNotMatch(implementation, /pm2\s+(?:stop|restart|reload|save)/);
+  assert.doesNotMatch(implementation, /crontab|systemctl\s+(?:enable|start)/);
+
+  assert.match(storage, /x-oss-forbid-overwrite/);
+  assert.match(storage, /x-oss-meta-sha256/);
+  assert.match(storage, /getObjectMeta/);
+  assert.match(storage, /private, max-age=0, no-cache/);
+});

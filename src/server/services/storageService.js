@@ -146,6 +146,63 @@ async function putBufferToOss({ objectKey, buffer, contentType = 'application/oc
   });
 }
 
+function normalizeResponseHeaders(result) {
+  const source = result?.res?.headers || result?.headers || {};
+  return Object.fromEntries(
+    Object.entries(source).map(([key, value]) => [String(key).toLowerCase(), value])
+  );
+}
+
+async function getProtectedObjectMetadata({ objectKey, client = null }) {
+  const safeObjectKey = sanitizeObjectKey(objectKey);
+  if (!safeObjectKey) throw new Error('OBJECT_KEY_REQUIRED');
+  const activeClient = client || getOssClient();
+  const result = await activeClient.getObjectMeta(safeObjectKey);
+  const headers = normalizeResponseHeaders(result);
+
+  return {
+    status: Number(result?.status || result?.res?.status || 0),
+    size: Number(headers['content-length']),
+    sha256: String(headers['x-oss-meta-sha256'] || ''),
+    declared_size: String(headers['x-oss-meta-size'] || ''),
+    etag: String(headers.etag || '').replace(/^"|"$/g, '')
+  };
+}
+
+async function uploadProtectedFileToOss({
+  objectKey,
+  localPath,
+  contentType = 'application/octet-stream',
+  sha256,
+  size,
+  client = null
+}) {
+  const safeObjectKey = sanitizeObjectKey(objectKey);
+  if (!safeObjectKey) throw new Error('OBJECT_KEY_REQUIRED');
+  if (!/^[a-f0-9]{64}$/.test(String(sha256 || ''))) {
+    throw new Error('OBJECT_SHA256_INVALID');
+  }
+  if (!Number.isSafeInteger(size) || size < 0) {
+    throw new Error('OBJECT_SIZE_INVALID');
+  }
+
+  const activeClient = client || getOssClient();
+  await activeClient.put(safeObjectKey, localPath, {
+    headers: {
+      'Content-Type': contentType,
+      'Cache-Control': 'private, max-age=0, no-cache',
+      'x-oss-forbid-overwrite': 'true',
+      'x-oss-meta-sha256': sha256,
+      'x-oss-meta-size': String(size)
+    }
+  });
+
+  return getProtectedObjectMetadata({
+    objectKey: safeObjectKey,
+    client: activeClient
+  });
+}
+
 
 function getLocalObjectPath(value) {
   const text = String(value || '').replace(/\\/g, '/');
@@ -349,5 +406,7 @@ module.exports = {
   getPublicObjectUrl,
   getSignedUrl,
   getObjectPrefix,
-  getLocalObjectPath
+  getLocalObjectPath,
+  getProtectedObjectMetadata,
+  uploadProtectedFileToOss
 };
