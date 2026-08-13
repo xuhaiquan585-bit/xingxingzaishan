@@ -3453,7 +3453,8 @@ test('manual production backup is non-destructive, secret-safe, and manually inv
   assert.doesNotMatch(implementation, /crontab|systemctl\s+(?:enable|start)/);
 
   assert.match(storage, /x-oss-forbid-overwrite/);
-  assert.match(storage, /x-oss-meta-sha256/);
   assert.match(storage, /getObjectMeta/);
+  assert.match(storage, /head\(safeObjectKey\)/);
+  assert.match(storage, /meta: \{\s+sha256,/);
   assert.match(storage, /private, max-age=0, no-cache/);
 });

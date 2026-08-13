@@ -329,6 +329,7 @@ function loadProtectedOssEnvironment(ossEnvPath = OSS_ENV_FILE) {
 
 function verifyRemoteMetadata({ expected, remote }) {
   if (remote.status !== 200
+    || (remote.metadata_status ?? remote.status) !== 200
     || remote.size !== expected.size
     || remote.declared_size !== String(expected.size)
     || remote.sha256 !== expected.sha256

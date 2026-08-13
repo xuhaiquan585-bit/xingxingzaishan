@@ -157,15 +157,26 @@ async function getProtectedObjectMetadata({ objectKey, client = null }) {
   const safeObjectKey = sanitizeObjectKey(objectKey);
   if (!safeObjectKey) throw new Error('OBJECT_KEY_REQUIRED');
   const activeClient = client || getOssClient();
-  const result = await activeClient.getObjectMeta(safeObjectKey);
-  const headers = normalizeResponseHeaders(result);
+  const objectMetaResult = await activeClient.getObjectMeta(safeObjectKey);
+  const headResult = await activeClient.head(safeObjectKey);
+  const objectHeaders = normalizeResponseHeaders(objectMetaResult);
+  const headHeaders = normalizeResponseHeaders(headResult);
+  const userMetadata = headResult?.meta || {};
 
   return {
-    status: Number(result?.status || result?.res?.status || 0),
-    size: Number(headers['content-length']),
-    sha256: String(headers['x-oss-meta-sha256'] || ''),
-    declared_size: String(headers['x-oss-meta-size'] || ''),
-    etag: String(headers.etag || '').replace(/^"|"$/g, '')
+    status: Number(
+      objectMetaResult?.status || objectMetaResult?.res?.status || 0
+    ),
+    metadata_status: Number(headResult?.status || headResult?.res?.status || 0),
+    size: Number(objectHeaders['content-length']),
+    sha256: String(
+      userMetadata.sha256 || headHeaders['x-oss-meta-sha256'] || ''
+    ),
+    declared_size: String(
+      userMetadata.size || headHeaders['x-oss-meta-size'] || ''
+    ),
+    etag: String(objectHeaders.etag || headHeaders.etag || '')
+      .replace(/^"|"$/g, '')
   };
 }
 
@@ -191,9 +202,11 @@ async function uploadProtectedFileToOss({
     headers: {
       'Content-Type': contentType,
       'Cache-Control': 'private, max-age=0, no-cache',
-      'x-oss-forbid-overwrite': 'true',
-      'x-oss-meta-sha256': sha256,
-      'x-oss-meta-size': String(size)
+      'x-oss-forbid-overwrite': 'true'
+    },
+    meta: {
+      sha256,
+      size: String(size)
     }
   });
 

@@ -263,11 +263,20 @@ test('OSS storage helper streams a path with no-overwrite and private metadata',
         res: {
           headers: {
             'content-length': '18',
-            'x-oss-meta-sha256': 'd'.repeat(64),
-            'x-oss-meta-size': '18',
             etag: '"fake-etag"'
           }
         }
+      };
+    },
+    async head(objectKey) {
+      assert.equal(objectKey, 'backups/2026/object.dump');
+      return {
+        status: 200,
+        meta: {
+          sha256: 'd'.repeat(64),
+          size: '18'
+        },
+        res: { headers: {} }
       };
     }
   };
@@ -283,9 +292,11 @@ test('OSS storage helper streams a path with no-overwrite and private metadata',
   assert.equal(calls[0].localPath, '/tmp/object.dump');
   assert.equal(calls[0].options.headers['x-oss-forbid-overwrite'], 'true');
   assert.equal(calls[0].options.headers['Cache-Control'], 'private, max-age=0, no-cache');
-  assert.equal(calls[0].options.headers['x-oss-meta-sha256'], 'd'.repeat(64));
+  assert.equal(calls[0].options.meta.sha256, 'd'.repeat(64));
+  assert.equal(calls[0].options.meta.size, '18');
   assert.equal(remote.size, 18);
   assert.equal(remote.etag, 'fake-etag');
+  assert.equal(remote.metadata_status, 200);
 });
 
 test('protected OSS upload rejects existing objects, upload errors, and bad metadata', async () => {
