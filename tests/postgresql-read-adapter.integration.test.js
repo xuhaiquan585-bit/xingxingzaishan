@@ -565,6 +565,74 @@ async function verifySourcePositionMigrationGuard(pool, directory) {
   await pool.query('DROP SCHEMA app CASCADE');
 }
 
+async function verifyIssuedQrProtectionMigration(pool) {
+  const client = await pool.connect();
+  const at = '2026-07-01T09:00:00.000Z';
+  async function expectProtection(sql, savepoint) {
+    await client.query(`SAVEPOINT ${savepoint}`);
+    try {
+      await assert.rejects(
+        client.query(sql),
+        (error) => error.code === '23514'
+          && error.constraint === 'qr_codes_issued_immutable'
+      );
+    } finally {
+      await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+    }
+  }
+
+  await client.query('BEGIN');
+  try {
+    await client.query(
+      `INSERT INTO app.qr_codes
+         (id, issue_status, lifecycle_status, created_at, updated_at)
+       VALUES
+         ('QR_ISSUED_IMMUTABLE', 'unissued', 'unactivated', $1, $1),
+         ('QR_UNISSUED_DELETABLE', 'unissued', 'unactivated', $1, $1)`,
+      [at]
+    );
+    await client.query(
+      `UPDATE app.qr_codes
+          SET issue_status = 'issued', updated_at = $1
+        WHERE id = 'QR_ISSUED_IMMUTABLE'`,
+      [at]
+    );
+    await client.query(
+      `UPDATE app.qr_codes
+          SET lifecycle_status = 'activated', updated_at = $1
+        WHERE id = 'QR_ISSUED_IMMUTABLE'`,
+      [at]
+    );
+
+    await expectProtection(
+      "DELETE FROM app.qr_codes WHERE id = 'QR_ISSUED_IMMUTABLE'",
+      'protect_delete'
+    );
+    await expectProtection(
+      "UPDATE app.qr_codes SET issue_status = 'unissued' WHERE id = 'QR_ISSUED_IMMUTABLE'",
+      'protect_status'
+    );
+    await expectProtection('TRUNCATE app.qr_codes', 'protect_truncate');
+
+    const deleted = await client.query(
+      "DELETE FROM app.qr_codes WHERE id = 'QR_UNISSUED_DELETABLE'"
+    );
+    assert.equal(deleted.rowCount, 1);
+    const issued = await client.query(
+      `SELECT issue_status, lifecycle_status
+         FROM app.qr_codes
+        WHERE id = 'QR_ISSUED_IMMUTABLE'`
+    );
+    assert.deepEqual(issued.rows, [{
+      issue_status: 'issued',
+      lifecycle_status: 'activated'
+    }]);
+  } finally {
+    await client.query('ROLLBACK');
+    client.release();
+  }
+}
+
 test('manual PostgreSQL public QR adapter integration', {
   skip: RUN_INTEGRATION ? false : 'Set RUN_POSTGRES_INTEGRATION=true and an explicit _test database.'
 }, async () => {
@@ -603,6 +671,7 @@ test('manual PostgreSQL public QR adapter integration', {
     );
     const repeatedMigration = await runMigrations({ pool, apply: true, target: 'test' });
     assert.deepEqual(repeatedMigration.applied, []);
+    await verifyIssuedQrProtectionMigration(pool);
 
     const privacyDirectory = path.join(directory, 'privacy-apply');
     fs.mkdirSync(privacyDirectory);

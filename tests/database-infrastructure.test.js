@@ -639,6 +639,10 @@ test('compatibility migrations are additive and leave migration 001 unchanged', 
     path.join(migrationsDirectory, '006_guard_unissued_qr_lifecycle.sql'),
     'utf8'
   );
+  const issuedQrProtectionMigration = fs.readFileSync(
+    path.join(migrationsDirectory, '007_prevent_issued_qr_deletion.sql'),
+    'utf8'
+  );
   assert.equal(
     crypto.createHash('sha256').update(initialBytes).digest('hex'),
     'c827cd85e9552805690d6837383fb6d23c043d32be359ce61b99f743ba477d18'
@@ -678,6 +682,13 @@ test('compatibility migrations are additive and leave migration 001 unchanged', 
     /issue_status = 'issued'[\s\S]*lifecycle_status = 'unactivated'/
   );
   assert.match(issuedLifecycleMigration, /NOT VALID/);
+  assert.match(issuedQrProtectionMigration, /BEFORE DELETE OR UPDATE OF issue_status/);
+  assert.match(issuedQrProtectionMigration, /BEFORE TRUNCATE ON app\.qr_codes/);
+  assert.match(issuedQrProtectionMigration, /ERRCODE = '23514'/);
+  assert.match(
+    issuedQrProtectionMigration,
+    /CONSTRAINT = 'qr_codes_issued_immutable'/
+  );
 
   const migrations = loadMigrations({ migrationsDirectory });
   assert.deepEqual(
@@ -688,7 +699,8 @@ test('compatibility migrations are additive and leave migration 001 unchanged', 
       '003_preserve_legacy_import_evidence.sql',
       '004_allow_legacy_product_buy_type.sql',
       '005_add_account_id_sequence.sql',
-      '006_guard_unissued_qr_lifecycle.sql'
+      '006_guard_unissued_qr_lifecycle.sql',
+      '007_prevent_issued_qr_deletion.sql'
     ]
   );
 });
@@ -3457,6 +3469,46 @@ test('manual production backup is non-destructive, secret-safe, and manually inv
   assert.match(storage, /head\(safeObjectKey\)/);
   assert.match(storage, /meta: \{\s+sha256,/);
   assert.match(storage, /private, max-age=0, no-cache/);
+});
+
+test('issued QR production migration is fixed, narrow, and restart-free', () => {
+  const packageJson = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '../package.json'),
+    'utf8'
+  ));
+  const runner = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/run-issued-qr-protection-production.sh'),
+    'utf8'
+  );
+  const implementation = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/apply-issued-qr-protection-production.js'),
+    'utf8'
+  );
+
+  assert.equal(
+    packageJson.scripts['db:protect-issued-qr:production'],
+    'bash scripts/database/run-issued-qr-protection-production.sh'
+  );
+  assert.match(runner, /EXPECTED_DATABASE=xingxing_clean_baseline_20260812_staging/);
+  assert.match(runner, /\[ "\$#" = 0 \] \|\| fail ARGUMENTS_FORBIDDEN/);
+  assert.match(runner, /git diff --quiet/);
+  assert.match(runner, /git diff --cached --quiet/);
+  assert.match(runner, /assert_authority_runtime/);
+  assert.match(runner, /POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED/);
+  assert.match(runner, /RECORD_PROOF_RUNTIME_ENABLED/);
+  assert.match(runner, /PGPASSWORD_FILE/);
+  assert.match(runner, /xingxingzaishan-production-backup\.lock/);
+  assert.doesNotMatch(runner, /pm2\s+(?:stop|restart|reload|save)/);
+  assert.doesNotMatch(runner, /--(?:database|migration|sql|password)=/);
+
+  assert.match(implementation, /007_prevent_issued_qr_deletion\.sql/);
+  assert.match(implementation, /f2404ceef14280f4025f5a00d0586ce58597007c4a2cdfae2ce4a26487b8f70e/);
+  assert.match(implementation, /ISSUED_QR_PROTECTION_ARGUMENT_FORBIDDEN/);
+  assert.match(implementation, /SET lock_timeout = '5s'/);
+  assert.match(implementation, /SET statement_timeout = '30s'/);
+  assert.match(implementation, /SAVEPOINT issued_qr_delete_probe/);
+  assert.match(implementation, /ROLLBACK TO SAVEPOINT issued_qr_delete_probe/);
+  assert.doesNotMatch(implementation, /process\.env\.(?:PGDATABASE|DATABASE_URL)\s*=/);
 });
 
 test('hourly production backup scheduling is fixed, observable, and idempotent', () => {
