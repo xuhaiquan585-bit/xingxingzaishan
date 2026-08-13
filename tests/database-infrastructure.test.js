@@ -3540,6 +3540,43 @@ test('issued QR production migration is fixed, narrow, and restart-free', () => 
   assert.doesNotMatch(implementation, /process\.env\.(?:PGDATABASE|DATABASE_URL)\s*=/);
 });
 
+test('batch 2 production acceptance preserves backup, disposable integration, and migration order', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../scripts/database/run-batch2-production-acceptance.sh'),
+    'utf8'
+  );
+  const backup = source.indexOf('systemctl start "$BACKUP_SERVICE"');
+  const merge = source.indexOf('git merge --ff-only origin/main');
+  const integration = source.indexOf(
+    'node --test tests/postgresql-read-adapter.integration.test.js'
+  );
+  const cleanup = source.indexOf('cleanup_test_database || fail');
+  const productionMigration = source.indexOf(
+    'npm run db:protect-issued-qr:production'
+  );
+  const restart = source.indexOf('pm2 restart xingxingzaishan');
+
+  assert.match(source, /^#!\/usr\/bin\/env bash\n\nset -Eeuo pipefail/m);
+  assert.ok(backup > 0);
+  assert.ok(merge > backup);
+  assert.ok(integration > merge);
+  assert.ok(cleanup > integration);
+  assert.ok(productionMigration > cleanup);
+  assert.ok(restart > productionMigration);
+  assert.match(source, /TEST_DB="xingxing_issued_qr_007_\$\{TARGET_HEAD:0:8\}_test"/);
+  assert.match(source, /BATCH2_TARGET_HEAD/);
+  assert.match(source, /REMOTE_HEAD_INVALID/);
+  assert.match(source, /\[ "\$\(database_count "\$TEST_DB"\)" = 0 \]/);
+  assert.match(source, /PRODUCTION_MANUAL_OFFSITE_BACKUP_ACCEPTANCE=PASS/);
+  assert.match(source, /ISSUED_QR_DIRECT_DELETE=REJECTED_23514/);
+  assert.match(source, /ISSUED_QR_STATUS_DOWNGRADE=REJECTED_23514/);
+  assert.match(source, /ISSUED_QR_TRUNCATE=REJECTED_23514/);
+  assert.match(source, /ISSUED_QR_MULTI_DELETE=REJECTED_23514/);
+  assert.match(source, /MIGRATION_STATUS=ALREADY_APPLIED/);
+  assert.doesNotMatch(source, /f263df13b5c19f91b0f86d93960f6b26896f3ed605318c73dd8546d110b06cfd/);
+  assert.doesNotMatch(source, /pm2\s+save|--update-env|DROP DATABASE|AVATA_API_/);
+});
+
 test('all image upload routes share strict server-side normalization', () => {
   const service = fs.readFileSync(
     path.join(__dirname, '../src/server/services/imageUploadSecurityService.js'),
