@@ -1,24 +1,16 @@
 const express = require('express');
-const multer = require('multer');
-const sharp = require('sharp');
 
 const { saveImage, getStorageMode } = require('../services/storageService');
+const {
+  normalizeUploadedImage,
+  receiveSingleImage,
+  respondToImageValidationError
+} = require('../services/imageUploadSecurityService');
 const { requireUserSession } = require('../middlewares/userSession');
 
 const router = express.Router();
 
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    if (!file.mimetype.startsWith('image/')) {
-      return cb(new Error('仅支持图片文件上传'));
-    }
-    cb(null, true);
-  }
-});
-
-router.post('/', requireUserSession, upload.single('image'), async (req, res, next) => {
+router.post('/', requireUserSession, receiveSingleImage('image'), async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -28,20 +20,10 @@ router.post('/', requireUserSession, upload.single('image'), async (req, res, ne
       });
     }
 
-    // 图片压缩：最大宽1080，统一JPEG，质量80，自动EXIF旋转
-    // 压缩失败时回退原始buffer，不阻断上传
-    try {
-      const compressedBuffer = await sharp(req.file.buffer)
-        .rotate()
-        .resize({ width: 1080, withoutEnlargement: true })
-        .jpeg({ quality: 80 })
-        .toBuffer();
-
-      req.file.buffer = compressedBuffer;
-      req.file.mimetype = 'image/jpeg';
-    } catch (_compressErr) {
-      // 压缩失败，保持原始文件不变
-    }
+    req.file = await normalizeUploadedImage(req.file, {
+      maxOutputWidth: 1080,
+      jpegQuality: 80
+    });
 
     const qrId = req.body.qr_id || req.query.qr_id || 'unbound';
     const stored = await saveImage({ file: req.file, qrId });
@@ -60,6 +42,11 @@ router.post('/', requireUserSession, upload.single('image'), async (req, res, ne
       }
     });
   } catch (error) {
+    if (respondToImageValidationError(
+      error,
+      res,
+      '图片文件无法识别，请重新选择。'
+    )) return undefined;
     if (error.message === 'OSS_UPLOAD_FAILED') {
       return res.status(502).json({
         status: 'error',
@@ -86,31 +73,6 @@ router.post('/', requireUserSession, upload.single('image'), async (req, res, ne
 
     return next(error);
   }
-});
-
-// multer 中间件错误处理（文件过大等，走 next(err) 而非 try-catch）
-router.use((err, _req, res, _next) => {
-  if (err.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({
-      status: 'error',
-      code: 'UPLOAD_SIZE_EXCEEDED',
-      message: '图片过大，请选择 5MB 以内的图片'
-    });
-  }
-
-  if (err.message === '仅支持图片文件上传') {
-    return res.status(400).json({
-      status: 'error',
-      code: 'UPLOAD_FAILED',
-      message: '仅支持图片文件上传'
-    });
-  }
-
-  return res.status(500).json({
-    status: 'error',
-    code: 'SERVER_ERROR',
-    message: '服务器暂时繁忙，请稍后再试'
-  });
 });
 
 module.exports = router;

@@ -1,6 +1,4 @@
 const express = require('express');
-const multer = require('multer');
-const sharp = require('sharp');
 const {
   findAdmin,
   getDashboardStats,
@@ -28,6 +26,11 @@ const {
 } = require('../services/dbService');
 const { generateToken, verifyToken } = require('../services/authService');
 const { getStorageMode, getSignedUrl, saveImage } = require('../services/storageService');
+const {
+  normalizeUploadedImage,
+  receiveSingleImage,
+  respondToImageValidationError
+} = require('../services/imageUploadSecurityService');
 const { hasMiniappConfig } = require('../services/miniappAuthService');
 const {
   getChainSystemStatus,
@@ -98,17 +101,6 @@ function batchCsv(detail) {
     ).join(','))
     .join('\n');
 }
-
-const imageUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    if (!file.mimetype.startsWith('image/')) {
-      return cb(new Error('仅支持图片文件上传'));
-    }
-    cb(null, true);
-  }
-});
 
 function getBearerToken(req) {
   const value = req.headers.authorization || '';
@@ -547,7 +539,7 @@ router.post('/miniapp-content', requireAdmin, (req, res) => {
   });
 });
 
-router.post('/upload-image', requireAdmin, imageUpload.single('image'), async (req, res, next) => {
+router.post('/upload-image', requireAdmin, receiveSingleImage('image'), async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -565,21 +557,10 @@ router.post('/upload-image', requireAdmin, imageUpload.single('image'), async (r
       });
     }
 
-    try {
-      const compressedBuffer = await sharp(req.file.buffer)
-        .rotate()
-        .resize({ width: 1440, withoutEnlargement: true })
-        .jpeg({ quality: 82 })
-        .toBuffer();
-      req.file.buffer = compressedBuffer;
-      req.file.mimetype = 'image/jpeg';
-    } catch (_error) {
-      return res.status(400).json({
-        status: 'error',
-        code: 'UPLOAD_FAILED',
-        message: '图片文件无法识别，请重新选择。'
-      });
-    }
+    req.file = await normalizeUploadedImage(req.file, {
+      maxOutputWidth: 1440,
+      jpegQuality: 82
+    });
 
     const stored = await saveImage({
       file: req.file,
@@ -601,6 +582,7 @@ router.post('/upload-image', requireAdmin, imageUpload.single('image'), async (r
       }
     });
   } catch (error) {
+    if (respondToImageValidationError(error, res)) return undefined;
     return next(error);
   }
 });

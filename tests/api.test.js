@@ -2181,6 +2181,8 @@ test('POST /api/upload should reject unauthenticated request', async () => {
 
 test('POST /api/upload should reject non-image file', async () => {
   const cookie = await loginUserAndGetCookie('13800138000');
+  const bufferDirectory = path.join(process.env.STORAGE_ROOT, 'buffer', 'uploads');
+  const beforeFiles = fs.existsSync(bufferDirectory) ? fs.readdirSync(bufferDirectory) : [];
   const response = await postMultipartWithCookie('/api/upload', {
     files: [
       {
@@ -2194,6 +2196,8 @@ test('POST /api/upload should reject non-image file', async () => {
 
   assert.equal(response.status, 400);
   assert.equal(response.body.code, 'UPLOAD_FAILED');
+  const afterFiles = fs.existsSync(bufferDirectory) ? fs.readdirSync(bufferDirectory) : [];
+  assert.deepEqual(afterFiles, beforeFiles);
 });
 
 test('POST /api/qr/:id/record should validate image_url required', async () => {
@@ -2496,7 +2500,7 @@ test('admin miniapp image upload should reject invalid files and missing cloud p
     ]
   }, token);
   assert.equal(largeImageRes.status, 413);
-  assert.equal(largeImageRes.body.code, 'UPLOAD_TOO_LARGE');
+  assert.equal(largeImageRes.body.code, 'UPLOAD_SIZE_EXCEEDED');
 
   const oldStorageMode = process.env.STORAGE_MODE;
   const oldCloudPublicBaseUrl = process.env.CLOUD_PUBLIC_BASE_URL;
@@ -5087,7 +5091,10 @@ test('miniapp content safety mock should reject unsafe text and image', async ()
         fieldName: 'image',
         filename: 'mock-reject.png',
         contentType: 'image/png',
-        content: Buffer.from('not-real-but-image-mimetype')
+        content: Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+          'base64'
+        )
       }
     ]
   }, token);
@@ -6212,6 +6219,114 @@ test('POST /api/upload should compress image and return .jpg object_key', async 
   const objectKey = uploadRes.body.data.object_key;
   assert.ok(objectKey, 'object_key should exist');
   assert.ok(objectKey.endsWith('.jpg'), `object_key should end with .jpg, got: ${objectKey}`);
+});
+
+test('H5, miniapp, and admin uploads trust decoded JPEG/PNG rather than claimed MIME', async () => {
+  const sharp = require('sharp');
+  const jpeg = await sharp({
+    create: {
+      width: 40,
+      height: 30,
+      channels: 3,
+      background: { r: 10, g: 120, b: 240 }
+    }
+  }).jpeg().toBuffer();
+  const png = await sharp({
+    create: {
+      width: 30,
+      height: 40,
+      channels: 4,
+      background: { r: 240, g: 80, b: 20, alpha: 0.6 }
+    }
+  }).png().toBuffer();
+
+  const h5Cookie = await loginUserAndGetCookie('13800138000');
+  const h5 = await postMultipartWithCookie('/api/upload', {
+    fields: { qr_id: 'SAFE_H5' },
+    files: [{
+      fieldName: 'image',
+      filename: 'photo.txt',
+      contentType: 'text/plain',
+      content: jpeg
+    }]
+  }, h5Cookie);
+  assert.equal(h5.status, 200);
+  assert.ok(h5.body.data.object_key.endsWith('.jpg'));
+
+  const miniappToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'safe-upload-miniapp',
+    phone: '13877770111'
+  });
+  const miniapp = await postMultipart('/api/miniapp/upload', {
+    fields: { qr_id: 'SAFE_MINI' },
+    files: [{
+      fieldName: 'image',
+      filename: 'photo.bin',
+      contentType: 'application/octet-stream',
+      content: png
+    }]
+  }, miniappToken);
+  assert.equal(miniapp.status, 200);
+  assert.ok(miniapp.body.data.object_key.endsWith('.jpg'));
+
+  const adminLogin = await postJson('/api/admin/login', {
+    username: 'admin',
+    password: 'test-admin-pass'
+  });
+  const admin = await postMultipart('/api/admin/upload-image', {
+    fields: { scope: 'safe-upload' },
+    files: [{
+      fieldName: 'image',
+      filename: 'photo.dat',
+      contentType: 'image/gif',
+      content: png
+    }]
+  }, adminLogin.body.data.token);
+  assert.equal(admin.status, 200);
+  assert.ok(admin.body.data.object_key.endsWith('.jpg'));
+});
+
+test('H5, miniapp, and admin invalid uploads create no buffered image', async () => {
+  const bufferDirectory = path.join(process.env.STORAGE_ROOT, 'buffer', 'uploads');
+  const beforeFiles = fs.existsSync(bufferDirectory) ? fs.readdirSync(bufferDirectory).sort() : [];
+  const h5Cookie = await loginUserAndGetCookie('13800138000');
+  const miniappToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'safe-invalid-miniapp',
+    phone: '13877770112'
+  });
+  const adminLogin = await postJson('/api/admin/login', {
+    username: 'admin',
+    password: 'test-admin-pass'
+  });
+  const requests = [
+    postMultipartWithCookie('/api/upload', {
+      files: [{
+        fieldName: 'image', filename: 'fake.jpg', contentType: 'image/jpeg',
+        content: Buffer.from('not-an-image')
+      }]
+    }, h5Cookie),
+    postMultipart('/api/miniapp/upload', {
+      files: [{
+        fieldName: 'image', filename: 'fake.png', contentType: 'image/png',
+        content: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+      }]
+    }, miniappToken),
+    postMultipart('/api/admin/upload-image', {
+      files: [{
+        fieldName: 'image', filename: 'fake.gif', contentType: 'image/gif',
+        content: Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', 'base64')
+      }]
+    }, adminLogin.body.data.token)
+  ];
+  const responses = await Promise.all(requests);
+  for (const response of responses) {
+    assert.equal(response.status, 400);
+    assert.equal(response.body.code, 'UPLOAD_FAILED');
+  }
+  const afterFiles = fs.existsSync(bufferDirectory)
+    ? fs.readdirSync(bufferDirectory).sort()
+    : [];
+  assert.deepEqual(afterFiles, beforeFiles);
 });
 
 test('cloud saveImage should return stable public image urls and keep object key', async () => {

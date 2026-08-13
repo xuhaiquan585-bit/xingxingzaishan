@@ -3511,6 +3511,39 @@ test('issued QR production migration is fixed, narrow, and restart-free', () => 
   assert.doesNotMatch(implementation, /process\.env\.(?:PGDATABASE|DATABASE_URL)\s*=/);
 });
 
+test('all image upload routes share strict server-side normalization', () => {
+  const service = fs.readFileSync(
+    path.join(__dirname, '../src/server/services/imageUploadSecurityService.js'),
+    'utf8'
+  );
+  const routePaths = [
+    '../src/server/routes/upload.js',
+    '../src/server/routes/miniapp.js',
+    '../src/server/routes/admin.js'
+  ];
+
+  assert.match(service, /MAX_UPLOAD_BYTES = 5 \* 1024 \* 1024/);
+  assert.match(service, /MAX_INPUT_DIMENSION = 12000/);
+  assert.match(service, /MAX_INPUT_PIXELS = 50_000_000/);
+  assert.match(service, /new Set\(\['jpeg', 'png'\]\)/);
+  assert.match(service, /failOn: 'error'/);
+  assert.match(service, /limitInputPixels: MAX_INPUT_PIXELS/);
+  assert.match(service, /animated: false/);
+  assert.match(service, /\.rotate\(\)/);
+  assert.match(service, /\.toColorspace\('srgb'\)/);
+  assert.match(service, /\.jpeg\(\{ quality: jpegQuality \}\)/);
+  assert.doesNotMatch(service, /withMetadata|withExif/);
+
+  for (const routePath of routePaths) {
+    const route = fs.readFileSync(path.join(__dirname, routePath), 'utf8');
+    assert.match(route, /normalizeUploadedImage/);
+    assert.match(route, /receiveSingleImage\('image'\)/);
+    assert.match(route, /respondToImageValidationError/);
+    assert.doesNotMatch(route, /require\('multer'\)|require\('sharp'\)/);
+    assert.doesNotMatch(route, /Keep original buffer|保持原始文件/);
+  }
+});
+
 test('hourly production backup scheduling is fixed, observable, and idempotent', () => {
   const packageJson = JSON.parse(fs.readFileSync(
     path.join(__dirname, '../package.json'),

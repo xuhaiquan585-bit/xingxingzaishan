@@ -1,6 +1,4 @@
 const express = require('express');
-const multer = require('multer');
-const sharp = require('sharp');
 const {
   codeToSession,
   getPhoneNumberByCode,
@@ -34,6 +32,11 @@ const {
   getSignedUrl
 } = require('../services/storageService');
 const { checkText, checkImageBuffer } = require('../services/contentSafetyService');
+const {
+  normalizeUploadedImage,
+  receiveSingleImage,
+  respondToImageValidationError
+} = require('../services/imageUploadSecurityService');
 const { chainPublicPayload } = require('../services/chainViewService');
 const { createPublicQrAssetResolver } = require('../services/publicQrAssetResolver');
 const {
@@ -76,17 +79,6 @@ const {
 
 const router = express.Router();
 const CO_CREATION_COMMENT_LIMIT = 12;
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    if (!file.mimetype.startsWith('image/')) {
-      return cb(new Error('仅支持图片文件上传'));
-    }
-    cb(null, true);
-  }
-});
 
 function isValidPhone(phone) {
   return /^1\d{10}$/.test(String(phone || ''));
@@ -841,7 +833,7 @@ router.post('/orders/:orderId/pay', requireMiniappAuth, requireMiniappPhone, asy
   });
 });
 
-router.post('/upload', requireMiniappAuth, upload.single('image'), async (req, res, next) => {
+router.post('/upload', requireMiniappAuth, receiveSingleImage('image'), async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -851,27 +843,20 @@ router.post('/upload', requireMiniappAuth, upload.single('image'), async (req, r
       });
     }
 
+    req.file = await normalizeUploadedImage(req.file, {
+      maxOutputWidth: 1080,
+      jpegQuality: 80
+    });
+
     try {
       await checkImageBuffer(req.file.buffer, {
         filename: req.file.originalname,
-        mimetype: req.file.mimetype
+        mimetype: 'image/jpeg'
       });
     } catch (error) {
       const handled = handleContentSafetyError(error, res);
       if (handled) return handled;
       throw error;
-    }
-
-    try {
-      const compressedBuffer = await sharp(req.file.buffer)
-        .rotate()
-        .resize({ width: 1080, withoutEnlargement: true })
-        .jpeg({ quality: 80 })
-        .toBuffer();
-      req.file.buffer = compressedBuffer;
-      req.file.mimetype = 'image/jpeg';
-    } catch (_compressErr) {
-      // Keep original buffer if compression fails.
     }
 
     const qrId = req.body.qr_id || req.query.qr_id || 'unbound';
@@ -890,6 +875,7 @@ router.post('/upload', requireMiniappAuth, upload.single('image'), async (req, r
       }
     });
   } catch (error) {
+    if (respondToImageValidationError(error, res)) return undefined;
     return next(error);
   }
 });
@@ -1379,22 +1365,6 @@ router.get('/user/records/:id', requireMiniappAuth, requireMiniappPhone, (req, r
 ));
 
 router.use((err, _req, res, _next) => {
-  if (err.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({
-      status: 'error',
-      code: 'UPLOAD_SIZE_EXCEEDED',
-      message: '图片过大，请选择 5MB 以内的图片'
-    });
-  }
-
-  if (err.message === '仅支持图片文件上传') {
-    return res.status(400).json({
-      status: 'error',
-      code: 'UPLOAD_FAILED',
-      message: '仅支持图片文件上传'
-    });
-  }
-
   if (err.message === 'OSS_UPLOAD_FAILED') {
     return res.status(502).json({
       status: 'error',
