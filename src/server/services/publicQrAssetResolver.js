@@ -1,17 +1,13 @@
 'use strict';
 
+const crypto = require('node:crypto');
+
 const {
   getPublicObjectUrl,
-  getSignedUrl
+  getSignedUrl,
+  classifyRecordImageReference,
+  recordImageQrIdSha256
 } = require('./storageService');
-
-function recordImageUrl(record) {
-  return record && (record.image_url_snapshot || record.image_url) || null;
-}
-
-function recordImageObjectKey(record) {
-  return record && record.image_object_key || null;
-}
 
 function certificateUrl(proof) {
   return proof && (
@@ -23,6 +19,24 @@ function certificateUrl(proof) {
 
 function certificateObjectKey(proof) {
   return proof && (proof.certificate_object_key || proof.chain_certificate_object_key) || null;
+}
+
+function buildRecordImageCacheKey({ decision, authority, channel }) {
+  const qrId = String(authority && (authority.qrId || authority.qr_id) || '').trim();
+  const qrHash = qrId ? recordImageQrIdSha256(qrId) : 'none';
+  const reference = decision.kind === 'object'
+    ? decision.objectKey
+    : decision.url || '';
+  const referenceHash = crypto.createHash('sha256').update(reference, 'utf8').digest('hex');
+  return `image:${channel}:${qrHash}:${decision.kind}:${referenceHash}`;
+}
+
+function buildLegacyRecordImageProxyUrl(authority, env = process.env) {
+  const qrId = String(authority && (authority.qrId || authority.qr_id) || '').trim();
+  if (!qrId) return null;
+  const relativeUrl = `/api/qr/media/${encodeURIComponent(qrId)}`;
+  const baseUrl = String(env.BASE_URL || '').trim().replace(/\/$/, '');
+  return baseUrl ? `${baseUrl}${relativeUrl}` : relativeUrl;
 }
 
 function createPublicQrAssetResolver({
@@ -38,14 +52,22 @@ function createPublicQrAssetResolver({
     return value;
   }
 
-  function resolveRecordImage({ record, channel }) {
-    const imageUrl = recordImageUrl(record);
-    const objectKey = recordImageObjectKey(record);
+  function resolveRecordImage({ record, authority, channel }) {
     const normalizedChannel = channel === 'miniapp' ? 'miniapp' : 'h5';
-    return memoized(`image:${normalizedChannel}:${objectKey || ''}:${imageUrl || ''}`, () => {
+    const decision = classifyRecordImageReference({ record, authority });
+    const cacheKey = buildRecordImageCacheKey({
+      decision,
+      authority,
+      channel: normalizedChannel
+    });
+    return memoized(cacheKey, () => {
+      if (decision.kind === 'rejected') return null;
+      if (decision.kind === 'snapshot' || decision.kind === 'local') return decision.url;
+      if (decision.namespace === 'legacy-prefixed') {
+        return buildLegacyRecordImageProxyUrl(authority);
+      }
+      const objectKey = decision.objectKey;
       if (normalizedChannel === 'miniapp') {
-        if (imageUrl) return imageUrl;
-        if (!objectKey) return imageUrl;
         try {
           const publicUrl = resolvePublicObjectUrl(objectKey);
           if (publicUrl) return publicUrl;
@@ -55,15 +77,14 @@ function createPublicQrAssetResolver({
         try {
           return resolveSignedUrl(objectKey);
         } catch (_error) {
-          return imageUrl;
+          return null;
         }
       }
 
-      if (!objectKey) return imageUrl;
       try {
         return resolveSignedUrl(objectKey);
       } catch (_error) {
-        return imageUrl;
+        return null;
       }
     });
   }
@@ -84,5 +105,7 @@ function createPublicQrAssetResolver({
 }
 
 module.exports = {
+  buildLegacyRecordImageProxyUrl,
+  buildRecordImageCacheKey,
   createPublicQrAssetResolver
 };

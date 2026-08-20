@@ -9,10 +9,21 @@ function parseOrigins(raw) {
 function validateRuntimeConfig() {
   const errors = [];
   const warnings = [];
+  const nodeEnv = String(process.env.NODE_ENV || '').trim().toLowerCase();
+  if (!['production', 'development', 'test'].includes(nodeEnv)) {
+    errors.push('NODE_ENV must be explicitly set to production, development, or test.');
+  }
 
   const authSecret = process.env.AUTH_SECRET;
   if (!authSecret || authSecret === 'dev-only-change-me') {
     errors.push('AUTH_SECRET must be set and cannot use the default insecure value.');
+  }
+
+  const uploadProofSecret = String(process.env.UPLOAD_PROOF_SECRET || '');
+  if (Buffer.byteLength(uploadProofSecret, 'utf8') < 32) {
+    errors.push('UPLOAD_PROOF_SECRET must contain at least 32 UTF-8 bytes.');
+  } else if (uploadProofSecret === String(authSecret || '')) {
+    errors.push('UPLOAD_PROOF_SECRET must not reuse AUTH_SECRET.');
   }
 
   const mode = process.env.STORAGE_MODE || 'local';
@@ -40,11 +51,17 @@ function validateRuntimeConfig() {
     });
   }
 
-  if (process.env.NODE_ENV === 'production' && smsProvider === 'mock') {
-    errors.push('SMS_PROVIDER must not be mock in production.');
+  if (nodeEnv === 'production' && smsProvider !== 'aliyun') {
+    errors.push('SMS_PROVIDER must be aliyun in production.');
   }
 
-  if (process.env.NODE_ENV === 'production') {
+  if (nodeEnv === 'production') {
+    if (String(process.env.USER_LEGACY_LOGIN_ENABLED || '').toLowerCase() !== 'false') {
+      errors.push('USER_LEGACY_LOGIN_ENABLED must be false in production.');
+    }
+    if (String(process.env.USER_SESSION_SECURE || '').toLowerCase() !== 'true') {
+      errors.push('USER_SESSION_SECURE must be true in production.');
+    }
     ['WECHAT_MINIAPP_APPID', 'WECHAT_MINIAPP_SECRET'].forEach((name) => {
       if (!process.env[name]) {
         errors.push(`${name} is required in production for miniapp login and content safety.`);

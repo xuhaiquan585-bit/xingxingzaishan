@@ -41,8 +41,9 @@ class RecordRepository {
     const safeLimit = normalizeLimit(limit, { maximum: 1001 });
     const result = await executeQuery(
       this.transactionContext,
-      `SELECT
+       `SELECT
          q.id AS qr_id,
+         q.access_token AS authority_access_token,
          q.lifecycle_status,
          r.content,
          r.image_url_snapshot,
@@ -62,6 +63,7 @@ class RecordRepository {
     );
     return many(result, (row) => Object.freeze({
       qr_id: row.qr_id,
+      authority_access_token: row.authority_access_token,
       lifecycle_status: row.lifecycle_status,
       content: row.content,
       image_url_snapshot: row.image_url_snapshot,

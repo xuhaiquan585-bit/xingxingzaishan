@@ -124,6 +124,7 @@ Page({
     qr: null,
     imageUrl: '',
     imageObjectKey: '',
+    uploadProof: '',
     previewUrl: '',
     previewHeight: DEFAULT_PREVIEW_HEIGHT_RPX,
     imageButtonText: '添加照片',
@@ -361,6 +362,7 @@ Page({
           this.setData({
             imageUrl: data.url || '',
             imageObjectKey: data.object_key || '',
+            uploadProof: data.upload_proof || '',
             previewUrl: resolveAssetUrl(data.preview_url || data.url),
             previewHeight,
             imageButtonText: '更换照片',
@@ -422,7 +424,7 @@ Page({
       this.setData({ message: getUnavailableActionMessage(this.data.pageState) });
       return;
     }
-    if (!this.data.imageObjectKey && !this.data.imageUrl) {
+    if (!this.data.uploadProof) {
       this.setData({ message: '请先添加一张照片。' });
       return;
     }
@@ -452,8 +454,7 @@ Page({
       data: {
         content: this.data.content,
         mode: this.data.saveMode,
-        image_url: this.data.imageUrl,
-        image_object_key: this.data.imageObjectKey,
+        upload_proof: this.data.uploadProof,
         show_brand_disclosure: this.data.showBrandSection && this.data.showBrandDisclosure
       }
     }).then((data) => {

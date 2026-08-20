@@ -5,7 +5,11 @@ const { EventEmitter } = require('node:events');
 const test = require('node:test');
 
 const { createShutdownHandler } = require('../src/server/server');
-const { createPublicQrAssetResolver } = require('../src/server/services/publicQrAssetResolver');
+const {
+  buildRecordImageCacheKey,
+  createPublicQrAssetResolver
+} = require('../src/server/services/publicQrAssetResolver');
+const { recordImageQrIdSha256 } = require('../src/server/services/storageService');
 const {
   checkCandidateFreshness,
   createPublicQrShadowRuntime,
@@ -40,7 +44,7 @@ function enabledConfig() {
   };
 }
 
-test('request-scoped asset resolver preserves channel behavior and memoizes exact results', () => {
+test('request-scoped asset resolver validates QR authority before memoization and signing', () => {
   const calls = [];
   const resolver = createPublicQrAssetResolver({
     resolveSignedUrl: (key) => {
@@ -52,30 +56,119 @@ test('request-scoped asset resolver preserves channel behavior and memoizes exac
       return `public://${key}`;
     }
   });
-  const objectOnly = { image_object_key: 'records/photo.jpg', image_url: null };
+  const authority = {
+    qrId: 'QR_PUBLIC_1',
+    accessToken: '0123456789abcdef0123456789abcdef'
+  };
+  const objectKey = `stars/record-images/${recordImageQrIdSha256(authority.qrId)}/photo.jpg`;
+  const objectOnly = { image_object_key: objectKey, image_url: null };
   assert.equal(
-    resolver.resolveRecordImage({ record: objectOnly, channel: 'h5' }),
-    'signed://records/photo.jpg/one-time'
+    resolver.resolveRecordImage({ record: objectOnly, authority, channel: 'h5' }),
+    `signed://${objectKey}/one-time`
   );
   assert.equal(
-    resolver.resolveRecordImage({ record: objectOnly, channel: 'h5' }),
-    'signed://records/photo.jpg/one-time'
+    resolver.resolveRecordImage({ record: objectOnly, authority, channel: 'h5' }),
+    `signed://${objectKey}/one-time`
   );
   assert.equal(
-    resolver.resolveRecordImage({ record: objectOnly, channel: 'miniapp' }),
-    'public://records/photo.jpg'
+    resolver.resolveRecordImage({ record: objectOnly, authority, channel: 'miniapp' }),
+    `public://${objectKey}`
   );
   assert.equal(
     resolver.resolveRecordImage({
-      record: { image_object_key: 'ignored', image_url: 'https://snapshot.invalid/photo.jpg' },
+      record: objectOnly,
+      authority: { ...authority, qrId: 'QR_PUBLIC_2' },
       channel: 'miniapp'
     }),
-    'https://snapshot.invalid/photo.jpg'
+    null
   );
+  const legacyKey = `stars/${authority.accessToken}/legacy.png`;
+  assert.equal(
+    resolver.resolveRecordImage({
+      record: { image_object_key: legacyKey }, authority, channel: 'h5'
+    }),
+    '/api/qr/media/QR_PUBLIC_1'
+  );
+  assert.equal(
+    resolver.resolveRecordImage({
+      record: { image_object_key: legacyKey },
+      authority: {
+        qrId: 'QR_PUBLIC_2',
+        accessToken: 'fedcba9876543210fedcba9876543210'
+      },
+      channel: 'h5'
+    }),
+    null
+  );
+  assert.equal(
+    resolver.resolveRecordImage({
+      record: {
+        image_object_key: 'historical.jpg',
+        image_url_snapshot: '/uploads/historical.jpg'
+      },
+      authority,
+      channel: 'h5'
+    }),
+    '/uploads/historical.jpg'
+  );
+  assert.equal(
+    resolver.resolveRecordImage({
+      record: { image_object_key: 'backups/private.dump' }, authority, channel: 'h5'
+    }),
+    null
+  );
+  for (const objectKey of [
+    'stars/backups/production.dump',
+    'stars/admin-private/secret.jpg',
+    'stars/proofs/certificate.json',
+    'stars/manifest/data.jpg',
+    'stars/archive/photo.jpg',
+    'records/QR1/photo.jpg',
+    'records/QR1/manifest.json',
+    '../photo.jpg',
+    'stars/%2e%2e/photo.jpg',
+    'stars/%252e%252e/photo.jpg',
+    'stars\\token\\photo.jpg',
+    'https://example.com/photo.jpg'
+  ]) {
+    assert.equal(
+      resolver.resolveRecordImage({ record: { image_object_key: objectKey }, authority, channel: 'h5' }),
+      null
+    );
+  }
+  for (const accessToken of [
+    null,
+    '',
+    '0123456789ABCDEF0123456789ABCDEF',
+    '0123456789abcdef0123456789abcde',
+    '0123456789abcdef0123456789abcdef0',
+    '0123456789abcdef0123456789abcdeg',
+    '0123456789abcdef/123456789abcdef'
+  ]) {
+    assert.equal(
+      resolver.resolveRecordImage({
+        record: { image_object_key: legacyKey },
+        authority: { qrId: authority.qrId, accessToken },
+        channel: 'miniapp'
+      }),
+      null
+    );
+  }
   assert.deepEqual(calls, [
-    ['signed', 'records/photo.jpg'],
-    ['public', 'records/photo.jpg']
+    ['signed', objectKey],
+    ['public', objectKey]
   ]);
+
+  const cacheKey = buildRecordImageCacheKey({
+    decision: { kind: 'object', objectKey: legacyKey }, authority, channel: 'h5'
+  });
+  assert.equal(cacheKey.includes(authority.accessToken), false);
+  assert.equal(
+    resolver.resolveRecordImage({
+      record: { image_object_key: legacyKey }, authority, channel: 'h5'
+    }).includes(authority.accessToken),
+    false
+  );
 });
 
 test('scheduler stays inert while disabled and starts only after response finish', async () => {

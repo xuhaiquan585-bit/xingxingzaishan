@@ -13,6 +13,12 @@ const { readPostgresConfig } = require('../src/server/database/config');
 const { createApp } = require('../src/server/app');
 const { generateToken } = require('../src/server/services/authService');
 const {
+  issueRecordImageUploadProof
+} = require('../src/server/services/uploadProofService');
+const {
+  buildRecordImageObjectKey
+} = require('../src/server/services/storageService');
+const {
   generateMiniappToken
 } = require('../src/server/services/miniappAuthService');
 const {
@@ -166,6 +172,8 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
     : 'Set RUN_CLEAN_POSTGRES_CANDIDATE_E2E=true with the disposable clone.'
 }, async () => {
   assert.equal(process.env.NODE_ENV, 'test');
+  process.env.UPLOAD_PROOF_SECRET = process.env.UPLOAD_PROOF_SECRET
+    || 'clean-candidate-upload-proof-secret';
   assert.match(String(process.env.PGDATABASE || ''), /_test$/);
   assert.equal(Boolean(process.env.DATABASE_URL), false);
   assert.match(EXPECTED_SOURCE_SHA256, /^[0-9a-f]{64}$/);
@@ -473,6 +481,21 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
     assert.equal(miniappBind.status, 200);
     const miniappToken = miniappBind.body.data.token;
 
+    const accountResult = await pool.query(
+      'SELECT account_id FROM app.users WHERE phone = $1',
+      [TEST_PHONE]
+    );
+    assert.equal(accountResult.rows.length, 1);
+    const recordObjectKey = buildRecordImageObjectKey({
+      qrId: TEST_QR_ID,
+      fileName: 'clean-candidate-e2e.jpg'
+    });
+    const uploadProof = issueRecordImageUploadProof({
+      accountId: accountResult.rows[0].account_id,
+      qrId: TEST_QR_ID,
+      objectKey: recordObjectKey
+    });
+
     const save = await request({
       port,
       method: 'POST',
@@ -480,7 +503,7 @@ test('clean candidate supports one PostgreSQL-only QR end-to-end', {
       headers: { Cookie: h5Cookie },
       body: {
         content: TEST_CONTENT,
-        image_object_key: 'records/clean-candidate-e2e.jpg'
+        upload_proof: uploadProof
       }
     });
     assert.equal(save.status, 200);

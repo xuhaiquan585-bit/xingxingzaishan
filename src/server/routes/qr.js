@@ -11,7 +11,17 @@ const {
   getSampleUnactivated
 } = require('../services/dbService');
 const { listBatches } = require('../services/dbService');
-const { getSignedUrl, getStorageMode } = require('../services/storageService');
+const {
+  classifyRecordImageReference,
+  getStorageMode,
+  isCurrentRecordImageObjectKey,
+  isRecordImageObjectKeyForQrId,
+  openRecordImageObjectStream
+} = require('../services/storageService');
+const {
+  UploadProofError,
+  verifyRecordImageUploadProof
+} = require('../services/uploadProofService');
 const { chainPublicPayload } = require('../services/chainViewService');
 const { createPublicQrAssetResolver } = require('../services/publicQrAssetResolver');
 const { qrImagePath } = require('../services/qrImageService');
@@ -120,16 +130,13 @@ function respondAccountContextRequired(res) {
 
 function resolveImageUrl(qr, assetResolver = null) {
   if (assetResolver && typeof assetResolver.resolveRecordImage === 'function') {
-    return assetResolver.resolveRecordImage({ record: qr, channel: 'h5' });
+    return assetResolver.resolveRecordImage({
+      record: qr,
+      channel: 'h5',
+      authority: { qrId: qr.id, accessToken: qr.qr_access_token }
+    });
   }
-  if (qr.image_object_key) {
-    try {
-      return getSignedUrl(qr.image_object_key);
-    } catch (_error) {
-      return qr.image_url;
-    }
-  }
-  return qr.image_url;
+  return qr.image_object_key ? null : qr.image_url;
 }
 
 function visibleComments(qr) {
@@ -180,13 +187,12 @@ function getBrandName(qr, batch = undefined) {
   return resolvedBatch ? resolvedBatch.brand_name || '' : '';
 }
 
-function formatRecordPayload(qr, req) {
+function formatRecordPayload(qr, req, assetResolver = createPublicQrAssetResolver()) {
   return {
     qr_id: qr.id,
     id: qr.id,
     content: qr.content || '',
-    image_url: resolveImageUrl(qr),
-    image_object_key: qr.image_object_key || null,
+    image_url: resolveImageUrl(qr, assetResolver),
     blockchain_hash: qr.blockchain_hash || null,
     ...chainPublicPayload(qr),
     activated_at: qr.activated_at,
@@ -218,7 +224,6 @@ function formatQRStatusPayload(qr, req, { batch = null, assetResolver = null } =
       ...base,
       content: qr.content || '',
       image_url: resolveImageUrl(qr, assetResolver),
-      image_object_key: qr.image_object_key || null,
       blockchain_hash: qr.blockchain_hash || null,
       ...chainPublicPayload(qr, { channel: 'h5', assetResolver }),
       activated_at: qr.activated_at,
@@ -241,7 +246,6 @@ function formatQRStatusPayload(qr, req, { batch = null, assetResolver = null } =
       ...base,
       content: qr.content || '',
       image_url: resolveImageUrl(qr, assetResolver),
-      image_object_key: qr.image_object_key || null,
       co_creation_enabled: true,
       is_co_creation_owner: isCoCreationOwnerByAccount(qr, req.user),
       co_creation_comments: visibleComments(qr),
@@ -259,6 +263,13 @@ function formatQRStatusPayload(qr, req, { batch = null, assetResolver = null } =
 
 // 首页获取一个未激活的测试二维码（返回 token，不暴露序号到 URL）
 router.get('/sample-unactivated', (_req, res) => {
+  if (!['development', 'test'].includes(String(process.env.NODE_ENV || '').toLowerCase())) {
+    return res.status(404).json({
+      status: 'error',
+      code: 'NOT_FOUND',
+      message: '接口不存在。'
+    });
+  }
   const qr = getSampleUnactivated();
 
   if (!qr) {
@@ -277,6 +288,77 @@ router.get('/sample-unactivated', (_req, res) => {
       token: qr.qr_access_token
     }
   });
+});
+
+router.get('/media/:qrId', async (req, res) => {
+  const key = String(req.params.qrId || '').trim();
+  const {
+    qr,
+    publicQrDomainHash
+  } = findPublicQrReadContextByKey(key);
+  let decision = null;
+  const captureResolver = {
+    resolveRecordImage(input) {
+      decision = classifyRecordImageReference(input);
+      return null;
+    },
+    resolveCertificate() {
+      return null;
+    }
+  };
+
+  try {
+    const primaryRead = await readPublicQrPrimary({
+      key,
+      publicQrId: qr && qr.id,
+      domainHash: publicQrDomainHash,
+      channel: 'h5',
+      viewer: {
+        accountId: getAccountId(req.user),
+        phoneBound: Boolean(req.user && req.user.phone)
+      },
+      assetResolver: captureResolver
+    });
+    if (!primaryRead.selected) {
+      if (!qr || qr.hidden === true || qr.activation_status === 'unactivated') {
+        decision = null;
+      } else if (qr.activation_status === 'co_creating' && !(req.user && req.user.phone)) {
+        decision = null;
+      } else {
+        decision = classifyRecordImageReference({
+          record: qr,
+          authority: { qrId: qr.id, accessToken: qr.qr_access_token }
+        });
+      }
+    }
+  } catch (_error) {
+    decision = null;
+  }
+
+  if (!decision || decision.kind !== 'object' || decision.namespace !== 'legacy-prefixed') {
+    return res.status(404).json({
+      status: 'error',
+      code: 'RECORD_IMAGE_NOT_FOUND',
+      message: '记录图片不存在。'
+    });
+  }
+
+  try {
+    const media = await openRecordImageObjectStream(decision.objectKey);
+    res.setHeader('Content-Type', media.contentType);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    media.stream.on('error', () => {
+      if (!res.headersSent) res.status(502).end();
+      else res.destroy();
+    });
+    return media.stream.pipe(res);
+  } catch (_error) {
+    return res.status(404).json({
+      status: 'error',
+      code: 'RECORD_IMAGE_NOT_FOUND',
+      message: '记录图片不存在。'
+    });
+  }
 });
 
 router.get('/:qrId', async (req, res) => {
@@ -358,8 +440,7 @@ router.get('/:qrId', async (req, res) => {
 router.post('/:qrId/record', requireUserSession, async (req, res) => {
   const {
     content = '',
-    image_url: imageUrl,
-    image_object_key: imageObjectKey,
+    upload_proof: uploadProof,
     show_brand_disclosure: showBrandDisclosure,
     mode = 'direct'
   } = req.body;
@@ -378,11 +459,25 @@ router.post('/:qrId/record', requireUserSession, async (req, res) => {
     return respondAccountContextRequired(res);
   }
 
-  if (!imageUrl && !imageObjectKey) {
+  let verifiedUpload;
+  try {
+    verifiedUpload = verifyRecordImageUploadProof({
+      proof: uploadProof,
+      accountId
+    });
+    if (!isCurrentRecordImageObjectKey(verifiedUpload.object_key)
+        || !isRecordImageObjectKeyForQrId(
+          verifiedUpload.object_key,
+          verifiedUpload.qr_id
+        )) {
+      throw new UploadProofError();
+    }
+  } catch (error) {
+    if (!(error instanceof UploadProofError)) throw error;
     return res.status(400).json({
       status: 'error',
-      code: 'VALIDATION_ERROR',
-      message: '请先上传一张照片再点亮。'
+      code: 'UPLOAD_PROOF_INVALID',
+      message: '图片上传凭证无效或已过期，请重新上传。'
     });
   }
 
@@ -396,8 +491,9 @@ router.post('/:qrId/record', requireUserSession, async (req, res) => {
 
   const payload = {
     content: String(content),
-    image_url: imageUrl || null,
-    image_object_key: imageObjectKey || null,
+    image_url: null,
+    image_object_key: null,
+    upload_claim: verifiedUpload,
     phone,
     account_id: accountId,
     show_brand_disclosure: showBrandDisclosure === true
@@ -426,6 +522,13 @@ router.post('/:qrId/record', requireUserSession, async (req, res) => {
   }
   if (result.error === 'CONTENT_PRIVACY_REJECTED') {
     return respondContentPrivacyRejected(res);
+  }
+  if (result.error === 'UPLOAD_PROOF_INVALID') {
+    return res.status(400).json({
+      status: 'error',
+      code: 'UPLOAD_PROOF_INVALID',
+      message: 'The image upload proof does not match this QR code.'
+    });
   }
 
   if (result.error === 'QR_NOT_FOUND') {

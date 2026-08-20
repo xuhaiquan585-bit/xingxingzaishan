@@ -28,12 +28,19 @@ const {
 const {
   saveImage,
   getStorageMode,
-  getPublicObjectUrl,
-  getSignedUrl
+  isCurrentRecordImageObjectKey,
+  isRecordImageObjectKeyForQrId
 } = require('../services/storageService');
+const {
+  UploadProofError,
+  verifyRecordImageUploadProof
+} = require('../services/uploadProofService');
+const {
+  RecordImageUploadEligibilityError
+} = require('../services/recordImageUploadEligibilityService');
+const { processRecordImageUpload } = require('../services/recordImageUploadService');
 const { checkText, checkImageBuffer } = require('../services/contentSafetyService');
 const {
-  normalizeUploadedImage,
   receiveSingleImage,
   respondToImageValidationError
 } = require('../services/imageUploadSecurityService');
@@ -47,6 +54,7 @@ const {
   readPublicQrPrimary
 } = require('../services/postgres/publicQrPrimaryReadRuntime');
 const {
+  QrLifecyclePostgresWriteError,
   qrLifecycleWriteHttpError,
   writeQrLifecycle
 } = require('../services/postgres/qrLifecycleWriteRuntime');
@@ -177,7 +185,7 @@ function respondMiniappAccountContextRequired(res) {
 }
 
 function shouldExposeVerificationCode() {
-  return process.env.NODE_ENV !== 'production';
+  return ['development', 'test'].includes(String(process.env.NODE_ENV || '').toLowerCase());
 }
 
 function respondIdentityAuthorityUnavailable(res) {
@@ -201,25 +209,13 @@ async function bindAuthoritativeMiniappPhone(input) {
 
 function resolveImageUrl(record, assetResolver = null) {
   if (assetResolver && typeof assetResolver.resolveRecordImage === 'function') {
-    return assetResolver.resolveRecordImage({ record, channel: 'miniapp' });
+    const authority = record.record_media_authority || {
+      qrId: record.id || record.qr_id,
+      accessToken: record.qr_access_token || record.authority_access_token
+    };
+    return assetResolver.resolveRecordImage({ record, authority, channel: 'miniapp' });
   }
-  if (record.image_url) {
-    return record.image_url;
-  }
-  if (record.image_object_key) {
-    try {
-      const publicUrl = getPublicObjectUrl(record.image_object_key);
-      if (publicUrl) return publicUrl;
-    } catch (_error) {
-      // Fall back to signed URL below.
-    }
-    try {
-      return getSignedUrl(record.image_object_key);
-    } catch (_error) {
-      return record.image_url;
-    }
-  }
-  return record.image_url;
+  return record.image_object_key ? null : record.image_url;
 }
 
 function visibleComments(qr) {
@@ -292,7 +288,6 @@ function formatQRPayload(qr, user, { batch = null, assetResolver = null } = {}) 
       ...base,
       content: qr.content || '',
       image_url: resolveImageUrl(qr, assetResolver),
-      image_object_key: qr.image_object_key || null,
       blockchain_hash: qr.blockchain_hash || null,
       ...chainPublicPayload(qr, { channel: 'miniapp', assetResolver }),
       activated_at: qr.activated_at,
@@ -315,7 +310,6 @@ function formatQRPayload(qr, user, { batch = null, assetResolver = null } = {}) 
       ...base,
       content: qr.content || '',
       image_url: resolveImageUrl(qr, assetResolver),
-      image_object_key: qr.image_object_key || null,
       co_creation_enabled: true,
       is_co_creation_owner: isCoCreationOwnerByAccount(qr, user),
       co_creation_comments: visibleComments(qr),
@@ -329,13 +323,12 @@ function formatQRPayload(qr, user, { batch = null, assetResolver = null } = {}) 
   return base;
 }
 
-function recordPayload(qr, user) {
+function recordPayload(qr, user, assetResolver = createPublicQrAssetResolver()) {
   const batch = findBatchForQr(qr);
   return {
-    ...formatQRPayload(qr, user, { batch }),
+    ...formatQRPayload(qr, user, { batch, assetResolver }),
     content: qr.content || '',
-    image_url: resolveImageUrl(qr),
-    image_object_key: qr.image_object_key || null,
+    image_url: resolveImageUrl(qr, assetResolver),
     blockchain_hash: qr.blockchain_hash || null,
     ...chainPublicPayload(qr),
     activated_at: qr.activated_at || null,
@@ -833,7 +826,7 @@ router.post('/orders/:orderId/pay', requireMiniappAuth, requireMiniappPhone, asy
   });
 });
 
-router.post('/upload', requireMiniappAuth, receiveSingleImage('image'), async (req, res, next) => {
+router.post('/upload', requireMiniappAuth, requireMiniappPhone, receiveSingleImage('image'), async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -843,24 +836,29 @@ router.post('/upload', requireMiniappAuth, receiveSingleImage('image'), async (r
       });
     }
 
-    req.file = await normalizeUploadedImage(req.file, {
-      maxOutputWidth: 1080,
-      jpegQuality: 80
-    });
-
-    try {
-      await checkImageBuffer(req.file.buffer, {
-        filename: req.file.originalname,
-        mimetype: 'image/jpeg'
+    const qrKey = String(req.body.qr_id || req.query.qr_id || '').trim();
+    const accountId = getMiniappAccountId(req.miniappUser);
+    if (!qrKey || !accountId) {
+      return res.status(400).json({
+        status: 'error',
+        code: 'UPLOAD_FAILED',
+        message: '上传上下文无效，请重新扫码后再试。'
       });
-    } catch (error) {
-      const handled = handleContentSafetyError(error, res);
-      if (handled) return handled;
-      throw error;
     }
-
-    const qrId = req.body.qr_id || req.query.qr_id || 'unbound';
-    const stored = await saveImage({ file: req.file, qrId });
+    const prepared = await processRecordImageUpload({
+      file: req.file,
+      accessToken: qrKey,
+      accountId,
+      maxOutputWidth: 1080,
+      jpegQuality: 80,
+      async validateNormalizedImage(normalizedFile) {
+        await checkImageBuffer(normalizedFile.buffer, {
+          filename: normalizedFile.originalname,
+          mimetype: 'image/jpeg'
+        });
+      }
+    });
+    const { stored, uploadProof } = prepared;
     return res.json({
       status: 'success',
       code: 'OK',
@@ -869,12 +867,25 @@ router.post('/upload', requireMiniappAuth, receiveSingleImage('image'), async (r
         preview_url: stored.preview_url || null,
         storage_mode: stored.mode,
         object_key: stored.object_key,
+        upload_proof: uploadProof,
         buffered: true,
         active_storage_mode: getStorageMode(),
         fallback: stored.fallback === true
       }
     });
   } catch (error) {
+    if (error instanceof RecordImageUploadEligibilityError) {
+      return res.status(400).json({
+        status: 'error',
+        code: 'UPLOAD_QR_NOT_ELIGIBLE',
+        message: 'The QR code is not eligible for a record image upload.'
+      });
+    }
+    if (error instanceof QrLifecyclePostgresWriteError) {
+      return respondLifecycleWriteUnavailable(res, error);
+    }
+    const contentSafetyResponse = handleContentSafetyError(error, res);
+    if (contentSafetyResponse) return contentSafetyResponse;
     if (respondToImageValidationError(error, res)) return undefined;
     return next(error);
   }
@@ -957,15 +968,31 @@ router.get('/qr/:key', optionalMiniappAuth, async (req, res) => {
 router.post('/qr/:key/record', requireMiniappAuth, requireMiniappPhone, async (req, res) => {
   const content = String(req.body.content || '').trim();
   const mode = req.body.mode === 'co_create' ? 'co_create' : 'direct';
-  const imageUrl = req.body.image_url || null;
-  const imageObjectKey = req.body.image_object_key || null;
   const accountId = getMiniappAccountId(req.miniappUser);
 
-  if (!imageUrl && !imageObjectKey) {
+  if (!accountId) {
+    return respondMiniappAccountContextRequired(res);
+  }
+
+  let verifiedUpload;
+  try {
+    verifiedUpload = verifyRecordImageUploadProof({
+      proof: req.body.upload_proof,
+      accountId
+    });
+    if (!isCurrentRecordImageObjectKey(verifiedUpload.object_key)
+        || !isRecordImageObjectKeyForQrId(
+          verifiedUpload.object_key,
+          verifiedUpload.qr_id
+        )) {
+      throw new UploadProofError();
+    }
+  } catch (error) {
+    if (!(error instanceof UploadProofError)) throw error;
     return res.status(400).json({
       status: 'error',
-      code: 'VALIDATION_ERROR',
-      message: '请先上传一张照片再点亮。'
+      code: 'UPLOAD_PROOF_INVALID',
+      message: '图片上传凭证无效或已过期，请重新上传。'
     });
   }
   if (content.length > 200) {
@@ -974,10 +1001,6 @@ router.post('/qr/:key/record', requireMiniappAuth, requireMiniappPhone, async (r
       code: 'VALIDATION_ERROR',
       message: '文字超出 200 字，请精简后再提交。'
     });
-  }
-
-  if (!accountId) {
-    return respondMiniappAccountContextRequired(res);
   }
 
   try {
@@ -990,8 +1013,9 @@ router.post('/qr/:key/record', requireMiniappAuth, requireMiniappPhone, async (r
 
   const payload = {
     content,
-    image_url: imageUrl,
-    image_object_key: imageObjectKey,
+    image_url: null,
+    image_object_key: null,
+    upload_claim: verifiedUpload,
     phone: req.miniappUser.phone,
     account_id: accountId,
     show_brand_disclosure: req.body.show_brand_disclosure === true
@@ -1018,6 +1042,13 @@ router.post('/qr/:key/record', requireMiniappAuth, requireMiniappPhone, async (r
   }
   if (result.error === 'CONTENT_PRIVACY_REJECTED') {
     return respondContentPrivacyRejected(res);
+  }
+  if (result.error === 'UPLOAD_PROOF_INVALID') {
+    return res.status(400).json({
+      status: 'error',
+      code: 'UPLOAD_PROOF_INVALID',
+      message: 'The image upload proof does not match this QR code.'
+    });
   }
 
   if (result.error === 'QR_NOT_FOUND') {

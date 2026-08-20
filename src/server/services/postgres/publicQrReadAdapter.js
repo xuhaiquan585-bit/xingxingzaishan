@@ -197,12 +197,11 @@ class PublicQrReadAdapter {
       normalizedViewer
     });
     if (qr.lifecycle_status === 'co_creating') {
-      const imageUrl = await this.#resolveRecordImage({ record, channel, assetResolver });
+      const imageUrl = await this.#resolveRecordImage({ qr, record, channel, assetResolver });
       const payload = {
         ...base,
         content: record.content || '',
         image_url: imageUrl,
-        image_object_key: record.image_object_key || null,
         co_creation_enabled: true,
         ...coCreationFields,
         show_brand_disclosure: record.show_brand_disclosure === true,
@@ -215,12 +214,11 @@ class PublicQrReadAdapter {
     if (qr.lifecycle_status !== 'activated') {
       throw new PublicQrReadError('PUBLIC_QR_LIFECYCLE_INVALID', 'The QR lifecycle is unsupported.');
     }
-    const imageUrl = await this.#resolveRecordImage({ record, channel, assetResolver });
+    const imageUrl = await this.#resolveRecordImage({ qr, record, channel, assetResolver });
     const payload = {
       ...base,
       content: record.content || '',
       image_url: imageUrl,
-      image_object_key: record.image_object_key || null,
       blockchain_hash: proof
         ? (proof.manifest_hash || proof.legacy_hash_snapshot || null)
         : null,
@@ -279,9 +277,16 @@ class PublicQrReadAdapter {
     return findBatchById(batchId);
   }
 
-  async #resolveRecordImage({ record, channel, assetResolver }) {
+  async #resolveRecordImage({ qr, record, channel, assetResolver }) {
     if (assetResolver && typeof assetResolver.resolveRecordImage === 'function') {
-      return assetResolver.resolveRecordImage({ record, channel });
+      return assetResolver.resolveRecordImage({
+        record,
+        channel,
+        authority: {
+          qrId: qr.id,
+          accessToken: qr.access_token
+        }
+      });
     }
     if (record.image_object_key) {
       throw new PublicQrReadError(

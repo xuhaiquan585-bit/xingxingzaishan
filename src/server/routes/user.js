@@ -12,7 +12,6 @@ const {
   clearCookieHeader,
   getCookieMaxAge
 } = require('../middlewares/userSession');
-const { getSignedUrl } = require('../services/storageService');
 const { chainPublicPayload } = require('../services/chainViewService');
 const { createPublicQrAssetResolver } = require('../services/publicQrAssetResolver');
 const {
@@ -35,15 +34,17 @@ function isValidPhone(phone) {
 }
 
 function isLegacyLoginEnabled() {
+  const nodeEnv = String(process.env.NODE_ENV || '').toLowerCase();
+  if (!['development', 'test'].includes(nodeEnv)) return false;
   const raw = process.env.USER_LEGACY_LOGIN_ENABLED;
   if (raw === undefined) {
-    return process.env.NODE_ENV !== 'production';
+    return true;
   }
   return raw === '1' || raw === 'true';
 }
 
 function shouldExposeVerificationCode() {
-  return process.env.NODE_ENV !== 'production';
+  return ['development', 'test'].includes(String(process.env.NODE_ENV || '').toLowerCase());
 }
 
 function accountMappingFailure(res, code = 'ACCOUNT_MAPPING_REQUIRED') {
@@ -248,16 +249,13 @@ function handleLogout(req, res) {
 
 function resolveImageUrl(record, assetResolver = null) {
   if (assetResolver && typeof assetResolver.resolveRecordImage === 'function') {
-    return assetResolver.resolveRecordImage({ record, channel: 'h5' });
+    const authority = record.record_media_authority || {
+      qrId: record.id || record.qr_id,
+      accessToken: record.qr_access_token || record.authority_access_token
+    };
+    return assetResolver.resolveRecordImage({ record, authority, channel: 'h5' });
   }
-  if (record.image_object_key) {
-    try {
-      return getSignedUrl(record.image_object_key);
-    } catch (_error) {
-      return record.image_url;
-    }
-  }
-  return record.image_url;
+  return record.image_object_key ? null : record.image_url;
 }
 
 function visibleComments(record) {

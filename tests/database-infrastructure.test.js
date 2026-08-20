@@ -3583,10 +3583,13 @@ test('all image upload routes share strict server-side normalization', () => {
     path.join(__dirname, '../src/server/services/imageUploadSecurityService.js'),
     'utf8'
   );
-  const routePaths = [
+  const recordUploadService = fs.readFileSync(
+    path.join(__dirname, '../src/server/services/recordImageUploadService.js'),
+    'utf8'
+  );
+  const recordRoutePaths = [
     '../src/server/routes/upload.js',
-    '../src/server/routes/miniapp.js',
-    '../src/server/routes/admin.js'
+    '../src/server/routes/miniapp.js'
   ];
 
   assert.match(service, /MAX_UPLOAD_BYTES = 5 \* 1024 \* 1024/);
@@ -3600,15 +3603,29 @@ test('all image upload routes share strict server-side normalization', () => {
   assert.match(service, /\.toColorspace\('srgb'\)/);
   assert.match(service, /\.jpeg\(\{ quality: jpegQuality \}\)/);
   assert.doesNotMatch(service, /withMetadata|withExif/);
+  assert.match(recordUploadService, /normalizeUploadedImage/);
+  assert.match(recordUploadService, /await eligibilityResolver/);
+  assert.ok(
+    recordUploadService.indexOf('await eligibilityResolver')
+      < recordUploadService.indexOf('await imageNormalizer')
+  );
 
-  for (const routePath of routePaths) {
+  for (const routePath of recordRoutePaths) {
     const route = fs.readFileSync(path.join(__dirname, routePath), 'utf8');
-    assert.match(route, /normalizeUploadedImage/);
+    assert.match(route, /processRecordImageUpload/);
     assert.match(route, /receiveSingleImage\('image'\)/);
     assert.match(route, /respondToImageValidationError/);
     assert.doesNotMatch(route, /require\('multer'\)|require\('sharp'\)/);
     assert.doesNotMatch(route, /Keep original buffer|保持原始文件/);
   }
+  const adminRoute = fs.readFileSync(
+    path.join(__dirname, '../src/server/routes/admin.js'),
+    'utf8'
+  );
+  assert.match(adminRoute, /normalizeUploadedImage/);
+  assert.match(adminRoute, /receiveSingleImage\('image'\)/);
+  assert.match(adminRoute, /respondToImageValidationError/);
+  assert.doesNotMatch(adminRoute, /require\('multer'\)|require\('sharp'\)/);
 });
 
 test('hourly production backup scheduling is fixed, observable, and idempotent', () => {

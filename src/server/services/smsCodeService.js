@@ -59,8 +59,12 @@ async function sendCode(phone) {
   return {
     expiresInSeconds: Math.floor(codeTtlMs() / 1000),
     cooldownInSeconds: Math.floor(cooldownMs() / 1000),
-    debugCode: process.env.NODE_ENV === 'production' ? null : maskCodeForLogs(code),
-    plainCode: process.env.NODE_ENV === 'production' ? null : code
+    debugCode: ['development', 'test'].includes(String(process.env.NODE_ENV || '').toLowerCase())
+      ? maskCodeForLogs(code)
+      : null,
+    plainCode: ['development', 'test'].includes(String(process.env.NODE_ENV || '').toLowerCase())
+      ? code
+      : null
   };
 }
 

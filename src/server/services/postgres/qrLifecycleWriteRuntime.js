@@ -143,6 +143,21 @@ function createQrLifecycleWriteRuntime(config, {
     });
   }
 
+  async function authorizeRecordImageUpload(input = {}) {
+    if (closed) throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_CLOSED');
+    const key = String(input.key || '').trim();
+    const accountId = String(input.accountId || '').trim();
+    await assertFreshCandidate({ payload: { account_id: accountId } });
+    const qr = await runTransaction(pool, async (transactionContext) => {
+      const qrRepository = new repositoryTypes.QrRepository(transactionContext);
+      return qrRepository.findByAccessToken(key);
+    }, { isolationLevel: 'repeatable read', readOnly: true });
+    if (!qr || qr.issue_status !== 'issued' || qr.lifecycle_status !== 'unactivated') {
+      return Object.freeze({ qr: null });
+    }
+    return Object.freeze({ qr: Object.freeze({ id: String(qr.id) }) });
+  }
+
   async function write(input = {}) {
     if (closed) throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_CLOSED');
     const method = OPERATION_METHODS[input.operation];
@@ -164,7 +179,7 @@ function createQrLifecycleWriteRuntime(config, {
     await poolCloser(pool);
   }
 
-  return Object.freeze({ write, close });
+  return Object.freeze({ authorizeRecordImageUpload, write, close });
 }
 
 function createQrLifecycleWriteController({
@@ -219,6 +234,46 @@ function createQrLifecycleWriteController({
     }
   }
 
+  async function authorizeRecordImageUpload(input = {}) {
+    const config = readConfig(env);
+    if (!config || config.requested !== true) return { selected: false };
+    if (config.enabled !== true) {
+      throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_CONFIG_INVALID');
+    }
+    assertEnabledConfig(config);
+    if (closed) throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_CLOSED');
+
+    if (!runtimePromise) {
+      runtimePromise = Promise.resolve().then(() => runtimeFactory(config, { env }));
+    }
+    let runtime;
+    try {
+      runtime = await runtimePromise;
+    } catch (error) {
+      runtimePromise = null;
+      throw error;
+    }
+    if (closed) throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_CLOSED');
+    if (!runtime || typeof runtime.authorizeRecordImageUpload !== 'function') {
+      throw writeError('QR_LIFECYCLE_POSTGRES_WRITE_OPERATION_INVALID');
+    }
+
+    const activeAuthorization = Promise.resolve().then(
+      () => runtime.authorizeRecordImageUpload(input)
+    );
+    activeWrites.add(activeAuthorization);
+    try {
+      const result = await activeAuthorization;
+      if (config.scope !== 'all'
+          && (!result.qr || !isSelectedByPrimaryScope(config, result.qr.id))) {
+        return { selected: false };
+      }
+      return { selected: true, ...result };
+    } finally {
+      activeWrites.delete(activeAuthorization);
+    }
+  }
+
   async function close() {
     closed = true;
     if (!runtimePromise) return;
@@ -228,7 +283,7 @@ function createQrLifecycleWriteController({
     if (runtime && typeof runtime.close === 'function') await runtime.close();
   }
 
-  return Object.freeze({ write, close });
+  return Object.freeze({ authorizeRecordImageUpload, write, close });
 }
 
 function qrLifecycleWriteHttpError() {
@@ -245,6 +300,10 @@ function writeQrLifecycle(input) {
   return defaultController.write(input);
 }
 
+function authorizeRecordImageUpload(input) {
+  return defaultController.authorizeRecordImageUpload(input);
+}
+
 function closeQrLifecycleWriteRuntime() {
   return defaultController.close();
 }
@@ -252,6 +311,7 @@ function closeQrLifecycleWriteRuntime() {
 module.exports = {
   OPERATION_METHODS,
   QrLifecyclePostgresWriteError,
+  authorizeRecordImageUpload,
   closeQrLifecycleWriteRuntime,
   createQrLifecycleWriteController,
   createQrLifecycleWriteRuntime,

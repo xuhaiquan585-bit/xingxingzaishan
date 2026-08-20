@@ -669,6 +669,7 @@ test('manual PostgreSQL public QR adapter integration', {
   process.env.NODE_ENV = 'test';
   process.env.DB_FILE = analysis.snapshot.sourcePath;
   process.env.AUTH_SECRET = 'public-qr-integration-secret';
+  process.env.UPLOAD_PROOF_SECRET = 'public-qr-integration-upload-secret';
   process.env.STORAGE_MODE = 'local';
 
   const config = readPostgresConfig(process.env);
@@ -1070,9 +1071,15 @@ test('manual PostgreSQL public QR adapter integration', {
       pool,
       clock: () => new Date('2026-07-01T12:30:00.000Z')
     });
+    const recordClaim = (qrId) => ({
+      account_id: concurrentWebIdentities[0].account_id,
+      qr_id: qrId,
+      object_key: `stars/record-images/${qrId.toLowerCase()}/record.jpg`
+    });
     assert.deepEqual(
       await qrWriteService.activateQRByKey('token-write-direct', {
         account_id: concurrentWebIdentities[0].account_id,
+        upload_claim: recordClaim('QR_WRITE_DIRECT'),
         phone: concurrentWebIdentities[0].phone,
         content: `Cross-account phone ${blockedWebIdentity.phone}`,
         image_url: 'https://fixture.invalid/privacy-rejected.jpg',
@@ -1082,6 +1089,7 @@ test('manual PostgreSQL public QR adapter integration', {
     );
     const directWrite = await qrWriteService.activateQRByKey('token-write-direct', {
       account_id: concurrentWebIdentities[0].account_id,
+      upload_claim: recordClaim('QR_WRITE_DIRECT'),
       phone: concurrentWebIdentities[0].phone,
       content: 'PostgreSQL direct write',
       image_url: 'https://fixture.invalid/write-direct.jpg',
@@ -1091,13 +1099,15 @@ test('manual PostgreSQL public QR adapter integration', {
     assert.equal(directWrite.data.record.sealed_at.toISOString(), '2026-07-01T12:30:00.000Z');
     assert.deepEqual(
       await qrWriteService.activateQRByKey('token-write-direct', {
-        account_id: concurrentWebIdentities[0].account_id
+        account_id: concurrentWebIdentities[0].account_id,
+        upload_claim: recordClaim('QR_WRITE_DIRECT')
       }),
       { error: 'QR_ALREADY_ACTIVATED' }
     );
 
     const coWrite = await qrWriteService.startCoCreationByKey('token-write-co', {
       account_id: concurrentWebIdentities[0].account_id,
+      upload_claim: recordClaim('QR_WRITE_CO'),
       phone: concurrentWebIdentities[0].phone,
       content: 'PostgreSQL co-creation write',
       image_url: 'https://fixture.invalid/write-co.jpg',
@@ -2182,6 +2192,7 @@ test('manual PostgreSQL public QR adapter integration', {
     fs.rmSync(directory, { recursive: true, force: true });
     delete process.env.DB_FILE;
     delete process.env.AUTH_SECRET;
+    delete process.env.UPLOAD_PROOF_SECRET;
     delete process.env.STORAGE_MODE;
     delete process.env.PUBLIC_QR_SHADOW_READ_ENABLED;
     delete process.env.PUBLIC_QR_SHADOW_READ_ALLOWLIST;

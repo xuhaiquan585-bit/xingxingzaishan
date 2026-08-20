@@ -22,6 +22,10 @@ class QrRepository {
     return this.#findExact('access_token', accessToken, false);
   }
 
+  async findByAccessTokenForUpdate(accessToken) {
+    return this.#findExact('access_token', accessToken, true);
+  }
+
   async findByKey(key) {
     const result = await executeQuery(
       this.transactionContext,

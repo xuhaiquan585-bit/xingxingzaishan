@@ -6,7 +6,13 @@ const {
   administerQrs,
   qrIssuanceAuthorityHttpError
 } = require('../services/postgres/qrIssuanceAuthorityRuntime');
-const { getStorageMode, getSignedUrl, getLocalObjectPath } = require('../services/storageService');
+const {
+  classifyRecordImageReference,
+  getStorageMode,
+  getSignedUrl,
+  getLocalObjectPath
+} = require('../services/storageService');
+const { buildLegacyRecordImageProxyUrl } = require('../services/publicQrAssetResolver');
 
 const router = express.Router();
 
@@ -38,15 +44,37 @@ router.get('/:qrId/download', async (req, res) => {
   }
 
   const mode = getStorageMode();
-  if (mode === 'cloud' && qr.image_object_key) {
-    try {
-      const downloadUrl = getSignedUrl(qr.image_object_key, Number(process.env.OSS_DOWNLOAD_SIGN_EXPIRES || 3600));
+  const imageDecision = classifyRecordImageReference({
+    record: qr,
+    authority: { qrId: qr.id, accessToken: qr.qr_access_token }
+  });
+  if (imageDecision.kind === 'rejected') {
+    return res.status(404).json({
+      status: 'error',
+      code: 'NFT_IMAGE_NOT_FOUND',
+      message: '该记录暂无可下载图片。'
+    });
+  }
+  if (mode === 'cloud' && imageDecision.kind === 'object') {
+    if (imageDecision.namespace === 'legacy-prefixed') {
       return res.json({
         status: 'success',
         code: 'OK',
         data: {
-          download_url: downloadUrl,
-          image_object_key: qr.image_object_key
+          download_url: buildLegacyRecordImageProxyUrl({ qrId: qr.id })
+        }
+      });
+    }
+    try {
+      const downloadUrl = getSignedUrl(
+        imageDecision.objectKey,
+        Number(process.env.OSS_DOWNLOAD_SIGN_EXPIRES || 3600)
+      );
+      return res.json({
+        status: 'success',
+        code: 'OK',
+        data: {
+          download_url: downloadUrl
         }
       });
     } catch (_error) {
@@ -58,15 +86,14 @@ router.get('/:qrId/download', async (req, res) => {
     }
   }
 
-  if (!qr.image_url) {
-    return res.status(404).json({
-      status: 'error',
-      code: 'NFT_IMAGE_NOT_FOUND',
-      message: '该记录暂无可下载图片。'
-    });
+  if (imageDecision.kind === 'snapshot') {
+    return res.json({ status: 'success', code: 'OK', data: { download_url: imageDecision.url } });
   }
 
-  const localPath = getLocalObjectPath(qr.image_object_key || qr.image_url);
+  const localReference = imageDecision.kind === 'local'
+    ? path.basename(imageDecision.url)
+    : imageDecision.objectKey;
+  const localPath = getLocalObjectPath(localReference);
   const filename = path.basename(localPath);
   if (!fs.existsSync(localPath)) {
     return res.status(404).json({
@@ -80,8 +107,9 @@ router.get('/:qrId/download', async (req, res) => {
     status: 'success',
     code: 'OK',
     data: {
-      download_url: `/uploads/${filename}`,
-      image_object_key: qr.image_object_key || null
+      download_url: imageDecision.kind === 'local'
+        ? imageDecision.url
+        : `/uploads/${String(imageDecision.objectKey).split('/').map(encodeURIComponent).join('/')}`
     }
   });
 });
@@ -108,7 +136,7 @@ router.get('/:qrId/share-meta', async (req, res) => {
     data: {
       title: '星星在闪｜记在星上，闪到永远',
       text: qr.content || '我在星星在闪记录了一个珍贵时刻。',
-      url: `${baseUrl}/record.html?t=${encodeURIComponent(qr.qr_access_token || qr.id)}`
+      url: `${baseUrl}/record.html?qr=${encodeURIComponent(qr.id)}`
     }
   });
 });

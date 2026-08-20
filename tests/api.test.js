@@ -432,6 +432,57 @@ function findTestUserByOpenid(db, openid) {
   return db.users.find((item) => item.openid === openid);
 }
 
+function makeRecordUploadArtifact({ accountId, qrKey, fileName = 'test-record.jpg' }) {
+  const {
+    issueRecordImageUploadProof
+  } = require('../src/server/services/uploadProofService');
+  const {
+    getObjectPrefix,
+    recordImageQrIdSha256
+  } = require('../src/server/services/storageService');
+  const qr = getTestDbSnapshot().qr_codes.find(
+    (item) => item.qr_access_token === qrKey || item.id === qrKey
+  );
+  const qrId = qr ? qr.id : qrKey;
+  const objectKey = `${getObjectPrefix()}/record-images/${recordImageQrIdSha256(qrId)}/${fileName}`;
+  return {
+    objectKey,
+    uploadProof: issueRecordImageUploadProof({ accountId, qrId, objectKey })
+  };
+}
+
+function recordUploadProofForPhone(phone, qrKey, fileName) {
+  const user = findTestUserByPhone(getTestDbSnapshot(), phone);
+  assert.ok(user && user.account_id);
+  return makeRecordUploadArtifact({ accountId: user.account_id, qrKey, fileName }).uploadProof;
+}
+
+function recordUploadProofForMiniappToken(token, qrKey, fileName) {
+  return makeRecordUploadArtifact({
+    accountId: decodeJwtPayload(token).account_id,
+    qrKey,
+    fileName
+  }).uploadProof;
+}
+
+async function generateIssuedQrRecord(prefix) {
+  const login = await postJson('/api/admin/login', {
+    username: 'admin',
+    password: 'test-admin-pass'
+  });
+  assert.equal(login.status, 200);
+  const generated = await postJson('/api/admin/qr/generate', {
+    prefix,
+    count: 1
+  }, login.body.data.token);
+  assert.equal(generated.status, 200);
+  return generated.body.data.records[0];
+}
+
+async function generateIssuedQrAccessToken(prefix) {
+  return (await generateIssuedQrRecord(prefix)).qr_access_token;
+}
+
 function mockOpenidForCode(code) {
   return `mock-openid-${code}`;
 }
@@ -602,6 +653,7 @@ test.before(async () => {
   process.env.DB_FILE = path.join(tmpDir, 'db.json');
   process.env.STORAGE_ROOT = path.join(tmpDir, 'storage');
   process.env.AUTH_SECRET = 'test-secret-123';
+  process.env.UPLOAD_PROOF_SECRET = 'test-upload-proof-secret-1234567890';
   process.env.RATE_LIMIT_LOGIN_MAX = '1000';
   process.env.SMS_PROVIDER = 'mock';
   process.env.MINIAPP_MOCK_ENABLED = 'true';
@@ -648,6 +700,7 @@ test.after(async () => {
     process.env.NODE_ENV = originalNodeEnv;
   }
   delete process.env.AUTH_SECRET;
+  delete process.env.UPLOAD_PROOF_SECRET;
   delete process.env.RATE_LIMIT_LOGIN_MAX;
   delete process.env.SMS_PROVIDER;
   delete process.env.MINIAPP_MOCK_ENABLED;
@@ -1207,14 +1260,17 @@ test('GET /api/user/records should return only current user activated records', 
   );
 
   const issuedDb = getTestDbSnapshot();
-  issuedDb.qr_codes.find(
+  const issuedQr = issuedDb.qr_codes.find(
     (item) => item.id === 'STAR0003'
-  ).issue_status = 'issued';
+  );
+  issuedQr.issue_status = 'issued';
+  issuedQr.qr_access_token = issuedQr.qr_access_token || 'star-0003-exact-access-token';
   writeTestDbSnapshot(issuedDb);
+  const issuedKey = issuedQr.qr_access_token;
 
   const uploaderCookie = await loginUserAndGetCookie('13600136000');
   const uploadRes = await postMultipartWithCookie('/api/upload', {
-    fields: { qr_id: 'STAR0003' },
+    fields: { qr_id: issuedKey },
     files: [
       {
         fieldName: 'image',
@@ -1227,10 +1283,9 @@ test('GET /api/user/records should return only current user activated records', 
   assert.equal(uploadRes.status, 200);
 
   const userACookie = uploaderCookie;
-  const activateRes = await postJsonWithCookie('/api/qr/STAR0003/record', {
+  const activateRes = await postJsonWithCookie(`/api/qr/${issuedKey}/record`, {
     content: 'my record',
-    image_url: uploadRes.body.data.url,
-    image_object_key: uploadRes.body.data.object_key
+    upload_proof: uploadRes.body.data.upload_proof
   }, userACookie);
   assert.equal(activateRes.status, 200);
 
@@ -1293,6 +1348,8 @@ test('GET /api/user/records should return only current user activated records', 
   assert.equal(userARecords.body.data.records.some((item) => item.id === 'STAR_ACCOUNT_MISSING'), false);
   assert.equal(userARecords.body.data.records.some((item) => Object.prototype.hasOwnProperty.call(item, 'account_id')), false);
   assert.ok(userARecords.body.data.records.find((item) => item.id === 'STAR0003').image_url);
+  assert.equal(JSON.stringify(userARecords.body.data).includes(issuedKey), false);
+  assert.equal(JSON.stringify(userARecords.body.data).includes('image_object_key'), false);
 
   const userADetail = await getJsonWithCookie('/api/user/records/STAR0003', userACookie);
   assert.equal(userADetail.status, 200);
@@ -1304,6 +1361,8 @@ test('GET /api/user/records should return only current user activated records', 
   assert.equal(typeof userADetail.body.data.chain_status_text, 'string');
   assert.ok(userADetail.body.data.image_url);
   assert.equal(typeof userADetail.body.data.brand_name, 'string');
+  assert.equal(JSON.stringify(userADetail.body.data).includes(issuedKey), false);
+  assert.equal(Object.hasOwn(userADetail.body.data, 'image_object_key'), false);
 
   const userAWrongAccountDetail = await getJsonWithCookie('/api/user/records/STAR_ACCOUNT_OTHER', userACookie);
   assert.equal(userAWrongAccountDetail.status, 404);
@@ -2200,11 +2259,65 @@ test('POST /api/upload should reject non-image file', async () => {
   assert.deepEqual(afterFiles, beforeFiles);
 });
 
-test('POST /api/qr/:id/record should validate image_url required', async () => {
+test('POST /api/qr/:id/record should require a valid upload proof', async () => {
   const cookie = await loginUserAndGetCookie('13800138000');
   const res = await postJsonWithCookie('/api/qr/STAR0001/record', { content: 'hello' }, cookie);
   assert.equal(res.status, 400);
-  assert.equal(res.body.code, 'VALIDATION_ERROR');
+  assert.equal(res.body.code, 'UPLOAD_PROOF_INVALID');
+});
+
+test('first record writes reject QR ids and untrusted image references', async () => {
+  const adminLogin = await postJson('/api/admin/login', {
+    username: 'admin', password: 'test-admin-pass'
+  });
+  const generated = await postJson('/api/admin/qr/generate', {
+    prefix: 'PRF', count: 2
+  }, adminLogin.body.data.token);
+  assert.equal(generated.status, 200);
+  const [directQr, coQr] = generated.body.data.records;
+  const cookie = await loginUserAndGetCookie('13800138801');
+
+  for (const body of [
+    { image_url: 'https://attacker.invalid/payload.jpg' },
+    { image_object_key: 'backups/xingxingzaishan/production/db.dump' }
+  ]) {
+    const rejected = await postJsonWithCookie(`/api/qr/${directQr.qr_access_token}/record`, {
+      content: 'must reject', ...body
+    }, cookie);
+    assert.equal(rejected.status, 400);
+    assert.equal(rejected.body.code, 'UPLOAD_PROOF_INVALID');
+  }
+
+  const directById = await postJsonWithCookie(`/api/qr/${directQr.id}/record`, {
+    content: 'id must not claim',
+    upload_proof: recordUploadProofForPhone('13800138801', directQr.id)
+  }, cookie);
+  assert.equal(directById.status, 404);
+  assert.equal(directById.body.code, 'QR_NOT_FOUND');
+
+  const coById = await postJsonWithCookie(`/api/qr/${coQr.id}/record`, {
+    mode: 'co_create',
+    content: 'id must not start co-creation',
+    upload_proof: recordUploadProofForPhone('13800138801', coQr.id)
+  }, cookie);
+  assert.equal(coById.status, 404);
+  assert.equal(coById.body.code, 'QR_NOT_FOUND');
+
+  const publicRead = await getJson(`/api/qr/${directQr.id}`);
+  assert.equal(publicRead.status, 200);
+  assert.equal(publicRead.body.data.id, directQr.id);
+});
+
+test('production sample QR endpoint does not expose an unactivated token', async () => {
+  const oldNodeEnv = process.env.NODE_ENV;
+  try {
+    process.env.NODE_ENV = 'production';
+    const response = await getJson('/api/qr/sample-unactivated');
+    assert.equal(response.status, 404);
+    assert.equal(JSON.stringify(response.body).includes('token'), false);
+  } finally {
+    process.env.NODE_ENV = oldNodeEnv;
+  }
 });
 
 test('record and comment routes reject another account full phone without JSON mutations', async () => {
@@ -2251,14 +2364,14 @@ test('record and comment routes reject another account full phone without JSON m
 
   const h5Record = await postJsonWithCookie('/api/qr/privacy-h5-record-token/record', {
     content: `contact ${otherPhone}`,
-    image_url: 'https://example.com/privacy-h5.jpg'
+    upload_proof: recordUploadProofForPhone(ownerPhone, 'privacy-h5-record-token')
   }, h5Cookie);
   assert.equal(h5Record.status, 400);
   assert.equal(h5Record.body.code, 'CONTENT_PRIVACY_REJECTED');
 
   const miniappRecord = await postJson('/api/miniapp/qr/privacy-mini-record-token/record', {
     content: `contact ${otherPhone}`,
-    image_url: 'https://example.com/privacy-mini.jpg'
+    upload_proof: recordUploadProofForMiniappToken(miniappToken, 'privacy-mini-record-token')
   }, miniappToken);
   assert.equal(miniappRecord.status, 400);
   assert.equal(miniappRecord.body.code, 'CONTENT_PRIVACY_REJECTED');
@@ -2319,21 +2432,21 @@ test('unissued QR codes cannot be activated or enter co-creation from H5 or mini
   const requests = [
     () => postJsonWithCookie(`/api/qr/${keys[0]}/record`, {
       content: 'H5 direct must fail',
-      image_object_key: 'records/h5-direct-blocked.jpg'
+      upload_proof: recordUploadProofForPhone('13800138101', keys[0])
     }, h5Cookie),
     () => postJsonWithCookie(`/api/qr/${keys[1]}/record`, {
       mode: 'co_create',
       content: 'H5 co-create must fail',
-      image_object_key: 'records/h5-co-blocked.jpg'
+      upload_proof: recordUploadProofForPhone('13800138101', keys[1])
     }, h5Cookie),
     () => postJson(`/api/miniapp/qr/${keys[2]}/record`, {
       content: 'Miniapp direct must fail',
-      image_object_key: 'records/mini-direct-blocked.jpg'
+      upload_proof: recordUploadProofForMiniappToken(miniappToken, keys[2])
     }, miniappToken),
     () => postJson(`/api/miniapp/qr/${keys[3]}/record`, {
       mode: 'co_create',
       content: 'Miniapp co-create must fail',
-      image_object_key: 'records/mini-co-blocked.jpg'
+      upload_proof: recordUploadProofForMiniappToken(miniappToken, keys[3])
     }, miniappToken)
   ];
 
@@ -2623,10 +2736,11 @@ test('POST /api/qr/:id/record should persist batch disclosure snapshot when enab
   }, adminToken);
   assert.equal(genRes.status, 200);
   const qrId = genRes.body.data.ids[0];
+  const accessToken = genRes.body.data.records[0].qr_access_token;
 
   const userCookie = await loginUserAndGetCookie('13800138000');
   const uploadRes = await postMultipartWithCookie('/api/upload', {
-    fields: { qr_id: qrId },
+    fields: { qr_id: accessToken },
     files: [
       {
         fieldName: 'image',
@@ -2638,10 +2752,9 @@ test('POST /api/qr/:id/record should persist batch disclosure snapshot when enab
   }, userCookie);
   assert.equal(uploadRes.status, 200);
 
-  const recordRes = await postJsonWithCookie(`/api/qr/${encodeURIComponent(qrId)}/record`, {
+  const recordRes = await postJsonWithCookie(`/api/qr/${encodeURIComponent(accessToken)}/record`, {
     content: 'd3 test',
-    image_url: uploadRes.body.data.url,
-    image_object_key: uploadRes.body.data.object_key,
+    upload_proof: uploadRes.body.data.upload_proof,
     show_brand_disclosure: true
   }, userCookie);
 
@@ -2670,10 +2783,11 @@ test('POST /api/qr/:id/record should NOT fallback to note when brand_disclosure_
   }, adminToken);
   assert.equal(genRes.status, 200);
   const qrId = genRes.body.data.ids[0];
+  const accessToken = genRes.body.data.records[0].qr_access_token;
 
   const userCookie = await loginUserAndGetCookie('13800138001');
   const uploadRes = await postMultipartWithCookie('/api/upload', {
-    fields: { qr_id: qrId },
+    fields: { qr_id: accessToken },
     files: [
       {
         fieldName: 'image',
@@ -2684,10 +2798,9 @@ test('POST /api/qr/:id/record should NOT fallback to note when brand_disclosure_
     ]
   }, userCookie);
   assert.equal(uploadRes.status, 200);
-  const recordRes = await postJsonWithCookie(`/api/qr/${encodeURIComponent(qrId)}/record`, {
+  const recordRes = await postJsonWithCookie(`/api/qr/${encodeURIComponent(accessToken)}/record`, {
     content: 'd3y test',
-    image_url: uploadRes.body.data.url,
-    image_object_key: uploadRes.body.data.object_key,
+    upload_proof: uploadRes.body.data.upload_proof,
     show_brand_disclosure: true
   }, userCookie);
 
@@ -4854,7 +4967,7 @@ test('miniapp upload and record flow should require bound phone and reject dupli
     'base64'
   );
   const uploadRes = await postMultipart('/api/miniapp/upload', {
-    fields: { qr_id: 'MQR00001' },
+    fields: { qr_id: accessToken },
     files: [
       {
         fieldName: 'image',
@@ -4875,8 +4988,7 @@ test('miniapp upload and record flow should require bound phone and reject dupli
 
   const recordRes = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
     content: '小程序记录',
-    image_url: uploadRes.body.data.url,
-    image_object_key: uploadRes.body.data.object_key,
+    upload_proof: uploadRes.body.data.upload_proof,
     show_brand_disclosure: true,
     account_id: 'FORGED_ACCOUNT',
     owner_account_id: 'FORGED_OWNER',
@@ -4886,7 +4998,8 @@ test('miniapp upload and record flow should require bound phone and reject dupli
   assert.equal(recordRes.body.data.activation_status, 'activated');
   assert.equal(Object.prototype.hasOwnProperty.call(recordRes.body.data, 'account_id'), false);
   assert.ok(recordRes.body.data.image_url);
-  assert.equal(recordRes.body.data.image_object_key, uploadRes.body.data.object_key);
+  assert.equal(Object.prototype.hasOwnProperty.call(recordRes.body.data, 'image_object_key'), false);
+  assert.equal(JSON.stringify(recordRes.body.data).includes(accessToken), false);
   assert.equal(recordRes.body.data.show_brand_disclosure, true);
   assert.equal(recordRes.body.data.brand_disclosure_text_snapshot, '品牌露出文案-MINI');
   assert.equal(recordRes.body.data.brand_name, '星酒品牌');
@@ -4945,12 +5058,17 @@ test('miniapp upload and record flow should require bound phone and reject dupli
   assert.equal(activatedStatusRes.status, 200);
   assert.equal(activatedStatusRes.body.data.activation_status, 'activated');
   assert.ok(activatedStatusRes.body.data.image_url);
-  assert.equal(activatedStatusRes.body.data.image_object_key, uploadRes.body.data.object_key);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(activatedStatusRes.body.data, 'image_object_key'),
+    false
+  );
+  assert.equal(JSON.stringify(activatedStatusRes.body.data).includes(accessToken), false);
 
   const detailRes = await getJson('/api/miniapp/user/records/MQR00001', token);
   assert.equal(detailRes.status, 200);
   assert.equal(Object.prototype.hasOwnProperty.call(detailRes.body.data, 'account_id'), false);
   assert.ok(detailRes.body.data.image_url);
+  assert.equal(JSON.stringify(detailRes.body.data).includes(accessToken), false);
   assert.equal(detailRes.body.data.show_brand_disclosure, true);
   assert.equal(detailRes.body.data.brand_disclosure_text_snapshot, '品牌露出文案-MINI');
   assert.equal(detailRes.body.data.brand_name, '星酒品牌');
@@ -5006,7 +5124,7 @@ test('miniapp upload and record flow should require bound phone and reject dupli
 
   const duplicateRes = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
     content: '重复记录',
-    image_object_key: uploadRes.body.data.object_key
+    upload_proof: uploadRes.body.data.upload_proof
   }, token);
   assert.equal(duplicateRes.status, 409);
   assert.equal(duplicateRes.body.code, 'QR_ALREADY_ACTIVATED');
@@ -5043,11 +5161,16 @@ test('miniapp record payload should use public cloud url for object-key-only ima
       code: 'mini-object-url',
       phone: '13877770009'
     });
-    const objectKey = 'stars/MOU00001/photo.jpg';
+    const artifact = makeRecordUploadArtifact({
+      accountId: decodeJwtPayload(token).account_id,
+      qrKey: accessToken,
+      fileName: 'photo.jpg'
+    });
+    const objectKey = artifact.objectKey;
     const recordRes = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
       mode: 'co_create',
       content: '只有 object_key 的旧记录',
-      image_object_key: objectKey
+      upload_proof: artifact.uploadProof
     }, token);
     assert.equal(recordRes.status, 200);
     assert.equal(recordRes.body.data.image_url, `https://cdn.example.com/xingxing/${objectKey}`);
@@ -5079,13 +5202,13 @@ test('miniapp content safety mock should reject unsafe text and image', async ()
 
   const rejectText = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
     content: 'mock-reject',
-    image_object_key: 'demo.jpg'
+    upload_proof: recordUploadProofForMiniappToken(token, accessToken)
   }, token);
   assert.equal(rejectText.status, 400);
   assert.equal(rejectText.body.code, 'CONTENT_REJECTED');
 
   const rejectImage = await postMultipart('/api/miniapp/upload', {
-    fields: { qr_id: 'MSF00001' },
+    fields: { qr_id: accessToken },
     files: [
       {
         fieldName: 'image',
@@ -5136,7 +5259,7 @@ test('miniapp content safety invalid openid should expire stale login without le
     process.env.WECHAT_MINIAPP_SECRET = 'wechat-miniapp-test-secret';
     const staleRes = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
       content: '这条记录应该被登录态失效拦截',
-      image_object_key: 'stale-login.jpg'
+      upload_proof: recordUploadProofForMiniappToken(token, accessToken)
     }, token);
     assert.equal(staleRes.status, 401);
     assert.equal(staleRes.body.code, 'MINIAPP_LOGIN_STALE');
@@ -5172,7 +5295,7 @@ test('miniapp co-creation flow should collect comments and finalize', async () =
   const startRes = await postJson(`/api/miniapp/qr/${accessToken}/record`, {
     mode: 'co_create',
     content: '主留言',
-    image_object_key: 'owner.jpg',
+    upload_proof: recordUploadProofForMiniappToken(ownerToken, accessToken),
     account_id: 'FORGED_ACCOUNT',
     co_creation_owner_account_id: 'FORGED_CO_OWNER'
   }, ownerToken);
@@ -5328,7 +5451,7 @@ test('business writes should fail closed when authenticated account mapping is m
   const h5ValidCoCreate = await postJsonWithCookie(`/api/qr/${h5CoCreateToken}/record`, {
     mode: 'co_create',
     content: 'owner account exists',
-    image_object_key: 'h5-owner-account.jpg'
+    upload_proof: recordUploadProofForPhone('13870001006', h5CoCreateToken)
   }, h5OwnerCookie);
   assert.equal(h5ValidCoCreate.status, 200);
 
@@ -5398,7 +5521,7 @@ test('business writes should fail closed when authenticated account mapping is m
   const startRes = await postJson(`/api/miniapp/qr/${miniCoCreateKey}/record`, {
     mode: 'co_create',
     content: 'owner account exists',
-    image_object_key: 'owner-account.jpg'
+    upload_proof: recordUploadProofForMiniappToken(ownerToken, miniCoCreateKey)
   }, ownerToken);
   assert.equal(startRes.status, 200);
 
@@ -5510,14 +5633,17 @@ test('GET /api/nft/:id/download should return download_url after activation', as
   );
 
   const issuedDb = getTestDbSnapshot();
-  issuedDb.qr_codes.find(
+  const issuedQr = issuedDb.qr_codes.find(
     (item) => item.id === 'STAR0002'
-  ).issue_status = 'issued';
+  );
+  issuedQr.issue_status = 'issued';
+  issuedQr.qr_access_token = issuedQr.qr_access_token || 'star-0002-exact-access-token';
   writeTestDbSnapshot(issuedDb);
+  const issuedKey = issuedQr.qr_access_token;
 
   const userCookie = await loginUserAndGetCookie('13800138000');
   const uploadRes = await postMultipartWithCookie('/api/upload', {
-    fields: { qr_id: 'STAR0002' },
+    fields: { qr_id: issuedKey },
     files: [
       {
         fieldName: 'image',
@@ -5532,10 +5658,9 @@ test('GET /api/nft/:id/download should return download_url after activation', as
   const uploadBody = uploadRes.body;
   assert.ok(uploadBody.data.object_key);
 
-  const recordRes = await postJsonWithCookie('/api/qr/STAR0002/record', {
+  const recordRes = await postJsonWithCookie(`/api/qr/${issuedKey}/record`, {
     content: 'demo',
-    image_url: uploadBody.data.url,
-    image_object_key: uploadBody.data.object_key
+    upload_proof: uploadBody.data.upload_proof
   }, userCookie);
   assert.equal(recordRes.status, 200);
   const dbAfterRecord = getTestDbSnapshot();
@@ -5547,6 +5672,38 @@ test('GET /api/nft/:id/download should return download_url after activation', as
   const downloadRes = await getJson('/api/nft/STAR0002/download');
   assert.equal(downloadRes.status, 200);
   assert.ok(downloadRes.body.data.download_url);
+  assert.equal(Object.hasOwn(downloadRes.body.data, 'image_object_key'), false);
+  assert.equal(JSON.stringify(downloadRes.body.data).includes(issuedKey), false);
+});
+
+test('legacy prefixed NFT media uses a canonical QR proxy without exposing access token', async () => {
+  const db = getTestDbSnapshot();
+  const qr = db.qr_codes.find((item) => item.activation_status === 'activated');
+  assert.ok(qr);
+  const accessToken = '0123456789abcdef0123456789abcdef';
+  qr.issue_status = 'issued';
+  qr.qr_access_token = accessToken;
+  qr.image_object_key = `stars/${accessToken}/historical.jpg`;
+  qr.image_url = `https://example.invalid/stars/${accessToken}/historical.jpg`;
+  writeTestDbSnapshot(db);
+
+  const previousStorageMode = process.env.STORAGE_MODE;
+  process.env.STORAGE_MODE = 'cloud';
+  try {
+    const response = await getJson(`/api/nft/${encodeURIComponent(qr.id)}/download`);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.download_url, `/api/qr/media/${encodeURIComponent(qr.id)}`);
+    assert.equal(JSON.stringify(response.body.data).includes(accessToken), false);
+    assert.equal(Object.hasOwn(response.body.data, 'image_object_key'), false);
+
+    const shareResponse = await getJson(`/api/nft/${encodeURIComponent(qr.id)}/share-meta`);
+    assert.equal(shareResponse.status, 200);
+    assert.equal(JSON.stringify(shareResponse.body.data).includes(accessToken), false);
+    assert.match(shareResponse.body.data.url, /record\.html\?qr=/);
+  } finally {
+    if (previousStorageMode === undefined) delete process.env.STORAGE_MODE;
+    else process.env.STORAGE_MODE = previousStorageMode;
+  }
 });
 
 test('POST /api/admin/qr/generate should assign qr_access_token to new QR codes', async () => {
@@ -5588,10 +5745,13 @@ test('GET /api/qr/:key should return QR by token and reject invalid token', asyn
   const resByToken = await getJson(`/api/qr/${accessToken}`);
   assert.equal(resByToken.status, 200);
   assert.equal(resByToken.body.data.id, qrId);
+  assert.equal(JSON.stringify(resByToken.body.data).includes(accessToken), false);
+  assert.equal(Object.hasOwn(resByToken.body.data, 'image_object_key'), false);
 
   const resById = await getJson(`/api/qr/${qrId}`);
   assert.equal(resById.status, 200);
   assert.equal(resById.body.data.id, qrId);
+  assert.equal(JSON.stringify(resById.body.data).includes(accessToken), false);
 
   const resByBadToken = await getJson('/api/qr/nonexistenttoken1234567890123456');
   assert.equal(resByBadToken.status, 404);
@@ -5611,7 +5771,7 @@ test('POST /api/qr/:token/record should activate QR by access token', async () =
 
   const userCookie = await loginUserAndGetCookie('13900139000');
   const uploadRes = await postMultipartWithCookie('/api/upload', {
-    fields: { qr_id: genRes.body.data.ids[0] },
+    fields: { qr_id: accessToken },
     files: [
       {
         fieldName: 'image',
@@ -5625,8 +5785,7 @@ test('POST /api/qr/:token/record should activate QR by access token', async () =
 
   const recordRes = await postJsonWithCookie(`/api/qr/${accessToken}/record`, {
     content: 'activated by token',
-    image_url: uploadRes.body.data.url,
-    image_object_key: uploadRes.body.data.object_key,
+    upload_proof: uploadRes.body.data.upload_proof,
     account_id: 'FORGED_ACCOUNT',
     owner_account_id: 'FORGED_OWNER',
     co_creation_owner_account_id: 'FORGED_CO_OWNER'
@@ -5635,6 +5794,8 @@ test('POST /api/qr/:token/record should activate QR by access token', async () =
   assert.equal(recordRes.body.data.activation_status, 'activated');
   assert.equal(recordRes.body.data.content, 'activated by token');
   assert.equal(Object.prototype.hasOwnProperty.call(recordRes.body.data, 'account_id'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(recordRes.body.data, 'image_object_key'), false);
+  assert.equal(JSON.stringify(recordRes.body.data).includes(accessToken), false);
 
   const db = getTestDbSnapshot();
   const user = findTestUserByPhone(db, '13900139000');
@@ -5660,7 +5821,7 @@ test('co-creation flow should collect comments and owner finalize record', async
 
   const ownerCookie = await loginUserAndGetCookie('13811112222');
   const uploadRes = await postMultipartWithCookie('/api/upload', {
-    fields: { qr_id: qrId },
+    fields: { qr_id: genRes.body.data.records[0].qr_access_token },
     files: [
       {
         fieldName: 'image',
@@ -5675,8 +5836,7 @@ test('co-creation flow should collect comments and owner finalize record', async
   const startRes = await postJsonWithCookie(`/api/qr/${accessToken}/record`, {
     mode: 'co_create',
     content: '主留言',
-    image_url: uploadRes.body.data.url,
-    image_object_key: uploadRes.body.data.object_key
+    upload_proof: uploadRes.body.data.upload_proof
   }, ownerCookie);
   assert.equal(startRes.status, 200);
   assert.equal(startRes.body.data.activation_status, 'co_creating');
@@ -5808,7 +5968,7 @@ test('co-creation account ownership should not fall back to phone snapshots', as
   const h5Start = await postJsonWithCookie(`/api/qr/${h5OwnerFallbackKey}/record`, {
     mode: 'co_create',
     content: 'owner by account',
-    image_object_key: 'h5-owner-account.jpg'
+    upload_proof: recordUploadProofForPhone('13822220001', h5OwnerFallbackKey)
   }, h5OwnerCookie);
   assert.equal(h5Start.status, 200);
 
@@ -5852,7 +6012,7 @@ test('co-creation account ownership should not fall back to phone snapshots', as
   const h5LegacyStart = await postJsonWithCookie(`/api/qr/${h5LegacyCommentKey}/record`, {
     mode: 'co_create',
     content: 'legacy comment',
-    image_object_key: 'h5-legacy-comment.jpg'
+    upload_proof: recordUploadProofForPhone('13822220004', h5LegacyCommentKey)
   }, h5LegacyOwnerCookie);
   assert.equal(h5LegacyStart.status, 200);
   db = getTestDbSnapshot();
@@ -5883,7 +6043,7 @@ test('co-creation account ownership should not fall back to phone snapshots', as
   const miniStart = await postJson(`/api/miniapp/qr/${miniOwnerFallbackKey}/record`, {
     mode: 'co_create',
     content: 'mini owner by account',
-    image_object_key: 'mini-owner-account.jpg'
+    upload_proof: recordUploadProofForMiniappToken(miniOwnerToken, miniOwnerFallbackKey)
   }, miniOwnerToken);
   assert.equal(miniStart.status, 200);
   const miniOwnerPayload = decodeJwtPayload(miniOwnerToken);
@@ -5933,7 +6093,7 @@ test('public co-creation identity flags should use account ids without changing 
   const h5Start = await postJsonWithCookie(`/api/qr/${h5Key}/record`, {
     mode: 'co_create',
     content: '公开标记 H5',
-    image_object_key: 'h5-public-flags.jpg'
+    upload_proof: recordUploadProofForPhone('13833330001', h5Key)
   }, h5OwnerCookie);
   assert.equal(h5Start.status, 200);
   const h5Comment = await postJsonWithCookie(`/api/qr/${h5Key}/comments`, {
@@ -6030,7 +6190,7 @@ test('public co-creation identity flags should use account ids without changing 
   const miniStart = await postJson(`/api/miniapp/qr/${miniKey}/record`, {
     mode: 'co_create',
     content: '公开标记小程序',
-    image_object_key: 'mini-public-flags.jpg'
+    upload_proof: recordUploadProofForMiniappToken(miniOwnerToken, miniKey)
   }, miniOwnerToken);
   assert.equal(miniStart.status, 200);
   const miniComment = await postJson(`/api/miniapp/qr/${miniKey}/comments`, {
@@ -6131,7 +6291,7 @@ test('co-creation comments should be limited to 12 active comments', async () =>
   const accessToken = genRes.body.data.records[0].qr_access_token;
   const ownerCookie = await loginUserAndGetCookie('13700000000');
   const uploadRes = await postMultipartWithCookie('/api/upload', {
-    fields: { qr_id: qrId },
+    fields: { qr_id: genRes.body.data.records[0].qr_access_token },
     files: [
       {
         fieldName: 'image',
@@ -6146,8 +6306,7 @@ test('co-creation comments should be limited to 12 active comments', async () =>
   const startRes = await postJsonWithCookie(`/api/qr/${accessToken}/record`, {
     mode: 'co_create',
     content: '主留言',
-    image_url: uploadRes.body.data.url,
-    image_object_key: uploadRes.body.data.object_key
+    upload_proof: uploadRes.body.data.upload_proof
   }, ownerCookie);
   assert.equal(startRes.status, 200);
 
@@ -6200,8 +6359,9 @@ test('POST /api/upload should compress image and return .jpg object_key', async 
     .toBuffer();
 
   const userCookie = await loginUserAndGetCookie('13800138000');
+  const accessToken = await generateIssuedQrAccessToken('CMP');
   const uploadRes = await postMultipartWithCookie('/api/upload', {
-    fields: { qr_id: 'COMPRESS_TEST' },
+    fields: { qr_id: accessToken },
     files: [
       {
         fieldName: 'image',
@@ -6219,6 +6379,101 @@ test('POST /api/upload should compress image and return .jpg object_key', async 
   const objectKey = uploadRes.body.data.object_key;
   assert.ok(objectKey, 'object_key should exist');
   assert.ok(objectKey.endsWith('.jpg'), `object_key should end with .jpg, got: ${objectKey}`);
+});
+
+test('invalid or consumed QR upload keys fail before image processing and storage', async () => {
+  const issued = await generateIssuedQrRecord('UIV');
+  const activated = await generateIssuedQrRecord('UIA');
+  const coCreating = await generateIssuedQrRecord('UIC');
+  const unissued = await generateIssuedQrRecord('UIU');
+  const snapshot = getTestDbSnapshot();
+  snapshot.qr_codes.find((item) => item.id === activated.id).activation_status = 'activated';
+  snapshot.qr_codes.find((item) => item.id === coCreating.id).activation_status = 'co_creating';
+  snapshot.qr_codes.find((item) => item.id === unissued.id).issue_status = 'unissued';
+  writeTestDbSnapshot(snapshot);
+
+  const cookie = await loginUserAndGetCookie('13800138000');
+  const bufferDirectory = path.join(process.env.STORAGE_ROOT, 'buffer', 'uploads');
+  const beforeFiles = fs.existsSync(bufferDirectory) ? fs.readdirSync(bufferDirectory).sort() : [];
+  const candidates = [
+    'random-upload-key',
+    issued.id,
+    activated.qr_access_token,
+    coCreating.qr_access_token,
+    unissued.qr_access_token
+  ];
+  for (const qrKey of candidates) {
+    const response = await postMultipartWithCookie('/api/upload', {
+      fields: { qr_id: qrKey },
+      files: [{
+        fieldName: 'image',
+        filename: 'must-not-decode.jpg',
+        contentType: 'image/jpeg',
+        content: Buffer.from('not-an-image')
+      }]
+    }, cookie);
+    assert.equal(response.status, 400);
+    assert.equal(response.body.code, 'UPLOAD_QR_NOT_ELIGIBLE');
+    assert.equal(response.body.data && response.body.data.upload_proof, undefined);
+  }
+  const miniappToken = await loginMiniappBindPhoneAndGetToken({
+    code: 'invalid-upload-eligibility-miniapp',
+    phone: '13877770991'
+  });
+  const miniappResponse = await postMultipart('/api/miniapp/upload', {
+    fields: { qr_id: issued.id },
+    files: [{
+      fieldName: 'image',
+      filename: 'must-not-decode-miniapp.jpg',
+      contentType: 'image/jpeg',
+      content: Buffer.from('not-an-image')
+    }]
+  }, miniappToken);
+  assert.equal(miniappResponse.status, 400);
+  assert.equal(miniappResponse.body.code, 'UPLOAD_QR_NOT_ELIGIBLE');
+  const afterFiles = fs.existsSync(bufferDirectory)
+    ? fs.readdirSync(bufferDirectory).sort()
+    : [];
+  assert.deepEqual(afterFiles, beforeFiles);
+});
+
+test('concurrent QR consumption rejects final save after a successful upload', async () => {
+  const record = await generateIssuedQrRecord('UCR');
+  const firstCookie = await loginUserAndGetCookie('13800138000');
+  const secondPhone = '13700000991';
+  const secondCookie = await loginUserAndGetCookie(secondPhone);
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+    'base64'
+  );
+  const uploaded = await postMultipartWithCookie('/api/upload', {
+    fields: { qr_id: record.qr_access_token },
+    files: [{
+      fieldName: 'image', filename: 'concurrent.png', contentType: 'image/png', content: png
+    }]
+  }, firstCookie);
+  assert.equal(uploaded.status, 200);
+
+  const secondProof = recordUploadProofForPhone(secondPhone, record.qr_access_token);
+  const consumed = await postJsonWithCookie(`/api/qr/${record.qr_access_token}/record`, {
+    content: 'Concurrent winner',
+    upload_proof: secondProof
+  }, secondCookie);
+  assert.equal(consumed.status, 200);
+  const beforeRetry = structuredClone(
+    getTestDbSnapshot().qr_codes.find((item) => item.id === record.id)
+  );
+
+  const rejected = await postJsonWithCookie(`/api/qr/${record.qr_access_token}/record`, {
+    content: 'Concurrent loser',
+    upload_proof: uploaded.body.data.upload_proof
+  }, firstCookie);
+  assert.equal(rejected.status, 409);
+  assert.equal(rejected.body.code, 'QR_ALREADY_ACTIVATED');
+  assert.deepEqual(
+    getTestDbSnapshot().qr_codes.find((item) => item.id === record.id),
+    beforeRetry
+  );
 });
 
 test('H5, miniapp, and admin uploads trust decoded JPEG/PNG rather than claimed MIME', async () => {
@@ -6241,8 +6496,9 @@ test('H5, miniapp, and admin uploads trust decoded JPEG/PNG rather than claimed 
   }).png().toBuffer();
 
   const h5Cookie = await loginUserAndGetCookie('13800138000');
+  const h5AccessToken = await generateIssuedQrAccessToken('SFH');
   const h5 = await postMultipartWithCookie('/api/upload', {
-    fields: { qr_id: 'SAFE_H5' },
+    fields: { qr_id: h5AccessToken },
     files: [{
       fieldName: 'image',
       filename: 'photo.txt',
@@ -6257,8 +6513,9 @@ test('H5, miniapp, and admin uploads trust decoded JPEG/PNG rather than claimed 
     code: 'safe-upload-miniapp',
     phone: '13877770111'
   });
+  const miniappAccessToken = await generateIssuedQrAccessToken('SFM');
   const miniapp = await postMultipart('/api/miniapp/upload', {
-    fields: { qr_id: 'SAFE_MINI' },
+    fields: { qr_id: miniappAccessToken },
     files: [{
       fieldName: 'image',
       filename: 'photo.bin',

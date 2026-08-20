@@ -13,7 +13,8 @@ const BUSINESS_ERROR_CODES = new Set([
   'FORBIDDEN',
   'QR_ALREADY_ACTIVATED',
   'QR_NOT_ISSUED',
-  'QR_NOT_FOUND'
+  'QR_NOT_FOUND',
+  'UPLOAD_PROOF_INVALID'
 ]);
 
 class QrLifecycleWriteError extends Error {
@@ -56,11 +57,23 @@ function operationUuid(randomUUID) {
 function normalizedPayload(payload = {}) {
   const accountId = normalizedText(payload.account_id || payload.accountId);
   if (!accountId) throw new QrLifecycleWriteError('ACCOUNT_CONTEXT_REQUIRED');
+  const uploadClaim = payload.upload_claim || payload.uploadClaim;
+  if (!uploadClaim || typeof uploadClaim !== 'object' || Array.isArray(uploadClaim)
+      || normalizedText(uploadClaim.account_id) !== accountId
+      || !normalizedText(uploadClaim.qr_id)
+      || !normalizedText(uploadClaim.object_key)) {
+    throw new QrLifecycleWriteError('UPLOAD_PROOF_INVALID');
+  }
   return {
     accountId,
     content: String(payload.content || ''),
-    imageUrl: String(payload.image_url || payload.imageUrl || ''),
-    imageObjectKey: normalizedText(payload.image_object_key || payload.imageObjectKey) || null,
+    imageUrl: '',
+    imageObjectKey: normalizedText(uploadClaim.object_key),
+    uploadClaim: Object.freeze({
+      account_id: accountId,
+      qr_id: normalizedText(uploadClaim.qr_id),
+      object_key: normalizedText(uploadClaim.object_key)
+    }),
     phone: normalizedText(payload.phone),
     showBrandDisclosure: payload.show_brand_disclosure === true
       || payload.showBrandDisclosure === true
@@ -79,6 +92,10 @@ class QrLifecycleWriteTransaction {
     randomUUID = crypto.randomUUID
   } = {}) {
     this.findQrByKeyForUpdate = requireMethod(qrRepository, 'findByKeyForUpdate');
+    this.findQrByAccessTokenForUpdate = requireMethod(
+      qrRepository,
+      'findByAccessTokenForUpdate'
+    );
     this.updateQrLifecycle = requireMethod(qrRepository, 'updateLifecycle');
     this.findBatchById = requireMethod(batchRepository, 'findById');
     this.findRecordForUpdate = requireMethod(recordRepository, 'findByQrIdForUpdate');
@@ -113,6 +130,7 @@ class QrLifecycleWriteTransaction {
   async activateByKey({ key, payload } = {}) {
     const input = normalizedPayload(payload);
     const qr = await this.#requireUnactivatedQr(key);
+    this.#assertUploadClaimMatchesQr(input, qr);
     await this.#assertContentPrivacy(input.accountId, input.content);
     const timestamp = operationTimestamp(this.clock);
     const disclosure = await this.#disclosureSnapshot(qr, input.showBrandDisclosure);
@@ -145,6 +163,7 @@ class QrLifecycleWriteTransaction {
   async startCoCreationByKey({ key, payload } = {}) {
     const input = normalizedPayload(payload);
     const qr = await this.#requireUnactivatedQr(key);
+    this.#assertUploadClaimMatchesQr(input, qr);
     await this.#assertContentPrivacy(input.accountId, input.content);
     const timestamp = operationTimestamp(this.clock);
     const disclosure = await this.#disclosureSnapshot(qr, input.showBrandDisclosure);
@@ -293,7 +312,7 @@ class QrLifecycleWriteTransaction {
   }
 
   async #requireUnactivatedQr(key) {
-    const qr = await this.findQrByKeyForUpdate(normalizedText(key));
+    const qr = await this.findQrByAccessTokenForUpdate(normalizedText(key));
     if (!qr) throw new QrLifecycleWriteError('QR_NOT_FOUND');
     if (qr.lifecycle_status !== 'unactivated') {
       throw new QrLifecycleWriteError('QR_ALREADY_ACTIVATED');
@@ -302,6 +321,13 @@ class QrLifecycleWriteTransaction {
       throw new QrLifecycleWriteError('QR_NOT_ISSUED');
     }
     return qr;
+  }
+
+  #assertUploadClaimMatchesQr(input, qr) {
+    if (input.uploadClaim.account_id !== input.accountId
+        || input.uploadClaim.qr_id !== String(qr.id)) {
+      throw new QrLifecycleWriteError('UPLOAD_PROOF_INVALID');
+    }
   }
 
   async #requireNoLifecycleRows(qrId) {

@@ -88,7 +88,9 @@ function makeHarness({
       }
     } : batchReader,
     assetResolver: assetResolver === undefined ? {
-      async resolveRecordImage({ record: currentRecord, channel }) {
+      async resolveRecordImage({ record: currentRecord, authority, channel }) {
+        assert.equal(authority.qrId, qr.id);
+        assert.equal(authority.accessToken, qr.access_token);
         calls.push(['asset.resolveRecordImage', currentRecord.qr_id, channel]);
         return `resolved://${channel}/${currentRecord.image_object_key}`;
       },
@@ -124,6 +126,7 @@ function activatedFixture(overrides = {}) {
   return {
     qr: {
       id: 'QR_PUBLIC_1',
+      access_token: '0123456789abcdef0123456789abcdef',
       lifecycle_status: 'activated',
       issue_status: 'issued',
       hidden: false,
@@ -638,6 +641,9 @@ function makeQrLifecycleWriteHarness({
     outboxJobs: []
   };
   const qrRepository = {
+    async findByAccessTokenForUpdate(key) {
+      return key === 'token-write' ? state.qr : null;
+    },
     async findByKeyForUpdate(key) {
       return key === 'token-write' || key === 'QR_WRITE' ? state.qr : null;
     },
@@ -741,6 +747,19 @@ function makeQrLifecycleWriteTransaction(harness, uuids = []) {
   });
 }
 
+function recordUploadPayload(overrides = {}) {
+  const accountId = overrides.account_id || 'ACC_OWNER';
+  return {
+    account_id: accountId,
+    upload_claim: {
+      account_id: accountId,
+      qr_id: 'QR_WRITE',
+      object_key: 'stars/record-images/canonical/record.jpg'
+    },
+    ...overrides
+  };
+}
+
 test('QR lifecycle write transaction requires narrow transaction-scoped dependencies', () => {
   assert.throws(
     () => new QrLifecycleWriteTransaction(),
@@ -753,10 +772,10 @@ test('QR lifecycle direct activation creates one sealed record and advances the 
   const harness = makeQrLifecycleWriteHarness();
   const result = await makeQrLifecycleWriteTransaction(harness).activateByKey({
     key: 'token-write',
-    payload: {
+    payload: recordUploadPayload({
       account_id: 'ACC_OWNER', phone: '13800000001', content: 'Direct record',
       image_object_key: 'records/direct.jpg', show_brand_disclosure: true
-    }
+    })
   });
 
   assert.equal(result.qr.lifecycle_status, 'activated');
@@ -778,7 +797,7 @@ test('QR lifecycle direct activation creates one sealed record and advances the 
   }]);
   await assert.rejects(
     makeQrLifecycleWriteTransaction(harness).activateByKey({
-      key: 'token-write', payload: { account_id: 'ACC_OWNER' }
+      key: 'token-write', payload: recordUploadPayload()
     }),
     (error) => error.code === 'QR_ALREADY_ACTIVATED'
   );
@@ -792,17 +811,46 @@ test('QR lifecycle write rejects unissued QR codes before direct or co-creation 
     await assert.rejects(
       makeQrLifecycleWriteTransaction(harness)[operation]({
         key: 'token-write',
-        payload: {
+        payload: recordUploadPayload({
           account_id: 'ACC_OWNER',
           phone: '13800000001',
           content: 'Must not be written',
           image_object_key: 'records/must-not-write.jpg'
-        }
+        })
       }),
       (error) => error instanceof QrLifecycleWriteError
         && error.code === 'QR_NOT_ISSUED'
     );
 
+    assert.deepEqual(harness.state, before);
+  }
+});
+
+test('QR lifecycle write rejects upload claims for another QR or account', async () => {
+  for (const uploadClaim of [
+    {
+      account_id: 'ACC_OWNER',
+      qr_id: 'QR_OTHER',
+      object_key: 'stars/record-images/other/record.jpg'
+    },
+    {
+      account_id: 'ACC_OTHER',
+      qr_id: 'QR_WRITE',
+      object_key: 'stars/record-images/other/record.jpg'
+    }
+  ]) {
+    const harness = makeQrLifecycleWriteHarness();
+    const before = structuredClone(harness.state);
+    await assert.rejects(
+      makeQrLifecycleWriteTransaction(harness).activateByKey({
+        key: 'token-write',
+        payload: {
+          account_id: 'ACC_OWNER',
+          upload_claim: uploadClaim
+        }
+      }),
+      (error) => error.code === 'UPLOAD_PROOF_INVALID'
+    );
     assert.deepEqual(harness.state, before);
   }
 });
@@ -816,11 +864,11 @@ test('QR lifecycle co-creation serializes comments, deletion, and final sealing'
   ]);
 
   const started = await transaction.startCoCreationByKey({
-    key: 'QR_WRITE',
-    payload: {
+    key: 'token-write',
+    payload: recordUploadPayload({
       account_id: 'ACC_OWNER', phone: '13800000001', content: 'Co record',
       image_url: 'https://fixture.invalid/co.jpg', show_brand_disclosure: true
-    }
+    })
   });
   assert.equal(started.qr.lifecycle_status, 'co_creating');
   assert.equal(started.record.sealed_at, null);
@@ -890,8 +938,8 @@ test('QR lifecycle write rejects cross-account full phones before durable mutati
     const before = structuredClone(harness.state);
     await assert.rejects(
       makeQrLifecycleWriteTransaction(harness)[operation]({
-        key: 'QR_WRITE',
-        payload: { account_id: 'ACC_OWNER', content: 'private fixture content' }
+        key: 'token-write',
+        payload: recordUploadPayload({ content: 'private fixture content' })
       }),
       (error) => error.code === 'CONTENT_PRIVACY_REJECTED'
     );
@@ -936,20 +984,21 @@ test('QR lifecycle write service owns one transaction and translates route busin
   });
 
   assert.deepEqual(
-    await service.activateQRByKey('missing', { account_id: 'ACC_OWNER' }),
+    await service.activateQRByKey('missing', recordUploadPayload()),
     { error: 'QR_NOT_FOUND' }
   );
   harness.state.qr.issue_status = 'unissued';
   assert.deepEqual(
-    await service.activateQRByKey('token-write', { account_id: 'ACC_OWNER' }),
+    await service.activateQRByKey('token-write', recordUploadPayload()),
     { error: 'QR_NOT_ISSUED' }
   );
   harness.state.qr.issue_status = 'issued';
   harness.identityRepository.hasCrossAccountPhoneReference = async () => true;
   assert.deepEqual(
-    await service.activateQRByKey('token-write', {
-      account_id: 'ACC_OWNER', content: 'private fixture content'
-    }),
+    await service.activateQRByKey(
+      'token-write',
+      recordUploadPayload({ content: 'private fixture content' })
+    ),
     { error: 'CONTENT_PRIVACY_REJECTED' }
   );
   assert.deepEqual(calls, [{
@@ -987,7 +1036,7 @@ test('QR lifecycle write never reports success when durable proof work cannot be
   });
 
   await assert.rejects(
-    service.activateQRByKey('token-write', { account_id: 'ACC_OWNER' }),
+    service.activateQRByKey('token-write', recordUploadPayload()),
     (error) => error.code === 'REPOSITORY_QUERY_FAILED'
   );
 });
@@ -1358,10 +1407,14 @@ test('activated projection preserves channel fields, proof fields, and resolver 
   assert.equal(h5.chain_certificate_url, 'certificate://h5/proofs/certificate.json');
   assert.equal(h5.has_my_co_creation_comment, true);
   assert.equal(h5.is_co_creation_owner, false);
+  assert.equal(Object.hasOwn(h5, 'image_object_key'), false);
+  assert.equal(JSON.stringify(h5).includes(fixture.qr.access_token), false);
   assert.equal(Object.prototype.hasOwnProperty.call(h5, 'brand_name'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(h5, 'phone_bound'), false);
   assert.equal(miniapp.brand_name, 'Test Brand');
   assert.equal(miniapp.phone_bound, true);
+  assert.equal(Object.hasOwn(miniapp, 'image_object_key'), false);
+  assert.equal(JSON.stringify(miniapp).includes(fixture.qr.access_token), false);
   assert.deepEqual(h5Harness.calls, [
     ['qr.findByKey', 'public-token'],
     ['batch.findById', 'BATCH_1'],
@@ -1521,6 +1574,7 @@ test('personal record adapter lists only repository-scoped rows in the existing 
         assert.deepEqual(options, { limit: 1001 });
         return [{
           qr_id: 'QR_LIST_1',
+          authority_access_token: 'fedcba9876543210fedcba9876543210',
           lifecycle_status: 'co_creating',
           content: 'Memory',
           image_url_snapshot: null,
@@ -1546,7 +1600,13 @@ test('personal record adapter lists only repository-scoped rows in the existing 
   });
   const dto = await adapter.present(snapshot, {
     assetResolver: {
-      resolveRecordImage: ({ record, channel }) => `${channel}://${record.image_object_key}`
+      resolveRecordImage: ({ record, authority, channel }) => {
+        assert.deepEqual(authority, {
+          qrId: 'QR_LIST_1',
+          accessToken: 'fedcba9876543210fedcba9876543210'
+        });
+        return `${channel}://${record.image_object_key}`;
+      }
     }
   });
   assert.deepEqual(dto, {

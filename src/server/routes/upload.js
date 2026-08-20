@@ -1,8 +1,15 @@
 const express = require('express');
 
-const { saveImage, getStorageMode } = require('../services/storageService');
+const { getStorageMode } = require('../services/storageService');
 const {
-  normalizeUploadedImage,
+  RecordImageUploadEligibilityError
+} = require('../services/recordImageUploadEligibilityService');
+const { processRecordImageUpload } = require('../services/recordImageUploadService');
+const {
+  QrLifecyclePostgresWriteError,
+  qrLifecycleWriteHttpError
+} = require('../services/postgres/qrLifecycleWriteRuntime');
+const {
   receiveSingleImage,
   respondToImageValidationError
 } = require('../services/imageUploadSecurityService');
@@ -20,13 +27,23 @@ router.post('/', requireUserSession, receiveSingleImage('image'), async (req, re
       });
     }
 
-    req.file = await normalizeUploadedImage(req.file, {
+    const qrKey = String(req.body.qr_id || req.query.qr_id || '').trim();
+    const accountId = String(req.user.account_id || '').trim();
+    if (!qrKey || !accountId) {
+      return res.status(400).json({
+        status: 'error',
+        code: 'UPLOAD_FAILED',
+        message: '上传上下文无效，请重新扫码后再试。'
+      });
+    }
+    const prepared = await processRecordImageUpload({
+      file: req.file,
+      accessToken: qrKey,
+      accountId,
       maxOutputWidth: 1080,
       jpegQuality: 80
     });
-
-    const qrId = req.body.qr_id || req.query.qr_id || 'unbound';
-    const stored = await saveImage({ file: req.file, qrId });
+    const { stored, uploadProof } = prepared;
 
     return res.json({
       status: 'success',
@@ -36,12 +53,28 @@ router.post('/', requireUserSession, receiveSingleImage('image'), async (req, re
         preview_url: stored.preview_url || null,
         storage_mode: stored.mode,
         object_key: stored.object_key,
+        upload_proof: uploadProof,
         buffered: true,
         active_storage_mode: getStorageMode(),
         fallback: stored.fallback === true
       }
     });
   } catch (error) {
+    if (error instanceof RecordImageUploadEligibilityError) {
+      return res.status(400).json({
+        status: 'error',
+        code: 'UPLOAD_QR_NOT_ELIGIBLE',
+        message: 'The QR code is not eligible for a record image upload.'
+      });
+    }
+    if (error instanceof QrLifecyclePostgresWriteError) {
+      const response = qrLifecycleWriteHttpError(error);
+      return res.status(response.status).json({
+        status: 'error',
+        code: response.code,
+        message: response.message
+      });
+    }
     if (respondToImageValidationError(
       error,
       res,

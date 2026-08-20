@@ -166,6 +166,81 @@ test('QR lifecycle all scope selects a future canonical QR ID', async () => {
   await controller.close();
 });
 
+test('scope-all upload authorization is selected by the lifecycle authority', async () => {
+  let authorizationCalls = 0;
+  const controller = createQrLifecycleWriteController({
+    readConfig: () => enabledConfig({ scope: 'all', allowlist: new Set() }),
+    runtimeFactory: () => ({
+      async authorizeRecordImageUpload({ key, accountId }) {
+        authorizationCalls += 1;
+        assert.equal(key, 'exact-access-token');
+        assert.equal(accountId, 'ACC000001');
+        return { qr: { id: 'SSS00001' } };
+      },
+      async close() {}
+    })
+  });
+  assert.deepEqual(await controller.authorizeRecordImageUpload({
+    key: 'exact-access-token', accountId: 'ACC000001'
+  }), {
+    selected: true,
+    qr: { id: 'SSS00001' }
+  });
+  assert.equal(authorizationCalls, 1);
+  await controller.close();
+});
+
+test('upload authorization uses exact-token read without holding a row lock', async () => {
+  const calls = [];
+  class EmptyRepository { constructor() {} }
+  const runtime = createQrLifecycleWriteRuntime(enabledConfig({
+    scope: 'all', allowlist: new Set()
+  }), {
+    env: {
+      PGHOST: '127.0.0.1', PGUSER: 'test', PGDATABASE: 'test', PGSSL: 'false'
+    },
+    createPool: () => ({}),
+    closePool: async () => {},
+    transactionRunner: async (_pool, callback, options) => {
+      calls.push(options);
+      return callback({});
+    },
+    migrationsLoader: () => [],
+    repositories: {
+      PublicQrProvenanceRepository: EmptyRepository,
+      AccountRepository: class { async exists() { return true; } },
+      QrRepository: class {
+        async findByAccessToken(key) {
+          calls.push(['findByAccessToken', key]);
+          return {
+            id: 'SSS00001', issue_status: 'issued', lifecycle_status: 'unactivated'
+          };
+        }
+        async findByAccessTokenForUpdate() {
+          throw new Error('upload eligibility must not lock');
+        }
+      },
+      RecordRepository: EmptyRepository,
+      CoCreationRepository: EmptyRepository,
+      ProofRepository: EmptyRepository,
+      QrBatchRepository: EmptyRepository
+    },
+    AdapterClass: class {},
+    freshnessChecker: async () => 'ELIGIBLE',
+    storageModeReader: () => 'local',
+    writeServiceFactory: () => ({})
+  });
+  assert.deepEqual(await runtime.authorizeRecordImageUpload({
+    key: 'exact-access-token', accountId: 'ACC000001'
+  }), { qr: { id: 'SSS00001' } });
+  assert.deepEqual(calls, [
+    { isolationLevel: 'repeatable read', readOnly: true },
+    { isolationLevel: 'repeatable read', readOnly: true },
+    ['findByAccessToken', 'exact-access-token']
+  ]);
+  await runtime.close();
+});
+
 test('write controller fails closed for partial configuration and domain drift', async () => {
   let runtimeCalls = 0;
   const invalid = createQrLifecycleWriteController({
@@ -425,6 +500,8 @@ test('default-off H5 route preserves the existing JSON write path without Postgr
   process.env.DB_FILE = databaseFile;
   process.env.STORAGE_ROOT = path.join(directory, 'storage');
   process.env.AUTH_SECRET = 'qr-write-route-secret';
+  process.env.UPLOAD_PROOF_SECRET = 'qr-write-route-upload-proof-secret';
+  process.env.NODE_ENV = 'test';
   delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ENABLED;
   delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_SCOPE;
   delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ALLOWLIST;
@@ -471,12 +548,27 @@ test('default-off H5 route preserves the existing JSON write path without Postgr
       item.issue_status === 'issued' && item.activation_status === 'unactivated'
     ));
     assert.ok(qr);
+    qr.qr_access_token = 'default-off-exact-access-token';
+    fs.writeFileSync(databaseFile, JSON.stringify(before, null, 2), 'utf8');
+    const user = before.users.find((item) => item.phone === '13800138991');
+    const {
+      issueRecordImageUploadProof
+    } = require('../src/server/services/uploadProofService');
+    const { buildRecordImageObjectKey } = require('../src/server/services/storageService');
+    const uploadProof = issueRecordImageUploadProof({
+      accountId: user.account_id,
+      qrId: qr.id,
+      objectKey: buildRecordImageObjectKey({
+        qrId: qr.id,
+        fileName: 'default-off-route.jpg'
+      })
+    });
 
     const response = await postJson(
       `/api/qr/${encodeURIComponent(qr.qr_access_token || qr.id)}/record`,
       {
       content: 'Default-off JSON route contract',
-      image_object_key: 'records/default-off-route.jpg'
+      upload_proof: uploadProof
       },
       { Cookie: cookie }
     );
@@ -500,5 +592,7 @@ test('default-off H5 route preserves the existing JSON write path without Postgr
     delete process.env.DB_FILE;
     delete process.env.STORAGE_ROOT;
     delete process.env.AUTH_SECRET;
+    delete process.env.UPLOAD_PROOF_SECRET;
+    delete process.env.NODE_ENV;
   }
 });

@@ -46,7 +46,7 @@ function buildCookieHeader(value, maxAgeSeconds) {
     `Max-Age=${maxAgeSeconds}`,
     `SameSite=${sameSite}`
   ];
-  if (process.env.USER_SESSION_SECURE === 'true') {
+  if (process.env.NODE_ENV === 'production' || process.env.USER_SESSION_SECURE === 'true') {
     attrs.push('Secure');
   }
   return attrs.join('; ');
@@ -61,7 +61,7 @@ function clearCookieHeader() {
     'Max-Age=0',
     `SameSite=${sameSite}`
   ];
-  if (process.env.USER_SESSION_SECURE === 'true') {
+  if (process.env.NODE_ENV === 'production' || process.env.USER_SESSION_SECURE === 'true') {
     attrs.push('Secure');
   }
   return attrs.join('; ');

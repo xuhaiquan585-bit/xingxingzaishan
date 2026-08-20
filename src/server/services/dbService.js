@@ -1176,6 +1176,29 @@ function getSampleUnactivated() {
   ) || null;
 }
 
+function findRecordImageUploadEligibilityByAccessToken(accessToken) {
+  const token = String(accessToken || '').trim();
+  if (!token) return null;
+  const db = readDB();
+  const qr = db.qr_codes.find((item) => item.qr_access_token === token) || null;
+  if (!qr || qr.issue_status !== 'issued' || qr.activation_status !== 'unactivated') {
+    return null;
+  }
+  return Object.freeze({ id: String(qr.id) });
+}
+
+function verifiedRecordImageClaim(payload, qrCode, accountId) {
+  const claim = payload && payload.upload_claim;
+  if (!claim || typeof claim !== 'object' || Array.isArray(claim)
+      || String(claim.account_id || '') !== accountId
+      || String(claim.qr_id || '') !== String(qrCode.id)
+      || typeof claim.object_key !== 'string'
+      || !claim.object_key.trim()) {
+    return null;
+  }
+  return claim;
+}
+
 function activateQRCodeOnce(qrId, payload) {
   const accountId = payloadAccountId(payload);
   if (!accountId) {
@@ -1195,6 +1218,10 @@ function activateQRCodeOnce(qrId, payload) {
   if (qrCode.activation_status !== 'unactivated') {
     return { error: 'QR_ALREADY_ACTIVATED', data: qrCode };
   }
+  const uploadClaim = verifiedRecordImageClaim(payload, qrCode, accountId);
+  if (!uploadClaim) {
+    return { error: 'UPLOAD_PROOF_INVALID' };
+  }
   if (violatesContentPrivacy(db, accountId, payload.content)) {
     return { error: 'CONTENT_PRIVACY_REJECTED' };
   }
@@ -1207,8 +1234,8 @@ function activateQRCodeOnce(qrId, payload) {
     ...qrCode,
     activation_status: 'activated',
     content: payload.content,
-    image_url: payload.image_url,
-    image_object_key: payload.image_object_key || null,
+    image_url: null,
+    image_object_key: uploadClaim.object_key,
     phone: payload.phone,
     account_id: accountId,
     activated_at: nowISO(),
@@ -1236,7 +1263,7 @@ function activateQRByKey(key, payload) {
     const qr = db.qr_codes[byToken];
     return activateQRCodeOnce(qr.id, payload);
   }
-  return activateQRCodeOnce(key, payload);
+  return { error: 'QR_NOT_FOUND' };
 }
 
 function startCoCreationOnce(qrId, payload) {
@@ -1258,6 +1285,10 @@ function startCoCreationOnce(qrId, payload) {
   if (qrCode.activation_status !== 'unactivated') {
     return { error: 'QR_ALREADY_ACTIVATED', data: qrCode };
   }
+  const uploadClaim = verifiedRecordImageClaim(payload, qrCode, accountId);
+  if (!uploadClaim) {
+    return { error: 'UPLOAD_PROOF_INVALID' };
+  }
   if (violatesContentPrivacy(db, accountId, payload.content)) {
     return { error: 'CONTENT_PRIVACY_REJECTED' };
   }
@@ -1274,8 +1305,8 @@ function startCoCreationOnce(qrId, payload) {
     co_creation_comments: [],
     co_creation_started_at: nowISO(),
     content: payload.content,
-    image_url: payload.image_url,
-    image_object_key: payload.image_object_key || null,
+    image_url: null,
+    image_object_key: uploadClaim.object_key,
     phone: payload.phone,
     account_id: accountId,
     show_brand_disclosure: showBrandDisclosure,
@@ -1294,7 +1325,7 @@ function startCoCreationByKey(key, payload) {
   if (byToken !== -1) {
     return startCoCreationOnce(db.qr_codes[byToken].id, payload);
   }
-  return startCoCreationOnce(key, payload);
+  return { error: 'QR_NOT_FOUND' };
 }
 
 function addCoCreationCommentByKey(key, { phone, account_id: accountIdValue, authorName, content }) {
@@ -1727,8 +1758,21 @@ function listActivatedRecordsByPhone(phone) {
     }));
 }
 
+function attachRecordMediaAuthority(record, item) {
+  Object.defineProperty(record, 'record_media_authority', {
+    value: Object.freeze({
+      qrId: String(item.id || ''),
+      accessToken: String(item.qr_access_token || '')
+    }),
+    enumerable: false,
+    configurable: false,
+    writable: false
+  });
+  return record;
+}
+
 function mapPersonalRecord(item) {
-  return {
+  return attachRecordMediaAuthority({
     id: item.id,
     content: item.content || '',
     image_url: item.image_url || null,
@@ -1743,11 +1787,11 @@ function mapPersonalRecord(item) {
     show_brand_disclosure: item.show_brand_disclosure === true,
     brand_disclosure_text_snapshot: item.brand_disclosure_text_snapshot || '',
     batch_id: item.batch_id || null
-  };
+  }, item);
 }
 
 function mapActivatedRecordDetail(item) {
-  return {
+  return attachRecordMediaAuthority({
     id: item.id,
     content: item.content || '',
     image_url: item.image_url || null,
@@ -1760,7 +1804,7 @@ function mapActivatedRecordDetail(item) {
     show_brand_disclosure: item.show_brand_disclosure === true,
     brand_disclosure_text_snapshot: item.brand_disclosure_text_snapshot || '',
     batch_id: item.batch_id || null
-  };
+  }, item);
 }
 
 function findPersonalRecordListContextByAccountId(accountIdValue) {
@@ -2769,6 +2813,7 @@ module.exports = {
   findQRByToken,
   findQRByKey,
   findPublicQrReadContextByKey,
+  findRecordImageUploadEligibilityByAccessToken,
   findPersonalRecordListContextByAccountId,
   findPersonalRecordDetailContext,
   getSampleUnactivated,

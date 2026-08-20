@@ -116,6 +116,125 @@ function buildObjectKey({ qrId, fileName }) {
   return `${prefix}/${group}/${fileName}`;
 }
 
+function recordImageQrIdSha256(qrId) {
+  const canonicalQrId = String(qrId || '').trim();
+  if (!canonicalQrId) throw new Error('RECORD_IMAGE_QR_ID_INVALID');
+  return crypto.createHash('sha256').update(canonicalQrId, 'utf8').digest('hex');
+}
+
+function buildRecordImageObjectKey({ qrId, fileName }) {
+  const hash = recordImageQrIdSha256(qrId);
+  const safeFileName = path.basename(String(fileName || ''));
+  if (!/^[a-zA-Z0-9_.-]+\.jpg$/.test(safeFileName)) {
+    throw new Error('RECORD_IMAGE_FILE_NAME_INVALID');
+  }
+  return `${getObjectPrefix()}/record-images/${hash}/${safeFileName}`;
+}
+
+function isCurrentRecordImageObjectKey(value) {
+  const objectKey = String(value || '').trim();
+  if (!objectKey || objectKey.includes('\\') || objectKey.includes('%')
+      || objectKey.includes('//') || /^[a-z][a-z0-9+.-]*:/i.test(objectKey)
+      || objectKey.startsWith('/')) {
+    return false;
+  }
+  const segments = objectKey.split('/');
+  if (segments.some((segment) => !segment || segment === '.' || segment === '..'
+      || !/^[a-zA-Z0-9_.-]+$/.test(segment))) {
+    return false;
+  }
+  if (segments[0].toLowerCase() === 'backups') return false;
+  const prefix = getObjectPrefix();
+  return segments.length === 4
+    && segments[0] === prefix
+    && segments[1] === 'record-images'
+    && /^[a-f0-9]{64}$/.test(segments[2])
+    && /^[a-zA-Z0-9_.-]+\.jpg$/.test(segments[3]);
+}
+
+function isRecordImageObjectKeyForQrId(value, qrId) {
+  if (!isCurrentRecordImageObjectKey(value)) return false;
+  return String(value).split('/')[2] === recordImageQrIdSha256(qrId);
+}
+
+function parseStrictObjectKey(value) {
+  const objectKey = String(value || '').trim();
+  if (!objectKey || objectKey.includes('\\') || objectKey.includes('%')
+      || objectKey.includes('//') || /^[a-z][a-z0-9+.-]*:/i.test(objectKey)
+      || objectKey.startsWith('/') || /[?#\u0000-\u001f\u007f]/.test(objectKey)) return null;
+  const segments = objectKey.split('/');
+  if (segments.some((segment) => !segment || segment === '.' || segment === '..'
+      || !/^[a-zA-Z0-9_.-]+$/.test(segment))) return null;
+  return { objectKey, segments };
+}
+
+function normalizeRecordMediaAuthority(authority) {
+  const qrId = String(authority && (authority.qrId || authority.qr_id) || '').trim();
+  const accessToken = String(
+    authority && (authority.accessToken || authority.access_token || authority.qr_access_token) || ''
+  ).trim();
+  return { qrId, accessToken };
+}
+
+function isLegacyPrefixedRecordImageObjectKeyForAuthority(value, authority) {
+  const parsed = parseStrictObjectKey(value);
+  if (!parsed) return false;
+  const { qrId, accessToken } = normalizeRecordMediaAuthority(authority);
+  if (!qrId || !/^[a-f0-9]{32}$/.test(accessToken)) return false;
+  if (sanitizePathSegment(accessToken, '') !== accessToken) return false;
+
+  const { segments } = parsed;
+  return segments.length === 3
+    && segments[0] === getObjectPrefix()
+    && segments[1] === accessToken
+    && /^[a-zA-Z0-9_.-]+\.(?:jpg|png)$/.test(segments[2]);
+}
+
+function resolveLegacySingleFileRecordImageUrl({ objectKey, imageUrl } = {}) {
+  const parsed = parseStrictObjectKey(objectKey);
+  if (!parsed || parsed.segments.length !== 1) return null;
+  const fileName = parsed.segments[0];
+  if (!/^[a-zA-Z0-9_.-]+\.jpg$/.test(fileName)) return null;
+
+  const exactUrl = `/uploads/${fileName}`;
+  return String(imageUrl || '') === exactUrl ? exactUrl : null;
+}
+
+function isSafeRecordImageSnapshotUrl(value) {
+  const imageUrl = String(value || '').trim();
+  if (!imageUrl || imageUrl.includes('\\') || imageUrl.includes('%')
+      || /[\u0000-\u001f\u007f]/.test(imageUrl)) return false;
+  if (/^https:\/\/[^/?#]+\/[^?#]+$/i.test(imageUrl)) return true;
+  return /^\/uploads\/[a-zA-Z0-9_.-]+\.jpg$/.test(imageUrl);
+}
+
+function classifyRecordImageReference({ record, authority } = {}) {
+  const objectKey = String(record && record.image_object_key || '').trim();
+  const imageUrl = String(
+    record && (record.image_url_snapshot || record.image_url) || ''
+  ).trim();
+  const { qrId } = normalizeRecordMediaAuthority(authority);
+
+  if (!objectKey) {
+    return isSafeRecordImageSnapshotUrl(imageUrl)
+      ? Object.freeze({ kind: 'snapshot', url: imageUrl })
+      : Object.freeze({ kind: 'rejected' });
+  }
+
+  if (qrId && isRecordImageObjectKeyForQrId(objectKey, qrId)) {
+    return Object.freeze({ kind: 'object', objectKey, namespace: 'current' });
+  }
+  if (isLegacyPrefixedRecordImageObjectKeyForAuthority(objectKey, authority)) {
+    return Object.freeze({ kind: 'object', objectKey, namespace: 'legacy-prefixed' });
+  }
+  const localUrl = resolveLegacySingleFileRecordImageUrl({ objectKey, imageUrl });
+  if (localUrl) {
+    return Object.freeze({ kind: 'local', url: localUrl, namespace: 'legacy-single-file' });
+  }
+
+  return Object.freeze({ kind: 'rejected' });
+}
+
 function sanitizeObjectKey(value) {
   const text = String(value || '').trim().replace(/\\/g, '/');
   if (!text) return null;
@@ -361,6 +480,34 @@ async function saveImage({ file, qrId }) {
   };
 }
 
+async function saveRecordImage({ file, qrId }) {
+  const fileName = buildFileName(file.originalname, 'image/jpeg').replace(/\.[^.]+$/, '.jpg');
+  const bufferedPath = saveBinaryFile(bufferDir, fileName, file.buffer);
+  const mode = getStorageMode();
+  const objectKey = buildRecordImageObjectKey({ qrId, fileName });
+
+  if (mode === 'cloud') {
+    try {
+      await putObjectToOss({ objectKey, localPath: bufferedPath });
+    } catch (_error) {
+      throw new Error('OSS_UPLOAD_FAILED');
+    }
+  } else {
+    const localPath = path.join(localUploadDir, ...objectKey.split('/'));
+    ensureDir(path.dirname(localPath));
+    fs.writeFileSync(localPath, file.buffer);
+  }
+
+  const publicUrl = getPublicObjectUrl(objectKey);
+  return {
+    mode,
+    url: publicUrl,
+    preview_url: publicUrl,
+    object_key: objectKey,
+    buffer_path: bufferedPath
+  };
+}
+
 async function saveJsonObject({ qrId, fileName = 'record_manifest.json', data }) {
   const buffer = Buffer.from(JSON.stringify(data, null, 2), 'utf8');
   return saveBinaryObject({
@@ -482,18 +629,58 @@ async function readTextObjectAtKey(objectKey) {
   return buffer ? buffer.toString('utf8') : '';
 }
 
+async function openRecordImageObjectStream(objectKey) {
+  const parsed = parseStrictObjectKey(objectKey);
+  if (!parsed || !/\.(?:jpg|png)$/.test(parsed.objectKey)) {
+    throw new Error('RECORD_IMAGE_OBJECT_KEY_INVALID');
+  }
+  if (getStorageMode() === 'cloud') {
+    const result = await getOssClient().getStream(parsed.objectKey);
+    const status = Number(result?.res?.status || result?.status || 0);
+    if (status !== 200 || !result?.stream || typeof result.stream.pipe !== 'function') {
+      throw new Error('RECORD_IMAGE_OBJECT_READ_FAILED');
+    }
+    return Object.freeze({
+      stream: result.stream,
+      contentType: parsed.objectKey.endsWith('.png') ? 'image/png' : 'image/jpeg'
+    });
+  }
+
+  const localPath = getLocalObjectPath(parsed.objectKey);
+  const resolvedRoot = path.resolve(localUploadDir);
+  const resolvedPath = path.resolve(localPath);
+  if (!resolvedPath.startsWith(`${resolvedRoot}${path.sep}`)) {
+    throw new Error('RECORD_IMAGE_OBJECT_KEY_INVALID');
+  }
+  const stat = fs.statSync(resolvedPath);
+  if (!stat.isFile()) throw new Error('RECORD_IMAGE_OBJECT_READ_FAILED');
+  return Object.freeze({
+    stream: fs.createReadStream(resolvedPath),
+    contentType: parsed.objectKey.endsWith('.png') ? 'image/png' : 'image/jpeg'
+  });
+}
+
 module.exports = {
   getStorageMode,
   saveImage,
+  saveRecordImage,
   saveJsonObject,
   saveBinaryObject,
   saveJsonObjectAtKey,
   saveBinaryObjectAtKey,
   readObjectBuffer,
   readTextObjectAtKey,
+  openRecordImageObjectStream,
   getPublicObjectUrl,
   getSignedUrl,
   getObjectPrefix,
+  buildRecordImageObjectKey,
+  recordImageQrIdSha256,
+  isCurrentRecordImageObjectKey,
+  isRecordImageObjectKeyForQrId,
+  isLegacyPrefixedRecordImageObjectKeyForAuthority,
+  resolveLegacySingleFileRecordImageUrl,
+  classifyRecordImageReference,
   getLocalObjectPath,
   getProtectedObjectMetadata,
   downloadProtectedObjectFromOss,

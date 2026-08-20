@@ -82,6 +82,7 @@ let userPhone = '';
 let uploadedImageUrl = '';
 let uploadedImageObjectKey = '';
 let uploadedStorageMode = '';
+let uploadedImageProof = '';
 let pendingPhotoSource = 'upload';
 let currentResult = null;
 let currentCoCreate = null;
@@ -898,6 +899,7 @@ imageInput.addEventListener('change', async () => {
     uploadedImageUrl = res.data.url;
     uploadedImageObjectKey = res.data.object_key || '';
     uploadedStorageMode = res.data.storage_mode || 'local';
+    uploadedImageProof = res.data.upload_proof || '';
 
     const previewSrc = res.data.preview_url || res.data.url || '';
     if (previewSrc) {
@@ -910,6 +912,7 @@ imageInput.addEventListener('change', async () => {
     uploadedImageUrl = '';
     uploadedImageObjectKey = '';
     uploadedStorageMode = '';
+    uploadedImageProof = '';
     preview.src = '';
     setUploadPreviewState(false);
     imageInput.value = '';
@@ -956,7 +959,7 @@ contentInput.addEventListener('input', () => {
 submitBtn.addEventListener('click', async () => {
   if (submitting) return;
 
-  if (!uploadedImageObjectKey && !uploadedImageUrl) {
+  if (!uploadedImageProof) {
     showError('请先添加一张照片。');
     return;
   }
@@ -1010,8 +1013,7 @@ async function submitRecord() {
       body: JSON.stringify({
         content,
         mode: saveMode,
-        image_url: uploadedStorageMode === 'cloud' ? null : uploadedImageUrl,
-        image_object_key: uploadedImageObjectKey,
+        upload_proof: uploadedImageProof,
         show_brand_disclosure: showBrandDisclosureInput ? showBrandDisclosureInput.checked : false
       })
     });

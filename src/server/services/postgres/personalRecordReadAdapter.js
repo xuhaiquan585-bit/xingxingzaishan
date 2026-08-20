@@ -170,7 +170,14 @@ class PersonalRecordReadAdapter {
 
   async #resolveImage(record, channel, assetResolver) {
     if (assetResolver && typeof assetResolver.resolveRecordImage === 'function') {
-      return assetResolver.resolveRecordImage({ record, channel });
+      return assetResolver.resolveRecordImage({
+        record,
+        channel,
+        authority: {
+          qrId: record.qr_id,
+          accessToken: record.authority_access_token
+        }
+      });
     }
     if (record.image_object_key) {
       throw new PublicQrReadError('PUBLIC_QR_IMAGE_RESOLVER_REQUIRED');
