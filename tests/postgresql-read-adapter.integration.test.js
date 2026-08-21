@@ -80,6 +80,9 @@ const {
   createSession,
   getCookieName
 } = require('../src/server/services/userSessionService');
+const {
+  issueRecordImageUploadProof
+} = require('../src/server/services/uploadProofService');
 const { executeStagingImport } = require('../scripts/database/import-staging');
 const { loadMigrations, runMigrations } = require('../scripts/database/migrate');
 const { analyzeSourceSnapshot } = require('../scripts/database/importer');
@@ -1567,7 +1570,11 @@ test('manual PostgreSQL public QR adapter integration', {
       `/api/qr/${allScopeAccessToken}/record`,
       {
         content: 'PostgreSQL-only all-scope route content',
-        image_object_key: 'records/scope-all-route.jpg'
+        upload_proof: issueRecordImageUploadProof({
+          accountId: postgresOnlyAccountId,
+          qrId: allScopeQrId,
+          objectKey: `stars/record-images/${allScopeQrId.toLowerCase()}/scope-all-route.jpg`
+        })
       },
       { Cookie: h5IdentityCookie }
     );
@@ -1895,7 +1902,11 @@ test('manual PostgreSQL public QR adapter integration', {
       '/api/qr/token-qr_unactivated/record',
       {
         content: 'PostgreSQL route activation',
-        image_object_key: 'records/route-activation.jpg'
+        upload_proof: issueRecordImageUploadProof({
+          accountId: lifecycleWriter.account_id,
+          qrId: 'QR_UNACTIVATED',
+          objectKey: 'stars/record-images/qr_unactivated/route-activation.jpg'
+        })
       },
       { Cookie: lifecycleWriterCookie }
     );
