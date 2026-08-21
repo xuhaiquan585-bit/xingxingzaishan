@@ -83,6 +83,9 @@ const {
 const {
   issueRecordImageUploadProof
 } = require('../src/server/services/uploadProofService');
+const {
+  recordImageQrIdSha256
+} = require('../src/server/services/storageService');
 const { executeStagingImport } = require('../scripts/database/import-staging');
 const { loadMigrations, runMigrations } = require('../scripts/database/migrate');
 const { analyzeSourceSnapshot } = require('../scripts/database/importer');
@@ -1077,7 +1080,7 @@ test('manual PostgreSQL public QR adapter integration', {
     const recordClaim = (qrId) => ({
       account_id: concurrentWebIdentities[0].account_id,
       qr_id: qrId,
-      object_key: `stars/record-images/${qrId.toLowerCase()}/record.jpg`
+      object_key: `stars/record-images/${recordImageQrIdSha256(qrId)}/record.jpg`
     });
     assert.deepEqual(
       await qrWriteService.activateQRByKey('token-write-direct', {
@@ -1573,7 +1576,7 @@ test('manual PostgreSQL public QR adapter integration', {
         upload_proof: issueRecordImageUploadProof({
           accountId: postgresOnlyAccountId,
           qrId: allScopeQrId,
-          objectKey: `stars/record-images/${allScopeQrId.toLowerCase()}/scope-all-route.jpg`
+          objectKey: `stars/record-images/${recordImageQrIdSha256(allScopeQrId)}/scope-all-route.jpg`
         })
       },
       { Cookie: h5IdentityCookie }
@@ -1905,7 +1908,7 @@ test('manual PostgreSQL public QR adapter integration', {
         upload_proof: issueRecordImageUploadProof({
           accountId: lifecycleWriter.account_id,
           qrId: 'QR_UNACTIVATED',
-          objectKey: 'stars/record-images/qr_unactivated/route-activation.jpg'
+          objectKey: `stars/record-images/${recordImageQrIdSha256('QR_UNACTIVATED')}/route-activation.jpg`
         })
       },
       { Cookie: lifecycleWriterCookie }
