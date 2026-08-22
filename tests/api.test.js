@@ -1589,6 +1589,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const miniappAppJson = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'app.json'), 'utf8');
   const miniappAuthJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'utils', 'auth.js'), 'utf8');
   const miniappRequestJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'utils', 'request.js'), 'utf8');
+  const miniappMediaJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'utils', 'media.js'), 'utf8');
   const bindPhoneWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.wxml'), 'utf8');
   const bindPhoneCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.wxss'), 'utf8');
   const bindPhoneJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'bind-phone', 'bind-phone.js'), 'utf8');
@@ -1907,9 +1908,12 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(recordJs.includes("new Set(['upload', 'replace-photo', 'submit'])"), true);
   assert.equal(recordJs.includes('record_draft:${key}'), true);
   assert.equal(recordJs.includes('record_draft:${key}:verify_pending'), true);
-  assert.equal(recordJs.includes('wx.chooseMedia'), true);
+  assert.equal(recordJs.includes('chooseSingleImage()'), true);
+  assert.equal(miniappMediaJs.includes('wxApi.requirePrivacyAuthorize'), true);
+  assert.equal(miniappMediaJs.includes('wxApi.chooseMedia'), true);
+  assert.equal(miniappMediaJs.includes('fail: reject'), true);
   assert.equal(recordJs.includes('requirePhoneBeforeProtectedAction(source)'), true);
-  assert.equal(recordJs.indexOf('if (!this.requirePhoneBeforeProtectedAction(source)) return;') < recordJs.indexOf('wx.chooseMedia'), true);
+  assert.equal(recordJs.indexOf('if (!this.requirePhoneBeforeProtectedAction(source)) return;') < recordJs.indexOf('chooseSingleImage()'), true);
   assert.equal(recordJs.includes('function getUnavailableActionMessage(pageState)'), true);
   assert.equal(recordJs.includes('请通过星贴二维码进入。'), true);
   assert.equal(recordJs.includes('没有找到这张星贴，请重新扫码。'), true);

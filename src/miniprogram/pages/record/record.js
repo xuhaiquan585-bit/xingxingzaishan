@@ -1,6 +1,11 @@
 const { login, redirectToBindPhone } = require('../../utils/auth');
 const { request, uploadImage, resolveAssetUrl, isPhoneBound, getToken, clearAuthState } = require('../../utils/request');
 const { extractQrKey } = require('../../utils/qr');
+const {
+  chooseSingleImage,
+  imageSelectionErrorMessage,
+  isImageSelectionCancelled
+} = require('../../utils/media');
 
 const PREVIEW_WIDTH_RPX = 638;
 const MIN_PREVIEW_HEIGHT_RPX = 320;
@@ -346,39 +351,45 @@ Page({
     }
     const source = this.data.hasPhoto ? 'replace-photo' : 'upload';
     if (!this.requirePhoneBeforeProtectedAction(source)) return;
-    wx.chooseMedia({
-      count: 1,
-      mediaType: ['image'],
-      sourceType: ['album', 'camera'],
-      success: (res) => {
-        const file = res.tempFiles && res.tempFiles[0];
-        const filePath = file && file.tempFilePath;
-        if (!filePath) return;
-        this.setData({ message: '图片上传中...' });
-        Promise.all([
-          uploadImage({ filePath, qrId: this.data.key }),
-          getImagePreviewHeight(file)
-        ]).then(([data, previewHeight]) => {
-          this.setData({
-            imageUrl: data.url || '',
-            imageObjectKey: data.object_key || '',
-            uploadProof: data.upload_proof || '',
-            previewUrl: resolveAssetUrl(data.preview_url || data.url),
-            previewHeight,
-            imageButtonText: '更换照片',
-            hasPhoto: true,
-            message: ''
-          });
-        }).catch((error) => {
-          if (error.code === 'PHONE_NOT_BOUND') {
-            this.saveRecordDraft(source);
-            this.markVerificationPending(source);
-            redirectToBindPhone(this.recordRedirectUrl(), source);
-            return;
-          }
-          this.setData({ message: error.message || '上传失败，请重新选择图片' });
+    let imageSelected = false;
+    chooseSingleImage().then((file) => {
+      imageSelected = true;
+      this.setData({ message: '图片上传中...' });
+      return Promise.all([
+        uploadImage({ filePath: file.tempFilePath, qrId: this.data.key }),
+        getImagePreviewHeight(file)
+      ]);
+    }).then(([data, previewHeight]) => {
+      this.setData({
+        imageUrl: data.url || '',
+        imageObjectKey: data.object_key || '',
+        uploadProof: data.upload_proof || '',
+        previewUrl: resolveAssetUrl(data.preview_url || data.url),
+        previewHeight,
+        imageButtonText: '更换照片',
+        hasPhoto: true,
+        message: ''
+      });
+    }).catch((error) => {
+      if (!imageSelected && isImageSelectionCancelled(error)) return;
+      if (!imageSelected) {
+        const message = imageSelectionErrorMessage(error);
+        this.setData({ message });
+        wx.showModal({
+          title: '无法选择照片',
+          content: message,
+          showCancel: false
         });
+        return;
       }
+      if (error.code === 'PHONE_NOT_BOUND') {
+        this.saveRecordDraft(source);
+        this.markVerificationPending(source);
+        redirectToBindPhone(this.recordRedirectUrl(), source);
+        return;
+      }
+      const message = error.message || '上传失败，请重新选择图片';
+      this.setData({ message });
     });
   },
 
