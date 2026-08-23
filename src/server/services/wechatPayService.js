@@ -3,6 +3,7 @@ const fs = require('fs');
 const https = require('https');
 
 const WECHAT_PAY_API_BASE = 'https://api.mch.weixin.qq.com';
+const WECHAT_PAY_USER_AGENT = 'xingxingzaishan/1.0';
 
 function getConfig() {
   return {
@@ -89,9 +90,12 @@ function requestWechatPayApi({ method, path, body }) {
   const headers = {
     Authorization: authorization,
     Accept: 'application/json',
-    'Content-Type': 'application/json',
-    'Content-Length': Buffer.byteLength(payload)
+    'User-Agent': WECHAT_PAY_USER_AGENT
   };
+  if (payload) {
+    headers['Content-Type'] = 'application/json';
+    headers['Content-Length'] = Buffer.byteLength(payload);
+  }
   if (config.publicKeyId) {
     headers['Wechatpay-Serial'] = config.publicKeyId;
   }

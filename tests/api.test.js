@@ -4905,6 +4905,9 @@ test('miniapp order pay should return WeChat JSAPI payment params when configure
     assert.equal(payRes.body.data.order.status, 'pending_payment');
     assert.equal(httpsMock.calls.length, 1);
     assert.ok(httpsMock.calls[0].url.includes('/v3/pay/transactions/jsapi'));
+    assert.equal(httpsMock.calls[0].options.headers['User-Agent'], 'xingxingzaishan/1.0');
+    assert.equal(httpsMock.calls[0].options.headers['Content-Type'], 'application/json');
+    assert.ok(Number(httpsMock.calls[0].options.headers['Content-Length']) > 0);
     const requestBody = JSON.parse(httpsMock.calls[0].body);
     assert.equal(requestBody.appid, process.env.WECHAT_PAY_APPID);
     assert.equal(requestBody.mchid, process.env.WECHAT_PAY_MCH_ID);
@@ -4915,6 +4918,37 @@ test('miniapp order pay should return WeChat JSAPI payment params when configure
     assert.equal(JSON.stringify(requestBody).includes(paymentOrderAccountId), false);
     paymentDb = getTestDbSnapshot();
     assert.equal(paymentDb.orders.find((item) => item.id === orderRes.body.data.id).openid, 'mock-openid-legacy-wechat-pay');
+  } finally {
+    httpsMock.restore();
+    restoreEnv(oldEnv);
+  }
+});
+
+test('WeChat Pay order query sends required client identity without GET entity headers', async () => {
+  const oldEnv = snapshotEnv(WECHAT_PAY_ENV_KEYS);
+  const keys = createWechatPayKeyFiles('wechat-query-headers');
+  const httpsMock = mockWechatPayHttps({
+    code: 'ORDER_NOTEXIST',
+    message: 'order does not exist'
+  }, 404);
+  try {
+    clearWechatPayEnv();
+    applyWechatPayPublicKeyEnv(keys);
+    const { queryOrderByOutTradeNo } = require('../src/server/services/wechatPayService');
+
+    await assert.rejects(
+      () => queryOrderByOutTradeNo('JS_TEST_QUERY_001'),
+      (error) => error && error.code === 'ORDER_NOTEXIST' && error.statusCode === 404
+    );
+
+    assert.equal(httpsMock.calls.length, 1);
+    assert.equal(httpsMock.calls[0].options.method, 'GET');
+    assert.equal(httpsMock.calls[0].options.headers.Accept, 'application/json');
+    assert.equal(httpsMock.calls[0].options.headers['User-Agent'], 'xingxingzaishan/1.0');
+    assert.equal(httpsMock.calls[0].options.headers['Wechatpay-Serial'], 'PUB_KEY_ID_TEST');
+    assert.equal(httpsMock.calls[0].options.headers['Content-Type'], undefined);
+    assert.equal(httpsMock.calls[0].options.headers['Content-Length'], undefined);
+    assert.equal(httpsMock.calls[0].body, '');
   } finally {
     httpsMock.restore();
     restoreEnv(oldEnv);
