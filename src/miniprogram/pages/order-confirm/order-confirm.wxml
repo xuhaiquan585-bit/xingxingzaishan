@@ -45,12 +45,31 @@
     <view class="order-section order-quantity-row">
       <view>
         <view class="order-section-title">购买数量</view>
-        <view class="order-quantity-hint">每份含 {{product.sticker_count}} 枚星贴</view>
+        <view class="order-quantity-hint">
+          <text>每份含 {{product.sticker_count}} 枚星贴</text>
+          <text wx:if="{{product.stock > 0}}"> · 每单最多 {{quantityLimit}} 份</text>
+        </view>
       </view>
       <view class="quantity-stepper">
-        <button class="quantity-button" data-delta="-1" bindtap="changeQuantity" disabled="{{quantity <= 1}}">−</button>
-        <input class="quantity-input" type="number" value="{{quantity}}" bindinput="onQuantityInput" />
-        <button class="quantity-button" data-delta="1" bindtap="changeQuantity" disabled="{{quantity >= 99}}">＋</button>
+        <view
+          class="quantity-button {{quantity <= 1 ? 'is-disabled' : ''}}"
+          data-delta="-1"
+          bindtap="changeQuantity"
+          hover-class="quantity-button-hover"
+          aria-role="button"
+          aria-label="减少商品数量"
+          aria-disabled="{{quantity <= 1}}"
+        >-</view>
+        <input class="quantity-input" type="number" value="{{quantityInput}}" bindfocus="onQuantityFocus" bindinput="onQuantityInput" bindblur="onQuantityBlur" />
+        <view
+          class="quantity-button {{quantity >= quantityLimit ? 'is-disabled' : ''}}"
+          data-delta="1"
+          bindtap="changeQuantity"
+          hover-class="quantity-button-hover"
+          aria-role="button"
+          aria-label="增加商品数量"
+          aria-disabled="{{quantity >= quantityLimit}}"
+        >+</view>
       </view>
     </view>
   </block>

@@ -1906,6 +1906,11 @@ function getActivatedRecordByMiniappOpenidAndId({ openid, id }) {
   return getActivatedRecordByPhoneAndId({ phone: user.phone, id });
 }
 
+function formatProductPriceText(priceCents) {
+  const normalizedCents = Math.max(0, Math.round(Number(priceCents) || 0));
+  return normalizedCents > 0 ? (normalizedCents / 100).toFixed(2) : '';
+}
+
 function normalizeProductInput(input = {}, existing = {}) {
   const images = Array.isArray(input.images)
     ? input.images
@@ -1914,14 +1919,15 @@ function normalizeProductInput(input = {}, existing = {}) {
       .map((item) => item.trim())
       .filter(Boolean);
   const hasCustomizableInput = input.is_customizable !== undefined && input.is_customizable !== null;
+  const priceCents = Math.max(0, Math.round(Number(input.price_cents ?? existing.price_cents ?? 0) || 0));
 
   return {
     title: String(input.title ?? existing.title ?? '').trim(),
     subtitle: String(input.subtitle ?? existing.subtitle ?? '').trim(),
     cover_image: String(input.cover_image ?? existing.cover_image ?? '').trim(),
     images,
-    price_text: String(input.price_text ?? existing.price_text ?? '').trim(),
-    price_cents: Math.max(0, Math.round(Number(input.price_cents ?? existing.price_cents ?? 0) || 0)),
+    price_text: formatProductPriceText(priceCents),
+    price_cents: priceCents,
     description: String(input.description ?? existing.description ?? '').trim(),
     status: ['draft', 'published', 'hidden'].includes(input.status) ? input.status : (existing.status || 'draft'),
     product_type: PRODUCT_TYPES.includes(input.product_type) ? input.product_type : (existing.product_type || 'wine_sticker'),
@@ -2044,7 +2050,10 @@ function updateProduct(id, input) {
 
 function listProducts({ publicOnly = false } = {}) {
   const db = readDB();
-  let products = db.products.slice();
+  let products = db.products.map((item) => ({
+    ...item,
+    price_text: formatProductPriceText(item.price_cents)
+  }));
   if (publicOnly) {
     products = products.filter((item) => item.status === 'published');
   }
@@ -2125,7 +2134,7 @@ function createMiniappOrder({ openid, phone, account_id: accountIdValue, product
       title: product.title,
       subtitle: product.subtitle,
       cover_image: product.cover_image,
-      price_text: product.price_text,
+      price_text: formatProductPriceText(unitPrice),
       price_cents: unitPrice,
       product_type: product.product_type,
       sticker_count: product.sticker_count,

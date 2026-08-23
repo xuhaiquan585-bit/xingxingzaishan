@@ -1521,6 +1521,8 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(html.includes('id="systemPanel"'), true);
   assert.equal(html.includes('id="productSceneTags"'), true);
   assert.equal(html.includes('id="productPriceYuan"'), true);
+  assert.equal(html.includes('id="productPrice" readonly'), true);
+  assert.equal(html.includes('支付价格展示（自动）'), true);
   assert.equal(html.includes('id="productStickerCount"'), true);
   assert.equal(html.includes('id="productStock"'), true);
   assert.equal(html.includes('单笔购买上限'), true);
@@ -2172,7 +2174,15 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(orderConfirmJs.includes('payMiniappOrder'), true);
   assert.equal(orderConfirmJs.includes('submitting: false'), true);
   assert.equal(orderConfirmJs.includes('if (!this.data.product || this.data.submitting) return'), true);
-  assert.equal(orderConfirmJs.includes('Math.round(Number(event.detail.value || 1))'), true);
+  assert.equal(orderConfirmJs.includes("quantityInput: '1'"), true);
+  assert.equal(orderConfirmJs.includes('resolveQuantityLimit(product)'), true);
+  assert.equal(orderConfirmWxml.includes('bindfocus="onQuantityFocus"'), true);
+  assert.equal(orderConfirmWxml.includes('bindblur="onQuantityBlur"'), true);
+  assert.equal(orderConfirmWxml.includes('value="{{quantityInput}}"'), true);
+  assert.equal(orderConfirmWxml.includes('aria-label="减少商品数量"'), true);
+  assert.equal(orderConfirmWxml.includes('aria-label="增加商品数量"'), true);
+  assert.equal(orderConfirmWxml.includes('>-</view>'), true);
+  assert.equal(orderConfirmWxml.includes('>+</view>'), true);
   assert.equal(normalizedOrderConfirmJs.includes("if (createdOrder) {\n          this.openOrder(createdOrder.id);\n          return;\n        }\n        this.setData({ submitting: false });"), true);
   assert.equal(orderConfirmWxml.includes('bindtap="changeQuantity"'), true);
   assert.equal(orderConfirmWxml.includes('实付'), true);
@@ -4375,7 +4385,7 @@ test('admin product management should expose only published products to miniapp'
     subtitle: '贴在酒瓶上的专属记录入口',
     cover_image: '/uploads/product.jpg',
     images: ['/uploads/detail-1.jpg'],
-    price_text: '¥39 / 10枚装',
+    price_text: '0.02',
     price_cents: 3900,
     description: '适合生日和婚礼现场贴在酒瓶上使用，不含酒水。',
     product_type: 'wine_sticker',
@@ -4391,6 +4401,7 @@ test('admin product management should expose only published products to miniapp'
   assert.equal(publishedRes.status, 200);
   assert.equal(publishedRes.body.data.buy_type, 'miniapp_order');
   assert.equal(publishedRes.body.data.price_cents, 3900);
+  assert.equal(publishedRes.body.data.price_text, '39.00');
   assert.equal(publishedRes.body.data.sticker_count, 10);
   assert.equal(publishedRes.body.data.stock, 50);
   assert.equal(publishedRes.body.data.is_customizable, true);
@@ -4414,6 +4425,7 @@ test('admin product management should expose only published products to miniapp'
   const adminList = await getJson('/api/admin/products', token);
   assert.equal(adminList.status, 200);
   assert.ok(adminList.body.data.products.some((item) => item.id === productId));
+  assert.equal(adminList.body.data.products.find((item) => item.id === productId).price_text, '39.00');
   assert.deepEqual(adminList.body.data.products.find((item) => item.id === productId).scene_tags, ['birthday', 'wedding']);
 
   const miniList = await getJson('/api/miniapp/products');
@@ -4423,6 +4435,7 @@ test('admin product management should expose only published products to miniapp'
   const miniProduct = miniList.body.data.products.find((item) => item.id === productId);
   assert.equal(miniProduct.buy_type, 'miniapp_order');
   assert.equal(miniProduct.price_cents, 3900);
+  assert.equal(miniProduct.price_text, '39.00');
   assert.equal(miniProduct.sticker_count, 10);
   assert.equal(miniProduct.stock, 50);
   assert.deepEqual(miniProduct.scene_tags, ['birthday', 'wedding']);
@@ -4432,6 +4445,7 @@ test('admin product management should expose only published products to miniapp'
   assert.equal(detail.body.data.buy_type, 'miniapp_order');
   assert.equal(detail.body.data.product_type, 'wine_sticker');
   assert.equal(detail.body.data.price_cents, 3900);
+  assert.equal(detail.body.data.price_text, '39.00');
   assert.equal(detail.body.data.sticker_count, 10);
   assert.deepEqual(detail.body.data.scene_tags, ['birthday', 'wedding']);
 
@@ -4507,7 +4521,7 @@ test('miniapp sticker orders should create, mock pay, list, and allow admin ship
   const productRes = await postJson('/api/admin/products', {
     title: '恋人酒瓶星贴',
     subtitle: '两个人的一瓶酒',
-    price_text: '¥29 / 6枚装',
+    price_text: '0.02',
     price_cents: 2900,
     product_type: 'wine_sticker',
     sticker_count: 6,
@@ -4552,6 +4566,7 @@ test('miniapp sticker orders should create, mock pay, list, and allow admin ship
   assert.equal(orderRes.body.data.payment_status, 'unpaid');
   assert.equal(orderRes.body.data.total_amount_cents, 5800);
   assert.equal(orderRes.body.data.product_snapshot.title, '恋人酒瓶星贴');
+  assert.equal(orderRes.body.data.product_snapshot.price_text, '29.00');
   const orderId = orderRes.body.data.id;
   const dbAfterOrder = getTestDbSnapshot();
   const orderUser = findTestUserByPhone(dbAfterOrder, '13888880001');

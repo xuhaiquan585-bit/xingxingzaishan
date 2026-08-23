@@ -429,16 +429,26 @@ function formatProductScenes(tags = []) {
   return tags.map((tag) => PRODUCT_SCENE_LABELS[tag] || tag).join('、');
 }
 
+function formatProductPriceText(priceCents) {
+  const normalizedCents = Math.max(0, Math.round(Number(priceCents) || 0));
+  return normalizedCents > 0 ? (normalizedCents / 100).toFixed(2) : '';
+}
+
+function updateProductPricePreview() {
+  const priceYuan = document.getElementById('productPriceYuan').value.trim();
+  const priceCents = priceYuan ? Math.round(Number(priceYuan) * 100) : 0;
+  document.getElementById('productPrice').value = formatProductPriceText(priceCents);
+}
+
 function readProductForm() {
   const priceYuan = document.getElementById('productPriceYuan').value.trim();
   const priceCents = priceYuan ? Math.round(Number(priceYuan) * 100) : 0;
   const stickerCount = Number(document.getElementById('productStickerCount').value || 1);
-  const manualPriceText = document.getElementById('productPrice').value.trim();
   return {
     title: document.getElementById('productTitle').value.trim(),
     subtitle: document.getElementById('productSubtitle').value.trim(),
     cover_image: document.getElementById('productCover').value.trim(),
-    price_text: manualPriceText || (priceCents > 0 ? `¥${(priceCents / 100).toFixed(2)} / ${stickerCount}枚装` : ''),
+    price_text: formatProductPriceText(priceCents),
     price_cents: priceCents,
     sticker_count: stickerCount,
     stock: Number(document.getElementById('productStock').value || 0),
@@ -482,7 +492,7 @@ function renderProducts(products) {
         <div><strong>${escapeHtml(product.title)}</strong><small>${escapeHtml(product.id)}</small></div>
       </div></td>
       <td>${productStatusBadge(product.status)}</td>
-      <td><strong>${escapeHtml(product.price_text || (product.price_cents ? `¥${(Number(product.price_cents) / 100).toFixed(2)}` : '未填写'))}</strong></td>
+      <td><strong>${escapeHtml(formatProductPriceText(product.price_cents) || '未填写')}</strong></td>
       <td>${Number(product.stock || 0) || '不限'}</td>
       <td>${escapeHtml(formatProductScenes(product.scene_tags))}</td>
       <td>${escapeHtml(product.updated_at || product.created_at || '-')}</td>
@@ -521,7 +531,7 @@ function fillProductForm(product) {
   document.getElementById('productTitle').value = product.title || '';
   document.getElementById('productSubtitle').value = product.subtitle || '';
   document.getElementById('productCover').value = product.cover_image || '';
-  document.getElementById('productPrice').value = product.price_text || '';
+  document.getElementById('productPrice').value = formatProductPriceText(product.price_cents);
   document.getElementById('productPriceYuan').value = product.price_cents
     ? (Number(product.price_cents) / 100).toFixed(2)
     : '';
@@ -1377,6 +1387,7 @@ document.getElementById('uploadProductImageBtn').addEventListener('click', () =>
 }));
 document.getElementById('productSearch').addEventListener('input', () => renderProducts(productList));
 document.getElementById('productStatusFilter').addEventListener('change', () => renderProducts(productList));
+document.getElementById('productPriceYuan').addEventListener('input', updateProductPricePreview);
 document.querySelectorAll('[data-product-field]').forEach((field) => {
   field.addEventListener('input', () => {
     setProductDirty(true);

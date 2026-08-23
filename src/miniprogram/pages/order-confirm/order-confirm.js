@@ -1,12 +1,15 @@
 const { login, redirectToBindPhone } = require('../../utils/auth');
 const { request, resolveAssetUrl } = require('../../utils/request');
 const { payMiniappOrder, isPaymentCancelled } = require('../../utils/payment');
+const { resolveQuantityLimit, normalizeQuantity, calculateTotalText } = require('../../utils/orderQuantity');
 
 Page({
   data: {
     productId: '',
     product: null,
     quantity: 1,
+    quantityInput: '1',
+    quantityLimit: 99,
     receiverName: '',
     receiverPhone: '',
     region: '',
@@ -39,26 +42,48 @@ Page({
         cover_image: resolveAssetUrl(data.cover_image),
         images: (data.images || []).map(resolveAssetUrl)
       };
-      this.setData({ product, message: '', coverFailed: false }, () => this.updateTotal());
+      const quantityLimit = resolveQuantityLimit(product);
+      this.setData({
+        product,
+        quantity: 1,
+        quantityInput: '1',
+        quantityLimit,
+        message: '',
+        coverFailed: false
+      }, () => this.updateTotal());
     }).catch((error) => {
       this.setData({ message: error.message || '加载失败，请稍后重试' });
     });
   },
 
   updateTotal() {
-    const cents = Number((this.data.product && this.data.product.price_cents) || 0) * Number(this.data.quantity || 1);
-    this.setData({ totalText: `¥${(cents / 100).toFixed(2)}` });
+    const priceCents = Number((this.data.product && this.data.product.price_cents) || 0);
+    this.setData({ totalText: calculateTotalText(priceCents, this.data.quantity) });
   },
 
   changeQuantity(event) {
     const delta = Number(event.currentTarget.dataset.delta || 0);
-    const quantity = Math.max(1, Math.min(99, Number(this.data.quantity || 1) + delta));
-    this.setData({ quantity }, () => this.updateTotal());
+    const quantity = normalizeQuantity(Number(this.data.quantity || 1) + delta, this.data.quantityLimit);
+    this.setData({ quantity, quantityInput: String(quantity) }, () => this.updateTotal());
+  },
+
+  onQuantityFocus() {
+    this.setData({ quantityInput: '' });
   },
 
   onQuantityInput(event) {
-    const value = Math.max(1, Math.min(99, Math.round(Number(event.detail.value || 1))));
-    this.setData({ quantity: value }, () => this.updateTotal());
+    const rawValue = String(event.detail.value || '').trim();
+    if (!rawValue) {
+      this.setData({ quantityInput: '' });
+      return;
+    }
+    const quantity = normalizeQuantity(rawValue, this.data.quantityLimit);
+    this.setData({ quantity, quantityInput: String(quantity) }, () => this.updateTotal());
+  },
+
+  onQuantityBlur() {
+    const quantity = normalizeQuantity(this.data.quantityInput || this.data.quantity, this.data.quantityLimit);
+    this.setData({ quantity, quantityInput: String(quantity) }, () => this.updateTotal());
   },
 
   onRegionChange(event) {
@@ -81,6 +106,10 @@ Page({
 
   submitOrder() {
     if (!this.data.product || this.data.submitting) return;
+    const quantity = normalizeQuantity(this.data.quantityInput || this.data.quantity, this.data.quantityLimit);
+    if (quantity !== this.data.quantity || String(quantity) !== this.data.quantityInput) {
+      this.setData({ quantity, quantityInput: String(quantity) }, () => this.updateTotal());
+    }
     if (!String(this.data.receiverName || '').trim()) {
       wx.showToast({ title: '请填写收货人', icon: 'none' });
       return;
@@ -105,7 +134,7 @@ Page({
       method: 'POST',
       data: {
         product_id: this.data.product.id,
-        quantity: this.data.quantity,
+        quantity,
         receiver_name: this.data.receiverName,
         receiver_phone: this.data.receiverPhone,
         region: this.data.region,

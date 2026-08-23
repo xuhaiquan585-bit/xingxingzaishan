@@ -338,14 +338,15 @@ function recordPayload(qr, user, assetResolver = createPublicQrAssetResolver()) 
 }
 
 function productPayload(product) {
+  const priceCents = Math.max(0, Math.round(Number(product.price_cents) || 0));
   return {
     id: product.id,
     title: product.title,
     subtitle: product.subtitle,
     cover_image: product.cover_image,
     images: product.images,
-    price_text: product.price_text,
-    price_cents: Number(product.price_cents || 0),
+    price_text: priceCents > 0 ? (priceCents / 100).toFixed(2) : '',
+    price_cents: priceCents,
     description: product.description,
     buy_type: product.buy_type,
     buy_url: product.buy_url,
