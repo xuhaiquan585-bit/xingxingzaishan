@@ -392,6 +392,7 @@ function clearProductForm() {
   document.getElementById('productPrice').value = '';
   document.getElementById('productPriceYuan').value = '';
   document.getElementById('productStickerCount').value = '1';
+  document.getElementById('productInventoryCount').value = '0';
   document.getElementById('productStock').value = '0';
   document.getElementById('productType').value = 'wine_sticker';
   document.getElementById('productCustomizable').checked = false;
@@ -451,6 +452,7 @@ function readProductForm() {
     price_text: formatProductPriceText(priceCents),
     price_cents: priceCents,
     sticker_count: stickerCount,
+    inventory_count: Number(document.getElementById('productInventoryCount').value || 0),
     stock: Number(document.getElementById('productStock').value || 0),
     product_type: document.getElementById('productType').value,
     is_customizable: document.getElementById('productCustomizable').checked,
@@ -493,6 +495,7 @@ function renderProducts(products) {
       </div></td>
       <td>${productStatusBadge(product.status)}</td>
       <td><strong>${escapeHtml(formatProductPriceText(product.price_cents) || '未填写')}</strong></td>
+      <td>${Number(product.inventory_count || 0) > 0 ? Number(product.inventory_count) : '<span class="status-badge status-hidden">售罄</span>'}</td>
       <td>${Number(product.stock || 0) || '不限'}</td>
       <td>${escapeHtml(formatProductScenes(product.scene_tags))}</td>
       <td>${escapeHtml(product.updated_at || product.created_at || '-')}</td>
@@ -500,7 +503,7 @@ function renderProducts(products) {
     </tr>`)
     .join('');
   if (products.length > 0 && visibleProducts.length === 0) {
-    productTableBody.innerHTML = '<tr><td colspan="7" class="table-empty">没有符合筛选条件的商品。</td></tr>';
+    productTableBody.innerHTML = '<tr><td colspan="8" class="table-empty">没有符合筛选条件的商品。</td></tr>';
   }
 }
 
@@ -536,6 +539,7 @@ function fillProductForm(product) {
     ? (Number(product.price_cents) / 100).toFixed(2)
     : '';
   document.getElementById('productStickerCount').value = Number(product.sticker_count || 1);
+  document.getElementById('productInventoryCount').value = Math.max(0, Number(product.inventory_count || 0));
   document.getElementById('productStock').value = Number(product.stock || 0);
   document.getElementById('productType').value = product.product_type || 'wine_sticker';
   document.getElementById('productCustomizable').checked = product.is_customizable === true;

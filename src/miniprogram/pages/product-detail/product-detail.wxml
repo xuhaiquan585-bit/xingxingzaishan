@@ -16,6 +16,8 @@
         <view class="product-price">{{product.price_text}}</view>
         <view class="product-count">星贴 {{product.sticker_count}} 枚</view>
       </view>
+      <view wx:if="{{product.sold_out}}" class="product-inventory is-sold-out">已售罄</view>
+      <view wx:else class="product-inventory">可售 {{product.inventory_count}} 份</view>
       <view class="product-disclosure">购买的是印刷星贴，不含酒水</view>
     </view>
 
@@ -63,7 +65,7 @@
         <view class="product-purchase-price">{{product.price_text}}</view>
         <view class="product-purchase-note">星贴 {{product.sticker_count}} 枚 · 不含酒水</view>
       </view>
-      <button class="btn product-buy-button" bindtap="buyNow">立即购买</button>
+      <button class="btn product-buy-button" bindtap="buyNow" disabled="{{product.sold_out}}">{{product.sold_out ? '已售罄' : '立即购买'}}</button>
     </view>
   </block>
 

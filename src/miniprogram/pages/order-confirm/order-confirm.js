@@ -43,12 +43,13 @@ Page({
         images: (data.images || []).map(resolveAssetUrl)
       };
       const quantityLimit = resolveQuantityLimit(product);
+      const initialQuantity = quantityLimit > 0 ? 1 : 0;
       this.setData({
         product,
-        quantity: 1,
-        quantityInput: '1',
+        quantity: initialQuantity,
+        quantityInput: String(initialQuantity),
         quantityLimit,
-        message: '',
+        message: quantityLimit > 0 ? '' : '该商品已售罄。',
         coverFailed: false
       }, () => this.updateTotal());
     }).catch((error) => {
@@ -106,6 +107,10 @@ Page({
 
   submitOrder() {
     if (!this.data.product || this.data.submitting) return;
+    if (this.data.quantityLimit <= 0 || Number(this.data.product.inventory_count || 0) <= 0) {
+      this.setData({ message: '该商品已售罄，暂时无法购买。' });
+      return;
+    }
     const quantity = normalizeQuantity(this.data.quantityInput || this.data.quantity, this.data.quantityLimit);
     if (quantity !== this.data.quantity || String(quantity) !== this.data.quantityInput) {
       this.setData({ quantity, quantityInput: String(quantity) }, () => this.updateTotal());

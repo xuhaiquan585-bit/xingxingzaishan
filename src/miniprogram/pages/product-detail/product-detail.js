@@ -72,6 +72,10 @@ Page({
 
   buyNow() {
     if (!this.data.product || !this.data.product.id) return;
+    if (Number(this.data.product.inventory_count || 0) <= 0) {
+      wx.showToast({ title: '该商品已售罄', icon: 'none' });
+      return;
+    }
     wx.navigateTo({
       url: `/pages/order-confirm/order-confirm?product_id=${encodeURIComponent(this.data.product.id)}`
     });

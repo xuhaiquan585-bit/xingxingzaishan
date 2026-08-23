@@ -1524,6 +1524,8 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(html.includes('id="productPrice" readonly'), true);
   assert.equal(html.includes('支付价格展示（自动）'), true);
   assert.equal(html.includes('id="productStickerCount"'), true);
+  assert.equal(html.includes('id="productInventoryCount"'), true);
+  assert.equal(html.includes('可售库存'), true);
   assert.equal(html.includes('id="productStock"'), true);
   assert.equal(html.includes('单笔购买上限'), true);
   assert.equal(html.includes('id="productEditorView"'), true);
@@ -4391,6 +4393,7 @@ test('admin product management should expose only published products to miniapp'
     product_type: 'wine_sticker',
     sticker_count: 10,
     stock: 50,
+    inventory_count: 80,
     is_customizable: true,
     shipping_note: '现货贴纸 48 小时内发出。',
     after_sale_note: '贴纸为印刷品，不含酒水。',
@@ -4404,6 +4407,7 @@ test('admin product management should expose only published products to miniapp'
   assert.equal(publishedRes.body.data.price_text, '39.00');
   assert.equal(publishedRes.body.data.sticker_count, 10);
   assert.equal(publishedRes.body.data.stock, 50);
+  assert.equal(publishedRes.body.data.inventory_count, 80);
   assert.equal(publishedRes.body.data.is_customizable, true);
   assert.deepEqual(publishedRes.body.data.scene_tags, ['birthday', 'wedding']);
   const productId = publishedRes.body.data.id;
@@ -4438,6 +4442,8 @@ test('admin product management should expose only published products to miniapp'
   assert.equal(miniProduct.price_text, '39.00');
   assert.equal(miniProduct.sticker_count, 10);
   assert.equal(miniProduct.stock, 50);
+  assert.equal(miniProduct.inventory_count, 80);
+  assert.equal(miniProduct.sold_out, false);
   assert.deepEqual(miniProduct.scene_tags, ['birthday', 'wedding']);
 
   const detail = await getJson(`/api/miniapp/products/${productId}`);
@@ -4515,6 +4521,89 @@ test('admin product media upload should use the shared secure image pipeline', a
   assert.ok(uploadRes.body.data.object_key);
 });
 
+test('miniapp orders should reserve inventory, reject sold-out purchases, and restore cancelled reservations once', async () => {
+  const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const adminToken = adminLogin.body.data.token;
+  const productRes = await postJson('/api/admin/products', {
+    title: '库存扣减测试星贴',
+    price_cents: 100,
+    product_type: 'wine_sticker',
+    sticker_count: 1,
+    stock: 0,
+    inventory_count: 2,
+    status: 'published'
+  }, adminToken);
+  assert.equal(productRes.status, 200);
+  const productId = productRes.body.data.id;
+
+  const token = await loginMiniappBindPhoneAndGetToken({
+    code: 'mini-order-inventory',
+    phone: '13888880031'
+  });
+  const orderPayload = {
+    product_id: productId,
+    quantity: 2,
+    receiver_name: '库存用户',
+    receiver_phone: '13888880031',
+    region: '四川省 成都市 锦江区',
+    address: '库存测试路 1 号'
+  };
+  const orderRes = await postJson('/api/miniapp/orders', orderPayload, token);
+  assert.equal(orderRes.status, 200);
+  const orderId = orderRes.body.data.id;
+
+  let inventoryDb = getTestDbSnapshot();
+  assert.equal(inventoryDb.products.find((item) => item.id === productId).inventory_count, 0);
+  assert.equal(inventoryDb.orders.find((item) => item.id === orderId).inventory_reserved, true);
+
+  const soldOutDetail = await getJson(`/api/miniapp/products/${productId}`);
+  assert.equal(soldOutDetail.status, 200);
+  assert.equal(soldOutDetail.body.data.inventory_count, 0);
+  assert.equal(soldOutDetail.body.data.sold_out, true);
+
+  const orderCountBeforeRejection = inventoryDb.orders.length;
+  const soldOutOrder = await postJson('/api/miniapp/orders', {
+    ...orderPayload,
+    quantity: 1
+  }, token);
+  assert.equal(soldOutOrder.status, 409);
+  assert.equal(soldOutOrder.body.code, 'OUT_OF_STOCK');
+  assert.equal(getTestDbSnapshot().orders.length, orderCountBeforeRejection);
+
+  const cancelRes = await postJson(`/api/miniapp/orders/${orderId}/cancel`, {}, token);
+  assert.equal(cancelRes.status, 200);
+  inventoryDb = getTestDbSnapshot();
+  assert.equal(inventoryDb.products.find((item) => item.id === productId).inventory_count, 2);
+  assert.equal(inventoryDb.orders.find((item) => item.id === orderId).inventory_reserved, false);
+  assert.ok(inventoryDb.orders.find((item) => item.id === orderId).inventory_released_at);
+
+  const repeatCancelRes = await postJson(`/api/miniapp/orders/${orderId}/cancel`, {}, token);
+  assert.equal(repeatCancelRes.status, 409);
+  assert.equal(repeatCancelRes.body.code, 'ORDER_NOT_CANCELABLE');
+  assert.equal(getTestDbSnapshot().products.find((item) => item.id === productId).inventory_count, 2);
+
+  const limitedProductRes = await postJson('/api/admin/products', {
+    title: '单笔上限测试星贴',
+    price_cents: 100,
+    product_type: 'wine_sticker',
+    sticker_count: 1,
+    stock: 1,
+    inventory_count: 3,
+    status: 'published'
+  }, adminToken);
+  assert.equal(limitedProductRes.status, 200);
+  const limitedOrderRes = await postJson('/api/miniapp/orders', {
+    ...orderPayload,
+    product_id: limitedProductRes.body.data.id
+  }, token);
+  assert.equal(limitedOrderRes.status, 409);
+  assert.equal(limitedOrderRes.body.code, 'PURCHASE_LIMIT_EXCEEDED');
+  assert.equal(
+    getTestDbSnapshot().products.find((item) => item.id === limitedProductRes.body.data.id).inventory_count,
+    3
+  );
+});
+
 test('miniapp sticker orders should create, mock pay, list, and allow admin shipping', async () => {
   const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
   const adminToken = adminLogin.body.data.token;
@@ -4526,6 +4615,7 @@ test('miniapp sticker orders should create, mock pay, list, and allow admin ship
     product_type: 'wine_sticker',
     sticker_count: 6,
     stock: 20,
+    inventory_count: 20,
     status: 'published',
     scene_tags: ['lover'],
     sort_order: 3
@@ -4571,6 +4661,8 @@ test('miniapp sticker orders should create, mock pay, list, and allow admin ship
   const dbAfterOrder = getTestDbSnapshot();
   const orderUser = findTestUserByPhone(dbAfterOrder, '13888880001');
   const createdOrder = dbAfterOrder.orders.find((item) => item.id === orderId);
+  assert.equal(dbAfterOrder.products.find((item) => item.id === productId).inventory_count, 18);
+  assert.equal(createdOrder.inventory_reserved, true);
   assert.equal(createdOrder.openid, mockOpenidForCode('mini-order-bound'));
   assert.equal(createdOrder.account_id, orderUser.account_id);
   assert.notEqual(createdOrder.account_id, 'FORGED_ACCOUNT');
@@ -4585,6 +4677,8 @@ test('miniapp sticker orders should create, mock pay, list, and allow admin ship
     payment_status: 'unpaid',
     payment_method: '',
     payment_mock: false,
+    inventory_reserved: false,
+    inventory_released_at: null,
     wechat_transaction_id: '',
     paid_at: null,
     created_at: '2026-07-27T05:00:00.000Z',
@@ -4611,6 +4705,8 @@ test('miniapp sticker orders should create, mock pay, list, and allow admin ship
     payment_status: 'unpaid',
     payment_method: '',
     payment_mock: false,
+    inventory_reserved: false,
+    inventory_released_at: null,
     wechat_transaction_id: '',
     paid_at: null,
     created_at: '2026-07-27T04:00:00.000Z',
@@ -4625,6 +4721,8 @@ test('miniapp sticker orders should create, mock pay, list, and allow admin ship
     payment_status: 'unpaid',
     payment_method: '',
     payment_mock: false,
+    inventory_reserved: false,
+    inventory_released_at: null,
     wechat_transaction_id: '',
     paid_at: null,
     created_at: '2026-07-27T04:30:00.000Z',
@@ -4770,6 +4868,7 @@ test('miniapp order pay should return WeChat JSAPI payment params when configure
       product_type: 'wine_sticker',
       sticker_count: 1,
       stock: 10,
+      inventory_count: 10,
       status: 'published',
       scene_tags: ['free'],
       sort_order: 8
@@ -4839,6 +4938,7 @@ test('WeChat Pay public key mode should add serial header and verify notify', as
       product_type: 'wine_sticker',
       sticker_count: 1,
       stock: 10,
+      inventory_count: 10,
       status: 'published',
       scene_tags: ['free'],
       sort_order: 88
@@ -4952,6 +5052,7 @@ test('WeChat payment notify should verify, decrypt, and mark order paid', async 
       product_type: 'wine_sticker',
       sticker_count: 2,
       stock: 10,
+      inventory_count: 10,
       status: 'published',
       scene_tags: ['free'],
       sort_order: 9
@@ -5065,6 +5166,7 @@ test('WeChat payment notify should reject amount mismatch', async () => {
       product_type: 'wine_sticker',
       sticker_count: 1,
       stock: 10,
+      inventory_count: 10,
       status: 'published',
       scene_tags: ['free'],
       sort_order: 10
@@ -5614,6 +5716,7 @@ test('business writes should fail closed when authenticated account mapping is m
     product_type: 'wine_sticker',
     sticker_count: 1,
     stock: 5,
+    inventory_count: 5,
     status: 'published'
   }, adminToken);
   assert.equal(productRes.status, 200);

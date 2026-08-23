@@ -48,6 +48,7 @@
         <view class="order-quantity-hint">
           <text>每份含 {{product.sticker_count}} 枚星贴</text>
           <text wx:if="{{product.stock > 0}}"> · 每单最多 {{quantityLimit}} 份</text>
+          <text> · 可售 {{product.inventory_count}} 份</text>
         </view>
       </view>
       <view class="quantity-stepper">
@@ -81,6 +82,6 @@
       <text class="order-pay-label">实付</text>
       <text class="order-pay-amount">{{totalText}}</text>
     </view>
-    <button class="dawn-primary-button order-pay-button" bindtap="submitOrder" loading="{{submitting}}" disabled="{{submitting}}">{{submitting ? '处理中' : '立即支付'}}</button>
+    <button class="dawn-primary-button order-pay-button" bindtap="submitOrder" loading="{{submitting}}" disabled="{{submitting || quantityLimit <= 0}}">{{quantityLimit <= 0 ? '已售罄' : (submitting ? '处理中' : '立即支付')}}</button>
   </view>
 </view>

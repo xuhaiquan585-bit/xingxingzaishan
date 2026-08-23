@@ -477,6 +477,9 @@ function migrateDatabaseSnapshot(input) {
     product_type: PRODUCT_TYPES.includes(item.product_type) ? item.product_type : 'wine_sticker',
     sticker_count: Number.isFinite(Number(item.sticker_count)) ? Number(item.sticker_count) : 1,
     stock: Number.isFinite(Number(item.stock)) ? Number(item.stock) : 0,
+    inventory_count: Number.isFinite(Number(item.inventory_count))
+      ? Math.max(0, Math.round(Number(item.inventory_count)))
+      : 0,
     is_customizable: item.is_customizable === true,
     shipping_note: item.shipping_note || '现货贴纸通常 48 小时内发出。',
     after_sale_note: item.after_sale_note || '贴纸为印刷品，不含酒水。如有印刷或物流问题请联系客服处理。',
@@ -497,6 +500,8 @@ function migrateDatabaseSnapshot(input) {
     product_id: item.product_id || '',
     product_snapshot: item.product_snapshot || {},
     quantity: Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 1,
+    inventory_reserved: item.inventory_reserved === true,
+    inventory_released_at: item.inventory_released_at || null,
     unit_price_cents: Number.isFinite(Number(item.unit_price_cents)) ? Number(item.unit_price_cents) : 0,
     total_amount_cents: Number.isFinite(Number(item.total_amount_cents)) ? Number(item.total_amount_cents) : 0,
     status: ORDER_STATUSES.includes(item.status) ? item.status : 'pending_payment',
@@ -1933,6 +1938,9 @@ function normalizeProductInput(input = {}, existing = {}) {
     product_type: PRODUCT_TYPES.includes(input.product_type) ? input.product_type : (existing.product_type || 'wine_sticker'),
     sticker_count: Math.max(1, Math.round(Number(input.sticker_count ?? existing.sticker_count ?? 1) || 1)),
     stock: Math.max(0, Math.round(Number(input.stock ?? existing.stock ?? 0) || 0)),
+    inventory_count: Math.max(0, Math.round(Number(
+      input.inventory_count ?? existing.inventory_count ?? 0
+    ) || 0)),
     is_customizable: hasCustomizableInput
       ? input.is_customizable === true || input.is_customizable === 'true'
       : existing.is_customizable === true,
@@ -1976,6 +1984,9 @@ function validateProductData(data) {
   }
   if (data.stock < 0) {
     return '单笔购买上限不能为负数。';
+  }
+  if (!Number.isInteger(data.inventory_count) || data.inventory_count < 0) {
+    return '可售库存必须是非负整数。';
   }
   if (data.status === 'published' && data.price_cents < 1) {
     return '商品上架前必须填写有效价格。';
@@ -2089,7 +2100,12 @@ function adminOrderStatusText(status) {
 
 function orderPayload(order) {
   if (!order) return null;
-  const { account_id: _accountId, ...publicOrder } = order;
+  const {
+    account_id: _accountId,
+    inventory_reserved: _inventoryReserved,
+    inventory_released_at: _inventoryReleasedAt,
+    ...publicOrder
+  } = order;
   return {
     ...publicOrder,
     status_text: orderStatusText(order.status),
@@ -2110,6 +2126,10 @@ function createMiniappOrder({ openid, phone, account_id: accountIdValue, product
   }
   const count = Math.max(1, Math.min(99, Math.round(Number(quantity || 1))));
   if (Number(product.stock || 0) > 0 && count > Number(product.stock || 0)) {
+    return { error: 'PURCHASE_LIMIT_EXCEEDED' };
+  }
+  const availableInventory = Math.max(0, Math.round(Number(product.inventory_count || 0)));
+  if (availableInventory < count) {
     return { error: 'OUT_OF_STOCK' };
   }
   const normalizedReceiverName = String(receiverName || '').trim();
@@ -2138,9 +2158,12 @@ function createMiniappOrder({ openid, phone, account_id: accountIdValue, product
       price_cents: unitPrice,
       product_type: product.product_type,
       sticker_count: product.sticker_count,
+      inventory_count_at_order: availableInventory,
       scene_tags: product.scene_tags
     },
     quantity: count,
+    inventory_reserved: true,
+    inventory_released_at: null,
     unit_price_cents: unitPrice,
     total_amount_cents: unitPrice * count,
     status: 'pending_payment',
@@ -2162,6 +2185,8 @@ function createMiniappOrder({ openid, phone, account_id: accountIdValue, product
     created_at: createdAt,
     updated_at: createdAt
   };
+  product.inventory_count = availableInventory - count;
+  product.updated_at = createdAt;
   db.orders.push(order);
   writeDB(db);
   return { data: orderPayload(order) };
@@ -2203,15 +2228,29 @@ function getOrderByOrderNo(orderNo) {
   return orderPayload(db.orders.find((item) => item.order_no === orderNo));
 }
 
+function releaseOrderInventory(db, order, releasedAt) {
+  if (!order || order.inventory_reserved !== true || order.inventory_released_at) return false;
+  const product = db.products.find((item) => item.id === order.product_id);
+  if (!product) return false;
+  const quantity = Math.max(0, Math.round(Number(order.quantity || 0)));
+  product.inventory_count = Math.max(0, Math.round(Number(product.inventory_count || 0))) + quantity;
+  product.updated_at = releasedAt;
+  return true;
+}
+
 function cancelMiniappOrder({ openid, orderId }) {
   const db = readDB();
   const index = db.orders.findIndex((item) => item.openid === openid && item.id === orderId);
   if (index === -1) return { error: 'ORDER_NOT_FOUND' };
   if (db.orders[index].status !== 'pending_payment') return { error: 'ORDER_NOT_CANCELABLE' };
+  const cancelledAt = nowISO();
+  releaseOrderInventory(db, db.orders[index], cancelledAt);
   db.orders[index] = {
     ...db.orders[index],
     status: 'cancelled',
-    updated_at: nowISO()
+    inventory_reserved: false,
+    inventory_released_at: db.orders[index].inventory_released_at || cancelledAt,
+    updated_at: cancelledAt
   };
   writeDB(db);
   return { data: orderPayload(db.orders[index]) };
@@ -2225,10 +2264,14 @@ function cancelMiniappOrderByAccountId({ account_id: accountIdValue, orderId }) 
   const index = db.orders.findIndex((item) => normalizeAccountId(item.account_id) === accountId && item.id === targetOrderId);
   if (index === -1) return { error: 'ORDER_NOT_FOUND' };
   if (db.orders[index].status !== 'pending_payment') return { error: 'ORDER_NOT_CANCELABLE' };
+  const cancelledAt = nowISO();
+  releaseOrderInventory(db, db.orders[index], cancelledAt);
   db.orders[index] = {
     ...db.orders[index],
     status: 'cancelled',
-    updated_at: nowISO()
+    inventory_reserved: false,
+    inventory_released_at: db.orders[index].inventory_released_at || cancelledAt,
+    updated_at: cancelledAt
   };
   writeDB(db);
   return { data: orderPayload(db.orders[index]) };

@@ -86,6 +86,17 @@
   margin-top: 10rpx;
 }
 
+.product-inventory {
+  margin-top: 12rpx;
+  color: #607067;
+  font-size: 24rpx;
+}
+
+.product-inventory.is-sold-out {
+  color: #a9483d;
+  font-weight: 600;
+}
+
 .product-section,
 .product-gallery {
   padding: 36rpx 0;
@@ -178,6 +189,11 @@
 .product-buy-button {
   flex: 0 0 260rpx;
   min-height: 82rpx;
+}
+
+.product-buy-button[disabled] {
+  background: #d8d5cd;
+  color: #77746d;
 }
 
 .product-state {

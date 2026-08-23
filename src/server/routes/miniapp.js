@@ -353,6 +353,8 @@ function productPayload(product) {
     product_type: product.product_type || 'wine_sticker',
     sticker_count: Number(product.sticker_count || 1),
     stock: Number(product.stock || 0),
+    inventory_count: Math.max(0, Number(product.inventory_count || 0)),
+    sold_out: Number(product.inventory_count || 0) <= 0,
     is_customizable: product.is_customizable === true,
     shipping_note: product.shipping_note || '',
     after_sale_note: product.after_sale_note || '',
@@ -734,7 +736,10 @@ router.post('/orders', requireMiniappAuth, requireMiniappPhone, (req, res) => {
     return respondMiniappAccountContextRequired(res);
   }
   if (result.error === 'OUT_OF_STOCK') {
-    return res.status(409).json({ status: 'error', code: 'OUT_OF_STOCK', message: '库存不足，请减少数量或联系客服。' });
+    return res.status(409).json({ status: 'error', code: 'OUT_OF_STOCK', message: '库存不足或商品已售罄，请减少数量。' });
+  }
+  if (result.error === 'PURCHASE_LIMIT_EXCEEDED') {
+    return res.status(409).json({ status: 'error', code: 'PURCHASE_LIMIT_EXCEEDED', message: '已超过单笔购买上限。' });
   }
   if (result.error === 'VALIDATION_ERROR') {
     return res.status(400).json({ status: 'error', code: 'VALIDATION_ERROR', message: result.message || '订单信息不完整。' });

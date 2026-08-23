@@ -50,6 +50,8 @@
         <view class="product-title">{{item.title}}</view>
         <view class="product-subtitle">{{item.subtitle}}</view>
         <view class="product-meta">星贴 {{item.sticker_count}} 枚 · 不含酒水</view>
+        <view wx:if="{{item.sold_out}}" class="product-stock is-sold-out">已售罄</view>
+        <view wx:else class="product-stock">可售 {{item.inventory_count}} 份</view>
         <view class="product-footer">
           <view class="product-price">{{item.price_text}}</view>
           <view class="product-action">查看详情</view>

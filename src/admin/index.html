@@ -288,6 +288,7 @@
                       <th>商品</th>
                       <th>状态</th>
                       <th>价格</th>
+                      <th>可售库存</th>
                       <th>单笔购买上限</th>
                       <th>适用场景</th>
                       <th>更新时间</th>
@@ -336,7 +337,7 @@
                         <option value="custom_wine">定制酒预留</option>
                       </select>
                     </label>
-                    <label>贴纸数量<input id="productStickerCount" data-product-field type="number" min="1" step="1" value="1" /></label>
+                    <label>每份包含贴纸数<input id="productStickerCount" data-product-field type="number" min="1" step="1" value="1" /></label>
                     <label class="checkbox-label"><input id="productCustomizable" data-product-field type="checkbox" /><span>支持定制</span></label>
                     <div class="checkbox-group wide" id="productSceneTags">
                       <span>适用场景</span>
@@ -372,13 +373,14 @@
 
                 <section class="editor-section">
                   <div class="section-heading">
-                    <h3>价格与购买限制</h3>
-                    <p>价格按元填写；单笔购买上限不是库存，0 表示不限。</p>
+                    <h3>价格、库存与购买限制</h3>
+                    <p>可售库存会在创建订单时扣减，取消未支付订单时归还；库存 0 表示售罄。单笔购买上限 0 表示不限。</p>
                   </div>
                   <div class="form-grid">
                     <label>销售价格（元）<input id="productPriceYuan" data-product-field type="number" min="0" step="0.01" placeholder="0.01" /></label>
                     <label>支付价格展示（自动）<input id="productPrice" readonly aria-readonly="true" placeholder="根据销售价格自动生成" /></label>
-                    <label>单笔购买上限<input id="productStock" data-product-field type="number" min="0" step="1" value="0" /></label>
+                    <label>可售库存<input id="productInventoryCount" data-product-field type="number" min="0" step="1" value="0" /></label>
+                    <label>单笔最多购买份数<input id="productStock" data-product-field type="number" min="0" step="1" value="0" /></label>
                     <label>排序<input id="productSort" data-product-field type="number" value="0" /></label>
                   </div>
                 </section>
