@@ -128,9 +128,20 @@ button {
   font-weight: 600;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 button.secondary {
   background: #eef2ff;
   color: #1f4ed8;
+}
+
+.danger-button {
+  background: #fff;
+  color: #b42318;
+  border-color: #f0b4ae;
 }
 
 .toolbar {
@@ -314,6 +325,235 @@ th {
   text-decoration: none;
 }
 
+.management-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 180px auto;
+  gap: 10px;
+  align-items: end;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid #e7eaf1;
+}
+
+.search-field,
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.management-table th,
+.management-table td {
+  padding: 12px 10px;
+  vertical-align: middle;
+}
+
+.management-table tbody tr {
+  transition: background 120ms ease;
+}
+
+.management-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.product-cell {
+  display: grid;
+  grid-template-columns: 52px minmax(150px, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.product-cell strong,
+.product-cell small,
+.media-item strong,
+.media-item small {
+  display: block;
+}
+
+.product-cell small,
+.media-item small {
+  margin-top: 4px;
+  color: #647084;
+  word-break: break-all;
+}
+
+.product-thumb {
+  width: 52px;
+  height: 52px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #f1f5f9;
+}
+
+.product-thumb-empty {
+  display: grid;
+  place-items: center;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-published {
+  color: #087443;
+  background: #e7f7ef;
+}
+
+.status-draft {
+  color: #8a5300;
+  background: #fff3d6;
+}
+
+.status-hidden {
+  color: #5b6472;
+  background: #edf0f4;
+}
+
+.empty-state {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 34px 12px;
+  color: #647084;
+}
+
+.empty-state strong {
+  color: #1d2433;
+  font-size: 18px;
+}
+
+.table-empty {
+  padding: 32px !important;
+  text-align: center;
+  color: #647084;
+}
+
+.product-list-message {
+  color: #647084;
+}
+
+.editor-header {
+  display: grid;
+  grid-template-columns: auto minmax(240px, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e7eaf1;
+}
+
+.editor-heading h2,
+.editor-heading p {
+  margin: 0;
+}
+
+.editor-heading p {
+  margin-top: 6px;
+  color: #647084;
+}
+
+.editor-title-line,
+.editor-actions,
+.media-uploader,
+.media-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.dirty-state {
+  color: #8a5300;
+  background: #fff3d6;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.editor-sections {
+  margin-top: 4px;
+}
+
+.editor-section {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: 26px;
+  padding: 24px 0;
+  border-bottom: 1px solid #e7eaf1;
+}
+
+.section-heading h3,
+.section-heading p {
+  margin: 0;
+}
+
+.section-heading p {
+  margin-top: 6px;
+  color: #647084;
+  line-height: 1.55;
+}
+
+.media-uploader {
+  grid-column: 2;
+  margin-bottom: 12px;
+}
+
+.media-list {
+  grid-column: 2;
+  display: grid;
+  gap: 8px;
+}
+
+.media-item {
+  display: grid;
+  grid-template-columns: 64px minmax(140px, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.media-item img {
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #f1f5f9;
+}
+
+.empty-media {
+  padding: 20px 0;
+  color: #647084;
+}
+
+.advanced-settings {
+  grid-column: 2;
+  margin-top: 12px;
+  border-top: 1px solid #edf0f4;
+  padding-top: 12px;
+}
+
+.advanced-settings summary {
+  color: #475569;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.advanced-settings .form-grid {
+  margin-top: 12px;
+}
+
 @media (max-width: 900px) {
   .admin-shell {
     grid-template-columns: 1fr;
@@ -339,5 +579,33 @@ th {
   .status-grid,
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .management-toolbar,
+  .editor-header,
+  .editor-section {
+    grid-template-columns: 1fr;
+  }
+
+  .media-uploader,
+  .media-list,
+  .advanced-settings {
+    grid-column: 1;
+  }
+
+  .editor-actions {
+    width: 100%;
+  }
+
+  .editor-actions button {
+    flex: 1 1 140px;
+  }
+
+  .media-item {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .media-actions {
+    grid-column: 1 / -1;
   }
 }

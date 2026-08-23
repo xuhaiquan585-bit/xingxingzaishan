@@ -647,6 +647,13 @@ router.post('/products/:productId', requireAdmin, (req, res) => {
       message: result.message || '商品信息不完整。'
     });
   }
+  if (result.error === 'PRODUCT_UPDATE_CONFLICT') {
+    return res.status(409).json({
+      status: 'error',
+      code: 'PRODUCT_UPDATE_CONFLICT',
+      message: '商品已被其他操作更新，请刷新后重试。'
+    });
+  }
   return res.json({
     status: 'success',
     code: 'OK',

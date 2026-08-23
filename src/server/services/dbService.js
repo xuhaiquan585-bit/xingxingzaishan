@@ -1941,6 +1941,26 @@ function normalizeProductInput(input = {}, existing = {}) {
   };
 }
 
+function isSafeProductImageReference(value) {
+  const reference = String(value || '').trim();
+  if (!reference) return true;
+  if (reference.includes('\\') || reference.startsWith('//')) return false;
+  let decoded = reference;
+  try {
+    decoded = decodeURIComponent(decodeURIComponent(reference));
+  } catch (_error) {
+    return false;
+  }
+  if (decoded.includes('\\') || decoded.split('/').includes('..')) return false;
+  if (reference.startsWith('/')) return true;
+  try {
+    const parsed = new URL(reference);
+    return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password;
+  } catch (_error) {
+    return false;
+  }
+}
+
 function validateProductData(data) {
   if (!data.title) {
     return '商品名称不能为空。';
@@ -1949,10 +1969,22 @@ function validateProductData(data) {
     return '商品价格不能为负数。';
   }
   if (data.stock < 0) {
-    return '商品库存不能为负数。';
+    return '单笔购买上限不能为负数。';
+  }
+  if (data.status === 'published' && data.price_cents < 1) {
+    return '商品上架前必须填写有效价格。';
+  }
+  if (data.status === 'published' && (!Number.isInteger(data.sticker_count) || data.sticker_count < 1)) {
+    return '商品上架前必须填写有效贴纸数量。';
   }
   if (data.buy_url && !/^https?:\/\//i.test(data.buy_url)) {
     return '购买链接必须以 http:// 或 https:// 开头。';
+  }
+  if (!isSafeProductImageReference(data.cover_image)) {
+    return '商品封面图地址无效。';
+  }
+  if (data.images.some((image) => !isSafeProductImageReference(image))) {
+    return '商品详情图地址无效。';
   }
   return '';
 }
@@ -1983,16 +2015,27 @@ function updateProduct(id, input) {
     return { error: 'PRODUCT_NOT_FOUND' };
   }
 
+  const expectedUpdatedAt = String(input.expected_updated_at || '').trim();
+  const currentUpdatedAt = String(db.products[index].updated_at || '').trim();
+  if (!expectedUpdatedAt || expectedUpdatedAt !== currentUpdatedAt) {
+    return { error: 'PRODUCT_UPDATE_CONFLICT', data: db.products[index] };
+  }
+
   const data = normalizeProductInput(input, db.products[index]);
   const validationMessage = validateProductData(data);
   if (validationMessage) {
     return { error: 'VALIDATION_ERROR', message: validationMessage };
   }
 
+  const now = new Date();
+  const previousUpdatedAt = new Date(db.products[index].updated_at || db.products[index].created_at || 0);
+  const updatedAt = now > previousUpdatedAt
+    ? now.toISOString()
+    : new Date(previousUpdatedAt.getTime() + 1).toISOString();
   const updated = {
     ...db.products[index],
     ...data,
-    updated_at: nowISO()
+    updated_at: updatedAt
   };
   db.products[index] = updated;
   writeDB(db);

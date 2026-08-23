@@ -32,6 +32,7 @@
           <button class="nav-item" data-admin-section="records">记录管理</button>
           <button class="nav-item" data-admin-section="miniappContent">小程序内容</button>
           <button class="nav-item" data-admin-section="products">商品管理</button>
+          <button class="nav-item" data-admin-section="orders">订单管理</button>
           <button class="nav-item" data-admin-section="operators">账号权限</button>
           <button class="nav-item" data-admin-section="settings">系统设置</button>
         </aside>
@@ -250,74 +251,177 @@
           </section>
 
           <section id="productPanel" class="admin-panel hidden" data-admin-panel="products">
+            <div id="productListView">
+              <div class="panel-title">
+                <div>
+                  <h2>商品管理</h2>
+                  <p>维护商品资料、媒体和销售状态。</p>
+                </div>
+                <button id="newProductBtn" type="button">新增商品</button>
+              </div>
+              <div class="management-toolbar">
+                <div class="search-field">
+                  <label for="productSearch">搜索商品</label>
+                  <input id="productSearch" type="search" placeholder="输入商品名称或 ID" />
+                </div>
+                <div class="filter-field">
+                  <label for="productStatusFilter">销售状态</label>
+                  <select id="productStatusFilter">
+                    <option value="">全部状态</option>
+                    <option value="published">已上架</option>
+                    <option value="draft">草稿</option>
+                    <option value="hidden">已隐藏</option>
+                  </select>
+                </div>
+                <button id="refreshProductBtn" class="secondary" type="button">刷新</button>
+              </div>
+              <p id="productMsg" class="msg product-list-message" role="status"></p>
+              <div id="productEmptyState" class="empty-state hidden">
+                <strong>还没有商品</strong>
+                <span>先创建一个草稿，确认价格和图片后再上架。</span>
+                <button id="emptyNewProductBtn" type="button">新增商品</button>
+              </div>
+              <div id="productTableWrap" class="table-wrap">
+                <table class="management-table product-table">
+                  <thead>
+                    <tr>
+                      <th>商品</th>
+                      <th>状态</th>
+                      <th>价格</th>
+                      <th>单笔购买上限</th>
+                      <th>适用场景</th>
+                      <th>更新时间</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="productTable"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div id="productEditorView" class="hidden">
+              <div class="editor-header">
+                <button id="backToProductsBtn" class="secondary" type="button">返回列表</button>
+                <div class="editor-heading">
+                  <div class="editor-title-line">
+                    <h2 id="productEditorTitle">新增商品</h2>
+                    <span id="productDirtyState" class="dirty-state hidden">未保存</span>
+                  </div>
+                  <p><span id="productEditorId">保存后生成商品 ID</span><span id="productEditorUpdated"></span></p>
+                </div>
+                <div class="editor-actions">
+                  <button id="hideProductBtn" class="danger-button hidden" type="button">隐藏商品</button>
+                  <button id="saveProductDraftBtn" class="secondary" type="button">保存草稿</button>
+                  <button id="publishProductBtn" type="button">保存并上架</button>
+                </div>
+              </div>
+
+              <p id="productEditorMsg" class="msg" role="status"></p>
+
+              <div id="productEditorForm" class="editor-sections">
+                <section class="editor-section">
+                  <div class="section-heading">
+                    <h3>基本信息</h3>
+                    <p>用于商品列表、详情页和订单快照。</p>
+                  </div>
+                  <div class="form-grid">
+                    <label class="wide">商品名称<input id="productTitle" data-product-field placeholder="例如：星贴体验装" /></label>
+                    <label class="wide">副标题<input id="productSubtitle" data-product-field placeholder="一句话说明商品适用场景" /></label>
+                    <label>商品类型
+                      <select id="productType" data-product-field>
+                        <option value="wine_sticker">酒瓶星贴</option>
+                        <option value="sticker_set">星贴套装</option>
+                        <option value="custom_sticker">定制星贴</option>
+                        <option value="wine_gift">酒礼盒预留</option>
+                        <option value="custom_wine">定制酒预留</option>
+                      </select>
+                    </label>
+                    <label>贴纸数量<input id="productStickerCount" data-product-field type="number" min="1" step="1" value="1" /></label>
+                    <label class="checkbox-label"><input id="productCustomizable" data-product-field type="checkbox" /><span>支持定制</span></label>
+                    <div class="checkbox-group wide" id="productSceneTags">
+                      <span>适用场景</span>
+                      <label><input data-product-field type="checkbox" value="lover" />恋人</label>
+                      <label><input data-product-field type="checkbox" value="elder" />长辈</label>
+                      <label><input data-product-field type="checkbox" value="birthday" />生日</label>
+                      <label><input data-product-field type="checkbox" value="wedding" />婚礼</label>
+                      <label><input data-product-field type="checkbox" value="party" />聚会</label>
+                      <label><input data-product-field type="checkbox" value="free" />随心</label>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="editor-section">
+                  <div class="section-heading">
+                    <h3>商品媒体</h3>
+                    <p>图片会先经过后台安全解码和重编码，再写入 OSS。</p>
+                  </div>
+                  <div class="media-uploader">
+                    <input id="productImageUpload" type="file" accept="image/jpeg,image/png" />
+                    <button id="uploadProductImageBtn" type="button">上传图片</button>
+                    <span class="muted">支持 JPEG、PNG，单张不超过 5 MiB。</span>
+                  </div>
+                  <div id="productMediaList" class="media-list"></div>
+                  <details class="advanced-settings">
+                    <summary>高级设置：手工填写图片 URL</summary>
+                    <div class="form-grid">
+                      <label class="wide">封面图 URL<input id="productCover" data-product-field placeholder="https:// 或站内路径" /></label>
+                      <label class="wide">详情图 URL（每行一个）<textarea id="productImages" data-product-field placeholder="每行一个图片 URL"></textarea></label>
+                    </div>
+                  </details>
+                </section>
+
+                <section class="editor-section">
+                  <div class="section-heading">
+                    <h3>价格与购买限制</h3>
+                    <p>价格按元填写；单笔购买上限不是库存，0 表示不限。</p>
+                  </div>
+                  <div class="form-grid">
+                    <label>销售价格（元）<input id="productPriceYuan" data-product-field type="number" min="0" step="0.01" placeholder="0.01" /></label>
+                    <label>价格展示文案<input id="productPrice" data-product-field placeholder="默认按价格和贴纸数量生成" /></label>
+                    <label>单笔购买上限<input id="productStock" data-product-field type="number" min="0" step="1" value="0" /></label>
+                    <label>排序<input id="productSort" data-product-field type="number" value="0" /></label>
+                  </div>
+                </section>
+
+                <section class="editor-section">
+                  <div class="section-heading">
+                    <h3>商品说明</h3>
+                    <p>补充商品、发货和售后信息。</p>
+                  </div>
+                  <div class="form-grid">
+                    <label class="wide">商品说明<textarea id="productDescription" data-product-field></textarea></label>
+                    <label class="wide">发货说明<textarea id="productShippingNote" data-product-field></textarea></label>
+                    <label class="wide">售后说明<textarea id="productAfterSaleNote" data-product-field></textarea></label>
+                  </div>
+                </section>
+
+                <section class="editor-section">
+                  <div class="section-heading">
+                    <h3>发布设置</h3>
+                    <p>草稿不会展示给用户；隐藏用于停止销售并保留历史订单。</p>
+                  </div>
+                  <div class="form-grid">
+                    <label>当前状态
+                      <select id="productStatus" data-product-field>
+                        <option value="draft">草稿</option>
+                        <option value="published">已上架</option>
+                        <option value="hidden">已隐藏</option>
+                      </select>
+                    </label>
+                    <label>历史外链
+                      <input id="productBuyUrl" data-product-field placeholder="选填，非主要购买入口" />
+                    </label>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <section id="orderPanel" class="admin-panel hidden" data-admin-panel="orders">
             <div class="panel-title">
               <div>
-                <h2>商品管理</h2>
-                <p>酒瓶星贴商品、库存、订单履约和发货管理。</p>
-              </div>
-            </div>
-            <div class="toolbar multi-line">
-              <input id="productTitle" placeholder="商品名称（必填）" />
-              <input id="productSubtitle" placeholder="副标题（选填）" />
-              <input id="productCover" placeholder="封面图 URL（选填）" />
-              <input id="productPrice" placeholder="价格文案（如 ¥39/10枚装）" />
-              <input id="productPriceCents" type="number" min="0" placeholder="价格（分，如 3900）" />
-              <input id="productStickerCount" type="number" min="1" value="1" placeholder="贴纸数量" />
-              <input id="productStock" type="number" min="0" value="0" placeholder="库存（0 表示不限）" />
-              <select id="productType">
-                <option value="wine_sticker">酒瓶星贴</option>
-                <option value="sticker_set">星贴套装</option>
-                <option value="custom_sticker">定制星贴</option>
-                <option value="wine_gift">酒礼盒预留</option>
-                <option value="custom_wine">定制酒预留</option>
-              </select>
-              <label><input id="productCustomizable" type="checkbox" /> 支持定制</label>
-              <input id="productBuyUrl" placeholder="历史外链（选填，非主购买入口）" />
-              <input id="productSort" type="number" value="0" placeholder="排序（数字越小越靠前）" />
-              <select id="productStatus">
-                <option value="draft">草稿</option>
-                <option value="published">上架</option>
-                <option value="hidden">隐藏</option>
-              </select>
-              <div class="checkbox-group wide" id="productSceneTags">
-                <span>适用场景</span>
-                <label><input type="checkbox" value="lover" />恋人</label>
-                <label><input type="checkbox" value="elder" />长辈</label>
-                <label><input type="checkbox" value="birthday" />生日</label>
-                <label><input type="checkbox" value="wedding" />婚礼</label>
-                <label><input type="checkbox" value="party" />聚会</label>
-                <label><input type="checkbox" value="free" />随心</label>
-              </div>
-              <textarea id="productImages" placeholder="商品多图 URL，每行一个"></textarea>
-              <textarea id="productDescription" placeholder="商品说明"></textarea>
-              <textarea id="productShippingNote" placeholder="发货说明"></textarea>
-              <textarea id="productAfterSaleNote" placeholder="售后说明"></textarea>
-              <button id="saveProductBtn">新增商品</button>
-              <button id="cancelProductEditBtn" class="hidden">取消编辑</button>
-              <button id="refreshProductBtn">刷新商品</button>
-            </div>
-            <p id="productMsg" class="msg"></p>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>排序</th>
-                    <th>名称</th>
-                    <th>场景</th>
-                    <th>价格</th>
-                    <th>状态</th>
-                    <th>库存</th>
-                    <th>更新时间</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody id="productTable"></tbody>
-              </table>
-            </div>
-            <div class="panel-title sub-panel-title">
-              <div>
-                <h3>订单管理</h3>
-                <p>查看贴纸订单，填写快递公司和单号。</p>
+                <h2>订单管理</h2>
+                <p>查看贴纸订单与发货状态。</p>
               </div>
               <button id="refreshOrderBtn">刷新订单</button>
             </div>

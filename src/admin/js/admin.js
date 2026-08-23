@@ -26,6 +26,9 @@ let batchList = [];
 let productList = [];
 let orderList = [];
 let editingProductId = '';
+let editingProductUpdatedAt = '';
+let productDirty = false;
+let productSaving = false;
 const selectedIds = new Set();
 const REQUEST_TIMEOUT_MS = 15000;
 const EXPORT_TIMEOUT_MS = 60000;
@@ -49,7 +52,10 @@ async function request(url, options = {}) {
   const response = await fetchWithTimeout(url, options);
   const json = await parseJsonResponse(response);
   if (!response.ok || json.status !== 'success') {
-    throw new Error(json.message || '请求失败，请稍后重试');
+    const error = new Error(json.message || '请求失败，请稍后重试');
+    error.code = json.code || 'REQUEST_FAILED';
+    error.status = response.status;
+    throw error;
   }
   return json.data;
 }
@@ -132,6 +138,7 @@ function activateAdminSection(section) {
       records: recordMsg,
       miniappContent: miniappContentMsg,
       products: productMsg,
+      orders: orderMsg,
       operators: opMsg,
       settings: systemMsg
     }[activeSection];
@@ -160,6 +167,9 @@ async function loadActiveSection() {
   }
   if (activeSection === 'products') {
     await loadProducts();
+    return;
+  }
+  if (activeSection === 'orders') {
     await loadOrders();
     return;
   }
@@ -353,13 +363,29 @@ async function loadOperators() {
   renderOperators(data.operators || []);
 }
 
+function setProductDirty(dirty) {
+  productDirty = dirty === true;
+  document.getElementById('productDirtyState').classList.toggle('hidden', !productDirty);
+}
+
+function setProductSaving(saving) {
+  productSaving = saving === true;
+  ['saveProductDraftBtn', 'publishProductBtn', 'hideProductBtn', 'uploadProductImageBtn'].forEach((id) => {
+    const button = document.getElementById(id);
+    if (button) button.disabled = productSaving;
+  });
+  document.getElementById('saveProductDraftBtn').textContent = productSaving ? '保存中...' : '保存草稿';
+  document.getElementById('publishProductBtn').textContent = productSaving ? '保存中...' : '保存并上架';
+}
+
 function clearProductForm() {
   editingProductId = '';
+  editingProductUpdatedAt = '';
   document.getElementById('productTitle').value = '';
   document.getElementById('productSubtitle').value = '';
   document.getElementById('productCover').value = '';
   document.getElementById('productPrice').value = '';
-  document.getElementById('productPriceCents').value = '';
+  document.getElementById('productPriceYuan').value = '';
   document.getElementById('productStickerCount').value = '1';
   document.getElementById('productStock').value = '0';
   document.getElementById('productType').value = 'wine_sticker';
@@ -372,8 +398,13 @@ function clearProductForm() {
   document.getElementById('productDescription').value = '';
   document.getElementById('productShippingNote').value = '';
   document.getElementById('productAfterSaleNote').value = '';
-  document.getElementById('saveProductBtn').textContent = '新增商品';
-  document.getElementById('cancelProductEditBtn').classList.add('hidden');
+  document.getElementById('productEditorTitle').textContent = '新增商品';
+  document.getElementById('productEditorId').textContent = '保存后生成商品 ID';
+  document.getElementById('productEditorUpdated').textContent = '';
+  document.getElementById('hideProductBtn').classList.add('hidden');
+  document.getElementById('productEditorMsg').textContent = '';
+  renderProductMedia();
+  setProductDirty(false);
 }
 
 function getProductSceneTags() {
@@ -394,13 +425,17 @@ function formatProductScenes(tags = []) {
 }
 
 function readProductForm() {
+  const priceYuan = document.getElementById('productPriceYuan').value.trim();
+  const priceCents = priceYuan ? Math.round(Number(priceYuan) * 100) : 0;
+  const stickerCount = Number(document.getElementById('productStickerCount').value || 1);
+  const manualPriceText = document.getElementById('productPrice').value.trim();
   return {
     title: document.getElementById('productTitle').value.trim(),
     subtitle: document.getElementById('productSubtitle').value.trim(),
     cover_image: document.getElementById('productCover').value.trim(),
-    price_text: document.getElementById('productPrice').value.trim(),
-    price_cents: Number(document.getElementById('productPriceCents').value || 0),
-    sticker_count: Number(document.getElementById('productStickerCount').value || 1),
+    price_text: manualPriceText || (priceCents > 0 ? `¥${(priceCents / 100).toFixed(2)} / ${stickerCount}枚装` : ''),
+    price_cents: priceCents,
+    sticker_count: stickerCount,
     stock: Number(document.getElementById('productStock').value || 0),
     product_type: document.getElementById('productType').value,
     is_customizable: document.getElementById('productCustomizable').checked,
@@ -418,61 +453,73 @@ function readProductForm() {
   };
 }
 
+function productStatusBadge(status) {
+  const labels = { published: '已上架', draft: '草稿', hidden: '已隐藏' };
+  return `<span class="status-badge status-${escapeHtml(status)}">${escapeHtml(labels[status] || status)}</span>`;
+}
+
 function renderProducts(products) {
+  const keyword = document.getElementById('productSearch').value.trim().toLowerCase();
+  const status = document.getElementById('productStatusFilter').value;
+  const visibleProducts = products.filter((product) => {
+    const matchesStatus = !status || product.status === status;
+    const matchesKeyword = !keyword || [product.id, product.title]
+      .some((value) => String(value || '').toLowerCase().includes(keyword));
+    return matchesStatus && matchesKeyword;
+  });
+  document.getElementById('productEmptyState').classList.toggle('hidden', products.length > 0);
+  document.getElementById('productTableWrap').classList.toggle('hidden', products.length === 0);
   productTableBody.innerHTML = products
-    .map((product) => `<tr>
-      <td>${Number(product.sort_order || 0)}</td>
-      <td>${escapeHtml(product.title)}<br /><small>${escapeHtml(product.subtitle || '')}</small></td>
+    .filter((product) => visibleProducts.includes(product))
+    .map((product) => `<tr data-product-open="${escapeHtml(product.id)}">
+      <td><div class="product-cell">
+        ${product.cover_image ? `<img class="product-thumb" src="${escapeHtml(product.cover_image)}" alt="" />` : '<div class="product-thumb product-thumb-empty">无图</div>'}
+        <div><strong>${escapeHtml(product.title)}</strong><small>${escapeHtml(product.id)}</small></div>
+      </div></td>
+      <td>${productStatusBadge(product.status)}</td>
+      <td><strong>${escapeHtml(product.price_text || (product.price_cents ? `¥${(Number(product.price_cents) / 100).toFixed(2)}` : '未填写'))}</strong></td>
+      <td>${Number(product.stock || 0) || '不限'}</td>
       <td>${escapeHtml(formatProductScenes(product.scene_tags))}</td>
-      <td>${escapeHtml(product.price_text || '-')}</td>
-      <td>${escapeHtml(product.status)}</td>
-      <td>${Number(product.stock || 0) || '不限'} / ${Number(product.sticker_count || 1)}枚</td>
       <td>${escapeHtml(product.updated_at || product.created_at || '-')}</td>
-      <td><button data-product-edit="${escapeHtml(product.id)}">编辑</button></td>
+      <td><button class="secondary" data-product-edit="${escapeHtml(product.id)}" type="button">编辑</button></td>
     </tr>`)
     .join('');
+  if (products.length > 0 && visibleProducts.length === 0) {
+    productTableBody.innerHTML = '<tr><td colspan="7" class="table-empty">没有符合筛选条件的商品。</td></tr>';
+  }
 }
 
 async function loadProducts() {
   const data = await request('/api/admin/products', { headers: authHeaders() });
   productList = data.products || [];
   renderProducts(productList);
+  productMsg.textContent = `共 ${data.total || productList.length} 个商品。`;
 }
 
-async function saveProduct() {
-  const payload = readProductForm();
-  if (!payload.title) {
-    productMsg.textContent = '商品名称不能为空。';
-    return;
-  }
-
-  const url = editingProductId
-    ? `/api/admin/products/${encodeURIComponent(editingProductId)}`
-    : '/api/admin/products';
-
-  await request(url, {
-    method: 'POST',
-    headers: {
-      ...authHeaders(),
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
-
-  productMsg.textContent = editingProductId ? '商品已更新。' : '商品已新增。';
+function showProductList() {
+  if (productDirty && !window.confirm('当前商品有未保存修改，确定返回列表吗？')) return;
+  document.getElementById('productEditorView').classList.add('hidden');
+  document.getElementById('productListView').classList.remove('hidden');
   clearProductForm();
-  await loadProducts();
 }
 
-function editProduct(productId) {
-  const product = productList.find((item) => item.id === productId);
-  if (!product) return;
+function showNewProductEditor() {
+  clearProductForm();
+  document.getElementById('productListView').classList.add('hidden');
+  document.getElementById('productEditorView').classList.remove('hidden');
+  document.getElementById('productTitle').focus();
+}
+
+function fillProductForm(product) {
   editingProductId = product.id;
+  editingProductUpdatedAt = product.updated_at || '';
   document.getElementById('productTitle').value = product.title || '';
   document.getElementById('productSubtitle').value = product.subtitle || '';
   document.getElementById('productCover').value = product.cover_image || '';
   document.getElementById('productPrice').value = product.price_text || '';
-  document.getElementById('productPriceCents').value = Number(product.price_cents || 0);
+  document.getElementById('productPriceYuan').value = product.price_cents
+    ? (Number(product.price_cents) / 100).toFixed(2)
+    : '';
   document.getElementById('productStickerCount').value = Number(product.sticker_count || 1);
   document.getElementById('productStock').value = Number(product.stock || 0);
   document.getElementById('productType').value = product.product_type || 'wine_sticker';
@@ -485,9 +532,161 @@ function editProduct(productId) {
   document.getElementById('productDescription').value = product.description || '';
   document.getElementById('productShippingNote').value = product.shipping_note || '';
   document.getElementById('productAfterSaleNote').value = product.after_sale_note || '';
-  document.getElementById('saveProductBtn').textContent = '保存修改';
-  document.getElementById('cancelProductEditBtn').classList.remove('hidden');
-  productMsg.textContent = `正在编辑：${product.title}`;
+  document.getElementById('productEditorTitle').textContent = product.title || '编辑商品';
+  document.getElementById('productEditorId').textContent = product.id;
+  document.getElementById('productEditorUpdated').textContent = product.updated_at ? ` · 更新于 ${product.updated_at}` : '';
+  document.getElementById('hideProductBtn').classList.toggle('hidden', product.status === 'hidden');
+  renderProductMedia();
+  setProductDirty(false);
+}
+
+async function openProductEditor(productId) {
+  document.getElementById('productListView').classList.add('hidden');
+  document.getElementById('productEditorView').classList.remove('hidden');
+  document.getElementById('productEditorMsg').textContent = '正在读取最新商品信息...';
+  try {
+    const product = await request(`/api/admin/products/${encodeURIComponent(productId)}`, {
+      headers: authHeaders()
+    });
+    fillProductForm(product);
+    document.getElementById('productEditorMsg').textContent = '';
+  } catch (error) {
+    document.getElementById('productEditorMsg').textContent = error.message || '读取商品失败。';
+  }
+}
+
+async function saveProduct(targetStatus) {
+  if (productSaving) return;
+  const payload = readProductForm();
+  payload.status = targetStatus;
+  if (editingProductId) payload.expected_updated_at = editingProductUpdatedAt;
+  if (!payload.title) {
+    document.getElementById('productEditorMsg').textContent = '商品名称不能为空。';
+    document.getElementById('productTitle').focus();
+    return;
+  }
+  if (targetStatus === 'published' && payload.price_cents < 1) {
+    document.getElementById('productEditorMsg').textContent = '上架前请填写有效价格。';
+    document.getElementById('productPriceYuan').focus();
+    return;
+  }
+
+  const url = editingProductId
+    ? `/api/admin/products/${encodeURIComponent(editingProductId)}`
+    : '/api/admin/products';
+
+  setProductSaving(true);
+  document.getElementById('productEditorMsg').textContent = '正在保存...';
+  try {
+    const saved = await request(url, {
+      method: 'POST',
+      headers: {
+        ...authHeaders(),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+    fillProductForm(saved);
+    document.getElementById('productEditorMsg').textContent = targetStatus === 'published'
+      ? '商品已保存并上架。'
+      : targetStatus === 'hidden'
+        ? '商品已隐藏，不再对用户展示。'
+        : '草稿已保存。';
+    await loadProducts();
+  } catch (error) {
+    if (error.code === 'PRODUCT_UPDATE_CONFLICT') {
+      document.getElementById('productEditorMsg').textContent = '保存失败：商品已在其他位置更新，请返回列表后重新打开。';
+    } else {
+      document.getElementById('productEditorMsg').textContent = error.message || '保存失败。';
+    }
+  } finally {
+    setProductSaving(false);
+  }
+}
+
+function productMediaValues() {
+  const cover = document.getElementById('productCover').value.trim();
+  const images = document.getElementById('productImages').value
+    .split('\n')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return { cover, images: images.filter((item) => item !== cover) };
+}
+
+function renderProductMedia() {
+  const container = document.getElementById('productMediaList');
+  if (!container) return;
+  const { cover, images } = productMediaValues();
+  const all = [cover, ...images].filter(Boolean);
+  container.innerHTML = all.length
+    ? all.map((url, index) => `<div class="media-item">
+        <img src="${escapeHtml(url)}" alt="" />
+        <div><strong>${index === 0 ? '封面图' : `详情图 ${index}`}</strong><small>${escapeHtml(url)}</small></div>
+        <div class="media-actions">
+          ${index > 0 ? `<button class="secondary" data-media-action="cover" data-media-url="${escapeHtml(url)}" type="button">设为封面</button>` : ''}
+          ${index > 1 ? `<button class="secondary" data-media-action="up" data-media-url="${escapeHtml(url)}" type="button">上移</button>` : ''}
+          ${index > 0 && index < all.length - 1 ? `<button class="secondary" data-media-action="down" data-media-url="${escapeHtml(url)}" type="button">下移</button>` : ''}
+          <button class="danger-button" data-media-action="remove" data-media-url="${escapeHtml(url)}" type="button">移除</button>
+        </div>
+      </div>`).join('')
+    : '<div class="empty-media">尚未上传商品图片。</div>';
+}
+
+function updateProductMedia(action, url) {
+  const { cover, images } = productMediaValues();
+  let nextCover = cover;
+  let nextImages = images.slice();
+  const index = nextImages.indexOf(url);
+  if (action === 'cover' && index !== -1) {
+    nextImages.splice(index, 1);
+    if (cover) nextImages.unshift(cover);
+    nextCover = url;
+  } else if (action === 'remove') {
+    if (url === cover) {
+      nextCover = nextImages.shift() || '';
+    } else if (index !== -1) {
+      nextImages.splice(index, 1);
+    }
+  } else if (action === 'up' && index > 0) {
+    [nextImages[index - 1], nextImages[index]] = [nextImages[index], nextImages[index - 1]];
+  } else if (action === 'down' && index !== -1 && index < nextImages.length - 1) {
+    [nextImages[index + 1], nextImages[index]] = [nextImages[index], nextImages[index + 1]];
+  }
+  document.getElementById('productCover').value = nextCover;
+  document.getElementById('productImages').value = nextImages.join('\n');
+  renderProductMedia();
+  setProductDirty(true);
+}
+
+async function uploadProductImage() {
+  const input = document.getElementById('productImageUpload');
+  if (!input.files || !input.files[0]) throw new Error('请先选择图片。');
+  const formData = new FormData();
+  formData.append('image', input.files[0]);
+  formData.append('scope', 'product-media');
+  setProductSaving(true);
+  document.getElementById('productEditorMsg').textContent = '图片上传中...';
+  try {
+    const response = await fetchWithTimeout('/api/admin/upload-image', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: formData,
+      timeoutMs: EXPORT_TIMEOUT_MS
+    });
+    const json = await parseJsonResponse(response);
+    if (!response.ok || json.status !== 'success') throw new Error(json.message || '图片上传失败');
+    const url = json.data && json.data.url;
+    if (!url) throw new Error('图片上传成功，但未返回可用地址。');
+    const { cover, images } = productMediaValues();
+    if (!cover) document.getElementById('productCover').value = url;
+    else document.getElementById('productImages').value = [...images, url].join('\n');
+    input.value = '';
+    renderProductMedia();
+    setProductDirty(true);
+    document.getElementById('productEditorMsg').textContent = '图片已上传，请保存商品。';
+  } finally {
+    setProductSaving(false);
+  }
 }
 
 function renderOrders(orders) {
@@ -953,7 +1152,13 @@ document.getElementById('loginBtn').addEventListener('click', async () => {
 });
 
 navItems.forEach((item) => {
-  item.addEventListener('click', () => activateAdminSection(item.dataset.adminSection));
+  item.addEventListener('click', () => {
+    if (activeSection === 'products' && productDirty && item.dataset.adminSection !== 'products') {
+      if (!window.confirm('当前商品有未保存修改，确定离开吗？')) return;
+      clearProductForm();
+    }
+    activateAdminSection(item.dataset.adminSection);
+  });
 });
 
 document.getElementById('refreshBtn').addEventListener('click', loadDashboard);
@@ -964,12 +1169,32 @@ document.getElementById('refreshBatchBtn').addEventListener('click', () => loadB
 document.getElementById('generateQrBtn').addEventListener('click', () => generateQRCodes());
 document.getElementById('createOpBtn').addEventListener('click', () => createOperator().catch((e) => { opMsg.textContent = e.message || '创建失败'; }));
 document.getElementById('refreshOpBtn').addEventListener('click', () => loadOperators().catch(() => {}));
-document.getElementById('saveProductBtn').addEventListener('click', () => saveProduct().catch((e) => { productMsg.textContent = e.message || '保存失败'; }));
 document.getElementById('refreshProductBtn').addEventListener('click', () => loadProducts().catch(() => {}));
 document.getElementById('refreshOrderBtn').addEventListener('click', () => loadOrders().catch((e) => { orderMsg.textContent = e.message || '刷新失败'; }));
-document.getElementById('cancelProductEditBtn').addEventListener('click', () => {
-  clearProductForm();
-  productMsg.textContent = '';
+document.getElementById('newProductBtn').addEventListener('click', showNewProductEditor);
+document.getElementById('emptyNewProductBtn').addEventListener('click', showNewProductEditor);
+document.getElementById('backToProductsBtn').addEventListener('click', showProductList);
+document.getElementById('saveProductDraftBtn').addEventListener('click', () => saveProduct('draft'));
+document.getElementById('publishProductBtn').addEventListener('click', () => saveProduct('published'));
+document.getElementById('hideProductBtn').addEventListener('click', () => {
+  if (window.confirm('隐藏后商品将不再对用户展示，确定继续吗？')) saveProduct('hidden');
+});
+document.getElementById('uploadProductImageBtn').addEventListener('click', () => uploadProductImage().catch((error) => {
+  document.getElementById('productEditorMsg').textContent = error.message || '图片上传失败。';
+}));
+document.getElementById('productSearch').addEventListener('input', () => renderProducts(productList));
+document.getElementById('productStatusFilter').addEventListener('change', () => renderProducts(productList));
+document.querySelectorAll('[data-product-field]').forEach((field) => {
+  field.addEventListener('input', () => {
+    setProductDirty(true);
+    if (field.id === 'productCover' || field.id === 'productImages') renderProductMedia();
+  });
+  field.addEventListener('change', () => setProductDirty(true));
+});
+window.addEventListener('beforeunload', (event) => {
+  if (!productDirty) return;
+  event.preventDefault();
+  event.returnValue = '';
 });
 document.getElementById('refreshMiniappContentBtn').addEventListener('click', () => loadMiniappContent().catch((e) => {
   miniappContentMsg.textContent = e.message || '刷新失败';
@@ -1120,9 +1345,16 @@ operatorTableBody.addEventListener('click', async (event) => {
 });
 
 productTableBody.addEventListener('click', (event) => {
-  const btn = event.target.closest('button[data-product-edit]');
-  if (!btn) return;
-  editProduct(btn.getAttribute('data-product-edit'));
+  const target = event.target.closest('[data-product-edit], [data-product-open]');
+  if (!target) return;
+  const productId = target.getAttribute('data-product-edit') || target.getAttribute('data-product-open');
+  openProductEditor(productId);
+});
+
+document.getElementById('productMediaList').addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-media-action]');
+  if (!button) return;
+  updateProductMedia(button.dataset.mediaAction, button.dataset.mediaUrl);
 });
 
 orderTableBody.addEventListener('click', (event) => {

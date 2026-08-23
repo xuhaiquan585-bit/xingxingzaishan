@@ -1509,7 +1509,7 @@ test('admin page should expose section navigation and miniapp content tools', ()
   const appJson = fs.readFileSync(appJsonPath, 'utf8');
   const homeJs = fs.readFileSync(homeJsPath, 'utf8');
 
-  ['dashboard', 'bottles', 'records', 'miniappContent', 'products', 'operators', 'settings'].forEach((section) => {
+  ['dashboard', 'bottles', 'records', 'miniappContent', 'products', 'orders', 'operators', 'settings'].forEach((section) => {
     assert.equal(html.includes(`data-admin-section="${section}"`), true);
   });
   assert.equal(html.includes('id="miniappContentPanel"'), true);
@@ -1520,9 +1520,14 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(html.includes('id="contentImageUploadedUrl"'), true);
   assert.equal(html.includes('id="systemPanel"'), true);
   assert.equal(html.includes('id="productSceneTags"'), true);
-  assert.equal(html.includes('id="productPriceCents"'), true);
+  assert.equal(html.includes('id="productPriceYuan"'), true);
   assert.equal(html.includes('id="productStickerCount"'), true);
   assert.equal(html.includes('id="productStock"'), true);
+  assert.equal(html.includes('单笔购买上限'), true);
+  assert.equal(html.includes('id="productEditorView"'), true);
+  assert.equal(html.includes('id="productImageUpload"'), true);
+  assert.equal(html.includes('id="saveProductDraftBtn"'), true);
+  assert.equal(html.includes('id="publishProductBtn"'), true);
   assert.equal(html.includes('id="orderTable"'), true);
   assert.equal(html.includes('id="refreshOrderBtn"'), true);
   assert.equal(js.includes('adminActiveSection'), true);
@@ -1535,6 +1540,9 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(js.includes("readJsonArrayField('contentHomeSlides'"), true);
   assert.equal(js.includes('async function loadSystemStatus'), true);
   assert.equal(js.includes('scene_tags: getProductSceneTags()'), true);
+  assert.equal(js.includes("formData.append('scope', 'product-media')"), true);
+  assert.equal(js.includes('expected_updated_at'), true);
+  assert.equal(js.includes('if (productSaving) return'), true);
   assert.equal(js.includes('async function loadOrders'), true);
   assert.equal(js.includes('/api/admin/orders'), true);
   assert.equal(js.includes('/ship'), true);
@@ -4419,6 +4427,71 @@ test('admin product management should expose only published products to miniapp'
   assert.equal(detail.body.data.price_cents, 3900);
   assert.equal(detail.body.data.sticker_count, 10);
   assert.deepEqual(detail.body.data.scene_tags, ['birthday', 'wedding']);
+
+  const adminDetail = await getJson(`/api/admin/products/${productId}`, token);
+  assert.equal(adminDetail.status, 200);
+  const originalUpdatedAt = adminDetail.body.data.updated_at;
+  const updateRes = await postJson(`/api/admin/products/${productId}`, {
+    title: '生日祝福酒瓶星贴（新版）',
+    expected_updated_at: originalUpdatedAt
+  }, token);
+  assert.equal(updateRes.status, 200);
+  assert.equal(updateRes.body.data.title, '生日祝福酒瓶星贴（新版）');
+  assert.notEqual(updateRes.body.data.updated_at, originalUpdatedAt);
+
+  const conflictRes = await postJson(`/api/admin/products/${productId}`, {
+    title: '过期编辑结果',
+    expected_updated_at: originalUpdatedAt
+  }, token);
+  assert.equal(conflictRes.status, 409);
+  assert.equal(conflictRes.body.code, 'PRODUCT_UPDATE_CONFLICT');
+
+  const invalidPublishedRes = await postJson('/api/admin/products', {
+    title: '缺少价格的上架商品',
+    price_cents: 0,
+    status: 'published'
+  }, token);
+  assert.equal(invalidPublishedRes.status, 400);
+  assert.equal(invalidPublishedRes.body.code, 'VALIDATION_ERROR');
+
+  const invalidImageRes = await postJson('/api/admin/products', {
+    title: '危险图片地址商品',
+    cover_image: 'javascript:alert(1)',
+    status: 'draft'
+  }, token);
+  assert.equal(invalidImageRes.status, 400);
+  assert.equal(invalidImageRes.body.code, 'VALIDATION_ERROR');
+
+  const hideRes = await postJson(`/api/admin/products/${productId}`, {
+    status: 'hidden',
+    expected_updated_at: updateRes.body.data.updated_at
+  }, token);
+  assert.equal(hideRes.status, 200);
+  assert.equal(hideRes.body.data.status, 'hidden');
+  const hiddenMiniDetail = await getJson(`/api/miniapp/products/${productId}`);
+  assert.equal(hiddenMiniDetail.status, 404);
+});
+
+test('admin product media upload should use the shared secure image pipeline', async () => {
+  const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
+  const token = login.body.data.token;
+  const imageData = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+    'base64'
+  );
+  const uploadRes = await postMultipart('/api/admin/upload-image', {
+    fields: { scope: 'product-media' },
+    files: [{
+      fieldName: 'image',
+      filename: 'product-cover.png',
+      contentType: 'image/png',
+      content: imageData
+    }]
+  }, token);
+  assert.equal(uploadRes.status, 200);
+  assert.equal(uploadRes.body.status, 'success');
+  assert.ok(uploadRes.body.data.url);
+  assert.ok(uploadRes.body.data.object_key);
 });
 
 test('miniapp sticker orders should create, mock pay, list, and allow admin shipping', async () => {
