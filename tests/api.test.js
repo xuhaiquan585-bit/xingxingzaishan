@@ -1530,6 +1530,10 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(html.includes('id="publishProductBtn"'), true);
   assert.equal(html.includes('id="orderTable"'), true);
   assert.equal(html.includes('id="refreshOrderBtn"'), true);
+  assert.equal(html.includes('id="orderStatusTabs"'), true);
+  assert.equal(html.includes('id="orderDrawer"'), true);
+  assert.equal(html.includes('id="shippingModal"'), true);
+  assert.equal(html.includes('id="orderSearch"'), true);
   assert.equal(js.includes('adminActiveSection'), true);
   assert.equal(js.includes('function activateAdminSection'), true);
   assert.equal(js.includes('async function loadContentRecords'), true);
@@ -1546,6 +1550,9 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(js.includes('async function loadOrders'), true);
   assert.equal(js.includes('/api/admin/orders'), true);
   assert.equal(js.includes('/ship'), true);
+  assert.equal(js.includes('window.prompt'), false);
+  assert.equal(js.includes('async function openOrderDetail'), true);
+  assert.equal(js.includes('async function saveOrderShipment'), true);
   assert.equal(js.includes('Promise.all([loadDashboard(), loadBatches(), loadRecords(), loadOperators(), loadProducts()])'), false);
   assert.equal(appJs.includes("appName: '记在星上'"), true);
   assert.equal(appJson.includes('pages/project/project'), true);
@@ -4672,6 +4679,44 @@ test('miniapp sticker orders should create, mock pay, list, and allow admin ship
   const adminOrders = await getJson('/api/admin/orders', adminToken);
   assert.equal(adminOrders.status, 200);
   assert.equal(adminOrders.body.data.orders.some((item) => item.id === orderId), true);
+  const adminOrderListItem = adminOrders.body.data.orders.find((item) => item.id === orderId);
+  assert.equal(adminOrderListItem.receiver_phone_masked, '138****0001');
+  assert.equal(adminOrderListItem.status_text, '待发货');
+  assert.equal(Object.prototype.hasOwnProperty.call(adminOrderListItem, 'receiver_phone'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(adminOrderListItem, 'address'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(adminOrderListItem, 'openid'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(adminOrderListItem, 'account_id'), false);
+  assert.equal(adminOrders.body.data.page, 1);
+  assert.equal(adminOrders.body.data.page_size, 50);
+
+  const orderSearch = await getJson(`/api/admin/orders?q=${encodeURIComponent('张三')}&page=1&page_size=1`, adminToken);
+  assert.equal(orderSearch.status, 200);
+  assert.equal(orderSearch.body.data.page_size, 1);
+  assert.ok(orderSearch.body.data.orders.length <= 1);
+  assert.ok(orderSearch.body.data.total >= 1);
+
+  const paidFilter = await getJson('/api/admin/orders?status=paid', adminToken);
+  assert.equal(paidFilter.status, 200);
+  assert.ok(paidFilter.body.data.orders.every((item) => item.status === 'paid'));
+
+  const adminDetail = await getJson(`/api/admin/orders/${orderId}`, adminToken);
+  assert.equal(adminDetail.status, 200);
+  assert.equal(adminDetail.body.data.receiver_phone, '13888880001');
+  assert.equal(adminDetail.body.data.address, '测试路 1 号');
+  assert.equal(adminDetail.body.data.wechat_transaction_id.startsWith('MOCK_'), true);
+  assert.equal(Array.isArray(adminDetail.body.data.timeline), true);
+  assert.equal(Object.prototype.hasOwnProperty.call(adminDetail.body.data, 'openid'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(adminDetail.body.data, 'account_id'), false);
+
+  const unauthorizedDetail = await getJson(`/api/admin/orders/${orderId}`);
+  assert.equal(unauthorizedDetail.status, 401);
+
+  const invalidShipRes = await postJson('/api/admin/orders/ORDER_ACCOUNT_FOREIGN/ship', {
+    express_company: '顺丰速运',
+    express_no: 'SF-BLOCKED'
+  }, adminToken);
+  assert.equal(invalidShipRes.status, 409);
+  assert.equal(invalidShipRes.body.code, 'ORDER_NOT_SHIPPABLE');
 
   const shipRes = await postJson(`/api/admin/orders/${orderId}/ship`, {
     express_company: '顺丰速运',
@@ -4681,6 +4726,16 @@ test('miniapp sticker orders should create, mock pay, list, and allow admin ship
   assert.equal(shipRes.body.data.status, 'shipped');
   assert.equal(shipRes.body.data.express_company, '顺丰速运');
   assert.equal(shipRes.body.data.express_no, 'SF1234567890');
+
+  const reshipRes = await postJson(`/api/admin/orders/${orderId}/ship`, {
+    express_company: '京东物流',
+    express_no: 'JD1234567890',
+    admin_note: '客户要求修改物流'
+  }, adminToken);
+  assert.equal(reshipRes.status, 200);
+  assert.equal(reshipRes.body.data.status, 'shipped');
+  assert.equal(reshipRes.body.data.express_company, '京东物流');
+  assert.equal(reshipRes.body.data.express_no, 'JD1234567890');
 });
 
 test('miniapp order pay should return WeChat JSAPI payment params when configured', async () => {

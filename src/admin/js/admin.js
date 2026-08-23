@@ -25,6 +25,11 @@ let currentRecords = [];
 let batchList = [];
 let productList = [];
 let orderList = [];
+let orderPage = 1;
+let orderTotalPages = 1;
+let orderStatus = '';
+let selectedOrder = null;
+let shippingSaving = false;
 let editingProductId = '';
 let editingProductUpdatedAt = '';
 let productDirty = false;
@@ -693,51 +698,196 @@ function renderOrders(orders) {
   orderTableBody.innerHTML = orders
     .map((order) => {
       const product = order.product_snapshot || {};
-      const shippingText = order.express_no
-        ? `${escapeHtml(order.express_company || '')}<br /><small>${escapeHtml(order.express_no)}</small>`
-        : '<span class="muted">未发货</span>';
-      const action = order.status === 'paid'
-        ? `<button data-order-ship="${escapeHtml(order.id)}">填写发货</button>`
-        : '-';
-      return `<tr>
-        <td>${escapeHtml(order.order_no || order.id)}<br /><small>${escapeHtml(order.created_at || '')}</small></td>
-        <td>${escapeHtml(product.title || '-') } × ${Number(order.quantity || 1)}</td>
-        <td>${escapeHtml(order.amount_text || '-')}</td>
-        <td>${escapeHtml(order.status_text || order.status || '-')}</td>
-        <td>${escapeHtml(order.receiver_name || '-')} ${escapeHtml(order.receiver_phone || '')}<br /><small>${escapeHtml(`${order.region || ''}${order.address || ''}`)}</small></td>
-        <td>${shippingText}</td>
-        <td>${action}</td>
+      const paymentLabel = order.payment_status === 'paid' ? '已支付' : '未支付';
+      return `<tr data-order-open="${escapeHtml(order.id)}">
+        <td><strong>${escapeHtml(order.order_no || order.id)}</strong><small>${escapeHtml(formatDateTime(order.created_at))}</small></td>
+        <td><div class="order-product-cell">
+          ${product.cover_image ? `<img src="${escapeHtml(product.cover_image)}" alt="" />` : ''}
+          <span>${escapeHtml(product.title || '-')} × ${Number(order.quantity || 1)}</span>
+        </div></td>
+        <td>${escapeHtml(order.receiver_name_masked || '-')}<small>${escapeHtml(order.receiver_phone_masked || '')}</small><small>${escapeHtml(order.address_summary || '')}</small></td>
+        <td><strong>${escapeHtml(order.amount_text || '-')}</strong></td>
+        <td><span class="payment-state payment-${escapeHtml(order.payment_status || 'unpaid')}">${paymentLabel}</span></td>
+        <td>${orderStatusBadge(order.status, order.status_text)}</td>
+        <td><button class="secondary" data-order-detail="${escapeHtml(order.id)}" type="button">查看</button></td>
       </tr>`;
     })
     .join('');
+  if (orders.length === 0) {
+    orderTableBody.innerHTML = '<tr><td colspan="7" class="table-empty">当前筛选条件下没有订单。</td></tr>';
+  }
+}
+
+function formatDateTime(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(date);
+}
+
+function orderStatusBadge(status, label) {
+  return `<span class="status-badge order-status-${escapeHtml(status)}">${escapeHtml(label || status || '-')}</span>`;
 }
 
 async function loadOrders() {
-  const data = await request('/api/admin/orders', { headers: authHeaders() });
+  const query = new URLSearchParams({
+    page: String(orderPage),
+    page_size: '50'
+  });
+  const keyword = document.getElementById('orderSearch').value.trim();
+  if (orderStatus) query.set('status', orderStatus);
+  if (keyword) query.set('q', keyword);
+  orderMsg.textContent = '正在加载订单...';
+  const data = await request(`/api/admin/orders?${query.toString()}`, { headers: authHeaders() });
   orderList = data.orders || [];
+  orderPage = data.page || 1;
+  orderTotalPages = data.total_pages || 1;
   renderOrders(orderList);
+  document.getElementById('orderPaginationSummary').textContent =
+    `共 ${data.total || 0} 个订单 · 第 ${orderPage} / ${orderTotalPages} 页`;
+  document.getElementById('previousOrderPageBtn').disabled = orderPage <= 1;
+  document.getElementById('nextOrderPageBtn').disabled = orderPage >= orderTotalPages;
+  orderMsg.textContent = '';
 }
 
-async function shipOrder(orderId) {
-  const order = orderList.find((item) => item.id === orderId);
-  if (!order) return;
-  const expressCompany = window.prompt('快递公司', order.express_company || '');
-  if (!expressCompany) return;
-  const expressNo = window.prompt('快递单号', order.express_no || '');
-  if (!expressNo) return;
-  await request(`/api/admin/orders/${encodeURIComponent(orderId)}/ship`, {
-    method: 'POST',
-    headers: {
-      ...authHeaders(),
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      express_company: expressCompany.trim(),
-      express_no: expressNo.trim()
-    })
-  });
-  orderMsg.textContent = '发货信息已保存。';
-  await loadOrders();
+function orderDetailSection(title, rows) {
+  return `<section class="drawer-section"><h3>${escapeHtml(title)}</h3><dl>${rows
+    .map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value || '-')}</dd></div>`)
+    .join('')}</dl></section>`;
+}
+
+function renderOrderDetail(order) {
+  const product = order.product_snapshot || {};
+  const timeline = (order.timeline || []).map((item) =>
+    `<li><span></span><div><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(formatDateTime(item.at))}</small></div></li>`
+  ).join('');
+  document.getElementById('orderDrawerTitle').textContent = order.order_no || order.id;
+  document.getElementById('orderDrawerContent').innerHTML = `
+    <div class="drawer-summary">
+      ${orderStatusBadge(order.status, order.status_text)}
+      <strong>${escapeHtml(order.amount_text || '-')}</strong>
+      <span>共 ${Number(order.quantity || 1)} 件</span>
+    </div>
+    ${orderDetailSection('商品快照', [
+      ['商品', product.title || '-'],
+      ['商品 ID', order.product_id || product.id || '-'],
+      ['单价', `¥${(Number(order.unit_price_cents || 0) / 100).toFixed(2)}`],
+      ['数量', String(order.quantity || 1)]
+    ])}
+    ${orderDetailSection('支付信息', [
+      ['支付状态', order.payment_status === 'paid' ? '已支付' : '未支付'],
+      ['支付方式', order.payment_method || '-'],
+      ['支付时间', formatDateTime(order.paid_at)],
+      ['微信交易号', order.wechat_transaction_id || '-']
+    ])}
+    ${orderDetailSection('收货信息', [
+      ['收件人', order.receiver_name || '-'],
+      ['手机号', order.receiver_phone || '-'],
+      ['地区', order.region || '-'],
+      ['详细地址', order.address || '-'],
+      ['用户备注', order.remark || '-']
+    ])}
+    ${orderDetailSection('物流信息', [
+      ['快递公司', order.express_company || '未填写'],
+      ['快递单号', order.express_no || '未填写'],
+      ['发货时间', formatDateTime(order.shipped_at)],
+      ['后台备注', order.admin_note || '-']
+    ])}
+    <section class="drawer-section"><h3>状态时间线</h3><ol class="order-timeline">${timeline}</ol></section>`;
+  const shipButton = document.getElementById('drawerShipOrderBtn');
+  shipButton.classList.toggle('hidden', !['paid', 'shipped'].includes(order.status));
+  shipButton.textContent = order.status === 'shipped' ? '修改物流' : '确认发货';
+}
+
+async function openOrderDetail(orderId) {
+  document.getElementById('orderDrawerBackdrop').classList.remove('hidden');
+  document.getElementById('orderDrawer').classList.remove('hidden');
+  document.getElementById('orderDrawerTitle').textContent = '加载中...';
+  document.getElementById('orderDrawerContent').innerHTML = '<p class="muted">正在读取订单详情...</p>';
+  try {
+    selectedOrder = await request(`/api/admin/orders/${encodeURIComponent(orderId)}`, {
+      headers: authHeaders()
+    });
+    renderOrderDetail(selectedOrder);
+  } catch (error) {
+    selectedOrder = null;
+    document.getElementById('orderDrawerContent').innerHTML =
+      `<p class="msg">${escapeHtml(error.message || '订单详情加载失败。')}</p>`;
+    document.getElementById('drawerShipOrderBtn').classList.add('hidden');
+  }
+}
+
+function closeOrderDrawer() {
+  document.getElementById('orderDrawerBackdrop').classList.add('hidden');
+  document.getElementById('orderDrawer').classList.add('hidden');
+  selectedOrder = null;
+}
+
+function openShippingModal() {
+  if (!selectedOrder || !['paid', 'shipped'].includes(selectedOrder.status)) return;
+  document.getElementById('shippingOrderLabel').textContent = selectedOrder.order_no || selectedOrder.id;
+  document.getElementById('shippingCompany').value = selectedOrder.express_company || '';
+  document.getElementById('shippingNumber').value = selectedOrder.express_no || '';
+  document.getElementById('shippingAdminNote').value = selectedOrder.admin_note || '';
+  document.getElementById('shippingMsg').textContent = '';
+  document.getElementById('shippingModalBackdrop').classList.remove('hidden');
+  document.getElementById('shippingCompany').focus();
+}
+
+function closeShippingModal(force = false) {
+  if (shippingSaving && !force) return;
+  document.getElementById('shippingModalBackdrop').classList.add('hidden');
+}
+
+function setShippingSaving(saving) {
+  shippingSaving = saving === true;
+  document.getElementById('saveShippingBtn').disabled = shippingSaving;
+  document.getElementById('cancelShippingBtn').disabled = shippingSaving;
+  document.getElementById('closeShippingModalBtn').disabled = shippingSaving;
+  document.getElementById('saveShippingBtn').textContent = shippingSaving ? '保存中...' : '保存发货信息';
+}
+
+async function saveOrderShipment() {
+  if (shippingSaving || !selectedOrder) return;
+  const expressCompany = document.getElementById('shippingCompany').value.trim();
+  const expressNo = document.getElementById('shippingNumber').value.trim();
+  const adminNote = document.getElementById('shippingAdminNote').value.trim();
+  if (!expressCompany || !expressNo) {
+    document.getElementById('shippingMsg').textContent = '请填写快递公司和快递单号。';
+    return;
+  }
+  setShippingSaving(true);
+  document.getElementById('shippingMsg').textContent = '';
+  try {
+    await request(`/api/admin/orders/${encodeURIComponent(selectedOrder.id)}/ship`, {
+      method: 'POST',
+      headers: {
+        ...authHeaders(),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        express_company: expressCompany,
+        express_no: expressNo,
+        admin_note: adminNote
+      })
+    });
+    const orderId = selectedOrder.id;
+    closeShippingModal(true);
+    await loadOrders();
+    await openOrderDetail(orderId);
+    orderMsg.textContent = '发货信息已保存。';
+  } catch (error) {
+    document.getElementById('shippingMsg').textContent = error.message || '发货信息保存失败。';
+  } finally {
+    setShippingSaving(false);
+  }
 }
 
 async function createOperator() {
@@ -1171,6 +1321,49 @@ document.getElementById('createOpBtn').addEventListener('click', () => createOpe
 document.getElementById('refreshOpBtn').addEventListener('click', () => loadOperators().catch(() => {}));
 document.getElementById('refreshProductBtn').addEventListener('click', () => loadProducts().catch(() => {}));
 document.getElementById('refreshOrderBtn').addEventListener('click', () => loadOrders().catch((e) => { orderMsg.textContent = e.message || '刷新失败'; }));
+document.getElementById('searchOrderBtn').addEventListener('click', () => {
+  orderPage = 1;
+  loadOrders().catch((error) => { orderMsg.textContent = error.message || '查询失败'; });
+});
+document.getElementById('resetOrderSearchBtn').addEventListener('click', () => {
+  document.getElementById('orderSearch').value = '';
+  orderPage = 1;
+  loadOrders().catch((error) => { orderMsg.textContent = error.message || '查询失败'; });
+});
+document.getElementById('orderSearch').addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') return;
+  orderPage = 1;
+  loadOrders().catch((error) => { orderMsg.textContent = error.message || '查询失败'; });
+});
+document.querySelectorAll('[data-order-status]').forEach((button) => {
+  button.addEventListener('click', () => {
+    orderStatus = button.dataset.orderStatus;
+    orderPage = 1;
+    document.querySelectorAll('[data-order-status]').forEach((item) => {
+      item.classList.toggle('active', item === button);
+    });
+    loadOrders().catch((error) => { orderMsg.textContent = error.message || '查询失败'; });
+  });
+});
+document.getElementById('previousOrderPageBtn').addEventListener('click', () => {
+  if (orderPage <= 1) return;
+  orderPage -= 1;
+  loadOrders().catch((error) => { orderMsg.textContent = error.message || '翻页失败'; });
+});
+document.getElementById('nextOrderPageBtn').addEventListener('click', () => {
+  if (orderPage >= orderTotalPages) return;
+  orderPage += 1;
+  loadOrders().catch((error) => { orderMsg.textContent = error.message || '翻页失败'; });
+});
+document.getElementById('closeOrderDrawerBtn').addEventListener('click', closeOrderDrawer);
+document.getElementById('orderDrawerBackdrop').addEventListener('click', closeOrderDrawer);
+document.getElementById('drawerShipOrderBtn').addEventListener('click', openShippingModal);
+document.getElementById('closeShippingModalBtn').addEventListener('click', () => closeShippingModal());
+document.getElementById('cancelShippingBtn').addEventListener('click', () => closeShippingModal());
+document.getElementById('saveShippingBtn').addEventListener('click', saveOrderShipment);
+document.getElementById('shippingModalBackdrop').addEventListener('click', (event) => {
+  if (event.target === event.currentTarget) closeShippingModal();
+});
 document.getElementById('newProductBtn').addEventListener('click', showNewProductEditor);
 document.getElementById('emptyNewProductBtn').addEventListener('click', showNewProductEditor);
 document.getElementById('backToProductsBtn').addEventListener('click', showProductList);
@@ -1358,11 +1551,10 @@ document.getElementById('productMediaList').addEventListener('click', (event) =>
 });
 
 orderTableBody.addEventListener('click', (event) => {
-  const btn = event.target.closest('button[data-order-ship]');
-  if (!btn) return;
-  shipOrder(btn.getAttribute('data-order-ship')).catch((error) => {
-    orderMsg.textContent = error.message || '发货失败';
-  });
+  const target = event.target.closest('[data-order-detail], [data-order-open]');
+  if (!target) return;
+  const orderId = target.getAttribute('data-order-detail') || target.getAttribute('data-order-open');
+  openOrderDetail(orderId);
 });
 
 if (adminToken) {

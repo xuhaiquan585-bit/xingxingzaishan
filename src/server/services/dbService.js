@@ -2073,6 +2073,11 @@ function orderStatusText(status) {
   }[status] || status || '';
 }
 
+function adminOrderStatusText(status) {
+  if (status === 'paid') return '待发货';
+  return orderStatusText(status);
+}
+
 function orderPayload(order) {
   if (!order) return null;
   const { account_id: _accountId, ...publicOrder } = order;
@@ -2348,19 +2353,134 @@ function markOrderPaidByOrderNo({ orderNo, transactionId, paidAt, raw }) {
   return { data: orderPayload(db.orders[index]) };
 }
 
-function listOrders({ status } = {}) {
+function maskOrderPhone(value) {
+  const phone = String(value || '').trim();
+  if (!phone) return '';
+  if (/^1\d{10}$/.test(phone)) return `${phone.slice(0, 3)}****${phone.slice(-4)}`;
+  if (phone.length <= 4) return '*'.repeat(phone.length);
+  return `${phone.slice(0, 2)}***${phone.slice(-2)}`;
+}
+
+function maskOrderName(value) {
+  const name = String(value || '').trim();
+  if (!name) return '';
+  if (name.length === 1) return `${name}*`;
+  return `${name.slice(0, 1)}${'*'.repeat(Math.min(2, name.length - 1))}`;
+}
+
+function summarizeOrderAddress(order) {
+  const region = String(order.region || '').trim();
+  const address = String(order.address || '').trim();
+  if (!region && !address) return '';
+  const summary = region || address;
+  return `${summary.slice(0, 18)}${summary.length > 18 || (region && address) ? '…' : ''}`;
+}
+
+function adminOrderListPayload(order) {
+  return {
+    id: order.id,
+    order_no: order.order_no,
+    product_snapshot: order.product_snapshot || {},
+    quantity: Number(order.quantity || 1),
+    total_amount_cents: Number(order.total_amount_cents || 0),
+    amount_text: `¥${(Number(order.total_amount_cents || 0) / 100).toFixed(2)}`,
+    status: order.status,
+    status_text: adminOrderStatusText(order.status),
+    payment_status: order.payment_status || '',
+    receiver_name_masked: maskOrderName(order.receiver_name),
+    receiver_phone_masked: maskOrderPhone(order.receiver_phone),
+    address_summary: summarizeOrderAddress(order),
+    express_company: order.express_company || '',
+    express_no: order.express_no || '',
+    created_at: order.created_at,
+    updated_at: order.updated_at
+  };
+}
+
+function listOrders({ status, q, page = 1, pageSize = 50 } = {}) {
   const db = readDB();
   let orders = db.orders.slice();
-  if (status && ORDER_STATUSES.includes(status)) {
+  if (status === 'refund') {
+    orders = orders.filter((item) => ['refunding', 'refunded'].includes(item.status));
+  } else if (status && ORDER_STATUSES.includes(status)) {
     orders = orders.filter((item) => item.status === status);
   }
-  return orders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map(orderPayload);
+  const keyword = String(q || '').trim().toLowerCase();
+  if (keyword) {
+    orders = orders.filter((item) => [
+      item.order_no,
+      item.wechat_transaction_id,
+      item.receiver_name,
+      item.receiver_phone
+    ].some((value) => String(value || '').toLowerCase().includes(keyword)));
+  }
+  orders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const normalizedPageSize = Math.min(50, Math.max(1, Math.floor(Number(pageSize) || 50)));
+  const requestedPage = Math.max(1, Math.floor(Number(page) || 1));
+  const total = orders.length;
+  const totalPages = Math.max(1, Math.ceil(total / normalizedPageSize));
+  const currentPage = Math.min(requestedPage, totalPages);
+  const start = (currentPage - 1) * normalizedPageSize;
+  return {
+    total,
+    page: currentPage,
+    page_size: normalizedPageSize,
+    total_pages: totalPages,
+    orders: orders.slice(start, start + normalizedPageSize).map(adminOrderListPayload)
+  };
+}
+
+function getAdminOrder(orderId) {
+  const db = readDB();
+  const order = db.orders.find((item) => item.id === orderId);
+  if (!order) return null;
+  return {
+    id: order.id,
+    order_no: order.order_no,
+    product_id: order.product_id,
+    product_snapshot: order.product_snapshot || {},
+    quantity: Number(order.quantity || 1),
+    unit_price_cents: Number(order.unit_price_cents || 0),
+    total_amount_cents: Number(order.total_amount_cents || 0),
+    amount_text: `¥${(Number(order.total_amount_cents || 0) / 100).toFixed(2)}`,
+    status: order.status,
+    status_text: adminOrderStatusText(order.status),
+    payment_status: order.payment_status || '',
+    payment_method: order.payment_method || '',
+    payment_mock: order.payment_mock === true,
+    wechat_transaction_id: order.wechat_transaction_id || '',
+    paid_at: order.paid_at || null,
+    receiver_name: order.receiver_name || '',
+    receiver_phone: order.receiver_phone || '',
+    region: order.region || '',
+    address: order.address || '',
+    remark: order.remark || '',
+    express_company: order.express_company || '',
+    express_no: order.express_no || '',
+    admin_note: order.admin_note || '',
+    shipped_at: order.shipped_at || null,
+    refund_status: order.refund_status || '',
+    created_at: order.created_at,
+    updated_at: order.updated_at,
+    timeline: [
+      { key: 'created', label: '订单创建', at: order.created_at },
+      order.paid_at ? { key: 'paid', label: '支付成功', at: order.paid_at } : null,
+      order.shipped_at ? { key: 'shipped', label: '确认发货', at: order.shipped_at } : null,
+      order.status === 'completed' ? { key: 'completed', label: '订单完成', at: order.updated_at } : null,
+      order.status === 'cancelled' ? { key: 'cancelled', label: '订单取消', at: order.updated_at } : null,
+      order.status === 'refunding' ? { key: 'refunding', label: '退款处理中', at: order.updated_at } : null,
+      order.status === 'refunded' ? { key: 'refunded', label: '已退款', at: order.updated_at } : null
+    ].filter(Boolean)
+  };
 }
 
 function updateOrderShipment(orderId, input = {}) {
   const db = readDB();
   const index = db.orders.findIndex((item) => item.id === orderId);
   if (index === -1) return { error: 'ORDER_NOT_FOUND' };
+  if (!['paid', 'shipped'].includes(db.orders[index].status)) {
+    return { error: 'ORDER_NOT_SHIPPABLE' };
+  }
   const expressCompany = String(input.express_company || '').trim();
   const expressNo = String(input.express_no || '').trim();
   if (!expressCompany || !expressNo) {
@@ -2905,6 +3025,7 @@ module.exports = {
   appendPaymentLog,
   markOrderPaidByOrderNo,
   listOrders,
+  getAdminOrder,
   updateOrderShipment,
   getMiniappContent,
   updateMiniappContent,

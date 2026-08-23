@@ -421,26 +421,90 @@
             <div class="panel-title">
               <div>
                 <h2>订单管理</h2>
-                <p>查看贴纸订单与发货状态。</p>
+                <p>查询订单、核对支付并处理发货。</p>
               </div>
-              <button id="refreshOrderBtn">刷新订单</button>
+              <button id="refreshOrderBtn" class="secondary" type="button">刷新</button>
             </div>
-            <p id="orderMsg" class="msg"></p>
+
+            <div id="orderStatusTabs" class="status-tabs" role="tablist" aria-label="订单状态">
+              <button class="status-tab active" data-order-status="" type="button">全部</button>
+              <button class="status-tab" data-order-status="pending_payment" type="button">待支付</button>
+              <button class="status-tab" data-order-status="paid" type="button">待发货</button>
+              <button class="status-tab" data-order-status="shipped" type="button">已发货</button>
+              <button class="status-tab" data-order-status="completed" type="button">已完成</button>
+              <button class="status-tab" data-order-status="refund" type="button">退款中/已退款</button>
+              <button class="status-tab" data-order-status="cancelled" type="button">已取消</button>
+            </div>
+
+            <div class="management-toolbar order-toolbar">
+              <div class="search-field">
+                <label for="orderSearch">搜索订单</label>
+                <input id="orderSearch" type="search" placeholder="订单号、微信交易号、收件人或手机号" />
+              </div>
+              <button id="searchOrderBtn" type="button">查询</button>
+              <button id="resetOrderSearchBtn" class="secondary" type="button">重置</button>
+            </div>
+
+            <p id="orderMsg" class="msg order-list-message" role="status"></p>
             <div class="table-wrap">
-              <table>
+              <table class="management-table order-table">
                 <thead>
                   <tr>
-                    <th>订单号</th>
+                    <th>订单号 / 时间</th>
                     <th>商品</th>
+                    <th>客户</th>
                     <th>金额</th>
-                    <th>状态</th>
-                    <th>收货信息</th>
-                    <th>物流</th>
+                    <th>支付</th>
+                    <th>履约状态</th>
                     <th>操作</th>
                   </tr>
                 </thead>
                 <tbody id="orderTable"></tbody>
               </table>
+            </div>
+            <div class="pagination-bar">
+              <span id="orderPaginationSummary">第 1 / 1 页</span>
+              <div>
+                <button id="previousOrderPageBtn" class="secondary" type="button">上一页</button>
+                <button id="nextOrderPageBtn" class="secondary" type="button">下一页</button>
+              </div>
+            </div>
+
+            <div id="orderDrawerBackdrop" class="drawer-backdrop hidden"></div>
+            <aside id="orderDrawer" class="order-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="orderDrawerTitle">
+              <div class="drawer-header">
+                <div>
+                  <span class="muted">订单详情</span>
+                  <h2 id="orderDrawerTitle">-</h2>
+                </div>
+                <button id="closeOrderDrawerBtn" class="secondary icon-button" type="button" aria-label="关闭订单详情" title="关闭">×</button>
+              </div>
+              <div id="orderDrawerContent" class="drawer-content"></div>
+              <div class="drawer-footer">
+                <button id="drawerShipOrderBtn" type="button">确认发货</button>
+              </div>
+            </aside>
+
+            <div id="shippingModalBackdrop" class="modal-backdrop hidden">
+              <section id="shippingModal" class="shipping-modal" role="dialog" aria-modal="true" aria-labelledby="shippingModalTitle">
+                <div class="modal-header">
+                  <div>
+                    <h3 id="shippingModalTitle">填写物流信息</h3>
+                    <p id="shippingOrderLabel" class="muted"></p>
+                  </div>
+                  <button id="closeShippingModalBtn" class="secondary icon-button" type="button" aria-label="关闭物流表单" title="关闭">×</button>
+                </div>
+                <div class="form-grid">
+                  <label>快递公司<input id="shippingCompany" autocomplete="off" placeholder="例如：顺丰速运" /></label>
+                  <label>快递单号<input id="shippingNumber" autocomplete="off" placeholder="填写完整快递单号" /></label>
+                  <label class="wide">后台备注<textarea id="shippingAdminNote" placeholder="选填，仅后台可见"></textarea></label>
+                </div>
+                <p id="shippingMsg" class="msg" role="status"></p>
+                <div class="modal-actions">
+                  <button id="cancelShippingBtn" class="secondary" type="button">取消</button>
+                  <button id="saveShippingBtn" type="button">保存发货信息</button>
+                </div>
+              </section>
             </div>
           </section>
 

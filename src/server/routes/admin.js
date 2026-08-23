@@ -20,6 +20,7 @@ const {
   listProducts,
   getProduct,
   listOrders,
+  getAdminOrder,
   updateOrderShipment,
   getMiniappContent,
   updateMiniappContent
@@ -662,14 +663,32 @@ router.post('/products/:productId', requireAdmin, (req, res) => {
 });
 
 router.get('/orders', requireAdmin, (req, res) => {
-  const orders = listOrders({ status: req.query.status });
+  const result = listOrders({
+    status: req.query.status,
+    q: req.query.q,
+    page: req.query.page,
+    pageSize: req.query.page_size
+  });
   return res.json({
     status: 'success',
     code: 'OK',
-    data: {
-      total: orders.length,
-      orders
-    }
+    data: result
+  });
+});
+
+router.get('/orders/:orderId', requireAdmin, (req, res) => {
+  const order = getAdminOrder(req.params.orderId);
+  if (!order) {
+    return res.status(404).json({
+      status: 'error',
+      code: 'ORDER_NOT_FOUND',
+      message: '未找到该订单。'
+    });
+  }
+  return res.json({
+    status: 'success',
+    code: 'OK',
+    data: order
   });
 });
 
@@ -687,6 +706,13 @@ router.post('/orders/:orderId/ship', requireAdmin, (req, res) => {
       status: 'error',
       code: 'VALIDATION_ERROR',
       message: result.message || '发货信息不完整。'
+    });
+  }
+  if (result.error === 'ORDER_NOT_SHIPPABLE') {
+    return res.status(409).json({
+      status: 'error',
+      code: 'ORDER_NOT_SHIPPABLE',
+      message: '当前订单状态不允许发货。'
     });
   }
   return res.json({
