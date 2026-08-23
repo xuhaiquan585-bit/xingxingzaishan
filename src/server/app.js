@@ -19,6 +19,9 @@ const {
   readPostgresCutoverWriteFreezeConfig
 } = require('./middlewares/postgresCutoverWriteFreeze');
 const { assertRuntimeConfig, parseOrigins } = require('./services/configService');
+const {
+  createProductionReadinessChecker
+} = require('./services/productionReadinessService');
 
 function corsMiddleware() {
   const allowedOrigins = new Set(parseOrigins(process.env.CORS_ORIGINS));
@@ -55,7 +58,9 @@ function corsMiddleware() {
   };
 }
 
-function createApp() {
+function createApp({
+  checkProductionReadiness = createProductionReadinessChecker()
+} = {}) {
   assertRuntimeConfig();
   const postgresCutoverWriteFreeze = createPostgresCutoverWriteFreeze(
     readPostgresCutoverWriteFreezeConfig(process.env)
@@ -76,6 +81,15 @@ function createApp() {
   app.use(express.urlencoded({ extended: true }));
   app.use(corsMiddleware());
   app.use(attachUserSession());
+
+  app.get('/api/health/ready', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const ready = await checkProductionReadiness();
+    return res.status(ready ? 200 : 503).json({
+      status: ready ? 'success' : 'error',
+      code: ready ? 'READY' : 'NOT_READY'
+    });
+  });
 
 
   const loginRateLimiter = createRateLimiter({

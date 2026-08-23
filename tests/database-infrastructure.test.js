@@ -15,6 +15,13 @@ const {
   createPostgresPool
 } = require('../src/server/database/connection');
 const { checkPostgresHealth } = require('../src/server/database/healthCheck');
+const {
+  MAX_BACKUP_AGE_MS,
+  checkProductionPostgres,
+  createProductionReadinessChecker,
+  parseBackupAttemptState,
+  readProtectedBackupAttempt
+} = require('../src/server/services/productionReadinessService');
 const { withTransaction } = require('../src/server/database/transaction');
 const {
   applyMigration,
@@ -440,6 +447,116 @@ test('health check reports safe status without connection details', async () => 
   assert.equal(result.server_version, '15.8');
   assert.equal(Object.prototype.hasOwnProperty.call(result, 'password'), false);
   assert.equal(client.released, true);
+});
+
+function backupAttemptState(finishedAt = '2026-08-24T00:00:00Z') {
+  return [
+    'ATTEMPT_STARTED_AT_UTC=2026-08-23T23:59:55Z',
+    `ATTEMPT_FINISHED_AT_UTC=${finishedAt}`,
+    'STATUS=PASS',
+    'EXIT_CODE=0',
+    'RUN_ID=20260824T000000Z-1234abcd',
+    'LOG_PATH=/var/log/xingxingzaishan-production-backup/20260824T000000Z.test.log',
+    ''
+  ].join('\n');
+}
+
+test('production readiness accepts only a fresh successful backup state', () => {
+  const nowMs = Date.parse('2026-08-24T01:59:59Z');
+  assert.equal(parseBackupAttemptState(backupAttemptState(), { nowMs }), true);
+
+  assert.throws(
+    () => parseBackupAttemptState(backupAttemptState(), {
+      nowMs: Date.parse('2026-08-24T00:00:00Z') + MAX_BACKUP_AGE_MS + 1
+    }),
+    (error) => error.code === 'PRODUCTION_NOT_READY'
+  );
+  assert.throws(
+    () => parseBackupAttemptState(backupAttemptState().replace('STATUS=PASS', 'STATUS=FAIL')),
+    (error) => error.code === 'PRODUCTION_NOT_READY'
+  );
+  assert.throws(
+    () => parseBackupAttemptState(`${backupAttemptState()}UNKNOWN=value\n`),
+    (error) => error.code === 'PRODUCTION_NOT_READY'
+  );
+});
+
+test('production readiness rejects an unprotected backup state file', () => {
+  const fsModule = {
+    openSync() { return 7; },
+    fstatSync() {
+      return {
+        isFile: () => true,
+        size: 300,
+        uid: 0,
+        mode: 0o100644
+      };
+    },
+    readFileSync() { return backupAttemptState(); },
+    closeSync() {}
+  };
+  assert.throws(
+    () => readProtectedBackupAttempt({
+      fsModule,
+      platform: 'linux',
+      nowMs: Date.parse('2026-08-24T00:01:00Z')
+    }),
+    (error) => error.code === 'PRODUCTION_NOT_READY'
+  );
+});
+
+test('production readiness PostgreSQL probe is bounded and closes its pool', async () => {
+  const calls = [];
+  const pool = {};
+  const ready = await checkProductionPostgres({
+    env: { NODE_ENV: 'production' },
+    readConfig() {
+      return {
+        poolMax: 10,
+        connectionTimeoutMillis: 10000,
+        statementTimeoutMillis: 15000,
+        applicationName: 'default'
+      };
+    },
+    createPool({ config }) {
+      calls.push(config);
+      return pool;
+    },
+    async checkHealth(input) {
+      assert.equal(input, pool);
+      return { connected: true };
+    },
+    async closePool(input) {
+      assert.equal(input, pool);
+      calls.push('closed');
+    }
+  });
+  assert.equal(ready, true);
+  assert.equal(calls[0].poolMax, 1);
+  assert.equal(calls[0].connectionTimeoutMillis, 3000);
+  assert.equal(calls[0].statementTimeoutMillis, 3000);
+  assert.equal(calls[0].applicationName, 'xingxingzaishan-readiness');
+  assert.equal(calls[1], 'closed');
+});
+
+test('production readiness fails closed and caches concurrent probes', async () => {
+  let backupChecks = 0;
+  let postgresChecks = 0;
+  const checker = createProductionReadinessChecker({
+    env: { NODE_ENV: 'production' },
+    now: () => 1000,
+    readBackup() { backupChecks += 1; },
+    async checkPostgres() {
+      postgresChecks += 1;
+      return false;
+    }
+  });
+
+  const [first, second] = await Promise.all([checker(), checker()]);
+  assert.equal(first, false);
+  assert.equal(second, false);
+  assert.equal(backupChecks, 1);
+  assert.equal(postgresChecks, 1);
 });
 
 test('migration loader sorts files, hashes raw bytes, and rejects transaction control', async () => {

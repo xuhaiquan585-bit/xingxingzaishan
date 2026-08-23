@@ -754,6 +754,19 @@ test('POST /api/user/login should login with valid phone', async () => {
   assert.equal(db.accounts.length, accountsBeforeRepeat);
 });
 
+test('GET /api/health/ready should expose only a non-cacheable readiness result', async () => {
+  const res = await requestRaw('GET', '/api/health/ready');
+  assert.equal(res.status, 200);
+  assert.equal(res.headers['cache-control'], 'no-store');
+  assert.deepEqual(res.body, {
+    status: 'success',
+    code: 'READY'
+  });
+  assert.equal(res.raw.includes('database'), false);
+  assert.equal(res.raw.includes('backup'), false);
+  assert.equal(res.raw.includes('password'), false);
+});
+
 test('H5 login should fail closed on duplicate phone identity', async () => {
   const {
     getDatabaseSnapshot,
