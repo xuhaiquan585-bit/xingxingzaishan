@@ -2270,6 +2270,15 @@ function markOrderPaidByOrderNo({ orderNo, transactionId, paidAt, raw }) {
   if (!Number.isFinite(actualAmount) || actualAmount !== expectedAmount) {
     return { error: 'AMOUNT_MISMATCH' };
   }
+  if (order.payment_status === 'paid') {
+    if (order.payment_method !== 'wechat') {
+      return { error: 'PAYMENT_STATE_CONFLICT' };
+    }
+    if (order.wechat_transaction_id && transactionId && order.wechat_transaction_id !== transactionId) {
+      return { error: 'TRANSACTION_MISMATCH' };
+    }
+    return { data: orderPayload(order), idempotent: true };
+  }
   const confirmedAt = paidAt || nowISO();
   db.orders[index] = {
     ...order,

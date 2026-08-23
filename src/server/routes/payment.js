@@ -20,7 +20,7 @@ function failResponse(res, message = '失败') {
 }
 
 router.post('/wechat/notify', (req, res) => {
-  const rawBody = req.rawBody || JSON.stringify(req.body || {});
+  const rawBody = req.rawBody;
   let notify = null;
   try {
     notify = parsePaymentNotify({
@@ -92,6 +92,18 @@ router.post('/wechat/notify', (req, res) => {
       raw: notify
     });
     return failResponse(res, '金额不一致');
+  }
+  if (paidResult.error === 'TRANSACTION_MISMATCH' || paidResult.error === 'PAYMENT_STATE_CONFLICT') {
+    appendPaymentLog({
+      order_id: order.id,
+      order_no: order.order_no,
+      method: 'wechat',
+      status: 'payment_state_conflict',
+      transaction_id: notify.transaction_id || '',
+      amount_cents: notify.amount && notify.amount.total,
+      error: paidResult.error
+    });
+    return failResponse(res, '支付状态不一致');
   }
   if (paidResult.error) {
     return failResponse(res, '订单更新失败');

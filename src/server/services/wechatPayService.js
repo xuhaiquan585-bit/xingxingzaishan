@@ -24,7 +24,7 @@ function isWechatPayConfigured() {
     config.platformCertPath
     || (config.publicKeyPath && config.publicKeyId)
   );
-  return Boolean(
+  const hasRequiredFields = Boolean(
     config.appid
     && config.mchid
     && config.apiV3Key
@@ -33,6 +33,22 @@ function isWechatPayConfigured() {
     && config.notifyUrl
     && hasVerifyKey
   );
+  if (!hasRequiredFields || Buffer.byteLength(config.apiV3Key, 'utf8') !== 32) {
+    return false;
+  }
+  if (config.publicKeyPath && !/^PUB_KEY_ID_[A-Za-z0-9]+$/.test(config.publicKeyId)) {
+    return false;
+  }
+  try {
+    const notifyUrl = new URL(config.notifyUrl);
+    if (notifyUrl.protocol !== 'https:') return false;
+    crypto.createPrivateKey(readRequiredFile(config.privateKeyPath, '微信支付商户私钥'));
+    const verifyKeyPath = config.publicKeyPath || config.platformCertPath;
+    crypto.createPublicKey(readRequiredFile(verifyKeyPath, '微信支付验签公钥'));
+    return true;
+  } catch (_error) {
+    return false;
+  }
 }
 
 function readRequiredFile(filePath, label) {
@@ -165,21 +181,32 @@ async function createMiniappPayment({ openid, order }) {
 
 function verifyWechatPaySignature({ rawBody, headers }) {
   const config = getConfig();
-  const timestamp = headers['wechatpay-timestamp'];
-  const nonce = headers['wechatpay-nonce'];
-  const signature = headers['wechatpay-signature'];
-  if (!timestamp || !nonce || !signature) {
+  const normalizedHeaders = Object.fromEntries(
+    Object.entries(headers || {}).map(([name, value]) => [name.toLowerCase(), value])
+  );
+  const timestamp = normalizedHeaders['wechatpay-timestamp'];
+  const nonce = normalizedHeaders['wechatpay-nonce'];
+  const signature = normalizedHeaders['wechatpay-signature'];
+  const serial = normalizedHeaders['wechatpay-serial'];
+  if (!timestamp || !nonce || !signature || !serial) {
     return false;
   }
-  const verifyKey = config.publicKeyPath
-    ? readRequiredFile(config.publicKeyPath, '微信支付公钥')
-    : readRequiredFile(config.platformCertPath, '微信支付平台证书');
-  const message = `${timestamp}\n${nonce}\n${rawBody}\n`;
-  return crypto
-    .createVerify('RSA-SHA256')
-    .update(message)
-    .end()
-    .verify(verifyKey, signature, 'base64');
+  if (config.publicKeyPath && serial !== config.publicKeyId) {
+    return false;
+  }
+  try {
+    const verifyKey = config.publicKeyPath
+      ? readRequiredFile(config.publicKeyPath, '微信支付公钥')
+      : readRequiredFile(config.platformCertPath, '微信支付平台证书');
+    const message = `${timestamp}\n${nonce}\n${rawBody}\n`;
+    return crypto
+      .createVerify('RSA-SHA256')
+      .update(message)
+      .end()
+      .verify(verifyKey, signature, 'base64');
+  } catch (_error) {
+    return false;
+  }
 }
 
 function decryptResource(resource) {
@@ -201,12 +228,17 @@ function decryptResource(resource) {
 }
 
 function parsePaymentNotify({ rawBody, headers }) {
+  if (typeof rawBody !== 'string' || rawBody.length === 0) {
+    const error = new Error('微信支付回调缺少原始请求体。');
+    error.code = 'WECHAT_PAY_RAW_BODY_MISSING';
+    throw error;
+  }
   if (!verifyWechatPaySignature({ rawBody, headers })) {
     const error = new Error('微信支付回调验签失败。');
     error.code = 'WECHAT_PAY_SIGNATURE_INVALID';
     throw error;
   }
-  const body = JSON.parse(rawBody || '{}');
+  const body = JSON.parse(rawBody);
   if (!body.resource) {
     const error = new Error('微信支付回调缺少 resource。');
     error.code = 'WECHAT_PAY_NOTIFY_INVALID';

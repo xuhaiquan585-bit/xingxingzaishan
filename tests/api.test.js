@@ -648,6 +648,27 @@ function signWechatPayNotify({ rawBody, timestamp, nonce, privateKey }) {
     .sign(privateKey, 'base64');
 }
 
+test('WeChat Pay readiness should reject invalid key material and notify should require raw body', () => {
+  const oldEnv = snapshotEnv(WECHAT_PAY_ENV_KEYS);
+  const keys = createWechatPayKeyFiles('wechat-readiness');
+  const { isWechatPayConfigured, parsePaymentNotify } = require('../src/server/services/wechatPayService');
+  try {
+    clearWechatPayEnv();
+    applyWechatPayPublicKeyEnv(keys);
+    assert.equal(isWechatPayConfigured(), true);
+
+    fs.writeFileSync(keys.platformCertPath, 'not-a-public-key');
+    assert.equal(isWechatPayConfigured(), false);
+
+    assert.throws(
+      () => parsePaymentNotify({ rawBody: undefined, headers: {} }),
+      (error) => error && error.code === 'WECHAT_PAY_RAW_BODY_MISSING'
+    );
+  } finally {
+    restoreEnv(oldEnv);
+  }
+});
+
 test.before(async () => {
   clearWechatPayEnv();
   process.env.DB_FILE = path.join(tmpDir, 'db.json');
@@ -4731,6 +4752,23 @@ test('WeChat Pay public key mode should add serial header and verify notify', as
       nonce,
       privateKey: keys.platformPrivateKey
     });
+    const mismatchedSerialRes = await requestRaw('POST', '/api/payment/wechat/notify', {
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(rawBody),
+        'Wechatpay-Timestamp': timestamp,
+        'Wechatpay-Nonce': nonce,
+        'Wechatpay-Signature': signature,
+        'Wechatpay-Serial': 'PUB_KEY_ID_WRONG'
+      },
+      body: Buffer.from(rawBody, 'utf8')
+    });
+    assert.equal(mismatchedSerialRes.status, 400);
+
+    const pendingDetailRes = await getJson(`/api/miniapp/orders/${orderRes.body.data.id}`, token);
+    assert.equal(pendingDetailRes.status, 200);
+    assert.equal(pendingDetailRes.body.data.status, 'pending_payment');
+
     const notifyRes = await requestRaw('POST', '/api/payment/wechat/notify', {
       headers: {
         'Content-Type': 'application/json',
@@ -4842,6 +4880,27 @@ test('WeChat payment notify should verify, decrypt, and mark order paid', async 
     assert.equal(detailRes.body.data.payment_status, 'paid');
     assert.equal(detailRes.body.data.payment_method, 'wechat');
     assert.equal(detailRes.body.data.wechat_transaction_id, transaction.transaction_id);
+
+    const paidLogsBeforeRepeat = getTestDbSnapshot().payment_logs.filter((item) => (
+      item.order_no === orderRes.body.data.order_no && item.status === 'paid'
+    )).length;
+    const repeatNotifyRes = await requestRaw('POST', '/api/payment/wechat/notify', {
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(rawBody),
+        'Wechatpay-Timestamp': timestamp,
+        'Wechatpay-Nonce': nonce,
+        'Wechatpay-Signature': signature,
+        'Wechatpay-Serial': 'WECHATPAY_TEST_SERIAL'
+      },
+      body: Buffer.from(rawBody, 'utf8')
+    });
+    assert.equal(repeatNotifyRes.status, 200);
+    assert.equal(repeatNotifyRes.body.code, 'SUCCESS');
+    const paidLogsAfterRepeat = getTestDbSnapshot().payment_logs.filter((item) => (
+      item.order_no === orderRes.body.data.order_no && item.status === 'paid'
+    )).length;
+    assert.equal(paidLogsAfterRepeat, paidLogsBeforeRepeat);
   } finally {
     restoreEnv(oldEnv);
   }
