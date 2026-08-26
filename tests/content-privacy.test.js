@@ -737,7 +737,9 @@ test('controlled privacy reproof requires exact provider and provenance gates', 
     AVATA_API_KEY: 'fixture-key',
     AVATA_API_SECRET: 'fixture-secret',
     AVATA_IDENTITY_NAME: 'fixture-name',
-    AVATA_IDENTITY_NUM: 'fixture-number'
+    AVATA_IDENTITY_NUM: 'fixture-number',
+    AVATA_OPERATION_NOT_FOUND_CODE: 'OPERATION_NOT_FOUND',
+    AVATA_CERTIFICATE_HOST_ALLOWLIST: 'fixture.invalid'
   });
   assert.equal(config.enabled, true);
   assert.equal(config.scope, 'allowlist');

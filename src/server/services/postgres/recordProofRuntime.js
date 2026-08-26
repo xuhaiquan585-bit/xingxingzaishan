@@ -1,9 +1,18 @@
 'use strict';
 
 const { readRecordProofRuntimeConfig } = require('./recordProofRuntimeConfig');
-const { JOB_TYPE, createRecordProofJobHandler } = require('./recordProofJobHandler');
+const {
+  JOB_TYPE,
+  RECOVERY_DEFERRED_CODE,
+  createRecordProofJobHandler
+} = require('./recordProofJobHandler');
 const { createRecordProofExternalAdapter } = require('./recordProofExternalAdapter');
 const { createRecordProofResultService } = require('./recordProofResultService');
+const {
+  JOB_TYPE: CERTIFICATE_ARCHIVE_JOB_TYPE,
+  createRecordProofCertificateArchiveHandler,
+  enqueueCertificateArchiveJob
+} = require('./recordProofCertificateArchive');
 const { createOutboxWorker, safeErrorCode } = require('./outboxWorkerService');
 const { checkSourceAndDomainFreshness } = require('./publicQrFreshness');
 const { hasValidPrimarySelectionScope } = require('./primarySelectionScope');
@@ -23,6 +32,7 @@ function createRecordProofRuntime(config, {
   externalAdapterFactory = createRecordProofExternalAdapter,
   jobHandlerFactory = createRecordProofJobHandler,
   resultServiceFactory = createRecordProofResultService,
+  certificateArchiveHandlerFactory = createRecordProofCertificateArchiveHandler,
   workerFactory = createOutboxWorker,
   transactionRunner,
   migrationsLoader,
@@ -71,25 +81,36 @@ function createRecordProofRuntime(config, {
     ? null
     : [...config.allowlist];
   const externalAdapter = externalAdapterFactory();
-  const handler = jobHandlerFactory({
-    pool,
-    prepareRecord: externalAdapter.prepareRecord,
-    submitRecord: externalAdapter.submitRecord
-  });
   const resultService = resultServiceFactory({
     pool,
     normalizeProviderResult: externalAdapter.normalizeRecordResult,
     allowedRecordQrIds
   });
+  const handler = jobHandlerFactory({
+    pool,
+    prepareRecord: externalAdapter.prepareRecord,
+    submitRecord: externalAdapter.submitRecord,
+    queryRecord: externalAdapter.queryRecordResult,
+    applyQueryResult: resultService.applyCanonicalQueryResult,
+    recoveryMinAgeMs: config.queryMinAgeMs
+  });
+  const certificateArchiveHandler = certificateArchiveHandlerFactory({
+    pool,
+    allowedHosts: [...config.certificateHostAllowlist]
+  });
   const worker = workerFactory({
     pool,
     workerId: config.workerId,
-    handlers: { [JOB_TYPE]: handler },
+    handlers: {
+      [JOB_TYPE]: handler,
+      [CERTIFICATE_ARCHIVE_JOB_TYPE]: certificateArchiveHandler
+    },
     batchSize: config.batchSize,
     maxAttempts: config.maxAttempts,
     retryBaseMs: config.retryBaseMs,
     lockTimeoutMs: config.lockTimeoutMs,
-    jobTypes: [JOB_TYPE],
+    retryableErrorCodes: [RECOVERY_DEFERRED_CODE],
+    jobTypes: [JOB_TYPE, CERTIFICATE_ARCHIVE_JOB_TYPE],
     aggregateIds: allowedRecordQrIds
   });
 
@@ -118,6 +139,85 @@ function createRecordProofRuntime(config, {
     if (eligibility !== 'ELIGIBLE') {
       throw new RecordProofRuntimeError('RECORD_PROOF_RUNTIME_INELIGIBLE');
     }
+  }
+
+  function runtimeTimestamp() {
+    const candidate = clock();
+    const value = candidate instanceof Date ? candidate : new Date(candidate);
+    if (Number.isNaN(value.getTime())) {
+      throw new RecordProofRuntimeError('RECORD_PROOF_RUNTIME_CLOCK_INVALID');
+    }
+    return value;
+  }
+
+  function proofRepository(context) {
+    return new repositories.ProofRepository(context);
+  }
+
+  async function submittedProofsForQuery() {
+    const updatedBefore = new Date(
+      runtimeTimestamp().getTime() - config.queryMinAgeMs
+    ).toISOString();
+    return runTransaction(pool, (context) => (
+      proofRepository(context).listSubmittedForQuery({
+        provider: 'avata_wenchang',
+        updated_before: updatedBefore,
+        record_qr_ids: allowedRecordQrIds,
+        limit: config.queryBatchSize
+      })
+    ), { isolationLevel: 'read committed', readOnly: true });
+  }
+
+  async function deferQuery(proofId, error) {
+    const updatedAt = runtimeTimestamp().toISOString();
+    return runTransaction(pool, (context) => (
+      proofRepository(context).markQueryDeferred({
+        id: proofId,
+        last_error: safeErrorCode(error),
+        updated_at: updatedAt
+      })
+    ), { isolationLevel: 'read committed' });
+  }
+
+  async function querySubmittedProofs() {
+    const proofs = await submittedProofsForQuery();
+    const summary = { selected: proofs.length, applied: 0, stale: 0, failed: 0 };
+    for (const proof of proofs) {
+      try {
+        const result = await externalAdapter.queryRecordResult({
+          operation_id: proof.operation_id
+        });
+        const applied = await resultService.applyCanonicalQueryResult(result);
+        if (['applied', 'duplicate'].includes(applied.outcome)) summary.applied += 1;
+        else summary.stale += 1;
+      } catch (error) {
+        summary.failed += 1;
+        await deferQuery(proof.id, error);
+      }
+    }
+    return Object.freeze(summary);
+  }
+
+  async function queueMissingCertificateArchives() {
+    const now = runtimeTimestamp().toISOString();
+    return runTransaction(pool, async (context) => {
+      const proofs = await proofRepository(context).listConfirmedForCertificateArchive({
+        provider: 'avata_wenchang',
+        record_qr_ids: allowedRecordQrIds,
+        limit: config.batchSize
+      });
+      const outbox = new repositories.OutboxRepository(context);
+      let queued = 0;
+      for (const proof of proofs) {
+        const inserted = await enqueueCertificateArchiveJob({
+          outboxRepository: outbox,
+          proof,
+          now
+        });
+        if (inserted) queued += 1;
+      }
+      return Object.freeze({ selected: proofs.length, queued });
+    }, { isolationLevel: 'read committed' });
   }
 
   function schedule() {
@@ -150,11 +250,19 @@ function createRecordProofRuntime(config, {
     if (!activeRun) {
       activeRun = Promise.resolve()
         .then(() => assertEligible())
-        .then(() => worker.runOnce())
+        .then(async () => {
+          const query = await querySubmittedProofs();
+          const certificateArchive = await queueMissingCertificateArchives();
+          const outbox = await worker.runOnce();
+          return Object.freeze({ outbox, query, certificate_archive: certificateArchive });
+        })
         .then((summary) => {
           lastRunAt = new Date(clock()).toISOString();
           lastRunSummary = summary;
-          lastErrorCode = null;
+          lastErrorCode = summary.query.failed > 0
+            ? 'RECORD_PROOF_QUERY_PARTIAL_FAILURE'
+            : null;
+          if (lastErrorCode) onWorkerError(lastErrorCode);
           return summary;
         })
         .catch((error) => {

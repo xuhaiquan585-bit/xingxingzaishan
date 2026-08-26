@@ -2,6 +2,19 @@ const crypto = require('crypto');
 
 const STAGE_BASE = 'https://stage.apis.avata.bianjie.ai';
 const PROD_BASE = 'https://apis.avata.bianjie.ai';
+const REQUEST_TIMEOUT_MS = 15_000;
+const USER_AGENT = 'xingxingzaishan/record-proof-runtime';
+const AMBIGUOUS_NOT_FOUND_CODES = new Set(['NOT_FOUND']);
+const PROVIDER_ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,63}$/;
+
+function configuredOperationNotFoundCode(value) {
+  const normalized = String(value || '').trim();
+  if (
+    !PROVIDER_ERROR_CODE_PATTERN.test(normalized)
+    || AMBIGUOUS_NOT_FOUND_CODES.has(normalized)
+  ) return '';
+  return normalized;
+}
 
 function getAvataConfig() {
   const env = process.env.AVATA_ENV === 'prod' || process.env.AVATA_ENV === 'production' ? 'prod' : 'stage';
@@ -16,6 +29,9 @@ function getAvataConfig() {
     identityType: Number(process.env.AVATA_IDENTITY_TYPE || 1),
     identityName: process.env.AVATA_IDENTITY_NAME || '',
     identityNum: process.env.AVATA_IDENTITY_NUM || '',
+    operationNotFoundCode: configuredOperationNotFoundCode(
+      process.env.AVATA_OPERATION_NOT_FOUND_CODE
+    ),
     recordType: Number(process.env.AVATA_RECORD_TYPE || 1),
     hashType: Number(process.env.AVATA_HASH_TYPE || 1)
   };
@@ -98,16 +114,31 @@ async function requestAvata({ method, path, query, body }) {
   });
   const queryText = query && Object.keys(query).length > 0 ? `?${new URLSearchParams(query).toString()}` : '';
 
-  const response = await fetch(`${config.baseUrl}${path}${queryText}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Api-Key': config.apiKey,
-      'X-Timestamp': timestamp,
-      'X-Signature': signature
-    },
-    body: payload || undefined
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(`${config.baseUrl}${path}${queryText}`, {
+      method,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'User-Agent': USER_AGENT,
+        'X-Api-Key': config.apiKey,
+        'X-Timestamp': timestamp,
+        'X-Signature': signature
+      },
+      body: payload || undefined,
+      redirect: 'error',
+      signal: controller.signal
+    });
+  } catch (_error) {
+    const error = new Error('AVATA request failed');
+    error.code = 'AVATA_REQUEST_FAILED';
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   const text = await response.text();
   let data = {};
   try {
@@ -117,14 +148,36 @@ async function requestAvata({ method, path, query, body }) {
   }
 
   if (!response.ok) {
-    const error = new Error(data.message || data.error || `AVATA request failed: ${response.status}`);
+    const error = new Error('AVATA request failed');
     error.code = 'AVATA_REQUEST_FAILED';
     error.status = response.status;
-    error.response = data;
+    error.providerCode = providerErrorCode(data);
     throw error;
   }
 
   return data;
+}
+
+function providerErrorCode(data) {
+  const candidate = data && typeof data === 'object'
+    ? (data.code || (data.error && data.error.code))
+    : '';
+  const normalized = String(candidate || '').trim();
+  return PROVIDER_ERROR_CODE_PATTERN.test(normalized) ? normalized : '';
+}
+
+function mapAvataQueryError(error, operationNotFoundCode) {
+  const configuredCode = configuredOperationNotFoundCode(operationNotFoundCode);
+  if (
+    configuredCode
+    && Number(error && error.status) === 404
+    && String(error && error.providerCode || '') === configuredCode
+  ) {
+    const mapped = new Error('AVATA operation was not found');
+    mapped.code = 'RECORD_PROOF_EXTERNAL_OPERATION_NOT_FOUND';
+    return mapped;
+  }
+  return error;
 }
 
 async function submitRecordProof({ operationId, manifestHash, starId, sealedAt }) {
@@ -176,6 +229,7 @@ function buildRecordProofBody({ operationId, manifestHash, starId, sealedAt, con
 }
 
 async function queryOperation(operationId) {
+  const config = getAvataConfig();
   if (!shouldUseRealAvata()) {
     return {
       mock: true,
@@ -183,10 +237,14 @@ async function queryOperation(operationId) {
       status: 'confirmed'
     };
   }
-  return requestAvata({
-    method: 'GET',
-    path: `/v3/native/tx/${encodeURIComponent(operationId)}`
-  });
+  try {
+    return await requestAvata({
+      method: 'GET',
+      path: `/v3/native/tx/${encodeURIComponent(operationId)}`
+    });
+  } catch (error) {
+    throw mapAvataQueryError(error, config.operationNotFoundCode);
+  }
 }
 
 function normalizeAvataResult(data = {}) {
@@ -204,12 +262,12 @@ function normalizeAvataResult(data = {}) {
 }
 
 function verifyAvataCallback({ path, body, headers = {} }) {
-  if (!shouldUseRealAvata()) return { ok: true, skipped: true };
+  if (!shouldUseRealAvata()) return { ok: false, reason: 'PROVIDER_DISABLED' };
   const config = getAvataConfig();
   const apiKey = headers['x-api-key'] || headers['X-Api-Key'];
   const timestamp = headers['x-timestamp'] || headers['X-Timestamp'];
   const signature = headers['x-signature'] || headers['X-Signature'];
-  if (!apiKey || apiKey !== config.apiKey) return { ok: false, reason: 'INVALID_API_KEY' };
+  if (!secureTextEqual(apiKey, config.apiKey)) return { ok: false, reason: 'INVALID_API_KEY' };
   if (!timestamp || !signature) return { ok: false, reason: 'MISSING_SIGNATURE' };
   const now = Date.now();
   const ts = Number(timestamp);
@@ -222,10 +280,17 @@ function verifyAvataCallback({ path, body, headers = {} }) {
     timestamp: String(timestamp),
     apiSecret: config.apiSecret
   });
-  return {
-    ok: expected === signature,
-    reason: expected === signature ? '' : 'INVALID_SIGNATURE'
-  };
+  const valid = /^[0-9a-f]{64}$/i.test(String(signature))
+    && secureTextEqual(expected.toLowerCase(), String(signature).toLowerCase());
+  return { ok: valid, reason: valid ? '' : 'INVALID_SIGNATURE' };
+}
+
+function secureTextEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ''), 'utf8');
+  const rightBuffer = Buffer.from(String(right || ''), 'utf8');
+  return leftBuffer.length === rightBuffer.length
+    && leftBuffer.length > 0
+    && crypto.timingSafeEqual(leftBuffer, rightBuffer);
 }
 
 module.exports = {
@@ -236,6 +301,8 @@ module.exports = {
   signRequest,
   buildSignParams,
   stableJson,
+  configuredOperationNotFoundCode,
+  mapAvataQueryError,
   buildRecordProofBody,
   submitRecordProof,
   queryOperation,

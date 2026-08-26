@@ -1056,6 +1056,7 @@ test('outbox worker executes handlers outside transactions and records safe outc
   const jobs = [
     { id: 'JOB_OK', job_type: 'proof', attempt_count: 1 },
     { id: 'JOB_RETRY', job_type: 'proof', attempt_count: 1 },
+    { id: 'JOB_RECOVERY', job_type: 'proof', attempt_count: 5 },
     { id: 'JOB_UNKNOWN', job_type: 'unknown', attempt_count: 1 }
   ];
   const repository = {
@@ -1108,8 +1109,15 @@ test('outbox worker executes handlers outside transactions and records safe outc
           error.code = 'PROVIDER_TIMEOUT';
           throw error;
         }
+        if (job.id === 'JOB_RECOVERY') {
+          const error = new Error('bounded recovery detail');
+          error.code = 'RECORD_PROOF_RECOVERY_DEFERRED';
+          throw error;
+        }
       }
     },
+    retryableErrorCodes: ['RECORD_PROOF_RECOVERY_DEFERRED'],
+    maxAttempts: 5,
     clock: () => new Date('2026-08-09T09:00:00.000Z'),
     async transactionRunner(_pool, callback, options) {
       assert.equal(
@@ -1127,9 +1135,9 @@ test('outbox worker executes handlers outside transactions and records safe outc
 
   assert.deepEqual(await worker.runOnce(), {
     recovered: 0,
-    claimed: 3,
+    claimed: 4,
     succeeded: 1,
-    retried: 1,
+    retried: 2,
     failed: 1
   });
   assert.deepEqual(await worker.inspect(), {
@@ -1144,6 +1152,10 @@ test('outbox worker executes handlers outside transactions and records safe outc
   const retry = transitions.find(([kind]) => kind === 'retry')[1];
   assert.equal(retry.last_error, 'PROVIDER_TIMEOUT');
   assert.equal(retry.available_at, '2026-08-09T09:00:01.000Z');
+  const recoveryRetry = transitions
+    .filter(([kind]) => kind === 'retry')
+    .find(([, input]) => input.id === 'JOB_RECOVERY')[1];
+  assert.equal(recoveryRetry.last_error, 'RECORD_PROOF_RECOVERY_DEFERRED');
   const failed = transitions.find(([kind]) => kind === 'failed')[1];
   assert.equal(failed.last_error, 'OUTBOX_HANDLER_NOT_REGISTERED');
   assert.equal(JSON.stringify(transitions).includes('sensitive provider response'), false);
@@ -1184,6 +1196,14 @@ test('outbox worker validates configuration and sanitizes untrusted errors', () 
       aggregateIds: []
     }),
     (error) => error.code === 'OUTBOX_WORKER_AGGREGATE_IDS_INVALID'
+  );
+  assert.throws(
+    () => createOutboxWorker({
+      pool: { connect() {} },
+      workerId: 'unit-worker',
+      retryableErrorCodes: ['unsafe error text']
+    }),
+    (error) => error.code === 'OUTBOX_WORKER_RETRYABLE_ERROR_CODES_INVALID'
   );
 });
 

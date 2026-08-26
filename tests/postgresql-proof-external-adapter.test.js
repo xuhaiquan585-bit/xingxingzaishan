@@ -79,6 +79,14 @@ function adapterOptions(overrides = {}) {
       record_id: 'provider-record',
       certificate_url: 'https://example.test/certificate.pdf'
     }),
+    queryOperation: async (operationId) => ({
+      status: 'confirmed',
+      operation_id: operationId,
+      tx_hash: 'tx-query',
+      block_height: 43,
+      record_id: 'provider-query',
+      certificate_url: 'https://example.test/query.pdf'
+    }),
     normalizeAvataResult: (value) => value,
     ...overrides
   };
@@ -151,6 +159,16 @@ test('external adapter normalizes only known provider outcomes', async () => {
     provider_record_id: 'provider-record',
     provider_certificate_url: 'https://example.test/certificate.pdf'
   });
+  assert.deepEqual(await adapter.queryRecordResult({
+    operation_id: submission().operation_id
+  }), {
+    status: 'confirmed',
+    operation_id: submission().operation_id,
+    transaction_hash: 'tx-query',
+    block_height: 43,
+    provider_record_id: 'provider-query',
+    provider_certificate_url: 'https://example.test/query.pdf'
+  });
 
   const invalidCertificateAdapter = createRecordProofExternalAdapter(
     adapterOptions({
@@ -175,6 +193,21 @@ test('external adapter normalizes only known provider outcomes', async () => {
   );
   await assert.rejects(
     conflictingOperationAdapter.submitRecord(submission()),
+    (error) => error.code === 'RECORD_PROOF_PROVIDER_RESULT_CONFLICT'
+  );
+
+  const conflictingQueryAdapter = createRecordProofExternalAdapter(
+    adapterOptions({
+      queryOperation: async () => ({
+        status: 'submitted',
+        operation_id: 'record_QR_OTHER_bbbbbbbbbbbbbbbb'
+      })
+    })
+  );
+  await assert.rejects(
+    conflictingQueryAdapter.queryRecordResult({
+      operation_id: submission().operation_id
+    }),
     (error) => error.code === 'RECORD_PROOF_PROVIDER_RESULT_CONFLICT'
   );
 });

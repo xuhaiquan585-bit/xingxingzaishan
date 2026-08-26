@@ -50,7 +50,18 @@ function createHarness(initialProof = proof(), overrides = {}) {
   const state = {
     proof: initialProof,
     transactionDepth: 0,
-    updateCount: 0
+    updateCount: 0,
+    outboxJobs: []
+  };
+  const outboxRepository = {
+    async insertPendingOnce(input) {
+      const existing = state.outboxJobs.find((item) => (
+        item.idempotency_key === input.idempotency_key
+      ));
+      if (existing) return null;
+      state.outboxJobs.push({ ...input });
+      return input;
+    }
   };
   const repository = {
     async findByOperationIdForUpdate(provider, operationId) {
@@ -97,7 +108,8 @@ function createHarness(initialProof = proof(), overrides = {}) {
     }
   }
   const repositoryTypes = {
-    ProofRepository: class { constructor() { return repository; } }
+    ProofRepository: class { constructor() { return repository; } },
+    OutboxRepository: class { constructor() { return outboxRepository; } }
   };
   const normalizeProviderResult = overrides.normalizeProviderResult
     || ((value) => {
@@ -125,6 +137,7 @@ test('proof result callback confirms once and enriches a duplicate safely', asyn
   assert.equal(harness.state.proof.callback_received_at, NOW);
   assert.equal(harness.state.proof.confirmed_at, NOW);
   assert.equal(harness.state.proof.transaction_hash, 'tx-result');
+  assert.equal(harness.state.outboxJobs.length, 0);
 
   assert.deepEqual(
     await harness.service.applyCallback(providerResult({
@@ -136,6 +149,11 @@ test('proof result callback confirms once and enriches a duplicate safely', asyn
     harness.state.proof.provider_certificate_url,
     'https://example.test/certificate.pdf'
   );
+  assert.equal(harness.state.outboxJobs.length, 1);
+  assert.equal(
+    harness.state.outboxJobs[0].job_type,
+    'record_proof_archive_certificate'
+  );
   assert.deepEqual(
     await harness.service.applyCallback(providerResult({
       provider_certificate_url: 'https://example.test/renewed-certificate.pdf'
@@ -146,6 +164,7 @@ test('proof result callback confirms once and enriches a duplicate safely', asyn
     harness.state.proof.provider_certificate_url,
     'https://example.test/certificate.pdf'
   );
+  assert.equal(harness.state.outboxJobs.length, 1);
   assert.equal(harness.state.updateCount, 3);
 });
 
@@ -187,6 +206,36 @@ test('proof result service can recover a failed local attempt from confirmation'
     { outcome: 'applied', status: 'confirmed' }
   );
   assert.equal(harness.state.proof.last_error, '');
+  assert.equal(harness.state.proof.status, 'confirmed');
+});
+
+test('proof result service never regresses after recovery and duplicate callback', async () => {
+  const harness = createHarness(proof({
+    status: 'retrying',
+    last_error: 'RECORD_PROOF_RECOVERY_QUERY_FAILED'
+  }));
+
+  assert.deepEqual(
+    await harness.service.applyCanonicalQueryResult(providerResult({
+      status: 'submitted',
+      transaction_hash: null,
+      block_height: null,
+      provider_record_id: null
+    })),
+    { outcome: 'applied', status: 'submitted' }
+  );
+  assert.equal(harness.state.proof.status, 'submitted');
+
+  assert.deepEqual(
+    await harness.service.applyCallback(providerResult()),
+    { outcome: 'applied', status: 'confirmed' }
+  );
+  assert.equal(harness.state.proof.status, 'confirmed');
+
+  assert.deepEqual(
+    await harness.service.applyCallback(providerResult({ status: 'submitted' })),
+    { outcome: 'stale', status: 'confirmed' }
+  );
   assert.equal(harness.state.proof.status, 'confirmed');
 });
 

@@ -46,6 +46,18 @@ function optionalScope(values, code) {
   return Object.freeze(normalized);
 }
 
+function optionalErrorCodes(values) {
+  if (values === undefined || values === null) return new Set();
+  if (!Array.isArray(values) || values.length === 0 || values.length > 100) {
+    throw new OutboxWorkerError('OUTBOX_WORKER_RETRYABLE_ERROR_CODES_INVALID');
+  }
+  const normalized = new Set(values.map((value) => String(value || '').trim()));
+  if ([...normalized].some((value) => !/^[A-Z][A-Z0-9_:-]{0,119}$/.test(value))) {
+    throw new OutboxWorkerError('OUTBOX_WORKER_RETRYABLE_ERROR_CODES_INVALID');
+  }
+  return normalized;
+}
+
 function createOutboxWorker({
   pool,
   transactionRunner,
@@ -57,6 +69,7 @@ function createOutboxWorker({
   maxAttempts = 5,
   retryBaseMs = 1000,
   lockTimeoutMs = 5 * 60 * 1000,
+  retryableErrorCodes,
   jobTypes,
   aggregateIds
 } = {}) {
@@ -96,6 +109,7 @@ function createOutboxWorker({
     aggregateIds,
     'OUTBOX_WORKER_AGGREGATE_IDS_INVALID'
   );
+  const normalizedRetryableErrorCodes = optionalErrorCodes(retryableErrorCodes);
   const runTransaction = transactionRunner
     || require('../../database/transaction').withTransaction;
   const repositories = repositoryTypes || require('../../repositories');
@@ -157,12 +171,16 @@ function createOutboxWorker({
         summary.succeeded += 1;
       } catch (error) {
         const updatedAt = operationTimestamp(clock);
+        const errorCode = safeErrorCode(error);
         const terminal = error && error.code === 'OUTBOX_HANDLER_NOT_REGISTERED'
-          || Number(job.attempt_count) >= normalizedMaxAttempts;
+          || (
+            Number(job.attempt_count) >= normalizedMaxAttempts
+            && !normalizedRetryableErrorCodes.has(errorCode)
+          );
         const input = {
           id: job.id,
           worker_id: normalizedWorkerId,
-          last_error: safeErrorCode(error),
+          last_error: errorCode,
           updated_at: updatedAt.toISOString()
         };
         const transitioned = terminal

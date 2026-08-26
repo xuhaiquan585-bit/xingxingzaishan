@@ -30,6 +30,8 @@ function enabledEnv(overrides = {}) {
     AVATA_API_SECRET: 'api-secret',
     AVATA_IDENTITY_NAME: 'identity-name',
     AVATA_IDENTITY_NUM: 'identity-number',
+    AVATA_OPERATION_NOT_FOUND_CODE: 'OPERATION_NOT_FOUND',
+    AVATA_CERTIFICATE_HOST_ALLOWLIST: 'cert.example.test',
     PGHOST: '127.0.0.1',
     PGPORT: '5432',
     PGUSER: 'app',
@@ -38,6 +40,27 @@ function enabledEnv(overrides = {}) {
     PGSSL: 'false',
     NODE_ENV: 'test',
     ...overrides
+  };
+}
+
+function runtimePersistenceDependencies() {
+  const proofRepository = {
+    async listSubmittedForQuery() { return []; },
+    async listConfirmedForCertificateArchive() { return []; },
+    async markQueryDeferred() { return null; }
+  };
+  const outboxRepository = {
+    async insertPendingOnce() { return null; }
+  };
+  return {
+    repositoryTypes: {
+      ProofRepository: class { constructor() { return proofRepository; } },
+      OutboxRepository: class { constructor() { return outboxRepository; } }
+    },
+    async transactionRunner(_pool, callback) {
+      return callback({ query() {} });
+    },
+    certificateArchiveHandlerFactory: () => async () => {}
   };
 }
 
@@ -74,6 +97,26 @@ test('record proof runtime config is default-off and requires complete real-prov
     ...enabledEnv(),
     CHAIN_CALLBACK_URL: 'http://example.test/callback'
   }).reason, 'SECURE_CALLBACK_URL_REQUIRED');
+  assert.equal(readRecordProofRuntimeConfig({
+    ...enabledEnv(),
+    AVATA_OPERATION_NOT_FOUND_CODE: 'NOT_FOUND'
+  }).reason, 'OPERATION_NOT_FOUND_CODE_REQUIRED');
+  assert.equal(readRecordProofRuntimeConfig({
+    ...enabledEnv(),
+    AVATA_OPERATION_NOT_FOUND_CODE: ''
+  }).reason, 'OPERATION_NOT_FOUND_CODE_REQUIRED');
+  assert.equal(readRecordProofRuntimeConfig(enabledEnv({
+    NODE_ENV: 'production',
+    AVATA_ENV: 'prod',
+    AVATA_API_BASE: 'https://attacker.example.test'
+  })).reason, 'PRODUCTION_CHAIN_PROVIDER_REQUIRED');
+
+  const productionConfig = readRecordProofRuntimeConfig(enabledEnv({
+    NODE_ENV: 'production',
+    AVATA_ENV: 'prod',
+    AVATA_API_BASE: 'https://apis.avata.bianjie.ai/'
+  }));
+  assert.equal(productionConfig.enabled, true);
 
   const config = readRecordProofRuntimeConfig(enabledEnv({
     RECORD_PROOF_WORKER_INTERVAL_MS: '2000',
@@ -86,6 +129,10 @@ test('record proof runtime config is default-off and requires complete real-prov
   assert.equal(config.domainSha256, 'b'.repeat(64));
   assert.equal(config.intervalMs, 2000);
   assert.equal(config.batchSize, 3);
+  assert.equal(config.queryMinAgeMs, 60000);
+  assert.equal(config.queryBatchSize, 5);
+  assert.equal(config.operationNotFoundCode, 'OPERATION_NOT_FOUND');
+  assert.deepEqual([...config.certificateHostAllowlist], ['cert.example.test']);
 });
 
 test('record proof runtime scopes worker and result handling to one explicit QR set', async () => {
@@ -99,6 +146,7 @@ test('record proof runtime scopes worker and result handling to one explicit QR 
   let timerCleared = false;
   let poolClosed = false;
   const runtime = createRecordProofRuntime(config, {
+    ...runtimePersistenceDependencies(),
     env: enabledEnv(),
     createPool(input) {
       captured.pool = input;
@@ -112,7 +160,8 @@ test('record proof runtime scopes worker and result handling to one explicit QR 
       return {
         prepareRecord: async () => ({}),
         submitRecord: async () => ({}),
-        normalizeRecordResult: (value) => value
+        normalizeRecordResult: (value) => value,
+        queryRecordResult: async () => ({})
       };
     },
     jobHandlerFactory(input) {
@@ -123,7 +172,10 @@ test('record proof runtime scopes worker and result handling to one explicit QR 
       captured.result = input;
       return {
         applyCallback: async () => ({ outcome: 'applied', status: 'confirmed' }),
-        applyQueryResult: async () => ({ outcome: 'duplicate', status: 'confirmed' })
+        applyQueryResult: async () => ({ outcome: 'duplicate', status: 'confirmed' }),
+        applyCanonicalQueryResult: async () => ({
+          outcome: 'duplicate', status: 'confirmed'
+        })
       };
     },
     workerFactory(input) {
@@ -161,7 +213,13 @@ test('record proof runtime scopes worker and result handling to one explicit QR 
     captured.pool.config.applicationName,
     'xingxingzaishan-record-proof-runtime'
   );
-  assert.deepEqual(captured.worker.jobTypes, ['record_proof_prepare_submit']);
+  assert.deepEqual(captured.worker.jobTypes, [
+    'record_proof_prepare_submit',
+    'record_proof_archive_certificate'
+  ]);
+  assert.deepEqual(captured.worker.retryableErrorCodes, [
+    'RECORD_PROOF_RECOVERY_DEFERRED'
+  ]);
   assert.deepEqual(captured.worker.aggregateIds, ['QR_ALLOWED', 'QR_SECOND']);
   assert.deepEqual(captured.result.allowedRecordQrIds, ['QR_ALLOWED', 'QR_SECOND']);
   assert.equal(runtime.start(), true);
@@ -172,7 +230,11 @@ test('record proof runtime scopes worker and result handling to one explicit QR 
   const secondRun = runtime.runOnce();
   assert.equal(firstRun, secondRun);
   workerResolve({ claimed: 0, succeeded: 0 });
-  assert.deepEqual(await firstRun, { claimed: 0, succeeded: 0 });
+  assert.deepEqual(await firstRun, {
+    outbox: { claimed: 0, succeeded: 0 },
+    query: { selected: 0, applied: 0, stale: 0, failed: 0 },
+    certificate_archive: { selected: 0, queued: 0 }
+  });
   assert.equal(captured.eligibility.sourceSha256, 'a'.repeat(64));
   assert.equal(captured.eligibility.domainSha256, 'b'.repeat(64));
   assert.deepEqual(captured.eligibility.migrations, [{
@@ -208,20 +270,23 @@ test('record proof runtime all scope covers future QR jobs without an allowlist'
 
   const captured = {};
   const runtime = createRecordProofRuntime(config, {
+    ...runtimePersistenceDependencies(),
     env: enabledEnv(),
     createPool: () => ({ connect() {} }),
     closePool: async () => {},
     externalAdapterFactory: () => ({
       prepareRecord: async () => ({}),
       submitRecord: async () => ({}),
-      normalizeRecordResult: (value) => value
+      normalizeRecordResult: (value) => value,
+      queryRecordResult: async () => ({})
     }),
     jobHandlerFactory: () => async () => {},
     resultServiceFactory(input) {
       captured.result = input;
       return {
         applyCallback: async () => ({ outcome: 'not_found', status: null }),
-        applyQueryResult: async () => ({ outcome: 'not_found', status: null })
+        applyQueryResult: async () => ({ outcome: 'not_found', status: null }),
+        applyCanonicalQueryResult: async () => ({ outcome: 'not_found', status: null })
       };
     },
     workerFactory(input) {
@@ -307,13 +372,15 @@ test('record proof runtime blocks worker and callbacks when import provenance is
   let workerCalls = 0;
   let resultCalls = 0;
   const runtime = createRecordProofRuntime(config, {
+    ...runtimePersistenceDependencies(),
     env: enabledEnv(),
     createPool: () => ({ connect() {} }),
     closePool: async () => {},
     externalAdapterFactory: () => ({
       prepareRecord: async () => ({}),
       submitRecord: async () => ({}),
-      normalizeRecordResult: (value) => value
+      normalizeRecordResult: (value) => value,
+      queryRecordResult: async () => ({})
     }),
     jobHandlerFactory: () => async () => {},
     resultServiceFactory: () => ({
@@ -321,6 +388,9 @@ test('record proof runtime blocks worker and callbacks when import provenance is
         resultCalls += 1;
       },
       async applyQueryResult() {
+        resultCalls += 1;
+      },
+      async applyCanonicalQueryResult() {
         resultCalls += 1;
       }
     }),
@@ -396,7 +466,7 @@ test('AVATA callback verifies before selecting a persistence path', async () => 
   assert.equal(legacyCalls, 0);
 });
 
-test('AVATA callback preserves JSON behavior only while runtime is safely off', async () => {
+test('AVATA callback fails closed while the PostgreSQL proof runtime is off', async () => {
   let legacyCalls = 0;
   const handler = createAvataCallbackHandler({
     verifyCallback: () => ({ ok: true }),
@@ -414,10 +484,9 @@ test('AVATA callback preserves JSON behavior only while runtime is safely off', 
 
   await handler(callbackRequest(), response);
 
-  assert.equal(response.statusCode, 200);
-  assert.equal(response.contentType, 'text/plain');
-  assert.equal(response.body, 'SUCCESS');
-  assert.equal(legacyCalls, 1);
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body, 'FAILED');
+  assert.equal(legacyCalls, 0);
 });
 
 test('AVATA callback uses PostgreSQL exclusively when proof runtime is enabled', async () => {

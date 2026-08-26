@@ -1,14 +1,9 @@
 const express = require('express');
-const { applyAvataCallback } = require('../services/chainProofService');
 const { verifyAvataCallback } = require('../services/avataService');
 const {
   applyRecordProofCallback
 } = require('../services/postgres/recordProofRuntime');
 
-const SAFE_DISABLED_REASONS = new Set([
-  'DISABLED_BY_DEFAULT',
-  'DISABLED_BY_CONFIGURATION'
-]);
 const ACCEPTED_RUNTIME_OUTCOMES = new Set([
   'applied',
   'duplicate',
@@ -17,7 +12,6 @@ const ACCEPTED_RUNTIME_OUTCOMES = new Set([
 
 function createAvataCallbackHandler({
   verifyCallback = verifyAvataCallback,
-  applyLegacyCallback = applyAvataCallback,
   applyRuntimeCallback = applyRecordProofCallback
 } = {}) {
   return async function avataCallback(req, res) {
@@ -38,19 +32,7 @@ function createAvataCallbackHandler({
       if (ACCEPTED_RUNTIME_OUTCOMES.has(runtimeResult.outcome)) {
         return res.type('text/plain').send('SUCCESS');
       }
-      if (
-        runtimeResult.outcome !== 'disabled'
-        || !SAFE_DISABLED_REASONS.has(runtimeResult.reason)
-      ) {
-        return res.status(503).send('FAILED');
-      }
-
-      const legacyResult = await applyLegacyCallback(req.body || {});
-      if (legacyResult.error === 'CHAIN_OPERATION_NOT_FOUND') {
-        return res.status(404).send('FAILED');
-      }
-
-      return res.type('text/plain').send('SUCCESS');
+      return res.status(503).send('FAILED');
     } catch (_error) {
       return res.status(500).send('FAILED');
     }

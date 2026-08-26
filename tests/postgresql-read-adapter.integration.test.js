@@ -1383,7 +1383,9 @@ test('manual PostgreSQL public QR adapter integration', {
       AVATA_API_KEY: 'proof-runtime-route-key',
       AVATA_API_SECRET: 'proof-runtime-route-secret',
       AVATA_IDENTITY_NAME: 'proof-runtime-route-name',
-      AVATA_IDENTITY_NUM: 'proof-runtime-route-number'
+      AVATA_IDENTITY_NUM: 'proof-runtime-route-number',
+      AVATA_OPERATION_NOT_FOUND_CODE: 'OPERATION_NOT_FOUND',
+      AVATA_CERTIFICATE_HOST_ALLOWLIST: 'fixture.invalid'
     });
 
     const { createApp } = require('../src/server/app');

@@ -552,7 +552,12 @@ async function saveBinaryObject({ qrId, fileName, buffer, contentType = 'applica
   };
 }
 
-async function saveBinaryObjectAtKey({ objectKey, buffer, contentType = 'application/octet-stream' }) {
+async function saveBinaryObjectAtKey({
+  objectKey,
+  buffer,
+  contentType = 'application/octet-stream',
+  allowCloudFallback = true
+}) {
   const safeObjectKey = sanitizeObjectKey(objectKey);
   if (!safeObjectKey) throw new Error('OBJECT_KEY_REQUIRED');
   const mode = getStorageMode();
@@ -570,7 +575,7 @@ async function saveBinaryObjectAtKey({ objectKey, buffer, contentType = 'applica
         preview_url: getSignedUrl(safeObjectKey)
       };
     } catch (_error) {
-      if (process.env.CLOUD_FALLBACK_TO_LOCAL !== 'true') {
+      if (!allowCloudFallback || process.env.CLOUD_FALLBACK_TO_LOCAL !== 'true') {
         throw new Error('OSS_UPLOAD_FAILED');
       }
     }

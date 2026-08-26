@@ -1,5 +1,9 @@
 'use strict';
 
+const crypto = require('node:crypto');
+
+const { enqueueCertificateArchiveJob } = require('./recordProofCertificateArchive');
+
 const ALLOWED_CURRENT_STATUSES = new Set([
   'submitting',
   'submitted',
@@ -125,9 +129,11 @@ function createRecordProofResultService({
   normalizeProviderResult,
   transactionRunner,
   repositoryTypes,
+  certificateArchiveEnqueuer = enqueueCertificateArchiveJob,
   provider = 'avata_wenchang',
   allowedRecordQrIds,
-  clock = () => new Date()
+  clock = () => new Date(),
+  randomUUID = crypto.randomUUID
 } = {}) {
   if (!pool || typeof pool.connect !== 'function') {
     throw new RecordProofResultError('RECORD_PROOF_RESULT_POOL_REQUIRED');
@@ -138,6 +144,12 @@ function createRecordProofResultService({
   if (typeof clock !== 'function') {
     throw new RecordProofResultError('RECORD_PROOF_RESULT_CLOCK_REQUIRED');
   }
+  if (typeof certificateArchiveEnqueuer !== 'function') {
+    throw new RecordProofResultError('RECORD_PROOF_CERTIFICATE_ENQUEUER_REQUIRED');
+  }
+  if (typeof randomUUID !== 'function') {
+    throw new RecordProofResultError('RECORD_PROOF_RESULT_UUID_REQUIRED');
+  }
   const normalizedProvider = normalizedText(provider);
   if (!normalizedProvider || normalizedProvider.length > 64) {
     throw new RecordProofResultError('RECORD_PROOF_RESULT_PROVIDER_INVALID');
@@ -147,17 +159,11 @@ function createRecordProofResultService({
     || require('../../database/transaction').withTransaction;
   const repositories = repositoryTypes || require('../../repositories');
 
-  async function apply(rawResult, source) {
+  async function applyCanonical(resultInput, source) {
     if (!SOURCES.has(source)) {
       throw new RecordProofResultError('RECORD_PROOF_RESULT_SOURCE_INVALID');
     }
-    let result;
-    try {
-      result = canonicalResult(await normalizeProviderResult(rawResult));
-    } catch (error) {
-      if (error instanceof RecordProofResultError) throw error;
-      throw new RecordProofResultError('RECORD_PROOF_PROVIDER_RESULT_INVALID');
-    }
+    const result = canonicalResult(resultInput);
     const receivedAt = operationTimestamp(clock);
     return runTransaction(pool, async (context) => {
       const proofs = new repositories.ProofRepository(context);
@@ -201,6 +207,12 @@ function createRecordProofResultService({
       if (!updated) {
         throw new RecordProofResultError('RECORD_PROOF_PROVIDER_STATE_CONFLICT');
       }
+      await certificateArchiveEnqueuer({
+        outboxRepository: new repositories.OutboxRepository(context),
+        proof: updated,
+        now: receivedAt,
+        randomUUID
+      });
       return Object.freeze({
         outcome: current.status === result.status ? 'duplicate' : 'applied',
         status: updated.status
@@ -208,9 +220,20 @@ function createRecordProofResultService({
     }, { isolationLevel: 'read committed' });
   }
 
+  async function apply(rawResult, source) {
+    let result;
+    try {
+      result = await normalizeProviderResult(rawResult);
+    } catch (_error) {
+      throw new RecordProofResultError('RECORD_PROOF_PROVIDER_RESULT_INVALID');
+    }
+    return applyCanonical(result, source);
+  }
+
   return Object.freeze({
     applyCallback: (rawResult) => apply(rawResult, 'callback'),
-    applyQueryResult: (rawResult) => apply(rawResult, 'query')
+    applyQueryResult: (rawResult) => apply(rawResult, 'query'),
+    applyCanonicalQueryResult: (result) => applyCanonical(result, 'query')
   });
 }
 

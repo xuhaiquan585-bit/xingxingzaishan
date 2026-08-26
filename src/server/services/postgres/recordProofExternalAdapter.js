@@ -112,7 +112,7 @@ function defaultDependencies(overrides) {
   if (!overrides.hashImageForRecord || !overrides.writeRecordArchive) {
     archiveService = require('../archiveService');
   }
-  if (!overrides.submitRecordProof || !overrides.normalizeAvataResult) {
+  if (!overrides.submitRecordProof || !overrides.queryOperation || !overrides.normalizeAvataResult) {
     avataService = require('../avataService');
   }
   return {
@@ -125,6 +125,7 @@ function defaultDependencies(overrides) {
       overrides.writeRecordArchive || archiveService.writeRecordArchive,
     submitRecordProof:
       overrides.submitRecordProof || avataService.submitRecordProof,
+    queryOperation: overrides.queryOperation || avataService.queryOperation,
     normalizeAvataResult:
       overrides.normalizeAvataResult || avataService.normalizeAvataResult
   };
@@ -155,6 +156,10 @@ function createRecordProofExternalAdapter(options = {}) {
   const normalizeResult = requiredFunction(
     dependencies.normalizeAvataResult,
     'RECORD_PROOF_PROVIDER_NORMALIZER_REQUIRED'
+  );
+  const queryProviderOperation = requiredFunction(
+    dependencies.queryOperation,
+    'RECORD_PROOF_PROVIDER_QUERY_REQUIRED'
   );
   const allowMock = options.allowMock === true;
 
@@ -246,9 +251,22 @@ function createRecordProofExternalAdapter(options = {}) {
     return result;
   }
 
+  async function queryRecordResult(input = {}) {
+    const operationId = normalizedText(input.operation_id);
+    if (!operationId || operationId.length > 200) {
+      throw new RecordProofExternalError('RECORD_PROOF_EXTERNAL_QUERY_INVALID');
+    }
+    const result = normalizeRecordResult(await queryProviderOperation(operationId));
+    if (result.operation_id && result.operation_id !== operationId) {
+      throw new RecordProofExternalError('RECORD_PROOF_PROVIDER_RESULT_CONFLICT');
+    }
+    return Object.freeze({ ...result, operation_id: operationId });
+  }
+
   return Object.freeze({
     prepareRecord,
     submitRecord,
+    queryRecordResult,
     normalizeRecordResult
   });
 }

@@ -34,20 +34,26 @@ class OutboxRepository {
   }
 
   async insertPending(job) {
-    const values = {
-      ...job,
-      payload: JSON.stringify(job.payload || {}),
-      status: 'pending',
-      attempt_count: 0,
-      locked_at: null,
-      locked_by: null,
-      last_error: ''
-    };
+    const values = this.#pendingValues(job);
     const placeholders = OUTBOX_FIELDS.map((_, index) => `$${index + 1}`).join(', ');
     const result = await executeQuery(
       this.transactionContext,
       `INSERT INTO app.outbox_jobs (${COLUMNS})
        VALUES (${placeholders}) RETURNING ${COLUMNS}`,
+      OUTBOX_FIELDS.map((field) => values[field])
+    );
+    return oneOrNull(result, mapOutboxJob, 'REPOSITORY_INSERT_RESULT_INVALID');
+  }
+
+  async insertPendingOnce(job) {
+    const values = this.#pendingValues(job);
+    const placeholders = OUTBOX_FIELDS.map((_, index) => `$${index + 1}`).join(', ');
+    const result = await executeQuery(
+      this.transactionContext,
+      `INSERT INTO app.outbox_jobs (${COLUMNS})
+       VALUES (${placeholders})
+       ON CONFLICT (idempotency_key) DO NOTHING
+       RETURNING ${COLUMNS}`,
       OUTBOX_FIELDS.map((field) => values[field])
     );
     return oneOrNull(result, mapOutboxJob, 'REPOSITORY_INSERT_RESULT_INVALID');
@@ -219,6 +225,18 @@ class OutboxRepository {
       [id, workerId, lastError, updatedAt]
     );
     return oneOrNull(result, mapOutboxJob, 'REPOSITORY_UPDATE_RESULT_INVALID');
+  }
+
+  #pendingValues(job) {
+    return {
+      ...job,
+      payload: JSON.stringify(job.payload || {}),
+      status: 'pending',
+      attempt_count: 0,
+      locked_at: null,
+      locked_by: null,
+      last_error: ''
+    };
   }
 }
 

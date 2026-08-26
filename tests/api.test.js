@@ -85,6 +85,82 @@ test('AVATA V3 signature should use sorted path/body parameters', () => {
   );
 });
 
+test('AVATA callback verification accepts only a current authentic signature', () => {
+  const {
+    signRequest,
+    verifyAvataCallback
+  } = require('../src/server/services/avataService');
+  const keys = [
+    'CHAIN_ENABLED',
+    'AVATA_API_KEY',
+    'AVATA_API_SECRET',
+    'AVATA_IDENTITY_NAME',
+    'AVATA_IDENTITY_NUM'
+  ];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  Object.assign(process.env, {
+    CHAIN_ENABLED: 'true',
+    AVATA_API_KEY: 'callback-key',
+    AVATA_API_SECRET: 'callback-secret',
+    AVATA_IDENTITY_NAME: 'callback-identity',
+    AVATA_IDENTITY_NUM: 'callback-identity-number'
+  });
+
+  try {
+    const path = '/api/chain/avata/callback';
+    const body = { operation_id: 'operation-1', status: 1 };
+    const timestamp = String(Date.now());
+    const signature = signRequest({
+      path,
+      body,
+      timestamp,
+      apiSecret: process.env.AVATA_API_SECRET
+    });
+    const validHeaders = {
+      'x-api-key': process.env.AVATA_API_KEY,
+      'x-timestamp': timestamp,
+      'x-signature': signature
+    };
+
+    assert.deepEqual(
+      verifyAvataCallback({ path, body, headers: validHeaders }),
+      { ok: true, reason: '' }
+    );
+    assert.deepEqual(
+      verifyAvataCallback({
+        path,
+        body: { ...body, status: 2 },
+        headers: validHeaders
+      }),
+      { ok: false, reason: 'INVALID_SIGNATURE' }
+    );
+    assert.deepEqual(
+      verifyAvataCallback({
+        path,
+        body,
+        headers: { ...validHeaders, 'x-api-key': 'wrong-key' }
+      }),
+      { ok: false, reason: 'INVALID_API_KEY' }
+    );
+    assert.deepEqual(
+      verifyAvataCallback({
+        path,
+        body,
+        headers: {
+          ...validHeaders,
+          'x-timestamp': String(Date.now() - (11 * 60 * 1000))
+        }
+      }),
+      { ok: false, reason: 'INVALID_TIMESTAMP' }
+    );
+  } finally {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
+});
+
 test('AVATA record proof body should include official fields without secrets', () => {
   const { buildRecordProofBody } = require('../src/server/services/avataService');
   const body = buildRecordProofBody({
@@ -136,6 +212,36 @@ test('AVATA result normalization should parse V3 record payload', () => {
   assert.equal(result.block_height, 88);
   assert.equal(result.record_id, 'record-v3');
   assert.equal(result.certificate_url, 'https://cert.example.com/v3.pdf');
+});
+
+test('AVATA recovery maps only one configured non-ambiguous not-found code', () => {
+  const {
+    configuredOperationNotFoundCode,
+    mapAvataQueryError
+  } = require('../src/server/services/avataService');
+  assert.equal(configuredOperationNotFoundCode('NOT_FOUND'), '');
+  assert.equal(configuredOperationNotFoundCode('OPERATION_NOT_FOUND'), 'OPERATION_NOT_FOUND');
+
+  const generic = Object.assign(new Error('hidden provider response'), {
+    code: 'AVATA_REQUEST_FAILED',
+    status: 404,
+    providerCode: 'NOT_FOUND'
+  });
+  assert.equal(mapAvataQueryError(generic, 'OPERATION_NOT_FOUND'), generic);
+
+  const definitive = Object.assign(new Error('hidden provider response'), {
+    code: 'AVATA_REQUEST_FAILED',
+    status: 404,
+    providerCode: 'OPERATION_NOT_FOUND'
+  });
+  const mapped = mapAvataQueryError(definitive, 'OPERATION_NOT_FOUND');
+  assert.equal(mapped.code, 'RECORD_PROOF_EXTERNAL_OPERATION_NOT_FOUND');
+  assert.equal(mapped.message.includes('hidden provider response'), false);
+
+  assert.equal(
+    mapAvataQueryError(definitive, 'NOT_FOUND'),
+    definitive
+  );
 });
 
 function requestRaw(method, urlPath, { headers = {}, body } = {}) {
@@ -5458,6 +5564,7 @@ test('miniapp upload and record flow should require bound phone and reject dupli
   const rebuildArchiveRes = await postJson('/api/admin/records/MQR00001/archive/rebuild', {}, adminToken);
   assert.equal(rebuildArchiveRes.status, 200);
   assert.equal(rebuildArchiveRes.body.data.archive_status, 'ready');
+  const archiveBeforeCallback = JSON.parse(fs.readFileSync(archiveManifestPath, 'utf8'));
   const callbackRes = await postJson('/api/chain/avata/callback', {
     operation_id: adminRecord.chain_operation_id,
     status: 1,
@@ -5468,12 +5575,10 @@ test('miniapp upload and record flow should require bound phone and reject dupli
       certificate_url: 'https://cert.example.com/mqr'
     }
   });
-  assert.equal(callbackRes.status, 200);
-  assert.equal(callbackRes.raw, 'SUCCESS');
+  assert.equal(callbackRes.status, 401);
+  assert.equal(callbackRes.raw, 'FAILED');
   const archiveAfterCallback = JSON.parse(fs.readFileSync(archiveManifestPath, 'utf8'));
-  const { hashManifest } = require('../src/server/services/manifestService');
-  assert.equal(hashManifest(archiveAfterCallback.sealed_manifest), archiveAfterCallback.manifest_hash);
-  assert.equal(archiveAfterCallback.archive.chain.tx_hash, 'tx_test_mqr');
+  assert.deepEqual(archiveAfterCallback, archiveBeforeCallback);
   const retryRes = await postJson('/api/admin/records/MQR00001/chain/retry', {}, adminToken);
   assert.equal(retryRes.status, 200);
 

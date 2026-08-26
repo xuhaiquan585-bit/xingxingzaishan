@@ -6,7 +6,13 @@ const {
   mapProof,
   mapProofAttempt
 } = require('./mappers');
-const { assertTransactionContext, executeQuery, oneOrNull } = require('./query');
+const {
+  assertTransactionContext,
+  executeQuery,
+  many,
+  normalizeLimit,
+  oneOrNull
+} = require('./query');
 
 const PROOF_COLUMNS = PROOF_FIELDS.join(', ');
 const ATTEMPT_COLUMNS = PROOF_ATTEMPT_FIELDS.join(', ');
@@ -49,6 +55,99 @@ class ProofRepository {
       [proofId]
     );
     return oneOrNull(result, mapProof);
+  }
+
+  async findPendingAttemptForUpdate(proofId) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `SELECT ${ATTEMPT_COLUMNS} FROM app.proof_attempts
+       WHERE proof_id = $1 AND result_status = 'pending'
+       ORDER BY attempt_number DESC
+       LIMIT 1 FOR UPDATE`,
+      [proofId]
+    );
+    return oneOrNull(result, mapProofAttempt);
+  }
+
+  async findById(proofId) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `SELECT ${PROOF_COLUMNS} FROM app.record_proofs WHERE id = $1`,
+      [proofId]
+    );
+    return oneOrNull(result, mapProof);
+  }
+
+  async listSubmittedForQuery({
+    provider,
+    updated_before: updatedBefore,
+    record_qr_ids: recordQrIds,
+    limit
+  } = {}) {
+    const boundedLimit = normalizeLimit(limit, { defaultValue: 5, maximum: 50 });
+    const scope = recordQrIds === null || recordQrIds === undefined
+      ? null
+      : [...new Set(recordQrIds.map((value) => String(value || '').trim()))];
+    if (scope && (
+      !scope.length
+      || scope.length > 1000
+      || scope.some((value) => !value || value.length > 160 || /[\r\n\0]/.test(value))
+    )) {
+      const error = new Error('PROOF_QUERY_SCOPE_INVALID');
+      error.code = 'PROOF_QUERY_SCOPE_INVALID';
+      throw error;
+    }
+    const result = await executeQuery(
+      this.transactionContext,
+      `SELECT ${PROOF_COLUMNS} FROM app.record_proofs
+       WHERE provider = $1
+         AND (
+           status = 'submitted'
+           OR (
+             status = 'confirmed'
+             AND provider_certificate_url IS NULL
+             AND certificate_object_key IS NULL
+           )
+         )
+         AND operation_id IS NOT NULL AND updated_at <= $2
+         AND ($3::text[] IS NULL OR record_qr_id = ANY($3::text[]))
+       ORDER BY updated_at ASC, id ASC
+       LIMIT $4`,
+      [provider, updatedBefore, scope, boundedLimit]
+    );
+    return many(result, mapProof);
+  }
+
+  async listConfirmedForCertificateArchive({
+    provider,
+    record_qr_ids: recordQrIds,
+    limit
+  } = {}) {
+    const boundedLimit = normalizeLimit(limit, { defaultValue: 5, maximum: 50 });
+    const scope = recordQrIds === null || recordQrIds === undefined
+      ? null
+      : [...new Set(recordQrIds.map((value) => String(value || '').trim()))];
+    if (scope && (
+      !scope.length
+      || scope.length > 1000
+      || scope.some((value) => !value || value.length > 160 || /[\r\n\0]/.test(value))
+    )) {
+      const error = new Error('PROOF_QUERY_SCOPE_INVALID');
+      error.code = 'PROOF_QUERY_SCOPE_INVALID';
+      throw error;
+    }
+    const result = await executeQuery(
+      this.transactionContext,
+      `SELECT ${PROOF_COLUMNS} FROM app.record_proofs
+       WHERE provider = $1 AND status = 'confirmed'
+         AND provider_certificate_url IS NOT NULL
+         AND certificate_object_key IS NULL
+         AND ($2::text[] IS NULL OR record_qr_id = ANY($2::text[]))
+       ORDER BY updated_at ASC, id ASC
+       LIMIT $3`,
+      [provider, scope, boundedLimit]
+    );
+    return many(result, mapProof);
   }
 
   async insertPending(proof) {
@@ -149,7 +248,7 @@ class ProofRepository {
            last_error = $9, updated_at = $10
        WHERE id = $1
          AND (
-           ($2 = 'submitted' AND status IN ('submitting', 'submitted'))
+           ($2 = 'submitted' AND status IN ('submitting', 'submitted', 'retrying'))
            OR ($2 = 'confirmed' AND status IN (
              'submitting', 'submitted', 'confirmed', 'failed', 'retrying'
            ))
@@ -170,6 +269,48 @@ class ProofRepository {
         lastError,
         updatedAt
       ]
+    );
+  }
+
+  async markCertificateArchived({
+    id,
+    certificate_object_key: certificateObjectKey,
+    certificate_object_url_snapshot: certificateObjectUrlSnapshot,
+    updated_at: updatedAt
+  }) {
+    return this.#updateProof(
+      `UPDATE app.record_proofs
+       SET certificate_object_key = $2,
+           certificate_object_url_snapshot = $3,
+           updated_at = $4
+       WHERE id = $1 AND status = 'confirmed'
+         AND provider_certificate_url IS NOT NULL
+         AND certificate_object_key IS NULL
+       RETURNING ${PROOF_COLUMNS}`,
+      [id, certificateObjectKey, certificateObjectUrlSnapshot || null, updatedAt]
+    );
+  }
+
+  async markQueryDeferred({ id, last_error: lastError, updated_at: updatedAt }) {
+    return this.#updateProof(
+      `UPDATE app.record_proofs
+       SET last_error = $2, updated_at = $3
+       WHERE id = $1 AND status IN ('submitted', 'confirmed')
+       RETURNING ${PROOF_COLUMNS}`,
+      [id, lastError, updatedAt]
+    );
+  }
+
+  async markRecoveryDeferred({ id, last_error: lastError, updated_at: updatedAt }) {
+    return this.#updateProof(
+      `UPDATE app.record_proofs
+       SET status = 'retrying', last_error = $2, updated_at = $3
+       WHERE id = $1
+         AND status IN ('submitting', 'retrying', 'failed')
+         AND operation_id IS NOT NULL
+         AND manifest_hash IS NOT NULL
+       RETURNING ${PROOF_COLUMNS}`,
+      [id, lastError, updatedAt]
     );
   }
 

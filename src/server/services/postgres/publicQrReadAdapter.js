@@ -299,9 +299,7 @@ class PublicQrReadAdapter {
 
   async #chainPayload({ proof, channel, assetResolver }) {
     const status = proof && proof.status ? proof.status : 'not_started';
-    let resolvedCertificateUrl = proof && proof.provider_certificate_url
-      ? proof.provider_certificate_url
-      : null;
+    let resolvedCertificateUrl = null;
     if (proof && proof.certificate_object_key) {
       if (!assetResolver || typeof assetResolver.resolveCertificate !== 'function') {
         throw new PublicQrReadError(
