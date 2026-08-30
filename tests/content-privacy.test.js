@@ -35,9 +35,13 @@ const {
   replaceLiveDatabaseWithFinal
 } = require('../scripts/database/content-privacy-reproof');
 const {
+  executeReproof,
   parseArguments: parseReproofArguments,
   runtimeConfig: readControlledReproofConfig
 } = require('../scripts/database/run-content-privacy-reproof');
+const {
+  createRecordProofJobHandler
+} = require('../src/server/services/postgres/recordProofJobHandler');
 const {
   buildCleanBaseline,
   parseArguments: parseCleanBaselineArguments
@@ -744,6 +748,84 @@ test('controlled privacy reproof requires exact provider and provenance gates', 
   assert.equal(config.enabled, true);
   assert.equal(config.scope, 'allowlist');
   assert.deepEqual([...config.allowlist].sort(), options.qrIds);
+});
+
+test('controlled privacy reproof wires the canonical handler contract before worker creation', async () => {
+  const options = parseReproofArguments([
+    '--execute-controlled',
+    '--candidate=/tmp/candidate.json',
+    '--live-database=/tmp/live.json',
+    `--expected-candidate-sha256=${'1'.repeat(64)}`,
+    `--expected-candidate-domain-sha256=${'2'.repeat(64)}`,
+    '--expected-qr-ids=SSS00003',
+    '--expected-database=fixture_test'
+  ]);
+  const env = {
+    CHAIN_ENABLED: 'true',
+    CHAIN_CALLBACK_URL: 'https://fixture.invalid/callback',
+    AVATA_API_KEY: 'fixture-key',
+    AVATA_API_SECRET: 'fixture-secret',
+    AVATA_IDENTITY_NAME: 'fixture-name',
+    AVATA_IDENTITY_NUM: 'fixture-number'
+  };
+  const order = [];
+  const stop = new Error('STOP_AFTER_HANDLER_WIRING');
+  const adapter = {
+    prepareRecord: async () => ({}),
+    prepareSubmission: (input) => ({
+      ...input,
+      provider_submission: { operation_id: input.operation_id }
+    }),
+    submitRecord: async () => ({ status: 'submitted' }),
+    queryRecordResult: async ({ operation_id: operationId }) => ({
+      status: 'submitted',
+      operation_id: operationId
+    }),
+    normalizeRecordResult: (value) => value
+  };
+  const results = {
+    applyCanonicalQueryResult: async () => ({ outcome: 'applied' }),
+    applyQueryResult: async () => ({ outcome: 'applied' })
+  };
+  let handlerDependencies;
+
+  await assert.rejects(
+    executeReproof({
+      options,
+      pool: { connect() {} },
+      candidate: { plan: {}, source: {} },
+      env,
+      transactionRunner: async () => ({ status: 'pending' }),
+      externalAdapterFactory() {
+        order.push('adapter');
+        return adapter;
+      },
+      resultServiceFactory() {
+        order.push('results');
+        return results;
+      },
+      jobHandlerFactory(dependencies) {
+        order.push('handler');
+        handlerDependencies = dependencies;
+        return createRecordProofJobHandler(dependencies);
+      },
+      workerFactory() {
+        order.push('worker');
+        throw stop;
+      }
+    }),
+    (error) => error === stop
+  );
+
+  assert.deepEqual(order, ['adapter', 'results', 'handler', 'worker']);
+  assert.equal(handlerDependencies.prepareRecord, adapter.prepareRecord);
+  assert.equal(handlerDependencies.prepareSubmission, adapter.prepareSubmission);
+  assert.equal(handlerDependencies.submitRecord, adapter.submitRecord);
+  assert.equal(handlerDependencies.queryRecord, adapter.queryRecordResult);
+  assert.equal(
+    handlerDependencies.applyQueryResult,
+    results.applyCanonicalQueryResult
+  );
 });
 
 test('clean baseline planning is explicit and path/hash guarded', () => {

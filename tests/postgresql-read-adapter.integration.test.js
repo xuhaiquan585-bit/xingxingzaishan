@@ -45,6 +45,7 @@ const {
   createRecordProofRuntime
 } = require('../src/server/services/postgres/recordProofRuntime');
 const {
+  MINIMUM_SAFE_LOCK_TIMEOUT_MS,
   readRecordProofRuntimeConfig
 } = require('../src/server/services/postgres/recordProofRuntimeConfig');
 const {
@@ -105,6 +106,294 @@ const {
 const RUN_INTEGRATION = process.env.RUN_POSTGRES_INTEGRATION === 'true';
 const CREATED_AT = '2026-07-01T10:00:00.000Z';
 const LATER_AT = '2026-07-01T11:00:00.000Z';
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
+async function within(promise, label, timeoutMs = 5000) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(label)), timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function verifySubmittedQueryLeaseAcrossPostgresSessions({
+  accountId,
+  config,
+  domainSha256,
+  pool,
+  sourceSha256
+}) {
+  const qrId = 'QR_PROOF_QUERY_LEASE_CONCURRENCY';
+  const proofId = '00000000-0000-0000-0000-000000000991';
+  const operationId = 'record_QR_PROOF_QUERY_LEASE_CONCURRENCY_deadbeefdeadbeef';
+  const proofCreatedAt = '2026-07-01T12:34:00.000Z';
+  const runtimeNow = '2026-07-01T12:45:00.000Z';
+  const releaseQuery = deferred();
+  const queryStarted = deferred();
+  let runtimeA;
+  let runtimeB;
+  let runtimeAPromise;
+  let runtimeBPromise;
+  let poolA;
+  let poolB;
+  let queryCountA = 0;
+  let queryCountB = 0;
+  let postCount = 0;
+  let activeQueries = 0;
+  let maximumActiveQueries = 0;
+
+  const workerFactory = () => ({
+    async inspect() {
+      return {
+        pending: 0,
+        ready: 0,
+        processing: 0,
+        stale_processing: 0,
+        failed: 0,
+        succeeded: 0,
+        maximum_attempt_count: 0
+      };
+    },
+    async runOnce() {
+      return {
+        recovered: 0,
+        claimed: 0,
+        succeeded: 0,
+        retried: 0,
+        failed: 0
+      };
+    }
+  });
+  const runtimeConfig = {
+    enabled: true,
+    scope: 'allowlist',
+    allowlist: new Set([qrId]),
+    sourceSha256,
+    domainSha256,
+    workerId: 'proof-query-lease-concurrency',
+    intervalMs: 60000,
+    batchSize: 1,
+    maxAttempts: 4,
+    retryBaseMs: 1000,
+    lockTimeoutMs: MINIMUM_SAFE_LOCK_TIMEOUT_MS,
+    queryMinAgeMs: 10000,
+    queryMaxAgeMs: 30 * 60 * 1000,
+    queryBatchSize: 1,
+    operationNotFoundCode: null,
+    callbackFeature: Object.freeze({ enabled: false, reason: 'NOT_CONFIGURED' }),
+    certificateFeature: Object.freeze({ enabled: false, reason: 'NOT_CONFIGURED' }),
+    certificateHostAllowlist: new Set()
+  };
+  const createAdapter = (worker) => ({
+    normalizeRecordResult: (value) => value,
+    async prepareRecord() {
+      throw new Error('UNEXPECTED_PREPARE');
+    },
+    async prepareSubmission() {
+      throw new Error('UNEXPECTED_PREPARE_SUBMISSION');
+    },
+    async submitRecord() {
+      postCount += 1;
+      throw new Error('UNEXPECTED_POST');
+    },
+    async queryRecordResult({ operation_id: receivedOperationId }) {
+      if (worker === 'A') {
+        queryCountA += 1;
+      } else {
+        queryCountB += 1;
+      }
+      activeQueries += 1;
+      maximumActiveQueries = Math.max(maximumActiveQueries, activeQueries);
+      if (worker === 'A') queryStarted.resolve();
+      try {
+        await releaseQuery.promise;
+        return {
+          status: 'submitted',
+          operation_id: receivedOperationId,
+          transaction_hash: null,
+          block_height: null,
+          provider_record_id: null,
+          provider_certificate_url: null
+        };
+      } finally {
+        activeQueries -= 1;
+      }
+    }
+  });
+
+  try {
+    await pool.query(
+      `INSERT INTO app.qr_codes
+         (id, issue_status, lifecycle_status, access_token, created_at, updated_at)
+       VALUES ($1, 'issued', 'activated', NULL, $2, $2)`,
+      [qrId, proofCreatedAt]
+    );
+    await pool.query(
+      `INSERT INTO app.records
+         (qr_id, account_id, content, sealed_at, created_at, updated_at)
+       VALUES ($1, $2, 'Proof query lease concurrency fixture', $3, $3, $3)`,
+      [qrId, accountId, proofCreatedAt]
+    );
+    await pool.query(
+      `INSERT INTO app.record_proofs
+         (id, record_qr_id, provider, status, operation_id,
+          manifest_object_key, manifest_hash, retry_count, last_error,
+          created_at, updated_at)
+       VALUES
+         ($1, $2, 'avata_wenchang', 'submitted', $3,
+          $4, $5, 1, '', $6, $6)`,
+      [
+        proofId,
+        qrId,
+        operationId,
+        `records/${qrId}/record_manifest.json`,
+        sha256(`proof-query-lease:${qrId}`),
+        proofCreatedAt
+      ]
+    );
+
+    poolA = createPostgresPool({
+      config: { ...config, poolMax: 1, applicationName: 'proof-query-lease-A' }
+    });
+    poolB = createPostgresPool({
+      config: { ...config, poolMax: 1, applicationName: 'proof-query-lease-B' }
+    });
+    const [identityA, identityB] = await Promise.all([
+      poolA.query(
+        `SELECT current_database() AS database_name,
+                host(inet_server_addr()) AS server_address,
+                pg_backend_pid()::integer AS backend_pid`
+      ),
+      poolB.query(
+        `SELECT current_database() AS database_name,
+                host(inet_server_addr()) AS server_address,
+                pg_backend_pid()::integer AS backend_pid`
+      )
+    ]);
+    assert.match(identityA.rows[0].database_name, /_test$/i);
+    assert.match(identityB.rows[0].database_name, /_test$/i);
+    assert.equal(
+      [null, '127.0.0.1', '::1'].includes(identityA.rows[0].server_address),
+      true
+    );
+    assert.equal(
+      [null, '127.0.0.1', '::1'].includes(identityB.rows[0].server_address),
+      true
+    );
+    assert.notEqual(identityA.rows[0].backend_pid, identityB.rows[0].backend_pid);
+
+    const runtimeDependencies = (runtimePool, worker) => ({
+      env: process.env,
+      createPool: () => runtimePool,
+      closePool: async () => {},
+      externalAdapterFactory: () => createAdapter(worker),
+      resultServiceFactory: (dependencies) => createRecordProofResultService({
+        ...dependencies,
+        clock: () => new Date(runtimeNow)
+      }),
+      workerFactory,
+      migrationsLoader: () => [],
+      eligibilityChecker: async () => 'ELIGIBLE',
+      clock: () => new Date(runtimeNow)
+    });
+    runtimeA = createRecordProofRuntime(
+      { ...runtimeConfig, workerId: 'proof-query-lease-A' },
+      runtimeDependencies(poolA, 'A')
+    );
+    runtimeB = createRecordProofRuntime(
+      { ...runtimeConfig, workerId: 'proof-query-lease-B' },
+      runtimeDependencies(poolB, 'B')
+    );
+
+    runtimeAPromise = runtimeA.runOnce();
+    await within(queryStarted.promise, 'QUERY_LEASE_RUNTIME_A_NOT_STARTED');
+
+    const visibleLease = await poolB.query(
+      `SELECT status, retry_count, last_error, updated_at
+       FROM app.record_proofs WHERE id = $1`,
+      [proofId]
+    );
+    assert.equal(visibleLease.rows[0].status, 'retrying');
+    assert.equal(visibleLease.rows[0].retry_count, 2);
+    assert.equal(visibleLease.rows[0].last_error, 'RECORD_PROOF_QUERY_IN_PROGRESS');
+    assert.equal(visibleLease.rows[0].updated_at.toISOString(), runtimeNow);
+
+    runtimeBPromise = runtimeB.runOnce();
+    const runtimeBSummary = await within(
+      runtimeBPromise,
+      'QUERY_LEASE_RUNTIME_B_DID_NOT_FINISH'
+    );
+    assert.equal(runtimeBSummary.query.selected, 0);
+    assert.equal(queryCountB, 0);
+    assert.equal(postCount, 0);
+
+    releaseQuery.resolve();
+    const runtimeASummary = await within(
+      runtimeAPromise,
+      'QUERY_LEASE_RUNTIME_A_DID_NOT_FINISH'
+    );
+    assert.equal(runtimeASummary.query.selected, 1);
+    assert.equal(runtimeASummary.query.applied, 1);
+    assert.equal(runtimeASummary.query.failed, 0);
+
+    const completed = await pool.query(
+      `SELECT status, operation_id, retry_count, last_error
+       FROM app.record_proofs WHERE id = $1`,
+      [proofId]
+    );
+    assert.deepEqual(completed.rows, [{
+      status: 'submitted',
+      operation_id: operationId,
+      retry_count: 2,
+      last_error: ''
+    }]);
+    assert.equal(queryCountA, 1);
+    assert.equal(queryCountB, 0);
+    assert.equal(maximumActiveQueries, 1);
+    assert.equal(postCount, 0);
+
+    await runtimeA.close();
+    runtimeA = null;
+    await runtimeB.close();
+    runtimeB = null;
+    await closePostgresPool(poolA);
+    poolA = null;
+    await closePostgresPool(poolB);
+    poolB = null;
+    const remainingConcurrencySessions = await pool.query(
+      `SELECT count(*)::integer AS connection_count
+       FROM pg_stat_activity
+       WHERE datname = current_database()
+         AND application_name IN ('proof-query-lease-A', 'proof-query-lease-B')`
+    );
+    assert.deepEqual(remainingConcurrencySessions.rows, [{ connection_count: 0 }]);
+  } finally {
+    releaseQuery.resolve();
+    await Promise.allSettled([runtimeAPromise, runtimeBPromise].filter(Boolean));
+    if (runtimeA) await runtimeA.close();
+    if (runtimeB) await runtimeB.close();
+    if (poolA) await closePostgresPool(poolA);
+    if (poolB) await closePostgresPool(poolB);
+    await pool.query('DELETE FROM app.proof_attempts WHERE proof_id = $1', [proofId]);
+    await pool.query('DELETE FROM app.record_proofs WHERE id = $1', [proofId]);
+    await pool.query('DELETE FROM app.records WHERE qr_id = $1', [qrId]);
+  }
+}
 
 function baseQr(id, activationStatus, overrides = {}) {
   return {
@@ -817,6 +1106,8 @@ test('manual PostgreSQL public QR adapter integration', {
       AVATA_IDENTITY_NUM: 'fixture-number'
     };
     let reproofSubmissions = 0;
+    let reproofPreflights = 0;
+    let reproofRecoveryQueries = 0;
     let reproofQueries = 0;
     const externalAdapterFactory = () => ({
       async prepareRecord({ record }) {
@@ -828,6 +1119,18 @@ test('manual PostgreSQL public QR adapter integration', {
           index_object_key: `indexes/by-star/${record.id}.json`
         };
       },
+      prepareSubmission(input) {
+        reproofPreflights += 1;
+        return {
+          ...input,
+          provider_submission: {
+            operation_id: input.operation_id,
+            data_hash: input.manifest_hash,
+            star_id: input.record_qr_id,
+            sealed_at: input.sealed_at
+          }
+        };
+      },
       async submitRecord(input) {
         reproofSubmissions += 1;
         return {
@@ -836,6 +1139,17 @@ test('manual PostgreSQL public QR adapter integration', {
           transaction_hash: `privacy-tx-${input.record_qr_id}`,
           block_height: 801,
           provider_record_id: `privacy-provider-${input.record_qr_id}`,
+          provider_certificate_url: null
+        };
+      },
+      async queryRecordResult({ operation_id: operationId }) {
+        reproofRecoveryQueries += 1;
+        return {
+          status: 'submitted',
+          operation_id: operationId,
+          transaction_hash: null,
+          block_height: null,
+          provider_record_id: null,
           provider_certificate_url: null
         };
       },
@@ -881,7 +1195,9 @@ test('manual PostgreSQL public QR adapter integration', {
     assert.equal(reproofCompleted.status, 'COMPLETED');
     assert.equal(reproofCompleted.final_marker_applied, true);
     assert.equal(reproofCompleted.final_json_applied, true);
+    assert.equal(reproofPreflights, 1);
     assert.equal(reproofSubmissions, 1);
+    assert.equal(reproofRecoveryQueries, 0);
     assert.equal(reproofQueries, 1);
     const finalPrivacySource = JSON.parse(fs.readFileSync(privacyLivePath, 'utf8'));
     const finalPrivacyQr = finalPrivacySource.qr_codes.find(
@@ -1226,9 +1542,10 @@ test('manual PostgreSQL public QR adapter integration', {
     );
 
     const handledProofJobs = [];
-    const recordProofJobHandler = createRecordProofJobHandler({
-      pool,
-      clock: () => new Date('2026-07-01T12:31:30.000Z'),
+    let directProofPreflights = 0;
+    let directProofSubmissions = 0;
+    let directProofRecoveryQueries = 0;
+    const directProofExternalAdapter = {
       async prepareRecord({ record }) {
         handledProofJobs.push(record.id);
         return {
@@ -1238,7 +1555,21 @@ test('manual PostgreSQL public QR adapter integration', {
           index_object_key: `indexes/by-star/${record.id}.json`
         };
       },
+      prepareSubmission(input) {
+        directProofPreflights += 1;
+        return {
+          ...input,
+          provider_submission: {
+            operation_id: input.operation_id,
+            data_hash: input.manifest_hash,
+            star_id: input.record_qr_id,
+            sealed_at: input.sealed_at
+          }
+        };
+      },
       async submitRecord(input) {
+        directProofSubmissions += 1;
+        assert.equal(input.provider_submission.operation_id, input.operation_id);
         return {
           status: input.record_qr_id === 'QR_WRITE_DIRECT'
             ? 'confirmed'
@@ -1247,7 +1578,33 @@ test('manual PostgreSQL public QR adapter integration', {
           block_height: input.record_qr_id === 'QR_WRITE_DIRECT' ? 101 : 102,
           provider_record_id: `provider-${input.record_qr_id}`
         };
+      },
+      async queryRecordResult({ operation_id: operationId }) {
+        directProofRecoveryQueries += 1;
+        return {
+          status: 'submitted',
+          operation_id: operationId,
+          transaction_hash: null,
+          block_height: null,
+          provider_record_id: null,
+          provider_certificate_url: null
+        };
       }
+    };
+    const proofResultService = createRecordProofResultService({
+      pool,
+      normalizeProviderResult: (value) => value,
+      allowedRecordQrIds: ['QR_WRITE_CO', 'QR_WRITE_DIRECT'],
+      clock: () => new Date('2026-07-01T12:32:00.000Z')
+    });
+    const recordProofJobHandler = createRecordProofJobHandler({
+      pool,
+      clock: () => new Date('2026-07-01T12:31:30.000Z'),
+      prepareRecord: directProofExternalAdapter.prepareRecord,
+      prepareSubmission: directProofExternalAdapter.prepareSubmission,
+      submitRecord: directProofExternalAdapter.submitRecord,
+      queryRecord: directProofExternalAdapter.queryRecordResult,
+      applyQueryResult: proofResultService.applyCanonicalQueryResult
     });
     const outboxWorker = createOutboxWorker({
       pool,
@@ -1267,12 +1624,9 @@ test('manual PostgreSQL public QR adapter integration', {
       failed: 0
     });
     assert.deepEqual(handledProofJobs.sort(), ['QR_WRITE_CO', 'QR_WRITE_DIRECT']);
-    const proofResultService = createRecordProofResultService({
-      pool,
-      normalizeProviderResult: (value) => value,
-      allowedRecordQrIds: ['QR_WRITE_CO', 'QR_WRITE_DIRECT'],
-      clock: () => new Date('2026-07-01T12:32:00.000Z')
-    });
+    assert.equal(directProofPreflights, 2);
+    assert.equal(directProofSubmissions, 2);
+    assert.equal(directProofRecoveryQueries, 0);
     assert.deepEqual(await proofResultService.applyCallback({
       status: 'confirmed',
       operation_id: `record_QR_WRITE_CO_${sha256('manifest:QR_WRITE_CO').slice(0, 16)}`,
@@ -1297,19 +1651,36 @@ test('manual PostgreSQL public QR adapter integration', {
     });
     const completedOutboxState = await pool.query(
       `SELECT
+         count(*)::integer AS proof_job_count,
          count(*) FILTER (WHERE status = 'succeeded')::integer AS succeeded_job_count,
          count(*) FILTER (WHERE locked_at IS NOT NULL OR locked_by IS NOT NULL)::integer
            AS locked_job_count,
          min(attempt_count)::integer AS minimum_attempt_count,
          max(attempt_count)::integer AS maximum_attempt_count
        FROM app.outbox_jobs
-       WHERE aggregate_id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')`
+       WHERE job_type = 'record_proof_prepare_submit'
+         AND aggregate_id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')`
     );
     assert.deepEqual(completedOutboxState.rows, [{
+      proof_job_count: 2,
       succeeded_job_count: 2,
       locked_job_count: 0,
       minimum_attempt_count: 1,
       maximum_attempt_count: 1
+    }]);
+    const pendingCertificateArchiveState = await pool.query(
+      `SELECT aggregate_id, status, attempt_count, locked_at, locked_by
+       FROM app.outbox_jobs
+       WHERE job_type = 'record_proof_archive_certificate'
+         AND aggregate_id IN ('QR_WRITE_DIRECT', 'QR_WRITE_CO')
+       ORDER BY aggregate_id ASC`
+    );
+    assert.deepEqual(pendingCertificateArchiveState.rows, [{
+      aggregate_id: 'QR_WRITE_CO',
+      status: 'pending',
+      attempt_count: 0,
+      locked_at: null,
+      locked_by: null
     }]);
     const outsideScopeOutboxState = await pool.query(
       `SELECT status, attempt_count, locked_at, locked_by
@@ -1353,6 +1724,14 @@ test('manual PostgreSQL public QR adapter integration', {
       operation_count: 2,
       callback_proof_count: 1
     }]);
+
+    await verifySubmittedQueryLeaseAcrossPostgresSessions({
+      accountId: concurrentWebIdentities[0].account_id,
+      config,
+      domainSha256: publicQrDomainHash,
+      pool,
+      sourceSha256: source.sourceHash
+    });
 
     const shadowDirectory = path.join(directory, 'direct-shadow');
     shadowRuntime = createPublicQrShadowRuntime({
@@ -1682,6 +2061,9 @@ test('manual PostgreSQL public QR adapter integration', {
     const stableProofConfig = readRecordProofRuntimeConfig(stableProofEnv);
     assert.equal(stableProofConfig.enabled, true);
     assert.equal(stableProofConfig.scope, 'all');
+    let stableProofPreflights = 0;
+    let stableProofSubmissions = 0;
+    let stableProofRecoveryQueries = 0;
     stableProofRuntime = createRecordProofRuntime(stableProofConfig, {
       env: stableProofEnv,
       externalAdapterFactory: () => ({
@@ -1693,7 +2075,21 @@ test('manual PostgreSQL public QR adapter integration', {
             index_object_key: `indexes/by-star/${record.id}.json`
           };
         },
+        prepareSubmission(input) {
+          stableProofPreflights += 1;
+          return {
+            ...input,
+            provider_submission: {
+              operation_id: input.operation_id,
+              data_hash: input.manifest_hash,
+              star_id: input.record_qr_id,
+              sealed_at: input.sealed_at
+            }
+          };
+        },
         async submitRecord(input) {
+          stableProofSubmissions += 1;
+          assert.equal(input.provider_submission.operation_id, input.operation_id);
           return {
             status: 'confirmed',
             transaction_hash: `stable-tx-${input.record_qr_id}`,
@@ -1702,21 +2098,47 @@ test('manual PostgreSQL public QR adapter integration', {
             confirmed_at: '2026-08-12T02:00:00.000Z'
           };
         },
+        async queryRecordResult({ operation_id: operationId }) {
+          stableProofRecoveryQueries += 1;
+          return {
+            status: 'submitted',
+            operation_id: operationId,
+            transaction_hash: null,
+            block_height: null,
+            provider_record_id: null,
+            provider_certificate_url: null
+          };
+        },
         normalizeRecordResult: (value) => value
       })
     });
     assert.deepEqual(await stableProofRuntime.runOnce(), {
-      recovered: 0,
-      claimed: 1,
-      succeeded: 1,
-      retried: 0,
-      failed: 0
+      outbox: {
+        recovered: 0,
+        claimed: 4,
+        succeeded: 1,
+        retried: 3,
+        failed: 0
+      },
+      query: {
+        selected: 0,
+        applied: 0,
+        stale: 0,
+        failed: 0
+      },
+      certificate_archive: {
+        selected: 3,
+        queued: 1
+      }
     });
+    assert.equal(stableProofPreflights, 1);
+    assert.equal(stableProofSubmissions, 1);
+    assert.equal(stableProofRecoveryQueries, 0);
     const stableProofStatus = await stableProofRuntime.status();
     assert.equal(stableProofStatus.scope, 'all');
     assert.equal(stableProofStatus.healthy, true);
     assert.deepEqual(stableProofStatus.outbox, {
-      pending: 0,
+      pending: 3,
       ready: 0,
       processing: 0,
       stale_processing: 0,

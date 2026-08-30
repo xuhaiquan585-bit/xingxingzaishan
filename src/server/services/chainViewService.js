@@ -8,11 +8,12 @@ function chainStatusForCustomer(status) {
 
 function chainPublicPayload(record = {}, { channel = 'h5', assetResolver = null } = {}) {
   const status = record.chain_status || (record.blockchain_hash ? 'confirmed' : 'not_started');
-  const certificateUrl = assetResolver && typeof assetResolver.resolveCertificate === 'function'
-    ? assetResolver.resolveCertificate({ proof: record, channel })
-    : record.chain_certificate_object_key
-      ? getSignedUrl(record.chain_certificate_object_key)
-      : record.chain_certificate_url || null;
+  const certificateObjectKey = record.chain_certificate_object_key || null;
+  const certificateUrl = certificateObjectKey
+    ? assetResolver && typeof assetResolver.resolveCertificate === 'function'
+      ? assetResolver.resolveCertificate({ proof: record, channel })
+      : getSignedUrl(certificateObjectKey)
+    : null;
   return {
     chain_provider: record.chain_provider || 'avata_wenchang',
     chain_status: status,

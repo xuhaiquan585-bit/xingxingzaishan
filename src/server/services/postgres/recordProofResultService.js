@@ -26,6 +26,16 @@ function normalizedText(value) {
   return String(value || '').trim();
 }
 
+function isManualReconciliation(proof) {
+  return Boolean(
+    proof
+    && proof.status === 'retrying'
+    && normalizedText(proof.last_error).startsWith(
+      'RECORD_PROOF_MANUAL_RECONCILIATION_'
+    )
+  );
+}
+
 function operationTimestamp(clock) {
   const candidate = clock();
   const value = candidate instanceof Date ? candidate : new Date(candidate);
@@ -144,7 +154,10 @@ function createRecordProofResultService({
   if (typeof clock !== 'function') {
     throw new RecordProofResultError('RECORD_PROOF_RESULT_CLOCK_REQUIRED');
   }
-  if (typeof certificateArchiveEnqueuer !== 'function') {
+  if (
+    certificateArchiveEnqueuer !== null
+    && typeof certificateArchiveEnqueuer !== 'function'
+  ) {
     throw new RecordProofResultError('RECORD_PROOF_CERTIFICATE_ENQUEUER_REQUIRED');
   }
   if (typeof randomUUID !== 'function') {
@@ -180,6 +193,9 @@ function createRecordProofResultService({
       if (!ALLOWED_CURRENT_STATUSES.has(current.status)) {
         throw new RecordProofResultError('RECORD_PROOF_PROVIDER_STATE_INVALID');
       }
+      if (isManualReconciliation(current) && result.status === 'submitted') {
+        return Object.freeze({ outcome: 'stale', status: current.status });
+      }
       assertCompatible(current, result);
       if (
         current.status === 'confirmed'
@@ -207,12 +223,14 @@ function createRecordProofResultService({
       if (!updated) {
         throw new RecordProofResultError('RECORD_PROOF_PROVIDER_STATE_CONFLICT');
       }
-      await certificateArchiveEnqueuer({
-        outboxRepository: new repositories.OutboxRepository(context),
-        proof: updated,
-        now: receivedAt,
-        randomUUID
-      });
+      if (certificateArchiveEnqueuer) {
+        await certificateArchiveEnqueuer({
+          outboxRepository: new repositories.OutboxRepository(context),
+          proof: updated,
+          now: receivedAt,
+          randomUUID
+        });
+      }
       return Object.freeze({
         outcome: current.status === result.status ? 'duplicate' : 'applied',
         status: updated.status
@@ -241,5 +259,6 @@ module.exports = {
   RecordProofResultError,
   assertCompatible,
   canonicalResult,
-  createRecordProofResultService
+  createRecordProofResultService,
+  isManualReconciliation
 };

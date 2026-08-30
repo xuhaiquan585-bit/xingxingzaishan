@@ -8,8 +8,8 @@ const JOB_TYPE = 'record_proof_prepare_submit';
 const TERMINAL_STATUSES = new Set(['submitted', 'confirmed']);
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const DEFAULT_RECOVERY_MIN_AGE_MS = 60_000;
-const OPERATION_NOT_FOUND_CODE = 'RECORD_PROOF_EXTERNAL_OPERATION_NOT_FOUND';
 const PROVIDER_FAILED_CODE = 'RECORD_PROOF_PROVIDER_REPORTED_FAILURE';
+const QUERY_IN_PROGRESS_CODE = 'RECORD_PROOF_QUERY_IN_PROGRESS';
 const RECOVERY_DEFERRED_CODE = 'RECORD_PROOF_RECOVERY_DEFERRED';
 
 class RecordProofJobError extends Error {
@@ -27,6 +27,26 @@ function requiredFunction(value, code) {
 
 function normalizedText(value) {
   return String(value || '').trim();
+}
+
+function automaticResolutionBlocked(proof) {
+  const errorCode = normalizedText(proof && proof.last_error);
+  return Boolean(
+    proof
+    && proof.status === 'retrying'
+    && (
+      errorCode === QUERY_IN_PROGRESS_CODE
+      || errorCode.startsWith('RECORD_PROOF_MANUAL_RECONCILIATION_')
+    )
+  );
+}
+
+function isProviderTerminalFailure(proof) {
+  return Boolean(
+    proof
+    && proof.status === 'failed'
+    && normalizedText(proof.last_error) === PROVIDER_FAILED_CODE
+  );
 }
 
 function sanitizedErrorCode(error, fallback) {
@@ -113,9 +133,7 @@ function normalizeSubmission(result, timestamp) {
   }
   let confirmedAt = null;
   if (status === 'confirmed') {
-    confirmedAt = result && result.confirmed_at
-      ? operationTimestamp(() => result.confirmed_at)
-      : timestamp;
+    confirmedAt = timestamp;
   }
   return Object.freeze({
     status,
@@ -147,6 +165,7 @@ function operationId(recordQrId, manifestHash) {
 function createRecordProofJobHandler({
   pool,
   prepareRecord,
+  prepareSubmission,
   submitRecord,
   queryRecord,
   applyQueryResult,
@@ -162,6 +181,10 @@ function createRecordProofJobHandler({
     throw new RecordProofJobError('RECORD_PROOF_POOL_REQUIRED');
   }
   const prepare = requiredFunction(prepareRecord, 'RECORD_PROOF_PREPARER_REQUIRED');
+  const preflight = requiredFunction(
+    prepareSubmission,
+    'RECORD_PROOF_SUBMISSION_PREFLIGHT_REQUIRED'
+  );
   const submit = requiredFunction(submitRecord, 'RECORD_PROOF_SUBMITTER_REQUIRED');
   const query = requiredFunction(queryRecord, 'RECORD_PROOF_QUERY_REQUIRED');
   const applyRecoveredResult = requiredFunction(
@@ -170,10 +193,12 @@ function createRecordProofJobHandler({
   );
   requiredFunction(clock, 'RECORD_PROOF_CLOCK_REQUIRED');
   requiredFunction(randomUUID, 'RECORD_PROOF_UUID_REQUIRED');
-  requiredFunction(
-    certificateArchiveEnqueuer,
-    'RECORD_PROOF_CERTIFICATE_ENQUEUER_REQUIRED'
-  );
+  const enqueueCertificate = certificateArchiveEnqueuer === null
+    ? null
+    : requiredFunction(
+      certificateArchiveEnqueuer,
+      'RECORD_PROOF_CERTIFICATE_ENQUEUER_REQUIRED'
+    );
   const normalizedProvider = normalizedText(provider);
   if (!normalizedProvider || normalizedProvider.length > 64) {
     throw new RecordProofJobError('RECORD_PROOF_PROVIDER_INVALID');
@@ -194,7 +219,8 @@ function createRecordProofJobHandler({
   }
 
   async function enqueueCertificateArchive(context, proof, timestamp) {
-    return certificateArchiveEnqueuer({
+    if (!enqueueCertificate) return null;
+    return enqueueCertificate({
       outboxRepository: new repositories.OutboxRepository(context),
       proof,
       now: timestamp,
@@ -350,33 +376,46 @@ function createRecordProofJobHandler({
     });
   }
 
-  async function startAttempt(proofId) {
+  async function startAttempt(proofId, allowCreate = false) {
     return transaction(async (context) => {
       const proofs = proofRepository(context);
       const current = await proofs.findForUpdate(proofId);
       if (!current) throw new RecordProofJobError('RECORD_PROOF_STATE_NOT_FOUND');
+      if (isProviderTerminalFailure(current)) {
+        return { mode: 'provider_terminal', proof: current, attempt: null };
+      }
       if (TERMINAL_STATUSES.has(current.status)) {
         return { mode: 'terminal', proof: current, attempt: null };
+      }
+      if (automaticResolutionBlocked(current)) {
+        throw new RecordProofJobError('RECORD_PROOF_AUTOMATIC_RESOLUTION_BLOCKED');
       }
       if (!hasPreparedManifest(current)) {
         throw new RecordProofJobError('RECORD_PROOF_MANIFEST_NOT_READY');
       }
-      const pending = await proofs.findPendingAttemptForUpdate(proofId);
-      if (pending) {
-        const requestedAt = new Date(pending.requested_at).getTime();
+      const latest = await proofs.findLatestAttemptForUpdate(proofId);
+      if (latest) {
+        const requestedAt = new Date(latest.requested_at).getTime();
         const now = new Date(operationTimestamp(clock)).getTime();
-        const pendingIsFresh = Number.isFinite(requestedAt)
+        const attemptIsFresh = Number.isFinite(requestedAt)
           && now - requestedAt < recoveryMinAgeMs;
-        if (current.status === 'submitting' && pendingIsFresh) {
-          return { mode: 'in_flight', proof: current, attempt: pending };
+        if (
+          latest.result_status === 'pending'
+          && current.status === 'submitting'
+          && attemptIsFresh
+        ) {
+          return { mode: 'in_flight', proof: current, attempt: latest };
         }
-        return { mode: 'recover', proof: current, attempt: pending };
+        return { mode: 'recover', proof: current, attempt: latest };
       }
       if (
         current.last_error === PROVIDER_FAILED_CODE
         || ['submitting', 'retrying'].includes(current.status)
       ) {
         throw new RecordProofJobError('RECORD_PROOF_RECOVERY_STATE_CONFLICT');
+      }
+      if (!allowCreate) {
+        return { mode: 'preflight', proof: current, attempt: null };
       }
       const timestamp = operationTimestamp(clock);
       const attemptNumber = Number(current.retry_count || 0) + 1;
@@ -406,7 +445,11 @@ function createRecordProofJobHandler({
       const proofs = proofRepository(context);
       const current = await proofs.findForUpdate(proofId);
       if (!current) throw new RecordProofJobError('RECORD_PROOF_STATE_NOT_FOUND');
-      if (TERMINAL_STATUSES.has(current.status) || current.last_error === PROVIDER_FAILED_CODE) {
+      if (
+        TERMINAL_STATUSES.has(current.status)
+        || current.last_error === PROVIDER_FAILED_CODE
+        || automaticResolutionBlocked(current)
+      ) {
         return current;
       }
       const updated = await proofs.markRecoveryDeferred({
@@ -426,48 +469,6 @@ function createRecordProofJobHandler({
       // The outbox retry remains authoritative when the state update is temporarily unavailable.
     }
     throw new RecordProofJobError(RECOVERY_DEFERRED_CODE);
-  }
-
-  async function claimResubmission(proofId, expectedAttemptNumber) {
-    return transaction(async (context) => {
-      const proofs = proofRepository(context);
-      const current = await proofs.findForUpdate(proofId);
-      if (!current) throw new RecordProofJobError('RECORD_PROOF_STATE_NOT_FOUND');
-      if (TERMINAL_STATUSES.has(current.status)) {
-        return { mode: 'terminal', proof: current, attempt: null };
-      }
-      const pending = await proofs.findPendingAttemptForUpdate(proofId);
-      if (!pending || pending.attempt_number !== expectedAttemptNumber) {
-        return { mode: 'in_flight', proof: current, attempt: pending };
-      }
-      const timestamp = operationTimestamp(clock);
-      const completed = await proofs.completeAttempt({
-        proof_id: proofId,
-        attempt_number: expectedAttemptNumber,
-        result_status: 'failed',
-        sanitized_error: OPERATION_NOT_FOUND_CODE,
-        completed_at: timestamp
-      });
-      if (!completed) return { mode: 'in_flight', proof: current, attempt: pending };
-      const attemptNumber = Number(current.retry_count || 0) + 1;
-      const updated = await proofs.markSubmitting({
-        id: proofId,
-        retry_count: attemptNumber,
-        updated_at: timestamp
-      });
-      if (!updated) throw new RecordProofJobError('RECORD_PROOF_STATE_CONFLICT');
-      const attempt = await proofs.appendAttempt({
-        proof_id: proofId,
-        attempt_number: attemptNumber,
-        request_state: 'started',
-        result_status: 'pending',
-        sanitized_error: '',
-        requested_at: timestamp,
-        completed_at: null
-      });
-      if (!attempt) throw new RecordProofJobError('RECORD_PROOF_ATTEMPT_CONFLICT');
-      return { mode: 'submit', proof: updated, attempt };
-    });
   }
 
   async function completeRecoveredAttempt(proofId, attemptNumber) {
@@ -497,9 +498,6 @@ function createRecordProofJobHandler({
     try {
       result = await query({ operation_id: started.proof.operation_id });
     } catch (error) {
-      if (sanitizedErrorCode(error, '') === OPERATION_NOT_FOUND_CODE) {
-        return claimResubmission(started.proof.id, started.attempt.attempt_number);
-      }
       const code = sanitizedErrorCode(
         error,
         'RECORD_PROOF_RECOVERY_QUERY_FAILED'
@@ -581,6 +579,7 @@ function createRecordProofJobHandler({
   async function handle(job) {
     const recordQrId = validateJob(job);
     const initial = await loadState(recordQrId);
+    if (isProviderTerminalFailure(initial.proof)) return initial.proof;
     if (TERMINAL_STATUSES.has(initial.proof.status)) {
       return ensureCertificateArchiveQueued(initial.proof.id);
     }
@@ -602,11 +601,35 @@ function createRecordProofJobHandler({
       }
       proof = await persistPreparation(recordQrId, proof.id, prepared);
     }
+    if (isProviderTerminalFailure(proof)) return proof;
     if (TERMINAL_STATUSES.has(proof.status)) {
       return ensureCertificateArchiveQueued(proof.id);
     }
+    let preparedSubmission = null;
     let started = await startAttempt(proof.id);
-    if (started.mode === 'terminal') return started.proof;
+    if (started.mode === 'terminal' || started.mode === 'provider_terminal') {
+      return started.proof;
+    }
+    if (started.mode === 'preflight') {
+      try {
+        preparedSubmission = preflight({
+          record_qr_id: recordQrId,
+          sealed_at: initial.sealedAt,
+          proof_id: started.proof.id,
+          operation_id: started.proof.operation_id,
+          manifest_hash: started.proof.manifest_hash
+        });
+      } catch (error) {
+        throw new RecordProofJobError(sanitizedErrorCode(
+          error,
+          'RECORD_PROOF_SUBMISSION_PREFLIGHT_FAILED'
+        ));
+      }
+      started = await startAttempt(proof.id, true);
+      if (started.mode === 'terminal' || started.mode === 'provider_terminal') {
+        return started.proof;
+      }
+    }
     if (started.mode === 'in_flight') {
       throw new RecordProofJobError('RECORD_PROOF_ATTEMPT_IN_PROGRESS');
     }
@@ -621,14 +644,13 @@ function createRecordProofJobHandler({
     }
     let result;
     try {
-      result = normalizeSubmission(await submit({
-        record_qr_id: recordQrId,
-        sealed_at: initial.sealedAt,
-        proof_id: started.proof.id,
-        operation_id: started.proof.operation_id,
-        manifest_hash: started.proof.manifest_hash,
-        attempt_number: started.attempt.attempt_number
-      }), operationTimestamp(clock));
+      if (!preparedSubmission) {
+        throw new RecordProofJobError('RECORD_PROOF_INITIAL_DISPATCH_NOT_AUTHORIZED');
+      }
+      result = normalizeSubmission(
+        await submit(preparedSubmission),
+        operationTimestamp(clock)
+      );
     } catch (error) {
       const code = sanitizedErrorCode(error, 'RECORD_PROOF_SUBMISSION_FAILED');
       return deferRecoveryAndThrow(started.proof.id, { code }, code);
@@ -661,5 +683,6 @@ module.exports = {
   hasPreparedManifest,
   normalizePreparation,
   normalizeSubmission,
+  isProviderTerminalFailure,
   validateJob
 };

@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
 const test = require('node:test');
 
@@ -14,10 +15,78 @@ const {
   createRecordProofExternalAdapter,
   normalizeProviderStatus
 } = require('../src/server/services/postgres/recordProofExternalAdapter');
+const {
+  PROVIDER_RESPONSE_MAX_BYTES,
+  prepareRecordProofSubmission,
+  requestAvata,
+  verifyAvataCallback
+} = require('../src/server/services/avataService');
 
 const CREATED_AT = '2026-08-09T12:00:00.000Z';
 const SEALED_AT = '2026-08-09T11:00:00.000Z';
 const IMAGE_HASH = 'b'.repeat(64);
+
+async function startLocalProvider() {
+  const sockets = new Set();
+  let acceptedPostCount = 0;
+  const server = http.createServer((request, response) => {
+    if (request.method === 'POST') acceptedPostCount += 1;
+    if (request.url === '/stalled') {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.flushHeaders();
+      response.write('{"accepted":true');
+      return;
+    }
+    if (request.url === '/oversized') {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ value: 'x'.repeat(1024) }));
+      return;
+    }
+    if (request.url === '/malformed') {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end('{"provider_secret":"must-not-leak"');
+      return;
+    }
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end('{"status":"submitted"}');
+  });
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    acceptedPostCount: () => acceptedPostCount,
+    async close() {
+      for (const socket of sockets) socket.destroy();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  };
+}
+
+async function withAvataRequestEnvironment(callback) {
+  const keys = ['AVATA_ENV', 'AVATA_API_BASE', 'AVATA_API_KEY', 'AVATA_API_SECRET'];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  Object.assign(process.env, {
+    AVATA_ENV: 'stage',
+    AVATA_API_BASE: 'https://stage.apis.avata.bianjie.ai',
+    AVATA_API_KEY: 'bounded-test-key',
+    AVATA_API_SECRET: 'bounded-test-secret'
+  });
+  try {
+    return await callback();
+  } finally {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
+}
 
 function record(overrides = {}) {
   return {
@@ -72,6 +141,11 @@ function adapterOptions(overrides = {}) {
       manifest_object_key: 'stars/QR_EXTERNAL/record_manifest.json',
       archive_index_object_key: 'indexes/by-star/QR_EXTERNAL.json'
     }),
+    prepareRecordProofSubmission: (input) => ({
+      method: 'POST',
+      path: '/v3/native/record/records',
+      body: { operation_id: input.operationId, hash: input.manifestHash }
+    }),
     submitRecordProof: async () => ({
       status: 'confirmed',
       tx_hash: 'tx-external',
@@ -90,6 +164,10 @@ function adapterOptions(overrides = {}) {
     normalizeAvataResult: (value) => value,
     ...overrides
   };
+}
+
+function preparedSubmission(adapter, overrides = {}) {
+  return adapter.prepareSubmission(submission(overrides));
 }
 
 test('record manifest supports a stable explicit generation timestamp', () => {
@@ -135,7 +213,7 @@ test('external adapter rejects a disabled provider mock by default', async () =>
   }));
 
   await assert.rejects(
-    adapter.submitRecord(submission()),
+    adapter.submitRecord(preparedSubmission(adapter)),
     (error) => error instanceof RecordProofExternalError
       && error.code === 'RECORD_PROOF_PROVIDER_DISABLED'
   );
@@ -151,7 +229,7 @@ test('external adapter normalizes only known provider outcomes', async () => {
   );
 
   const adapter = createRecordProofExternalAdapter(adapterOptions());
-  assert.deepEqual(await adapter.submitRecord(submission()), {
+  assert.deepEqual(await adapter.submitRecord(preparedSubmission(adapter)), {
     status: 'confirmed',
     operation_id: null,
     transaction_hash: 'tx-external',
@@ -179,7 +257,7 @@ test('external adapter normalizes only known provider outcomes', async () => {
     })
   );
   await assert.rejects(
-    invalidCertificateAdapter.submitRecord(submission()),
+    invalidCertificateAdapter.submitRecord(preparedSubmission(invalidCertificateAdapter)),
     (error) => error.code === 'RECORD_PROOF_PROVIDER_RESULT_INVALID'
   );
 
@@ -192,7 +270,7 @@ test('external adapter normalizes only known provider outcomes', async () => {
     })
   );
   await assert.rejects(
-    conflictingOperationAdapter.submitRecord(submission()),
+    conflictingOperationAdapter.submitRecord(preparedSubmission(conflictingOperationAdapter)),
     (error) => error.code === 'RECORD_PROOF_PROVIDER_RESULT_CONFLICT'
   );
 
@@ -210,6 +288,170 @@ test('external adapter normalizes only known provider outcomes', async () => {
     }),
     (error) => error.code === 'RECORD_PROOF_PROVIDER_RESULT_CONFLICT'
   );
+
+  await assert.rejects(
+    adapter.submitRecord(submission()),
+    (error) => error.code === 'RECORD_PROOF_SUBMISSION_PREFLIGHT_REQUIRED'
+  );
+});
+
+test('external adapter preflight is synchronous, serializable, and performs no submission', () => {
+  let submissionCalls = 0;
+  const adapter = createRecordProofExternalAdapter(adapterOptions({
+    submitRecordProof: async () => {
+      submissionCalls += 1;
+      return { status: 'submitted' };
+    }
+  }));
+
+  const prepared = adapter.prepareSubmission(submission());
+
+  assert.equal(prepared.operation_id, submission().operation_id);
+  assert.doesNotThrow(() => JSON.stringify(prepared));
+  assert.equal(submissionCalls, 0);
+
+  const asynchronousPreflight = createRecordProofExternalAdapter(adapterOptions({
+    prepareRecordProofSubmission: async () => ({ prepared: true })
+  }));
+  assert.throws(
+    () => asynchronousPreflight.prepareSubmission(submission()),
+    (error) => error.code === 'RECORD_PROOF_PROVIDER_PREFLIGHT_INVALID'
+  );
+});
+
+test('AVATA provider preflight performs no network work and contains no credentials', () => {
+  const keys = [
+    'CHAIN_ENABLED',
+    'CHAIN_CALLBACK_URL',
+    'AVATA_ENV',
+    'AVATA_API_BASE',
+    'AVATA_API_KEY',
+    'AVATA_API_SECRET',
+    'AVATA_IDENTITY_NAME',
+    'AVATA_IDENTITY_NUM',
+    'AVATA_IDENTITY_TYPE',
+    'AVATA_RECORD_TYPE',
+    'AVATA_HASH_TYPE'
+  ];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  const previousFetch = global.fetch;
+  let fetchCalls = 0;
+  try {
+    Object.assign(process.env, {
+      CHAIN_ENABLED: 'true',
+      CHAIN_CALLBACK_URL: '',
+      AVATA_ENV: 'stage',
+      AVATA_API_BASE: 'https://stage.apis.avata.bianjie.ai',
+      AVATA_API_KEY: 'preflight-api-key',
+      AVATA_API_SECRET: 'preflight-api-secret',
+      AVATA_IDENTITY_NAME: 'identity-name',
+      AVATA_IDENTITY_NUM: 'identity-number',
+      AVATA_IDENTITY_TYPE: '1',
+      AVATA_RECORD_TYPE: '1',
+      AVATA_HASH_TYPE: '1'
+    });
+    global.fetch = async () => {
+      fetchCalls += 1;
+      throw new Error('preflight must not fetch');
+    };
+
+    const prepared = prepareRecordProofSubmission({
+      operationId: submission().operation_id,
+      manifestHash: submission().manifest_hash,
+      starId: submission().record_qr_id,
+      sealedAt: submission().sealed_at
+    });
+    const serialized = JSON.stringify(prepared);
+
+    assert.equal(fetchCalls, 0);
+    assert.equal(prepared.path, '/v3/native/record/records');
+    assert.doesNotMatch(serialized, /preflight-api-key|preflight-api-secret|signature|timestamp/i);
+    assert.deepEqual(verifyAvataCallback({ path: '/callback', body: {}, headers: {} }), {
+      ok: false,
+      reason: 'CALLBACK_DISABLED'
+    });
+    process.env.AVATA_API_BASE = 'https://attacker.example.test';
+    assert.throws(
+      () => prepareRecordProofSubmission({
+        operationId: submission().operation_id,
+        manifestHash: submission().manifest_hash,
+        starId: submission().record_qr_id,
+        sealedAt: submission().sealed_at
+      }),
+      (error) => error.code === 'AVATA_ENDPOINT_NOT_ALLOWED'
+    );
+  } finally {
+    global.fetch = previousFetch;
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
+});
+
+test('AVATA shared request bounds stalled, oversized, and malformed GET and POST bodies', {
+  timeout: 8000
+}, async () => {
+  const provider = await startLocalProvider();
+  const nativeFetch = globalThis.fetch;
+  let clearedTimerCount = 0;
+  const dependencies = {
+    fetchImpl(url, options) {
+      const requested = new URL(url);
+      return nativeFetch(`${provider.baseUrl}${requested.pathname}${requested.search}`, options);
+    },
+    timeoutMs: 1000,
+    maxResponseBytes: 64,
+    clearTimer(timer) {
+      clearedTimerCount += 1;
+      clearTimeout(timer);
+    }
+  };
+  try {
+    await withAvataRequestEnvironment(async () => {
+      await assert.rejects(
+        requestAvata({ method: 'GET', path: '/stalled' }, dependencies),
+        (error) => error.code === 'AVATA_REQUEST_FAILED'
+          && !/bounded-test|accepted|secret/i.test(error.message)
+      );
+      await assert.rejects(
+        requestAvata({
+          method: 'POST',
+          path: '/stalled',
+          body: { operation_id: 'operation-bounded-timeout' }
+        }, dependencies),
+        (error) => error.code === 'AVATA_REQUEST_FAILED'
+          && !/operation-bounded-timeout|bounded-test|accepted|secret/i.test(error.message)
+      );
+      assert.equal(provider.acceptedPostCount(), 1);
+
+      await assert.rejects(
+        requestAvata({ method: 'GET', path: '/oversized' }, dependencies),
+        (error) => error.code === 'AVATA_RESPONSE_TOO_LARGE'
+          && !error.message.includes('x'.repeat(64))
+      );
+      await assert.rejects(
+        requestAvata({ method: 'POST', path: '/oversized', body: { value: 1 } }, dependencies),
+        (error) => error.code === 'AVATA_RESPONSE_TOO_LARGE'
+          && !error.message.includes('x'.repeat(64))
+      );
+      assert.equal(provider.acceptedPostCount(), 2);
+
+      await assert.rejects(
+        requestAvata({ method: 'GET', path: '/malformed' }, dependencies),
+        (error) => error.code === 'AVATA_RESPONSE_INVALID'
+          && !/provider_secret|must-not-leak/i.test(error.message)
+      );
+      assert.deepEqual(
+        await requestAvata({ method: 'GET', path: '/ok' }, dependencies),
+        { status: 'submitted' }
+      );
+    });
+    assert.equal(clearedTimerCount, 6);
+    assert.equal(PROVIDER_RESPONSE_MAX_BYTES, 1024 * 1024);
+  } finally {
+    await provider.close();
+  }
 });
 
 test('external adapter has no database, environment, or runtime startup wiring', () => {

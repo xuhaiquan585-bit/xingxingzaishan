@@ -310,10 +310,18 @@ async function executeReproof({
   }, { isolationLevel: 'repeatable read', readOnly: true });
 
   const adapter = externalAdapterFactory();
+  const results = resultServiceFactory({
+    pool,
+    allowedRecordQrIds: options.qrIds,
+    normalizeProviderResult: (value) => value
+  });
   const handler = jobHandlerFactory({
     pool,
     prepareRecord: adapter.prepareRecord,
-    submitRecord: adapter.submitRecord
+    prepareSubmission: adapter.prepareSubmission,
+    submitRecord: adapter.submitRecord,
+    queryRecord: adapter.queryRecordResult,
+    applyQueryResult: results.applyCanonicalQueryResult
   });
   const worker = workerFactory({
     pool,
@@ -325,11 +333,6 @@ async function executeReproof({
     lockTimeoutMs: config.lockTimeoutMs,
     jobTypes: ['record_proof_prepare_submit'],
     aggregateIds: options.qrIds
-  });
-  const results = resultServiceFactory({
-    pool,
-    allowedRecordQrIds: options.qrIds,
-    normalizeProviderResult: (value) => value
   });
   const deadline = Date.now() + options.maxSeconds * 1000;
   let workerRuns = 0;

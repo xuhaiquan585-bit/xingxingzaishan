@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const STAGE_BASE = 'https://stage.apis.avata.bianjie.ai';
 const PROD_BASE = 'https://apis.avata.bianjie.ai';
 const REQUEST_TIMEOUT_MS = 15_000;
+const PROVIDER_RESPONSE_MAX_BYTES = 1024 * 1024;
 const USER_AGENT = 'xingxingzaishan/record-proof-runtime';
 const AMBIGUOUS_NOT_FOUND_CODES = new Set(['NOT_FOUND']);
 const PROVIDER_ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,63}$/;
@@ -59,6 +60,19 @@ function shouldUseRealAvata() {
   return process.env.CHAIN_ENABLED === 'true' && isAvataRecordConfigured();
 }
 
+function validProviderInteger(value) {
+  return Number.isSafeInteger(value) && value > 0;
+}
+
+function validateProviderBase(config) {
+  const expected = config.env === 'prod' ? PROD_BASE : STAGE_BASE;
+  if (config.baseUrl !== expected) {
+    const error = new Error('AVATA endpoint is not allowed');
+    error.code = 'AVATA_ENDPOINT_NOT_ALLOWED';
+    throw error;
+  }
+}
+
 function sortValue(value) {
   if (Array.isArray(value)) return value.map((item) => sortValue(item));
   if (value && typeof value === 'object') {
@@ -101,9 +115,73 @@ function signRequest({ path, query, body, timestamp, apiSecret }) {
   return crypto.createHash('sha256').update(payload).digest('hex');
 }
 
-async function requestAvata({ method, path, query, body }) {
+function avataRequestError(code = 'AVATA_REQUEST_FAILED') {
+  const error = new Error('AVATA request failed');
+  error.code = code;
+  return error;
+}
+
+async function readBoundedResponseText(response, {
+  controller,
+  maxBytes = PROVIDER_RESPONSE_MAX_BYTES
+} = {}) {
+  const body = response && response.body;
+  if (!body || typeof body.getReader !== 'function') {
+    const text = response && typeof response.text === 'function'
+      ? await response.text()
+      : '';
+    if (Buffer.byteLength(String(text || ''), 'utf8') > maxBytes) {
+      if (controller) controller.abort();
+      throw avataRequestError('AVATA_RESPONSE_TOO_LARGE');
+    }
+    return String(text || '');
+  }
+
+  const reader = body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value);
+      totalBytes += chunk.length;
+      if (totalBytes > maxBytes) {
+        if (controller) controller.abort();
+        try {
+          await reader.cancel();
+        } catch (_error) {
+          // Abort is already authoritative; cancellation is best-effort cleanup.
+        }
+        throw avataRequestError('AVATA_RESPONSE_TOO_LARGE');
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch (_error) {
+      // A cancelled or errored stream may have released its lock already.
+    }
+  }
+  return Buffer.concat(chunks, totalBytes).toString('utf8');
+}
+
+async function requestAvata(
+  { method, path, query, body, serializedBody },
+  {
+    fetchImpl = globalThis.fetch,
+    setTimer = setTimeout,
+    clearTimer = clearTimeout,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+    maxResponseBytes = PROVIDER_RESPONSE_MAX_BYTES
+  } = {}
+) {
   const config = getAvataConfig();
-  const payload = body ? JSON.stringify(body) : '';
+  validateProviderBase(config);
+  const payload = serializedBody === undefined
+    ? (body ? JSON.stringify(body) : '')
+    : serializedBody;
   const timestamp = String(Date.now());
   const signature = signRequest({
     path,
@@ -115,10 +193,9 @@ async function requestAvata({ method, path, query, body }) {
   const queryText = query && Object.keys(query).length > 0 ? `?${new URLSearchParams(query).toString()}` : '';
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  let response;
+  const timeout = setTimer(() => controller.abort(), timeoutMs);
   try {
-    response = await fetch(`${config.baseUrl}${path}${queryText}`, {
+    const response = await fetchImpl(`${config.baseUrl}${path}${queryText}`, {
       method,
       headers: {
         Accept: 'application/json',
@@ -132,30 +209,39 @@ async function requestAvata({ method, path, query, body }) {
       redirect: 'error',
       signal: controller.signal
     });
-  } catch (_error) {
-    const error = new Error('AVATA request failed');
-    error.code = 'AVATA_REQUEST_FAILED';
-    throw error;
+    const text = await readBoundedResponseText(response, {
+      controller,
+      maxBytes: maxResponseBytes
+    });
+    let data = {};
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (_error) {
+        throw avataRequestError('AVATA_RESPONSE_INVALID');
+      }
+    }
+
+    if (!response.ok) {
+      const error = avataRequestError();
+      error.status = response.status;
+      error.providerCode = providerErrorCode(data);
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    if (
+      error
+      && ['AVATA_REQUEST_FAILED', 'AVATA_RESPONSE_TOO_LARGE', 'AVATA_RESPONSE_INVALID']
+        .includes(error.code)
+    ) {
+      throw error;
+    }
+    throw avataRequestError();
   } finally {
-    clearTimeout(timeout);
+    clearTimer(timeout);
   }
-  const text = await response.text();
-  let data = {};
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch (_error) {
-    data = { raw: text };
-  }
-
-  if (!response.ok) {
-    const error = new Error('AVATA request failed');
-    error.code = 'AVATA_REQUEST_FAILED';
-    error.status = response.status;
-    error.providerCode = providerErrorCode(data);
-    throw error;
-  }
-
-  return data;
 }
 
 function providerErrorCode(data) {
@@ -180,8 +266,29 @@ function mapAvataQueryError(error, operationNotFoundCode) {
   return error;
 }
 
-async function submitRecordProof({ operationId, manifestHash, starId, sealedAt }) {
-  const config = getAvataConfig();
+async function submitRecordProof({
+  operationId,
+  manifestHash,
+  starId,
+  sealedAt,
+  preparedSubmission
+}) {
+  const prepared = preparedSubmission
+    ? preparedSubmission
+    : prepareRecordProofSubmission({ operationId, manifestHash, starId, sealedAt });
+  if (
+    !prepared
+    || prepared.method !== 'POST'
+    || prepared.path !== '/v3/native/record/records'
+    || !prepared.body
+    || prepared.body.operation_id !== operationId
+    || prepared.body.hash !== manifestHash
+    || prepared.serialized_body !== JSON.stringify(prepared.body)
+  ) {
+    const error = new Error('AVATA prepared submission is invalid');
+    error.code = 'AVATA_PREPARED_SUBMISSION_INVALID';
+    throw error;
+  }
   if (!shouldUseRealAvata()) {
     return {
       mock: true,
@@ -194,18 +301,50 @@ async function submitRecordProof({ operationId, manifestHash, starId, sealedAt }
     };
   }
 
-  const body = buildRecordProofBody({
+  return requestAvata({
+    method: 'POST',
+    path: prepared.path,
+    body: prepared.body,
+    serializedBody: prepared.serialized_body
+  });
+}
+
+function prepareRecordProofSubmission({ operationId, manifestHash, starId, sealedAt }) {
+  const config = getAvataConfig();
+  validateProviderBase(config);
+  if (
+    !String(operationId || '').trim()
+    || !/^[0-9a-f]{64}$/.test(String(manifestHash || '').trim().toLowerCase())
+    || !String(starId || '').trim()
+    || !String(sealedAt || '').trim()
+    || !validProviderInteger(config.identityType)
+    || !validProviderInteger(config.recordType)
+    || !validProviderInteger(config.hashType)
+  ) {
+    const error = new Error('AVATA submission is invalid');
+    error.code = 'AVATA_SUBMISSION_INVALID';
+    throw error;
+  }
+  if (!isAvataRecordConfigured()) {
+    const error = new Error('AVATA configuration is incomplete');
+    error.code = 'AVATA_CONFIGURATION_REQUIRED';
+    throw error;
+  }
+  const body = Object.freeze(buildRecordProofBody({
     operationId,
     manifestHash,
     starId,
     sealedAt,
     config
-  });
-
-  return requestAvata({
+  }));
+  const path = '/v3/native/record/records';
+  const serializedBody = JSON.stringify(body);
+  stableJson(buildSignParams({ path, body }));
+  return Object.freeze({
     method: 'POST',
-    path: '/v3/native/record/records',
-    body
+    path,
+    body,
+    serialized_body: serializedBody
   });
 }
 
@@ -264,6 +403,15 @@ function normalizeAvataResult(data = {}) {
 function verifyAvataCallback({ path, body, headers = {} }) {
   if (!shouldUseRealAvata()) return { ok: false, reason: 'PROVIDER_DISABLED' };
   const config = getAvataConfig();
+  let callbackUrl;
+  try {
+    callbackUrl = new URL(config.callbackUrl);
+  } catch (_error) {
+    return { ok: false, reason: 'CALLBACK_DISABLED' };
+  }
+  if (callbackUrl.protocol !== 'https:' || callbackUrl.username || callbackUrl.password) {
+    return { ok: false, reason: 'CALLBACK_DISABLED' };
+  }
   const apiKey = headers['x-api-key'] || headers['X-Api-Key'];
   const timestamp = headers['x-timestamp'] || headers['X-Timestamp'];
   const signature = headers['x-signature'] || headers['X-Signature'];
@@ -294,6 +442,8 @@ function secureTextEqual(left, right) {
 }
 
 module.exports = {
+  REQUEST_TIMEOUT_MS,
+  PROVIDER_RESPONSE_MAX_BYTES,
   getAvataConfig,
   isAvataConfigured,
   isAvataRecordConfigured,
@@ -304,6 +454,9 @@ module.exports = {
   configuredOperationNotFoundCode,
   mapAvataQueryError,
   buildRecordProofBody,
+  prepareRecordProofSubmission,
+  requestAvata,
+  readBoundedResponseText,
   submitRecordProof,
   queryOperation,
   normalizeAvataResult,

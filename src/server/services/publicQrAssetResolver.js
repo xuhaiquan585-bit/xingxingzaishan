@@ -9,14 +9,6 @@ const {
   recordImageQrIdSha256
 } = require('./storageService');
 
-function certificateUrl(proof) {
-  return proof && (
-    proof.provider_certificate_url
-    || proof.certificate_object_url_snapshot
-    || proof.chain_certificate_url
-  ) || null;
-}
-
 function certificateObjectKey(proof) {
   return proof && (proof.certificate_object_key || proof.chain_certificate_object_key) || null;
 }
@@ -91,11 +83,9 @@ function createPublicQrAssetResolver({
 
   function resolveCertificate({ proof, channel }) {
     const objectKey = certificateObjectKey(proof);
-    const fallback = certificateUrl(proof);
+    if (!objectKey) return null;
     const normalizedChannel = channel === 'miniapp' ? 'miniapp' : 'h5';
-    return memoized(`certificate:${normalizedChannel}:${objectKey || ''}:${fallback || ''}`, () => (
-      objectKey ? resolveSignedUrl(objectKey) : fallback
-    ));
+    return memoized(`certificate:${normalizedChannel}:${objectKey}`, () => resolveSignedUrl(objectKey));
   }
 
   return Object.freeze({

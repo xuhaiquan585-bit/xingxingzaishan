@@ -122,6 +122,9 @@ function createHarness(initialProof = proof(), overrides = {}) {
     transactionRunner,
     normalizeProviderResult,
     allowedRecordQrIds: overrides.allowedRecordQrIds,
+    ...(Object.prototype.hasOwnProperty.call(overrides, 'certificateArchiveEnqueuer')
+      ? { certificateArchiveEnqueuer: overrides.certificateArchiveEnqueuer }
+      : {}),
     clock: () => new Date(NOW)
   });
   return { service, state };
@@ -166,6 +169,20 @@ test('proof result callback confirms once and enriches a duplicate safely', asyn
   );
   assert.equal(harness.state.outboxJobs.length, 1);
   assert.equal(harness.state.updateCount, 3);
+});
+
+test('proof confirmation remains complete when certificate archival is disabled', async () => {
+  const harness = createHarness(proof(), { certificateArchiveEnqueuer: null });
+
+  assert.deepEqual(
+    await harness.service.applyQueryResult(providerResult({
+      provider_certificate_url: 'https://provider.example.test/temporary.pdf'
+    })),
+    { outcome: 'applied', status: 'confirmed' }
+  );
+  assert.equal(harness.state.proof.status, 'confirmed');
+  assert.equal(harness.state.proof.confirmed_at, NOW);
+  assert.equal(harness.state.outboxJobs.length, 0);
 });
 
 test('proof result service rejects conflicts and never regresses confirmation', async () => {
@@ -237,6 +254,64 @@ test('proof result service never regresses after recovery and duplicate callback
     { outcome: 'stale', status: 'confirmed' }
   );
   assert.equal(harness.state.proof.status, 'confirmed');
+});
+
+test('manual reconciliation rejects stale submitted but accepts late authoritative outcomes', async () => {
+  const manualReason = 'RECORD_PROOF_MANUAL_RECONCILIATION_QUERY_LIMIT';
+  const submitted = providerResult({
+    status: 'submitted',
+    transaction_hash: null,
+    block_height: null,
+    provider_record_id: null
+  });
+  const harness = createHarness(proof({
+    status: 'retrying',
+    retry_count: 5,
+    last_error: manualReason
+  }));
+
+  assert.deepEqual(
+    await harness.service.applyCanonicalQueryResult(submitted),
+    { outcome: 'stale', status: 'retrying' }
+  );
+  assert.deepEqual(
+    await harness.service.applyCallback(submitted),
+    { outcome: 'stale', status: 'retrying' }
+  );
+  assert.equal(harness.state.proof.last_error, manualReason);
+  assert.equal(harness.state.updateCount, 0);
+
+  assert.deepEqual(
+    await harness.service.applyCallback(providerResult()),
+    { outcome: 'applied', status: 'confirmed' }
+  );
+  assert.equal(harness.state.proof.status, 'confirmed');
+  assert.equal(harness.state.proof.confirmed_at, NOW);
+
+  const failed = createHarness(proof({
+    status: 'retrying',
+    retry_count: 5,
+    last_error: 'RECORD_PROOF_MANUAL_RECONCILIATION_AGE_LIMIT'
+  }));
+  assert.deepEqual(
+    await failed.service.applyQueryResult(providerResult({
+      status: 'failed',
+      transaction_hash: null,
+      block_height: null,
+      provider_record_id: null
+    })),
+    { outcome: 'applied', status: 'failed' }
+  );
+  assert.equal(
+    failed.state.proof.last_error,
+    'RECORD_PROOF_PROVIDER_REPORTED_FAILURE'
+  );
+  assert.deepEqual(
+    await failed.service.applyCallback(providerResult()),
+    { outcome: 'applied', status: 'confirmed' }
+  );
+  assert.equal(failed.state.proof.status, 'confirmed');
+  assert.equal(failed.state.proof.confirmed_at, NOW);
 });
 
 test('proof result service fails closed on invalid, unknown, and unready state', async () => {

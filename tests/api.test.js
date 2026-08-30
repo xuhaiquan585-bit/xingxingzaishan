@@ -92,6 +92,7 @@ test('AVATA callback verification accepts only a current authentic signature', (
   } = require('../src/server/services/avataService');
   const keys = [
     'CHAIN_ENABLED',
+    'CHAIN_CALLBACK_URL',
     'AVATA_API_KEY',
     'AVATA_API_SECRET',
     'AVATA_IDENTITY_NAME',
@@ -100,6 +101,7 @@ test('AVATA callback verification accepts only a current authentic signature', (
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   Object.assign(process.env, {
     CHAIN_ENABLED: 'true',
+    CHAIN_CALLBACK_URL: 'https://example.test/api/chain/avata/callback',
     AVATA_API_KEY: 'callback-key',
     AVATA_API_SECRET: 'callback-secret',
     AVATA_IDENTITY_NAME: 'callback-identity',

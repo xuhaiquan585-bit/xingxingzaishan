@@ -5,6 +5,7 @@ const { EventEmitter } = require('node:events');
 const test = require('node:test');
 
 const { createShutdownHandler } = require('../src/server/server');
+const { chainPublicPayload } = require('../src/server/services/chainViewService');
 const {
   buildRecordImageCacheKey,
   createPublicQrAssetResolver
@@ -169,6 +170,55 @@ test('request-scoped asset resolver validates QR authority before memoization an
     }).includes(authority.accessToken),
     false
   );
+});
+
+test('public certificate projection exposes only application-archived certificates', () => {
+  const signedCalls = [];
+  const assetResolver = createPublicQrAssetResolver({
+    resolveSignedUrl: (objectKey) => {
+      signedCalls.push(objectKey);
+      return `signed://${objectKey}`;
+    }
+  });
+  const providerOnly = {
+    chain_status: 'confirmed',
+    chain_certificate_url: 'https://provider.example.test/temporary.pdf',
+    provider_certificate_url: 'https://provider.example.test/temporary.pdf',
+    certificate_object_url_snapshot: 'https://snapshot.example.test/certificate.pdf',
+    chain_certificate_object_url: 'https://snapshot.example.test/certificate.pdf'
+  };
+
+  assert.equal(chainPublicPayload(providerOnly).chain_certificate_url, null);
+  assert.equal(
+    chainPublicPayload(providerOnly, { channel: 'h5', assetResolver }).chain_certificate_url,
+    null
+  );
+  assert.equal(assetResolver.resolveCertificate({ proof: providerOnly, channel: 'h5' }), null);
+  assert.deepEqual(signedCalls, []);
+
+  assert.equal(
+    chainPublicPayload({ chain_status: 'confirmed' }, { channel: 'h5', assetResolver })
+      .chain_certificate_url,
+    null
+  );
+
+  const objectKey = 'stars/proofs/record-1/certificate.pdf';
+  const archived = {
+    ...providerOnly,
+    chain_certificate_object_key: objectKey
+  };
+  assert.equal(
+    chainPublicPayload(archived, { channel: 'h5', assetResolver }).chain_certificate_url,
+    `signed://${objectKey}`
+  );
+  assert.equal(
+    assetResolver.resolveCertificate({
+      proof: { certificate_object_key: objectKey },
+      channel: 'h5'
+    }),
+    `signed://${objectKey}`
+  );
+  assert.deepEqual(signedCalls, [objectKey]);
 });
 
 test('scheduler stays inert while disabled and starts only after response finish', async () => {

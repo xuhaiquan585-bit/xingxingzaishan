@@ -112,7 +112,12 @@ function defaultDependencies(overrides) {
   if (!overrides.hashImageForRecord || !overrides.writeRecordArchive) {
     archiveService = require('../archiveService');
   }
-  if (!overrides.submitRecordProof || !overrides.queryOperation || !overrides.normalizeAvataResult) {
+  if (
+    !overrides.prepareRecordProofSubmission
+    || !overrides.submitRecordProof
+    || !overrides.queryOperation
+    || !overrides.normalizeAvataResult
+  ) {
     avataService = require('../avataService');
   }
   return {
@@ -125,6 +130,8 @@ function defaultDependencies(overrides) {
       overrides.writeRecordArchive || archiveService.writeRecordArchive,
     submitRecordProof:
       overrides.submitRecordProof || avataService.submitRecordProof,
+    prepareRecordProofSubmission:
+      overrides.prepareRecordProofSubmission || avataService.prepareRecordProofSubmission,
     queryOperation: overrides.queryOperation || avataService.queryOperation,
     normalizeAvataResult:
       overrides.normalizeAvataResult || avataService.normalizeAvataResult
@@ -152,6 +159,10 @@ function createRecordProofExternalAdapter(options = {}) {
   const submitProof = requiredFunction(
     dependencies.submitRecordProof,
     'RECORD_PROOF_PROVIDER_SUBMITTER_REQUIRED'
+  );
+  const prepareProofSubmission = requiredFunction(
+    dependencies.prepareRecordProofSubmission,
+    'RECORD_PROOF_PROVIDER_PREFLIGHT_REQUIRED'
   );
   const normalizeResult = requiredFunction(
     dependencies.normalizeAvataResult,
@@ -225,7 +236,7 @@ function createRecordProofExternalAdapter(options = {}) {
     });
   }
 
-  async function submitRecord(input = {}) {
+  function normalizeSubmissionInput(input = {}) {
     const operationId = normalizedText(input.operation_id);
     const recordId = normalizedText(input.record_qr_id);
     const manifestHash = normalizedSha256(input.manifest_hash);
@@ -238,14 +249,54 @@ function createRecordProofExternalAdapter(options = {}) {
         'RECORD_PROOF_EXTERNAL_SUBMISSION_INVALID'
       );
     }
+    return Object.freeze({ operationId, recordId, manifestHash, sealedAt });
+  }
+
+  function prepareSubmission(input = {}) {
+    const normalized = normalizeSubmissionInput(input);
+    const providerSubmission = prepareProofSubmission({
+      operationId: normalized.operationId,
+      manifestHash: normalized.manifestHash,
+      starId: normalized.recordId,
+      sealedAt: normalized.sealedAt
+    });
+    if (
+      !providerSubmission
+      || typeof providerSubmission !== 'object'
+      || typeof providerSubmission.then === 'function'
+    ) {
+      throw new RecordProofExternalError('RECORD_PROOF_PROVIDER_PREFLIGHT_INVALID');
+    }
+    const serialized = JSON.stringify(providerSubmission);
+    if (!serialized) {
+      throw new RecordProofExternalError('RECORD_PROOF_PROVIDER_PREFLIGHT_INVALID');
+    }
+    return Object.freeze({
+      record_qr_id: normalized.recordId,
+      sealed_at: normalized.sealedAt,
+      operation_id: normalized.operationId,
+      manifest_hash: normalized.manifestHash,
+      provider_submission: providerSubmission
+    });
+  }
+
+  async function submitRecord(input = {}) {
+    const prepared = input && input.provider_submission
+      ? input
+      : null;
+    if (!prepared) {
+      throw new RecordProofExternalError('RECORD_PROOF_SUBMISSION_PREFLIGHT_REQUIRED');
+    }
+    const normalized = normalizeSubmissionInput(prepared);
     const raw = await submitProof({
-      operationId,
-      manifestHash,
-      starId: recordId,
-      sealedAt
+      operationId: normalized.operationId,
+      manifestHash: normalized.manifestHash,
+      starId: normalized.recordId,
+      sealedAt: normalized.sealedAt,
+      preparedSubmission: prepared.provider_submission
     });
     const result = normalizeRecordResult(raw);
-    if (result.operation_id && result.operation_id !== operationId) {
+    if (result.operation_id && result.operation_id !== normalized.operationId) {
       throw new RecordProofExternalError('RECORD_PROOF_PROVIDER_RESULT_CONFLICT');
     }
     return result;
@@ -265,6 +316,7 @@ function createRecordProofExternalAdapter(options = {}) {
 
   return Object.freeze({
     prepareRecord,
+    prepareSubmission,
     submitRecord,
     queryRecordResult,
     normalizeRecordResult

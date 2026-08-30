@@ -16,6 +16,39 @@ const {
 
 const PROOF_COLUMNS = PROOF_FIELDS.join(', ');
 const ATTEMPT_COLUMNS = PROOF_ATTEMPT_FIELDS.join(', ');
+const QUERY_IN_PROGRESS_CODE = 'RECORD_PROOF_QUERY_IN_PROGRESS';
+const MANUAL_QUERY_LIMIT_CODE = 'RECORD_PROOF_MANUAL_RECONCILIATION_QUERY_LIMIT';
+const MANUAL_AGE_LIMIT_CODE = 'RECORD_PROOF_MANUAL_RECONCILIATION_AGE_LIMIT';
+
+function proofColumns(alias) {
+  return PROOF_FIELDS.map((field) => `${alias}.${field}`).join(', ');
+}
+
+function queryScope(recordQrIds) {
+  const scope = recordQrIds === null || recordQrIds === undefined
+    ? null
+    : [...new Set(recordQrIds.map((value) => String(value || '').trim()))];
+  if (scope && (
+    !scope.length
+    || scope.length > 1000
+    || scope.some((value) => !value || value.length > 160 || /[\r\n\0]/.test(value))
+  )) {
+    const error = new Error('PROOF_QUERY_SCOPE_INVALID');
+    error.code = 'PROOF_QUERY_SCOPE_INVALID';
+    throw error;
+  }
+  return scope;
+}
+
+function positiveAttemptLimit(value) {
+  const normalized = Number(value);
+  if (!Number.isSafeInteger(normalized) || normalized < 1 || normalized > 100) {
+    const error = new Error('PROOF_QUERY_ATTEMPT_LIMIT_INVALID');
+    error.code = 'PROOF_QUERY_ATTEMPT_LIMIT_INVALID';
+    throw error;
+  }
+  return normalized;
+}
 
 class ProofRepository {
   constructor(transactionContext) {
@@ -69,6 +102,18 @@ class ProofRepository {
     return oneOrNull(result, mapProofAttempt);
   }
 
+  async findLatestAttemptForUpdate(proofId) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `SELECT ${ATTEMPT_COLUMNS} FROM app.proof_attempts
+       WHERE proof_id = $1
+       ORDER BY attempt_number DESC
+       LIMIT 1 FOR UPDATE`,
+      [proofId]
+    );
+    return oneOrNull(result, mapProofAttempt);
+  }
+
   async findById(proofId) {
     const result = await executeQuery(
       this.transactionContext,
@@ -78,44 +123,147 @@ class ProofRepository {
     return oneOrNull(result, mapProof);
   }
 
-  async listSubmittedForQuery({
+  async claimSubmittedForQuery({
     provider,
-    updated_before: updatedBefore,
+    submitted_before: submittedBefore,
+    stale_claim_before: staleClaimBefore,
+    age_limit_before: ageLimitBefore,
+    claimed_at: claimedAt,
+    max_attempts: maxAttempts,
     record_qr_ids: recordQrIds,
     limit
   } = {}) {
     const boundedLimit = normalizeLimit(limit, { defaultValue: 5, maximum: 50 });
-    const scope = recordQrIds === null || recordQrIds === undefined
-      ? null
-      : [...new Set(recordQrIds.map((value) => String(value || '').trim()))];
-    if (scope && (
-      !scope.length
-      || scope.length > 1000
-      || scope.some((value) => !value || value.length > 160 || /[\r\n\0]/.test(value))
-    )) {
-      const error = new Error('PROOF_QUERY_SCOPE_INVALID');
-      error.code = 'PROOF_QUERY_SCOPE_INVALID';
-      throw error;
-    }
+    const scope = queryScope(recordQrIds);
+    const boundedAttempts = positiveAttemptLimit(maxAttempts);
     const result = await executeQuery(
       this.transactionContext,
-      `SELECT ${PROOF_COLUMNS} FROM app.record_proofs
-       WHERE provider = $1
-         AND (
-           status = 'submitted'
-           OR (
-             status = 'confirmed'
-             AND provider_certificate_url IS NULL
-             AND certificate_object_key IS NULL
+      `WITH candidates AS (
+         SELECT p.id, p.created_at, p.retry_count,
+                COALESCE(first_attempt.requested_at, p.created_at) AS age_origin
+         FROM app.record_proofs p
+         LEFT JOIN LATERAL (
+           SELECT MIN(attempt.requested_at) AS requested_at
+           FROM app.proof_attempts attempt
+           WHERE attempt.proof_id = p.id
+         ) first_attempt ON TRUE
+         WHERE p.provider = $1
+           AND p.operation_id IS NOT NULL
+           AND (
+             (p.status = 'submitted' AND p.updated_at <= $2)
+             OR (
+               p.status = 'retrying'
+               AND p.last_error = '${QUERY_IN_PROGRESS_CODE}'
+               AND p.updated_at <= $3
+             )
            )
-         )
-         AND operation_id IS NOT NULL AND updated_at <= $2
-         AND ($3::text[] IS NULL OR record_qr_id = ANY($3::text[]))
-       ORDER BY updated_at ASC, id ASC
-       LIMIT $4`,
-      [provider, updatedBefore, scope, boundedLimit]
+           AND ($4::text[] IS NULL OR p.record_qr_id = ANY($4::text[]))
+         ORDER BY p.updated_at ASC, p.id ASC
+         LIMIT $5
+         FOR UPDATE OF p SKIP LOCKED
+       ), classified AS (
+         SELECT candidates.*,
+                CASE
+                  WHEN age_origin IS NULL
+                    OR age_origin < created_at
+                    OR age_origin > $6
+                    OR age_origin <= $7
+                    THEN '${MANUAL_AGE_LIMIT_CODE}'
+                  WHEN retry_count >= $8
+                    THEN '${MANUAL_QUERY_LIMIT_CODE}'
+                  ELSE NULL
+                END AS cutoff_reason
+         FROM candidates
+       )
+       UPDATE app.record_proofs p
+       SET status = 'retrying',
+           retry_count = CASE
+             WHEN classified.cutoff_reason IS NULL THEN p.retry_count + 1
+             ELSE p.retry_count
+           END,
+           last_error = COALESCE(
+             classified.cutoff_reason,
+             '${QUERY_IN_PROGRESS_CODE}'
+           ),
+           updated_at = $6
+       FROM classified
+       WHERE p.id = classified.id
+       RETURNING ${proofColumns('p')},
+                 classified.age_origin,
+                 (classified.cutoff_reason IS NULL) AS query_claimed`,
+      [
+        provider,
+        submittedBefore,
+        staleClaimBefore,
+        scope,
+        boundedLimit,
+        claimedAt,
+        ageLimitBefore,
+        boundedAttempts
+      ]
     );
-    return many(result, mapProof);
+    return many(result, (row) => Object.freeze({
+      proof: mapProof(row),
+      age_origin: row.age_origin,
+      query_claimed: row.query_claimed === true
+    }));
+  }
+
+  async completeSubmittedQuery({
+    id,
+    last_error: lastError,
+    completed_at: completedAt,
+    age_limit_before: ageLimitBefore,
+    max_attempts: maxAttempts
+  }) {
+    const boundedAttempts = positiveAttemptLimit(maxAttempts);
+    const result = await executeQuery(
+      this.transactionContext,
+      `WITH current_state AS (
+         SELECT p.id, p.created_at, p.retry_count,
+                COALESCE(first_attempt.requested_at, p.created_at) AS age_origin
+         FROM app.record_proofs p
+         LEFT JOIN LATERAL (
+           SELECT MIN(attempt.requested_at) AS requested_at
+           FROM app.proof_attempts attempt
+           WHERE attempt.proof_id = p.id
+         ) first_attempt ON TRUE
+         WHERE p.id = $1
+           AND (
+             p.status = 'submitted'
+             OR (
+               p.status = 'retrying'
+               AND p.last_error = '${QUERY_IN_PROGRESS_CODE}'
+             )
+           )
+         FOR UPDATE OF p
+       ), classified AS (
+         SELECT current_state.*,
+                CASE
+                  WHEN age_origin IS NULL
+                    OR age_origin < created_at
+                    OR age_origin > $3
+                    OR age_origin <= $4
+                    THEN '${MANUAL_AGE_LIMIT_CODE}'
+                  WHEN retry_count >= $5
+                    THEN '${MANUAL_QUERY_LIMIT_CODE}'
+                  ELSE NULL
+                END AS cutoff_reason
+         FROM current_state
+       )
+       UPDATE app.record_proofs p
+       SET status = CASE
+             WHEN classified.cutoff_reason IS NULL THEN 'submitted'
+             ELSE 'retrying'
+           END,
+           last_error = COALESCE(classified.cutoff_reason, $2),
+           updated_at = $3
+       FROM classified
+       WHERE p.id = classified.id
+       RETURNING ${proofColumns('p')}`,
+      [id, lastError, completedAt, ageLimitBefore, boundedAttempts]
+    );
+    return oneOrNull(result, mapProof, 'REPOSITORY_UPDATE_RESULT_INVALID');
   }
 
   async listConfirmedForCertificateArchive({

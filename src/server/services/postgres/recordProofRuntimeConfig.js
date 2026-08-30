@@ -5,6 +5,7 @@ const {
   SOURCE_HASH_PATTERN
 } = require('./publicQrPrimaryReadConfig');
 const { readPrimarySelectionScope } = require('./primarySelectionScope');
+const { REQUEST_TIMEOUT_MS } = require('../avataService');
 
 const DEFAULT_INTERVAL_MS = 5000;
 const DEFAULT_BATCH_SIZE = 5;
@@ -12,7 +13,12 @@ const DEFAULT_MAX_ATTEMPTS = 5;
 const DEFAULT_RETRY_BASE_MS = 5000;
 const DEFAULT_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_QUERY_MIN_AGE_MS = 60 * 1000;
+const DEFAULT_QUERY_MAX_AGE_MS = 30 * 60 * 1000;
 const DEFAULT_QUERY_BATCH_SIZE = 5;
+const QUERY_LEASE_SAFETY_MARGIN_MS = 5000;
+const MINIMUM_SAFE_LOCK_TIMEOUT_MS = REQUEST_TIMEOUT_MS
+  + QUERY_LEASE_SAFETY_MARGIN_MS
+  + 1;
 const PRODUCTION_AVATA_BASE = 'https://apis.avata.bianjie.ai';
 const AMBIGUOUS_NOT_FOUND_CODES = new Set(['NOT_FOUND']);
 
@@ -31,8 +37,11 @@ function disabled(reason) {
     retryBaseMs: DEFAULT_RETRY_BASE_MS,
     lockTimeoutMs: DEFAULT_LOCK_TIMEOUT_MS,
     queryMinAgeMs: DEFAULT_QUERY_MIN_AGE_MS,
+    queryMaxAgeMs: DEFAULT_QUERY_MAX_AGE_MS,
     queryBatchSize: DEFAULT_QUERY_BATCH_SIZE,
     operationNotFoundCode: null,
+    callbackFeature: Object.freeze({ enabled: false, reason: 'CORE_DISABLED' }),
+    certificateFeature: Object.freeze({ enabled: false, reason: 'CORE_DISABLED' }),
     certificateHostAllowlist: new Set()
   });
 }
@@ -58,6 +67,18 @@ function hasProviderConfiguration(env) {
     'AVATA_IDENTITY_NAME',
     'AVATA_IDENTITY_NUM'
   ].every((key) => text(env[key]));
+}
+
+function hasValidProviderNumericConfiguration(env) {
+  return [
+    ['AVATA_IDENTITY_TYPE', 1],
+    ['AVATA_RECORD_TYPE', 1],
+    ['AVATA_HASH_TYPE', 1]
+  ].every(([key, fallback]) => {
+    const value = text(env[key]);
+    const parsed = Number(value || fallback);
+    return Number.isSafeInteger(parsed) && parsed > 0;
+  });
 }
 
 function hasSecureCallbackUrl(value) {
@@ -137,24 +158,32 @@ function readRecordProofRuntimeConfig(env = process.env) {
   if (!hasProviderConfiguration(source)) {
     return disabled('CHAIN_PROVIDER_CONFIG_REQUIRED');
   }
+  if (!hasValidProviderNumericConfiguration(source)) {
+    return disabled('CHAIN_PROVIDER_NUMERIC_CONFIG_INVALID');
+  }
   if (!hasProductionProviderConfiguration(source)) {
     return disabled('PRODUCTION_CHAIN_PROVIDER_REQUIRED');
   }
   const operationNotFoundCode = readOperationNotFoundCode(
     source.AVATA_OPERATION_NOT_FOUND_CODE
   );
-  if (!operationNotFoundCode) {
-    return disabled('OPERATION_NOT_FOUND_CODE_REQUIRED');
-  }
-  if (!hasSecureCallbackUrl(source.CHAIN_CALLBACK_URL)) {
-    return disabled('SECURE_CALLBACK_URL_REQUIRED');
-  }
+  const callbackUrl = text(source.CHAIN_CALLBACK_URL);
+  const callbackFeature = Object.freeze({
+    enabled: Boolean(callbackUrl) && hasSecureCallbackUrl(callbackUrl),
+    reason: !callbackUrl
+      ? 'NOT_CONFIGURED'
+      : (hasSecureCallbackUrl(callbackUrl) ? 'ENABLED' : 'INVALID_CALLBACK_URL')
+  });
+  const certificateHosts = text(source.AVATA_CERTIFICATE_HOST_ALLOWLIST);
   const certificateHostAllowlist = readCertificateHostAllowlist(
-    source.AVATA_CERTIFICATE_HOST_ALLOWLIST
+    certificateHosts
   );
-  if (!certificateHostAllowlist) {
-    return disabled('CERTIFICATE_HOST_ALLOWLIST_REQUIRED');
-  }
+  const certificateFeature = Object.freeze({
+    enabled: Boolean(certificateHostAllowlist),
+    reason: !certificateHosts
+      ? 'NOT_CONFIGURED'
+      : (certificateHostAllowlist ? 'ENABLED' : 'INVALID_HOST_ALLOWLIST')
+  });
 
   const intervalMs = parseInteger(
     source.RECORD_PROOF_WORKER_INTERVAL_MS,
@@ -183,7 +212,7 @@ function readRecordProofRuntimeConfig(env = process.env) {
   const lockTimeoutMs = parseInteger(
     source.RECORD_PROOF_WORKER_LOCK_TIMEOUT_MS,
     DEFAULT_LOCK_TIMEOUT_MS,
-    1000,
+    MINIMUM_SAFE_LOCK_TIMEOUT_MS,
     24 * 60 * 60 * 1000
   );
   const queryMinAgeMs = parseInteger(
@@ -191,6 +220,12 @@ function readRecordProofRuntimeConfig(env = process.env) {
     DEFAULT_QUERY_MIN_AGE_MS,
     10 * 1000,
     24 * 60 * 60 * 1000
+  );
+  const queryMaxAgeMs = parseInteger(
+    source.RECORD_PROOF_QUERY_MAX_AGE_MS,
+    DEFAULT_QUERY_MAX_AGE_MS,
+    60 * 1000,
+    7 * 24 * 60 * 60 * 1000
   );
   const queryBatchSize = parseInteger(
     source.RECORD_PROOF_QUERY_BATCH_SIZE,
@@ -205,8 +240,12 @@ function readRecordProofRuntimeConfig(env = process.env) {
     retryBaseMs,
     lockTimeoutMs,
     queryMinAgeMs,
+    queryMaxAgeMs,
     queryBatchSize
   ].includes(null)) {
+    return disabled('WORKER_LIMIT_INVALID');
+  }
+  if (queryMaxAgeMs <= queryMinAgeMs) {
     return disabled('WORKER_LIMIT_INVALID');
   }
 
@@ -224,9 +263,12 @@ function readRecordProofRuntimeConfig(env = process.env) {
     retryBaseMs,
     lockTimeoutMs,
     queryMinAgeMs,
+    queryMaxAgeMs,
     queryBatchSize,
     operationNotFoundCode,
-    certificateHostAllowlist
+    callbackFeature,
+    certificateFeature,
+    certificateHostAllowlist: certificateHostAllowlist || new Set()
   });
 }
 
@@ -237,7 +279,10 @@ module.exports = {
   DEFAULT_MAX_ATTEMPTS,
   DEFAULT_RETRY_BASE_MS,
   DEFAULT_QUERY_BATCH_SIZE,
+  DEFAULT_QUERY_MAX_AGE_MS,
   DEFAULT_QUERY_MIN_AGE_MS,
+  QUERY_LEASE_SAFETY_MARGIN_MS,
+  MINIMUM_SAFE_LOCK_TIMEOUT_MS,
   PRODUCTION_AVATA_BASE,
   readCertificateHostAllowlist,
   readOperationNotFoundCode,

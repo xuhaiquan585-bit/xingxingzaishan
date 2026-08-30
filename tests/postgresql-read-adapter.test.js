@@ -1181,6 +1181,61 @@ test('outbox worker executes handlers outside transactions and records safe outc
   });
 });
 
+test('record proof recovery becomes manual intervention after max attempts', async () => {
+  const transitions = [];
+  const repository = {
+    async recoverStale() { return []; },
+    async claimPending() {
+      return [{
+        id: 'JOB_RECOVERY_LIMIT',
+        job_type: 'record_proof_prepare_submit',
+        attempt_count: 5
+      }];
+    },
+    async markSucceeded() { return null; },
+    async releaseForRetry(input) {
+      transitions.push(['retry', input]);
+      return input;
+    },
+    async markFailed(input) {
+      transitions.push(['failed', input]);
+      return input;
+    }
+  };
+  const worker = createOutboxWorker({
+    pool: { connect() {} },
+    workerId: 'bounded-proof-worker',
+    handlers: {
+      async record_proof_prepare_submit() {
+        const error = new Error('provider details must not persist');
+        error.code = 'RECORD_PROOF_RECOVERY_DEFERRED';
+        throw error;
+      }
+    },
+    jobTypes: ['record_proof_prepare_submit'],
+    maxAttempts: 5,
+    repositoryTypes: {
+      OutboxRepository: class { constructor() { return repository; } }
+    },
+    clock: () => new Date('2026-08-09T10:00:00.000Z'),
+    async transactionRunner(_pool, callback) {
+      return callback({ query() {} });
+    }
+  });
+
+  assert.deepEqual(await worker.runOnce(), {
+    recovered: 0,
+    claimed: 1,
+    succeeded: 0,
+    retried: 0,
+    failed: 1
+  });
+  assert.equal(transitions.some(([kind]) => kind === 'retry'), false);
+  assert.equal(transitions[0][0], 'failed');
+  assert.equal(transitions[0][1].last_error, 'RECORD_PROOF_RECOVERY_DEFERRED');
+  assert.equal(JSON.stringify(transitions).includes('provider details'), false);
+});
+
 test('outbox worker validates configuration and sanitizes untrusted errors', () => {
   assert.throws(
     () => createOutboxWorker({ pool: { connect() {} } }),
@@ -1445,6 +1500,27 @@ test('activated projection preserves channel fields, proof fields, and resolver 
     ['asset.resolveRecordImage', 'QR_PUBLIC_1', 'h5'],
     ['asset.resolveCertificate', '00000000-0000-0000-0000-000000000301', 'h5']
   ]);
+});
+
+test('public proof projection never exposes a temporary provider certificate URL', async () => {
+  const fixture = activatedFixture();
+  fixture.proof = {
+    ...fixture.proof,
+    provider_certificate_url: 'https://provider.example.test/temporary-certificate.pdf',
+    certificate_object_key: null
+  };
+  const harness = makeHarness(fixture);
+
+  const result = await harness.adapter.read({
+    key: 'public-token',
+    channel: 'h5',
+    viewer: { account_id: 'ACC_OTHER', phone_bound: true }
+  });
+
+  assert.equal(result.chain_status, 'confirmed');
+  assert.equal(result.chain_certificate_url, null);
+  assert.equal(JSON.stringify(result).includes('provider.example.test'), false);
+  assert.equal(harness.calls.some(([kind]) => kind === 'asset.resolveCertificate'), false);
 });
 
 test('activated projection preserves a legacy proof marker without exposing its internal column', async () => {

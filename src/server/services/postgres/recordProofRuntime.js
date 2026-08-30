@@ -3,7 +3,6 @@
 const { readRecordProofRuntimeConfig } = require('./recordProofRuntimeConfig');
 const {
   JOB_TYPE,
-  RECOVERY_DEFERRED_CODE,
   createRecordProofJobHandler
 } = require('./recordProofJobHandler');
 const { createRecordProofExternalAdapter } = require('./recordProofExternalAdapter');
@@ -80,39 +79,51 @@ function createRecordProofRuntime(config, {
   const allowedRecordQrIds = config.scope === 'all'
     ? null
     : [...config.allowlist];
+  const certificateEnabled = Boolean(
+    config.certificateFeature && config.certificateFeature.enabled === true
+  );
+  const certificateArchiveEnqueuer = certificateEnabled
+    ? enqueueCertificateArchiveJob
+    : null;
   const externalAdapter = externalAdapterFactory();
   const resultService = resultServiceFactory({
     pool,
     normalizeProviderResult: externalAdapter.normalizeRecordResult,
-    allowedRecordQrIds
+    allowedRecordQrIds,
+    certificateArchiveEnqueuer
   });
   const handler = jobHandlerFactory({
     pool,
     prepareRecord: externalAdapter.prepareRecord,
+    prepareSubmission: externalAdapter.prepareSubmission,
     submitRecord: externalAdapter.submitRecord,
     queryRecord: externalAdapter.queryRecordResult,
     applyQueryResult: resultService.applyCanonicalQueryResult,
+    certificateArchiveEnqueuer,
     recoveryMinAgeMs: config.queryMinAgeMs
   });
-  const certificateArchiveHandler = certificateArchiveHandlerFactory({
-    pool,
-    allowedHosts: [...config.certificateHostAllowlist]
-  });
+  const handlers = { [JOB_TYPE]: handler };
+  const jobTypes = [JOB_TYPE];
+  if (certificateEnabled) {
+    handlers[CERTIFICATE_ARCHIVE_JOB_TYPE] = certificateArchiveHandlerFactory({
+      pool,
+      allowedHosts: [...config.certificateHostAllowlist]
+    });
+    jobTypes.push(CERTIFICATE_ARCHIVE_JOB_TYPE);
+  }
   const worker = workerFactory({
     pool,
     workerId: config.workerId,
-    handlers: {
-      [JOB_TYPE]: handler,
-      [CERTIFICATE_ARCHIVE_JOB_TYPE]: certificateArchiveHandler
-    },
+    handlers,
     batchSize: config.batchSize,
     maxAttempts: config.maxAttempts,
     retryBaseMs: config.retryBaseMs,
     lockTimeoutMs: config.lockTimeoutMs,
-    retryableErrorCodes: [RECOVERY_DEFERRED_CODE],
-    jobTypes: [JOB_TYPE, CERTIFICATE_ARCHIVE_JOB_TYPE],
+    jobTypes,
     aggregateIds: allowedRecordQrIds
   });
+  // retry_count is the durable total of the initial POST claim plus submitted GET claims.
+  const automaticResolutionMaxAttempts = config.maxAttempts;
 
   let timer = null;
   let activeRun = null;
@@ -154,33 +165,54 @@ function createRecordProofRuntime(config, {
     return new repositories.ProofRepository(context);
   }
 
-  async function submittedProofsForQuery() {
-    const updatedBefore = new Date(
-      runtimeTimestamp().getTime() - config.queryMinAgeMs
+  async function claimSubmittedProofsForQuery() {
+    const now = runtimeTimestamp();
+    const claimedAt = now.toISOString();
+    const submittedBefore = new Date(
+      now.getTime() - config.queryMinAgeMs
+    ).toISOString();
+    const staleClaimBefore = new Date(
+      now.getTime() - config.lockTimeoutMs
+    ).toISOString();
+    const ageLimitBefore = new Date(
+      now.getTime() - config.queryMaxAgeMs
     ).toISOString();
     return runTransaction(pool, (context) => (
-      proofRepository(context).listSubmittedForQuery({
+      proofRepository(context).claimSubmittedForQuery({
         provider: 'avata_wenchang',
-        updated_before: updatedBefore,
+        submitted_before: submittedBefore,
+        stale_claim_before: staleClaimBefore,
+        age_limit_before: ageLimitBefore,
+        claimed_at: claimedAt,
+        max_attempts: automaticResolutionMaxAttempts,
         record_qr_ids: allowedRecordQrIds,
         limit: config.queryBatchSize
       })
-    ), { isolationLevel: 'read committed', readOnly: true });
+    ), { isolationLevel: 'read committed' });
   }
 
-  async function deferQuery(proofId, error) {
-    const updatedAt = runtimeTimestamp().toISOString();
+  async function completeQuery(proofId, error = null) {
+    const now = runtimeTimestamp();
+    const completedAt = now.toISOString();
+    const ageLimitBefore = new Date(
+      now.getTime() - config.queryMaxAgeMs
+    ).toISOString();
     return runTransaction(pool, (context) => (
-      proofRepository(context).markQueryDeferred({
+      proofRepository(context).completeSubmittedQuery({
         id: proofId,
-        last_error: safeErrorCode(error),
-        updated_at: updatedAt
+        last_error: error ? safeErrorCode(error) : '',
+        completed_at: completedAt,
+        age_limit_before: ageLimitBefore,
+        max_attempts: automaticResolutionMaxAttempts
       })
     ), { isolationLevel: 'read committed' });
   }
 
   async function querySubmittedProofs() {
-    const proofs = await submittedProofsForQuery();
+    const selections = await claimSubmittedProofsForQuery();
+    const proofs = selections
+      .filter((selection) => selection.query_claimed)
+      .map((selection) => selection.proof);
     const summary = { selected: proofs.length, applied: 0, stale: 0, failed: 0 };
     for (const proof of proofs) {
       try {
@@ -188,17 +220,26 @@ function createRecordProofRuntime(config, {
           operation_id: proof.operation_id
         });
         const applied = await resultService.applyCanonicalQueryResult(result);
-        if (['applied', 'duplicate'].includes(applied.outcome)) summary.applied += 1;
-        else summary.stale += 1;
+        if (['applied', 'duplicate'].includes(applied.outcome)) {
+          summary.applied += 1;
+        } else {
+          summary.stale += 1;
+        }
+        if (applied.status === 'submitted') {
+          await completeQuery(proof.id);
+        }
       } catch (error) {
         summary.failed += 1;
-        await deferQuery(proof.id, error);
+        await completeQuery(proof.id, error);
       }
     }
     return Object.freeze(summary);
   }
 
   async function queueMissingCertificateArchives() {
+    if (!certificateEnabled) {
+      return Object.freeze({ selected: 0, queued: 0 });
+    }
     const now = runtimeTimestamp().toISOString();
     return runTransaction(pool, async (context) => {
       const proofs = await proofRepository(context).listConfirmedForCertificateArchive({

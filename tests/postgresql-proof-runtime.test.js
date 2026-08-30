@@ -6,8 +6,12 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  DEFAULT_LOCK_TIMEOUT_MS,
+  MINIMUM_SAFE_LOCK_TIMEOUT_MS,
+  QUERY_LEASE_SAFETY_MARGIN_MS,
   readRecordProofRuntimeConfig
 } = require('../src/server/services/postgres/recordProofRuntimeConfig');
+const { REQUEST_TIMEOUT_MS } = require('../src/server/services/avataService');
 const {
   createRecordProofRuntime,
   createRecordProofRuntimeController
@@ -15,6 +19,7 @@ const {
 const {
   createAvataCallbackHandler
 } = require('../src/server/routes/chain');
+const { ProofRepository } = require('../src/server/repositories/proofRepository');
 const { startServer } = require('../src/server/server');
 
 function enabledEnv(overrides = {}) {
@@ -45,9 +50,9 @@ function enabledEnv(overrides = {}) {
 
 function runtimePersistenceDependencies() {
   const proofRepository = {
-    async listSubmittedForQuery() { return []; },
+    async claimSubmittedForQuery() { return []; },
     async listConfirmedForCertificateArchive() { return []; },
-    async markQueryDeferred() { return null; }
+    async completeSubmittedQuery() { return null; }
   };
   const outboxRepository = {
     async insertPendingOnce() { return null; }
@@ -93,18 +98,50 @@ test('record proof runtime config is default-off and requires complete real-prov
     ...enabledEnv(),
     AVATA_API_SECRET: ''
   }).reason, 'CHAIN_PROVIDER_CONFIG_REQUIRED');
-  assert.equal(readRecordProofRuntimeConfig({
+  const invalidCallback = readRecordProofRuntimeConfig({
     ...enabledEnv(),
     CHAIN_CALLBACK_URL: 'http://example.test/callback'
-  }).reason, 'SECURE_CALLBACK_URL_REQUIRED');
-  assert.equal(readRecordProofRuntimeConfig({
+  });
+  assert.equal(invalidCallback.enabled, true);
+  assert.deepEqual(invalidCallback.callbackFeature, {
+    enabled: false,
+    reason: 'INVALID_CALLBACK_URL'
+  });
+  const genericNotFound = readRecordProofRuntimeConfig({
     ...enabledEnv(),
     AVATA_OPERATION_NOT_FOUND_CODE: 'NOT_FOUND'
-  }).reason, 'OPERATION_NOT_FOUND_CODE_REQUIRED');
+  });
+  assert.equal(genericNotFound.enabled, true);
+  assert.equal(genericNotFound.operationNotFoundCode, null);
+  const minimalConfig = readRecordProofRuntimeConfig({
+    ...enabledEnv(),
+    AVATA_OPERATION_NOT_FOUND_CODE: '',
+    CHAIN_CALLBACK_URL: '',
+    AVATA_CERTIFICATE_HOST_ALLOWLIST: ''
+  });
+  assert.equal(minimalConfig.enabled, true);
+  assert.equal(minimalConfig.operationNotFoundCode, null);
+  assert.deepEqual(minimalConfig.callbackFeature, {
+    enabled: false,
+    reason: 'NOT_CONFIGURED'
+  });
+  assert.deepEqual(minimalConfig.certificateFeature, {
+    enabled: false,
+    reason: 'NOT_CONFIGURED'
+  });
+  const invalidCertificate = readRecordProofRuntimeConfig({
+    ...enabledEnv(),
+    AVATA_CERTIFICATE_HOST_ALLOWLIST: 'localhost'
+  });
+  assert.equal(invalidCertificate.enabled, true);
+  assert.deepEqual(invalidCertificate.certificateFeature, {
+    enabled: false,
+    reason: 'INVALID_HOST_ALLOWLIST'
+  });
   assert.equal(readRecordProofRuntimeConfig({
     ...enabledEnv(),
-    AVATA_OPERATION_NOT_FOUND_CODE: ''
-  }).reason, 'OPERATION_NOT_FOUND_CODE_REQUIRED');
+    AVATA_HASH_TYPE: 'invalid'
+  }).reason, 'CHAIN_PROVIDER_NUMERIC_CONFIG_INVALID');
   assert.equal(readRecordProofRuntimeConfig(enabledEnv({
     NODE_ENV: 'production',
     AVATA_ENV: 'prod',
@@ -130,9 +167,260 @@ test('record proof runtime config is default-off and requires complete real-prov
   assert.equal(config.intervalMs, 2000);
   assert.equal(config.batchSize, 3);
   assert.equal(config.queryMinAgeMs, 60000);
+  assert.equal(config.queryMaxAgeMs, 1800000);
   assert.equal(config.queryBatchSize, 5);
   assert.equal(config.operationNotFoundCode, 'OPERATION_NOT_FOUND');
   assert.deepEqual([...config.certificateHostAllowlist], ['cert.example.test']);
+  assert.equal(
+    MINIMUM_SAFE_LOCK_TIMEOUT_MS,
+    REQUEST_TIMEOUT_MS + QUERY_LEASE_SAFETY_MARGIN_MS + 1
+  );
+  assert.equal(DEFAULT_LOCK_TIMEOUT_MS > MINIMUM_SAFE_LOCK_TIMEOUT_MS, true);
+  assert.equal(readRecordProofRuntimeConfig(enabledEnv({
+    RECORD_PROOF_WORKER_LOCK_TIMEOUT_MS: '1000'
+  })).reason, 'WORKER_LIMIT_INVALID');
+  assert.equal(readRecordProofRuntimeConfig(enabledEnv({
+    RECORD_PROOF_WORKER_LOCK_TIMEOUT_MS: String(
+      REQUEST_TIMEOUT_MS + QUERY_LEASE_SAFETY_MARGIN_MS
+    )
+  })).reason, 'WORKER_LIMIT_INVALID');
+  assert.equal(readRecordProofRuntimeConfig(enabledEnv({
+    RECORD_PROOF_WORKER_LOCK_TIMEOUT_MS: String(MINIMUM_SAFE_LOCK_TIMEOUT_MS)
+  })).lockTimeoutMs, MINIMUM_SAFE_LOCK_TIMEOUT_MS);
+  assert.equal(readRecordProofRuntimeConfig(enabledEnv({
+    RECORD_PROOF_WORKER_LOCK_TIMEOUT_MS: '20001.5'
+  })).reason, 'WORKER_LIMIT_INVALID');
+  assert.equal(readRecordProofRuntimeConfig(enabledEnv({
+    RECORD_PROOF_QUERY_MAX_AGE_MS: '60000'
+  })).reason, 'WORKER_LIMIT_INVALID');
+  assert.equal(readRecordProofRuntimeConfig(enabledEnv({
+    RECORD_PROOF_QUERY_MAX_AGE_MS: '3600000'
+  })).queryMaxAgeMs, 3600000);
+});
+
+test('core proof polling atomically claims only eligible submitted work with durable bounds', async () => {
+  let capturedSql = '';
+  let capturedParams = null;
+  const repository = new ProofRepository({
+    async query(sql, params) {
+      capturedSql = sql;
+      capturedParams = params;
+      return { rows: [] };
+    }
+  });
+
+  await repository.claimSubmittedForQuery({
+    provider: 'avata_wenchang',
+    submitted_before: '2026-08-09T09:59:00.000Z',
+    stale_claim_before: '2026-08-09T09:55:00.000Z',
+    age_limit_before: '2026-08-09T09:30:00.000Z',
+    claimed_at: '2026-08-09T10:00:00.000Z',
+    max_attempts: 5,
+    record_qr_ids: null,
+    limit: 5
+  });
+
+  assert.match(capturedSql, /status = 'submitted'/);
+  assert.match(capturedSql, /FOR UPDATE OF p SKIP LOCKED/);
+  assert.match(capturedSql, /p\.retry_count \+ 1/);
+  assert.match(capturedSql, /MIN\(attempt\.requested_at\)/);
+  assert.match(capturedSql, /COALESCE\(first_attempt\.requested_at, p\.created_at\)/);
+  assert.match(capturedSql, /RECORD_PROOF_MANUAL_RECONCILIATION_QUERY_LIMIT/);
+  assert.match(capturedSql, /RECORD_PROOF_MANUAL_RECONCILIATION_AGE_LIMIT/);
+  assert.match(capturedSql, /RECORD_PROOF_QUERY_IN_PROGRESS/);
+  assert.doesNotMatch(capturedSql, /status = 'confirmed'/);
+  assert.doesNotMatch(capturedSql, /certificate_object_key IS NULL/);
+  assert.equal(capturedParams[7], 5);
+});
+
+test('submitted query completion preserves count and fails closed at either durable bound', async () => {
+  let capturedSql = '';
+  const repository = new ProofRepository({
+    async query(sql) {
+      capturedSql = sql;
+      return { rows: [] };
+    }
+  });
+
+  await repository.completeSubmittedQuery({
+    id: '00000000-0000-0000-0000-000000000951',
+    last_error: 'RECORD_PROOF_PROVIDER_QUERY_FAILED',
+    completed_at: '2026-08-09T10:00:00.000Z',
+    age_limit_before: '2026-08-09T09:30:00.000Z',
+    max_attempts: 5
+  });
+
+  assert.match(capturedSql, /retry_count >= \$5/);
+  assert.match(capturedSql, /age_origin <= \$4/);
+  assert.match(capturedSql, /p\.status = 'retrying'/);
+  assert.match(capturedSql, /p\.last_error = 'RECORD_PROOF_QUERY_IN_PROGRESS'/);
+  assert.doesNotMatch(capturedSql, /retry_count\s*=/);
+});
+
+test('runtime commits a durable query claim before provider GET and never POSTs from polling', async () => {
+  const config = readRecordProofRuntimeConfig(enabledEnv());
+  const pool = { connect() {} };
+  let transactionDepth = 0;
+  let claimed = false;
+  let completed = false;
+  let queryCalls = 0;
+  let postCalls = 0;
+  const current = {
+    id: '00000000-0000-0000-0000-000000000951',
+    record_qr_id: 'QR_ALLOWED',
+    provider: 'avata_wenchang',
+    status: 'retrying',
+    operation_id: 'record_QR_ALLOWED_aaaaaaaaaaaaaaaa',
+    retry_count: 2,
+    last_error: 'RECORD_PROOF_QUERY_IN_PROGRESS'
+  };
+  const repository = {
+    async claimSubmittedForQuery(input) {
+      assert.equal(transactionDepth, 1);
+      assert.equal(input.max_attempts, 5);
+      assert.equal(input.record_qr_ids.length, 2);
+      if (claimed) return [];
+      claimed = true;
+      return [{
+        proof: current,
+        query_claimed: true,
+        age_origin: '2026-08-09T10:00:00.000Z'
+      }];
+    },
+    async completeSubmittedQuery(input) {
+      assert.equal(transactionDepth, 1);
+      assert.equal(input.last_error, '');
+      assert.equal(input.max_attempts, 5);
+      completed = true;
+      return { ...current, status: 'submitted', last_error: '' };
+    },
+    async listConfirmedForCertificateArchive() { return []; }
+  };
+  const runtime = createRecordProofRuntime(config, {
+    env: enabledEnv(),
+    createPool: () => pool,
+    closePool: async () => {},
+    repositoryTypes: {
+      ProofRepository: class { constructor() { return repository; } },
+      OutboxRepository: class {}
+    },
+    async transactionRunner(_pool, callback) {
+      transactionDepth += 1;
+      try {
+        return await callback({ query() {} });
+      } finally {
+        transactionDepth -= 1;
+      }
+    },
+    externalAdapterFactory: () => ({
+      prepareRecord: async () => ({}),
+      prepareSubmission: (value) => value,
+      async submitRecord() { postCalls += 1; },
+      normalizeRecordResult: (value) => value,
+      async queryRecordResult(input) {
+        assert.equal(transactionDepth, 0);
+        assert.equal(claimed, true);
+        queryCalls += 1;
+        return { status: 'submitted', operation_id: input.operation_id };
+      }
+    }),
+    jobHandlerFactory: () => async () => {},
+    resultServiceFactory: () => ({
+      applyCallback: async () => ({}),
+      applyQueryResult: async () => ({}),
+      applyCanonicalQueryResult: async () => ({
+        outcome: 'applied', status: 'submitted'
+      })
+    }),
+    workerFactory: () => ({
+      runOnce: async () => ({ claimed: 0, succeeded: 0 }),
+      inspect: async () => ({ failed: 0, stale_processing: 0 })
+    }),
+    migrationsLoader: () => [],
+    eligibilityChecker: async () => 'ELIGIBLE'
+  });
+
+  assert.deepEqual((await runtime.runOnce()).query, {
+    selected: 1, applied: 1, stale: 0, failed: 0
+  });
+  assert.equal(queryCalls, 1);
+  assert.equal(postCalls, 0);
+  assert.equal(completed, true);
+  assert.deepEqual((await runtime.runOnce()).query, {
+    selected: 0, applied: 0, stale: 0, failed: 0
+  });
+  await runtime.close();
+});
+
+test('runtime performs no provider work for rows atomically handed to manual reconciliation', async () => {
+  const config = readRecordProofRuntimeConfig(enabledEnv());
+  let queryCalls = 0;
+  let postCalls = 0;
+  let scanCount = 0;
+  const manualProof = {
+    id: '00000000-0000-0000-0000-000000000952',
+    record_qr_id: 'QR_ALLOWED',
+    operation_id: 'record_QR_ALLOWED_bbbbbbbbbbbbbbbb',
+    status: 'retrying',
+    retry_count: 5,
+    last_error: 'RECORD_PROOF_MANUAL_RECONCILIATION_QUERY_LIMIT'
+  };
+  const repository = {
+    async claimSubmittedForQuery() {
+      scanCount += 1;
+      return scanCount === 1
+        ? [{ proof: manualProof, query_claimed: false, age_origin: manualProof.created_at }]
+        : [];
+    },
+    async completeSubmittedQuery() {
+      assert.fail('manual rows must not complete an automatic query');
+    },
+    async listConfirmedForCertificateArchive() { return []; }
+  };
+  const runtime = createRecordProofRuntime(config, {
+    env: enabledEnv(),
+    createPool: () => ({ connect() {} }),
+    closePool: async () => {},
+    repositoryTypes: {
+      ProofRepository: class { constructor() { return repository; } },
+      OutboxRepository: class {}
+    },
+    transactionRunner: async (_pool, callback) => callback({ query() {} }),
+    externalAdapterFactory: () => ({
+      prepareRecord: async () => ({}),
+      prepareSubmission: (value) => value,
+      async submitRecord() { postCalls += 1; },
+      normalizeRecordResult: (value) => value,
+      async queryRecordResult() { queryCalls += 1; }
+    }),
+    jobHandlerFactory: () => async () => {},
+    resultServiceFactory: () => ({
+      applyCallback: async () => ({}),
+      applyQueryResult: async () => ({}),
+      applyCanonicalQueryResult: async () => assert.fail('no result exists')
+    }),
+    workerFactory: () => ({
+      runOnce: async () => ({ claimed: 0, succeeded: 0 }),
+      inspect: async () => ({ failed: 0, stale_processing: 0 })
+    }),
+    migrationsLoader: () => [],
+    eligibilityChecker: async () => 'ELIGIBLE'
+  });
+
+  assert.deepEqual((await runtime.runOnce()).query, {
+    selected: 0, applied: 0, stale: 0, failed: 0
+  });
+  assert.deepEqual((await runtime.runOnce()).query, {
+    selected: 0, applied: 0, stale: 0, failed: 0
+  });
+  assert.equal(queryCalls, 0);
+  assert.equal(postCalls, 0);
+  assert.equal(manualProof.operation_id, 'record_QR_ALLOWED_bbbbbbbbbbbbbbbb');
+  assert.equal(
+    manualProof.last_error,
+    'RECORD_PROOF_MANUAL_RECONCILIATION_QUERY_LIMIT'
+  );
+  await runtime.close();
 });
 
 test('record proof runtime scopes worker and result handling to one explicit QR set', async () => {
@@ -159,6 +447,7 @@ test('record proof runtime scopes worker and result handling to one explicit QR 
     externalAdapterFactory() {
       return {
         prepareRecord: async () => ({}),
+        prepareSubmission: (value) => value,
         submitRecord: async () => ({}),
         normalizeRecordResult: (value) => value,
         queryRecordResult: async () => ({})
@@ -217,9 +506,9 @@ test('record proof runtime scopes worker and result handling to one explicit QR 
     'record_proof_prepare_submit',
     'record_proof_archive_certificate'
   ]);
-  assert.deepEqual(captured.worker.retryableErrorCodes, [
-    'RECORD_PROOF_RECOVERY_DEFERRED'
-  ]);
+  assert.equal(captured.worker.retryableErrorCodes, undefined);
+  assert.equal(typeof captured.handler.prepareSubmission, 'function');
+  assert.equal(typeof captured.handler.certificateArchiveEnqueuer, 'function');
   assert.deepEqual(captured.worker.aggregateIds, ['QR_ALLOWED', 'QR_SECOND']);
   assert.deepEqual(captured.result.allowedRecordQrIds, ['QR_ALLOWED', 'QR_SECOND']);
   assert.equal(runtime.start(), true);
@@ -262,13 +551,16 @@ test('record proof runtime scopes worker and result handling to one explicit QR 
 test('record proof runtime all scope covers future QR jobs without an allowlist', async () => {
   const config = readRecordProofRuntimeConfig(enabledEnv({
     RECORD_PROOF_RUNTIME_SCOPE: 'all',
-    RECORD_PROOF_RUNTIME_ALLOWLIST: ''
+    RECORD_PROOF_RUNTIME_ALLOWLIST: '',
+    AVATA_CERTIFICATE_HOST_ALLOWLIST: ''
   }));
   assert.equal(config.enabled, true);
   assert.equal(config.scope, 'all');
   assert.equal(config.allowlist.size, 0);
+  assert.equal(config.certificateFeature.enabled, false);
 
   const captured = {};
+  let certificateFactoryCalls = 0;
   const runtime = createRecordProofRuntime(config, {
     ...runtimePersistenceDependencies(),
     env: enabledEnv(),
@@ -276,11 +568,16 @@ test('record proof runtime all scope covers future QR jobs without an allowlist'
     closePool: async () => {},
     externalAdapterFactory: () => ({
       prepareRecord: async () => ({}),
+      prepareSubmission: (value) => value,
       submitRecord: async () => ({}),
       normalizeRecordResult: (value) => value,
       queryRecordResult: async () => ({})
     }),
     jobHandlerFactory: () => async () => {},
+    certificateArchiveHandlerFactory() {
+      certificateFactoryCalls += 1;
+      throw new Error('certificate handler must stay disabled');
+    },
     resultServiceFactory(input) {
       captured.result = input;
       return {
@@ -306,7 +603,14 @@ test('record proof runtime all scope covers future QR jobs without an allowlist'
   });
 
   assert.equal(captured.worker.aggregateIds, null);
+  assert.deepEqual(captured.worker.jobTypes, ['record_proof_prepare_submit']);
+  assert.equal(captured.result.certificateArchiveEnqueuer, null);
+  assert.equal(certificateFactoryCalls, 0);
   assert.equal(captured.result.allowedRecordQrIds, null);
+  assert.deepEqual((await runtime.runOnce()).certificate_archive, {
+    selected: 0,
+    queued: 0
+  });
   assert.equal((await runtime.status()).scope, 'all');
   await runtime.close();
 });
@@ -378,6 +682,7 @@ test('record proof runtime blocks worker and callbacks when import provenance is
     closePool: async () => {},
     externalAdapterFactory: () => ({
       prepareRecord: async () => ({}),
+      prepareSubmission: (value) => value,
       submitRecord: async () => ({}),
       normalizeRecordResult: (value) => value,
       queryRecordResult: async () => ({})

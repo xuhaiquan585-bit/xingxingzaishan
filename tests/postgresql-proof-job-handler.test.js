@@ -2,9 +2,11 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
 const test = require('node:test');
 
+const { requestAvata } = require('../src/server/services/avataService');
 const {
   RECOVERY_DEFERRED_CODE,
   RecordProofJobError,
@@ -17,6 +19,65 @@ const {
 const NOW = '2026-08-09T10:00:00.000Z';
 const MANIFEST_HASH = 'a'.repeat(64);
 const IMAGE_HASH = 'b'.repeat(64);
+
+async function startUncertainSubmissionProvider() {
+  const sockets = new Set();
+  let getCount = 0;
+  let postCount = 0;
+  const server = http.createServer((request, response) => {
+    if (request.method === 'POST' && request.url === '/submit') {
+      postCount += 1;
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.flushHeaders();
+      response.write('{"status":"submitted"');
+      return;
+    }
+    if (request.method === 'GET' && request.url.startsWith('/query?')) {
+      getCount += 1;
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end('{"status":"submitted"}');
+      return;
+    }
+    response.writeHead(404, { 'Content-Type': 'application/json' });
+    response.end('{"code":"TEST_ROUTE_NOT_FOUND"}');
+  });
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  return {
+    baseUrl: `http://127.0.0.1:${server.address().port}`,
+    getCount: () => getCount,
+    postCount: () => postCount,
+    async close() {
+      for (const socket of sockets) socket.destroy();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  };
+}
+
+async function withAvataTestEnvironment(callback) {
+  const keys = ['AVATA_ENV', 'AVATA_API_BASE', 'AVATA_API_KEY', 'AVATA_API_SECRET'];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  Object.assign(process.env, {
+    AVATA_ENV: 'stage',
+    AVATA_API_BASE: 'https://stage.apis.avata.bianjie.ai',
+    AVATA_API_KEY: 'uncertain-test-key',
+    AVATA_API_SECRET: 'uncertain-test-secret'
+  });
+  try {
+    return await callback();
+  } finally {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
+}
 
 function job(overrides = {}) {
   return {
@@ -110,6 +171,11 @@ function createHarness(overrides = {}) {
       async findPendingAttemptForUpdate(proofId) {
         return [...state.attempts].reverse().find((attempt) => (
           attempt.proof_id === proofId && attempt.result_status === 'pending'
+        )) || null;
+      },
+      async findLatestAttemptForUpdate(proofId) {
+        return [...state.attempts].reverse().find((attempt) => (
+          attempt.proof_id === proofId
         )) || null;
       },
       async markManifestReady(input) {
@@ -301,7 +367,10 @@ function createHarness(overrides = {}) {
     state,
     transactionRunner,
     queryRecord,
-    applyQueryResult
+    applyQueryResult,
+    prepareSubmission(input) {
+      return { ...input, provider_submission: { prepared: true } };
+    }
   };
 }
 
@@ -357,6 +426,8 @@ test('record proof job prepares, submits, persists audit state, and becomes idem
     async submitRecord(input) {
       assert.equal(harness.state.transactionDepth, 0);
       assert.equal(input.operation_id, `record_QR_PROOF_${MANIFEST_HASH.slice(0, 16)}`);
+      assert.equal(harness.state.attempts.length, 1);
+      assert.equal(harness.state.attempts[0].request_state, 'started');
       submissionCalls += 1;
       return {
         status: 'confirmed',
@@ -386,6 +457,43 @@ test('record proof job prepares, submits, persists audit state, and becomes idem
 
   assert.equal((await handler(job())).status, 'confirmed');
   assert.equal(preparationCalls, 1);
+  assert.equal(submissionCalls, 1);
+});
+
+test('submission preflight failure creates no attempt and does not consume the first POST', async () => {
+  const harness = createHarness();
+  let preflightFails = true;
+  let submissionCalls = 0;
+  const handler = createRecordProofJobHandler({
+    ...harness,
+    clock: () => new Date(NOW),
+    randomUUID: () => '00000000-0000-0000-0000-000000000801',
+    prepareRecord: async () => preparation(),
+    prepareSubmission(input) {
+      if (preflightFails) {
+        const error = new Error('configuration details must stay hidden');
+        error.code = 'RECORD_PROOF_LOCAL_PREFLIGHT_INVALID';
+        throw error;
+      }
+      return { ...input, provider_submission: { prepared: true } };
+    },
+    async submitRecord() {
+      submissionCalls += 1;
+      return { status: 'submitted', transaction_hash: 'tx-after-preflight' };
+    }
+  });
+
+  await assert.rejects(
+    handler(job()),
+    (error) => error.code === 'RECORD_PROOF_LOCAL_PREFLIGHT_INVALID'
+      && !error.message.includes('configuration details')
+  );
+  assert.equal(harness.state.attempts.length, 0);
+  assert.equal(submissionCalls, 0);
+
+  preflightFails = false;
+  assert.equal((await handler(job())).status, 'submitted');
+  assert.equal(harness.state.attempts.length, 1);
   assert.equal(submissionCalls, 1);
 });
 
@@ -430,6 +538,116 @@ test('accepted submission with failed local persistence recovers by query withou
   assert.equal(harness.state.attempts[0].result_status, 'succeeded');
 });
 
+test('accepted POST with stalled response body recovers by GET for the original operation only', {
+  timeout: 5000
+}, async () => {
+  const provider = await startUncertainSubmissionProvider();
+  const nativeFetch = globalThis.fetch;
+  const harness = createHarness();
+  const expectedOperationId = `record_QR_PROOF_${MANIFEST_HASH.slice(0, 16)}`;
+  let queryCalls = 0;
+  const requestDependencies = {
+    fetchImpl(url, options) {
+      const requested = new URL(url);
+      return nativeFetch(
+        `${provider.baseUrl}${requested.pathname}${requested.search}`,
+        options
+      );
+    },
+    timeoutMs: 1000,
+    maxResponseBytes: 1024
+  };
+  try {
+    await withAvataTestEnvironment(async () => {
+      const handler = createRecordProofJobHandler({
+        ...harness,
+        clock: () => new Date(NOW),
+        recoveryMinAgeMs: 0,
+        randomUUID: () => '00000000-0000-0000-0000-000000000801',
+        prepareRecord: async () => preparation(),
+        async submitRecord(input) {
+          assert.equal(input.operation_id, expectedOperationId);
+          const result = await requestAvata({
+            method: 'POST',
+            path: '/submit',
+            body: { operation_id: input.operation_id }
+          }, requestDependencies);
+          return { ...result, operation_id: input.operation_id };
+        },
+        async queryRecord({ operation_id: operationId }) {
+          queryCalls += 1;
+          assert.equal(operationId, expectedOperationId);
+          const result = await requestAvata({
+            method: 'GET',
+            path: '/query',
+            query: { operation_id: operationId }
+          }, requestDependencies);
+          return { ...result, operation_id: operationId };
+        }
+      });
+
+      await assert.rejects(
+        handler(job()),
+        (error) => error.code === RECOVERY_DEFERRED_CODE
+      );
+      assert.equal(harness.state.proof.operation_id, expectedOperationId);
+      assert.equal(harness.state.attempts.length, 1);
+      assert.equal(provider.postCount(), 1);
+
+      const recovered = await handler(job());
+      assert.equal(recovered.status, 'submitted');
+      assert.equal(recovered.operation_id, expectedOperationId);
+      assert.equal(provider.postCount(), 1);
+      assert.equal(provider.getCount(), 1);
+      assert.equal(queryCalls, 1);
+      assert.equal(harness.state.attempts.length, 1);
+    });
+  } finally {
+    await provider.close();
+  }
+});
+
+for (const ambiguousCode of [
+  'ETIMEDOUT',
+  'ECONNRESET',
+  'AVATA_REQUEST_FAILED',
+  'AVATA_RESPONSE_TOO_LARGE',
+  'AVATA_RESPONSE_INVALID',
+  'RECORD_PROOF_PROVIDER_STATUS_INVALID'
+]) {
+  test(`ambiguous submission ${ambiguousCode} becomes query-only`, async () => {
+    const harness = createHarness();
+    let submissionCalls = 0;
+    let queryCalls = 0;
+    const handler = createRecordProofJobHandler({
+      ...harness,
+      clock: () => new Date(NOW),
+      recoveryMinAgeMs: 0,
+      randomUUID: () => '00000000-0000-0000-0000-000000000801',
+      prepareRecord: async () => preparation(),
+      async submitRecord() {
+        submissionCalls += 1;
+        const error = new Error('provider response must stay hidden');
+        error.code = ambiguousCode;
+        throw error;
+      },
+      async queryRecord() {
+        queryCalls += 1;
+        const error = new Error('query details must stay hidden');
+        error.code = 'RECORD_PROOF_RECOVERY_QUERY_FAILED';
+        throw error;
+      }
+    });
+
+    await assert.rejects(handler(job()), (error) => error.code === RECOVERY_DEFERRED_CODE);
+    await assert.rejects(handler(job()), (error) => error.code === RECOVERY_DEFERRED_CODE);
+    assert.equal(submissionCalls, 1);
+    assert.equal(queryCalls, 1);
+    assert.equal(harness.state.attempts.length, 1);
+    assert.equal(harness.state.proof.status, 'retrying');
+  });
+}
+
 test('recovery query synchronizes confirmed state and continues certificate archive', async () => {
   const harness = createHarness(uncertainState());
   let submissionCalls = 0;
@@ -459,9 +677,9 @@ test('recovery query synchronizes confirmed state and continues certificate arch
   );
 });
 
-test('documented operation-not-found permits exactly one same-id resubmission', async () => {
+test('documented operation-not-found remains query-only and never resubmits', async () => {
   const harness = createHarness(uncertainState());
-  const operationIds = [];
+  let submissionCalls = 0;
   const handler = createRecordProofJobHandler({
     ...harness,
     clock: () => new Date(NOW),
@@ -472,21 +690,43 @@ test('documented operation-not-found permits exactly one same-id resubmission', 
       error.code = 'RECORD_PROOF_EXTERNAL_OPERATION_NOT_FOUND';
       throw error;
     },
-    async submitRecord(input) {
-      operationIds.push(input.operation_id);
-      return { status: 'submitted', transaction_hash: 'tx-resubmitted' };
+    async submitRecord() {
+      submissionCalls += 1;
+      return { status: 'submitted', transaction_hash: 'tx-forbidden' };
     }
   });
 
-  assert.equal((await handler(job())).status, 'submitted');
-  assert.deepEqual(operationIds, [
-    `record_QR_PROOF_${MANIFEST_HASH.slice(0, 16)}`
-  ]);
-  assert.equal(harness.state.proof.retry_count, 2);
-  assert.deepEqual(
-    harness.state.attempts.map((attempt) => attempt.result_status),
-    ['failed', 'succeeded']
+  await assert.rejects(
+    handler(job()),
+    (error) => error.code === RECOVERY_DEFERRED_CODE
   );
+  assert.equal(submissionCalls, 0);
+  assert.equal(harness.state.proof.status, 'retrying');
+  assert.equal(harness.state.proof.retry_count, 1);
+  assert.equal(harness.state.attempts.length, 1);
+  assert.equal(harness.state.attempts[0].result_status, 'pending');
+});
+
+test('generic NOT_FOUND remains query-only and never resubmits', async () => {
+  const harness = createHarness(uncertainState());
+  let submissionCalls = 0;
+  const handler = createRecordProofJobHandler({
+    ...harness,
+    clock: () => new Date(NOW),
+    recoveryMinAgeMs: 0,
+    prepareRecord: async () => assert.fail('prepared proof must not be rebuilt'),
+    async queryRecord() {
+      const error = new Error('ambiguous provider response');
+      error.code = 'NOT_FOUND';
+      throw error;
+    },
+    submitRecord: async () => { submissionCalls += 1; }
+  });
+
+  await assert.rejects(handler(job()), (error) => error.code === RECOVERY_DEFERRED_CODE);
+  assert.equal(submissionCalls, 0);
+  assert.equal(harness.state.attempts.length, 1);
+  assert.equal(harness.state.proof.status, 'retrying');
 });
 
 test('unknown recovery query remains retryable and never submits', async () => {
@@ -514,6 +754,33 @@ test('unknown recovery query remains retryable and never submits', async () => {
   assert.equal(harness.state.proof.status, 'retrying');
   assert.equal(harness.state.proof.last_error, 'ETIMEDOUT');
   assert.equal(harness.state.attempts[0].result_status, 'pending');
+});
+
+test('legacy completed submission attempt remains query-only', async () => {
+  const legacy = uncertainState();
+  legacy.attempts[0] = {
+    ...legacy.attempts[0],
+    request_state: 'sent',
+    result_status: 'failed',
+    sanitized_error: 'LEGACY_UNCERTAIN_RESULT',
+    completed_at: NOW
+  };
+  const harness = createHarness(legacy);
+  let submissionCalls = 0;
+  const handler = createRecordProofJobHandler({
+    ...harness,
+    clock: () => new Date(NOW),
+    recoveryMinAgeMs: 0,
+    prepareRecord: async () => assert.fail('prepared proof must not be rebuilt'),
+    submitRecord: async () => { submissionCalls += 1; },
+    async queryRecord({ operation_id: operationId }) {
+      return { status: 'submitted', operation_id: operationId };
+    }
+  });
+
+  assert.equal((await handler(job())).status, 'submitted');
+  assert.equal(submissionCalls, 0);
+  assert.equal(harness.state.attempts.length, 1);
 });
 
 test('provider failed recovery uses the existing state machine without a new operation', async () => {
@@ -563,14 +830,10 @@ test('concurrent recovery cannot create duplicate external submissions', async (
 
   const outcomes = await Promise.allSettled([handler(job()), handler(job())]);
   assert.equal(queryCalls, 2);
-  assert.equal(submissionCalls, 1);
-  assert.equal(outcomes.filter((item) => item.status === 'fulfilled').length, 2);
-  assert.deepEqual(
-    outcomes.map((item) => item.value.status),
-    ['submitted', 'submitted']
-  );
-  assert.equal(harness.state.proof.status, 'submitted');
-  assert.equal(harness.state.attempts.length, 2);
+  assert.equal(submissionCalls, 0);
+  assert.equal(outcomes.filter((item) => item.status === 'rejected').length, 2);
+  assert.equal(harness.state.proof.status, 'retrying');
+  assert.equal(harness.state.attempts.length, 1);
 });
 
 test('confirmed recovery without a certificate stays confirmed and never resubmits', async () => {
@@ -598,6 +861,100 @@ test('confirmed recovery without a certificate stays confirmed and never resubmi
   assert.equal(harness.state.outboxJobs.length, 0);
 });
 
+test('manual reconciliation blocks duplicate jobs without query, POST, or evidence mutation', async () => {
+  const manualReason = 'RECORD_PROOF_MANUAL_RECONCILIATION_QUERY_LIMIT';
+  const initial = uncertainState({
+    retry_count: 5,
+    last_error: manualReason
+  });
+  const originalOperationId = initial.proof.operation_id;
+  const harness = createHarness(initial);
+  let queryCalls = 0;
+  let submissionCalls = 0;
+  const handler = createRecordProofJobHandler({
+    ...harness,
+    clock: () => new Date(NOW),
+    recoveryMinAgeMs: 0,
+    prepareRecord: async () => assert.fail('prepared proof must not be rebuilt'),
+    async queryRecord() { queryCalls += 1; },
+    async submitRecord() { submissionCalls += 1; }
+  });
+
+  await assert.rejects(
+    handler(job()),
+    (error) => error.code === 'RECORD_PROOF_AUTOMATIC_RESOLUTION_BLOCKED'
+  );
+  assert.equal(queryCalls, 0);
+  assert.equal(submissionCalls, 0);
+  assert.equal(harness.state.proof.operation_id, originalOperationId);
+  assert.equal(harness.state.proof.retry_count, 5);
+  assert.equal(harness.state.proof.last_error, manualReason);
+});
+
+test('late provider-terminal failure short-circuits stale jobs before GET, POST, or certificate work', async () => {
+  const initial = uncertainState({
+    retry_count: 5,
+    last_error: 'RECORD_PROOF_MANUAL_RECONCILIATION_QUERY_LIMIT'
+  });
+  const originalOperationId = initial.proof.operation_id;
+  const harness = createHarness(initial);
+  await harness.applyQueryResult({
+    status: 'failed',
+    operation_id: originalOperationId
+  });
+  assert.equal(harness.state.proof.status, 'failed');
+  assert.equal(
+    harness.state.proof.last_error,
+    'RECORD_PROOF_PROVIDER_REPORTED_FAILURE'
+  );
+
+  let queryCalls = 0;
+  let submissionCalls = 0;
+  const handler = createRecordProofJobHandler({
+    ...harness,
+    clock: () => new Date(NOW),
+    recoveryMinAgeMs: 0,
+    prepareRecord: async () => assert.fail('provider-terminal proof must not be rebuilt'),
+    async queryRecord() { queryCalls += 1; },
+    async submitRecord() { submissionCalls += 1; }
+  });
+
+  assert.equal((await handler(job())).status, 'failed');
+  assert.equal(queryCalls, 0);
+  assert.equal(submissionCalls, 0);
+  assert.equal(harness.state.outboxJobs.length, 0);
+  assert.equal(harness.state.proof.operation_id, originalOperationId);
+  assert.equal(harness.state.attempts.length, 1);
+});
+
+test('non-provider failed proof preserves query-only recovery semantics', async () => {
+  const initial = uncertainState({
+    status: 'failed',
+    last_error: 'RECORD_PROOF_RECOVERY_RESULT_PERSIST_FAILED'
+  });
+  const originalOperationId = initial.proof.operation_id;
+  const harness = createHarness(initial);
+  let queryCalls = 0;
+  let submissionCalls = 0;
+  const handler = createRecordProofJobHandler({
+    ...harness,
+    clock: () => new Date(NOW),
+    recoveryMinAgeMs: 0,
+    prepareRecord: async () => assert.fail('prepared proof must not be rebuilt'),
+    async queryRecord({ operation_id: operationId }) {
+      queryCalls += 1;
+      assert.equal(operationId, originalOperationId);
+      return { status: 'submitted', operation_id: operationId };
+    },
+    async submitRecord() { submissionCalls += 1; }
+  });
+
+  assert.equal((await handler(job())).status, 'submitted');
+  assert.equal(queryCalls, 1);
+  assert.equal(submissionCalls, 0);
+  assert.equal(harness.state.proof.operation_id, originalOperationId);
+});
+
 test('record proof job validates contracts and preserves legacy proof evidence', async () => {
   assert.throws(
     () => createRecordProofJobHandler({ pool: { connect() {} } }),
@@ -615,6 +972,10 @@ test('record proof job validates contracts and preserves legacy proof evidence',
     () => normalizeSubmission({ status: 'unknown' }, NOW),
     (error) => error.code === 'RECORD_PROOF_SUBMISSION_RESULT_INVALID'
   );
+  assert.equal(normalizeSubmission({
+    status: 'confirmed',
+    confirmed_at: '2000-01-01T00:00:00.000Z'
+  }, NOW).confirmed_at, NOW);
 
   const harness = createHarness({
     proof: proof({ status: 'failed', legacy_hash_snapshot: 'legacy-evidence' })
