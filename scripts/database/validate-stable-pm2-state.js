@@ -31,6 +31,8 @@ const AVATA_CONFIGURATION_KEYS = [
   'AVATA_ENV',
   'CHAIN_CALLBACK_URL'
 ];
+const PRODUCTION_AVATA_BASE = 'https://apis.avata.bianjie.ai';
+const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
 function fail(code) {
   const error = new Error(code);
@@ -53,7 +55,11 @@ function parseArguments(argv) {
     'expected-authority',
     'expected-freeze'
   ];
-  if (Object.keys(options).length !== required.length) {
+  const allowed = new Set([...required, 'expected-proof-runtime']);
+  if (
+    Object.keys(options).some((key) => !allowed.has(key))
+    || ![required.length, required.length + 1].includes(Object.keys(options).length)
+  ) {
     fail('STABLE_PM2_STATE_ARGUMENT_COUNT_INVALID');
   }
   for (const key of required) {
@@ -64,6 +70,11 @@ function parseArguments(argv) {
   }
   if (!['postgres', 'json'].includes(options['expected-authority'])) {
     fail('STABLE_PM2_STATE_AUTHORITY_ARGUMENT_INVALID');
+  }
+  options['expected-proof-runtime'] =
+    options['expected-proof-runtime'] || 'disabled';
+  if (!['enabled', 'disabled'].includes(options['expected-proof-runtime'])) {
+    fail('STABLE_PM2_STATE_PROOF_RUNTIME_ARGUMENT_INVALID');
   }
   return options;
 }
@@ -126,8 +137,12 @@ function validateStablePm2State({
   passwordFile,
   database,
   authority,
-  freeze
+  freeze,
+  proofRuntime = 'disabled'
 }) {
+  if (!['enabled', 'disabled'].includes(proofRuntime)) {
+    fail('STABLE_PM2_STATE_PROOF_RUNTIME_ARGUMENT_INVALID');
+  }
   assertNoSecrets(dump);
   const env = findApplication(dump, app);
   if (authority === 'postgres') {
@@ -176,20 +191,57 @@ function validateStablePm2State({
   ) {
     fail('STABLE_PM2_STATE_FREEZE_INVALID');
   }
-  const proofRuntime = String(env.RECORD_PROOF_RUNTIME_ENABLED || '');
-  if (
-    proofRuntime !== 'false' &&
-    !(authority === 'json' && proofRuntime === '')
-  ) {
-    fail('STABLE_PM2_STATE_PROOF_RUNTIME_INVALID');
-  }
-  for (const key of AVATA_CONFIGURATION_KEYS) {
-    if (String(env[key] || '') !== '') {
+  const persistedProofRuntime = String(env.RECORD_PROOF_RUNTIME_ENABLED || '');
+  if (proofRuntime === 'disabled') {
+    if (
+      persistedProofRuntime !== 'false' &&
+      !(authority === 'json' && persistedProofRuntime === '')
+    ) {
+      fail('STABLE_PM2_STATE_PROOF_RUNTIME_INVALID');
+    }
+    for (const key of AVATA_CONFIGURATION_KEYS) {
+      if (String(env[key] || '') !== '') {
+        fail('STABLE_PM2_STATE_AVATA_CONFIGURATION_INVALID');
+      }
+    }
+    if (!['', 'false'].includes(String(env.CHAIN_ENABLED || ''))) {
       fail('STABLE_PM2_STATE_AVATA_CONFIGURATION_INVALID');
     }
-  }
-  if (!['', 'false'].includes(String(env.CHAIN_ENABLED || ''))) {
-    fail('STABLE_PM2_STATE_AVATA_CONFIGURATION_INVALID');
+  } else {
+    if (authority !== 'postgres' || freeze !== 'false') {
+      fail('STABLE_PM2_STATE_PROOF_RUNTIME_AUTHORITY_INVALID');
+    }
+    if (persistedProofRuntime !== 'true') {
+      fail('STABLE_PM2_STATE_PROOF_RUNTIME_INVALID');
+    }
+    if (
+      String(env.RECORD_PROOF_RUNTIME_SCOPE || '') !== 'all'
+      || String(env.RECORD_PROOF_RUNTIME_ALLOWLIST || '') !== ''
+    ) {
+      fail('STABLE_PM2_STATE_PROOF_RUNTIME_SCOPE_INVALID');
+    }
+    for (const key of [
+      'RECORD_PROOF_RUNTIME_SOURCE_SHA256',
+      'RECORD_PROOF_RUNTIME_DOMAIN_SHA256'
+    ]) {
+      if (!SHA256_PATTERN.test(String(env[key] || '').toLowerCase())) {
+        fail('STABLE_PM2_STATE_PROOF_RUNTIME_HASH_INVALID');
+      }
+    }
+    const workerId = String(env.RECORD_PROOF_WORKER_ID || '');
+    if (!workerId || workerId.length > 160 || /[\r\n\0]/.test(workerId)) {
+      fail('STABLE_PM2_STATE_PROOF_RUNTIME_WORKER_INVALID');
+    }
+    if (String(env.CHAIN_ENABLED || '') !== 'true') {
+      fail('STABLE_PM2_STATE_AVATA_CONFIGURATION_INVALID');
+    }
+    if (!['prod', 'production'].includes(String(env.AVATA_ENV || ''))) {
+      fail('STABLE_PM2_STATE_AVATA_CONFIGURATION_INVALID');
+    }
+    const apiBase = String(env.AVATA_API_BASE || '').replace(/\/$/, '');
+    if (apiBase && apiBase !== PRODUCTION_AVATA_BASE) {
+      fail('STABLE_PM2_STATE_AVATA_CONFIGURATION_INVALID');
+    }
   }
   return {
     status: 'PASS',
@@ -201,7 +253,7 @@ function validateStablePm2State({
     password_file_reference_present: authority === 'postgres',
     database_secret_persisted: false,
     provider_secret_persisted: false,
-    record_proof_runtime_enabled: false,
+    record_proof_runtime_enabled: proofRuntime === 'enabled',
     write_freeze_enabled: freeze === 'true'
   };
 }
@@ -215,7 +267,8 @@ function main(argv = process.argv.slice(2)) {
     passwordFile: options['expected-password-file'],
     database: options['expected-database'],
     authority: options['expected-authority'],
-    freeze: options['expected-freeze']
+    freeze: options['expected-freeze'],
+    proofRuntime: options['expected-proof-runtime']
   });
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   return report;

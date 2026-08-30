@@ -8,6 +8,9 @@ const {
   closePostgresPool,
   createPostgresPool
 } = require('../database/connection');
+const {
+  getRecordProofRuntimeStatus
+} = require('./postgres/recordProofRuntime');
 
 const BACKUP_ATTEMPT_FILE = '/var/lib/xingxingzaishan-production-backup/last-attempt.env';
 const BACKUP_STATE_KEYS = Object.freeze([
@@ -134,12 +137,27 @@ async function checkProductionPostgres({
   }
 }
 
+async function checkProductionRecordProofRuntime({
+  getStatus = getRecordProofRuntimeStatus
+} = {}) {
+  try {
+    const status = await getStatus();
+    return status
+      && status.enabled === true
+      && status.healthy === true
+      && status.started === true;
+  } catch (_error) {
+    return false;
+  }
+}
+
 function createProductionReadinessChecker({
   env = process.env,
   now = Date.now,
   cacheTtlMs = DEFAULT_CACHE_TTL_MS,
   readBackup = readProtectedBackupAttempt,
-  checkPostgres = checkProductionPostgres
+  checkPostgres = checkProductionPostgres,
+  checkRecordProof = checkProductionRecordProofRuntime
 } = {}) {
   let cachedUntil = 0;
   let cachedPromise = null;
@@ -156,7 +174,11 @@ function createProductionReadinessChecker({
     cachedPromise = (async () => {
       try {
         readBackup({ nowMs });
-        return await checkPostgres({ env });
+        const [postgresReady, recordProofReady] = await Promise.all([
+          checkPostgres({ env }),
+          checkRecordProof({ env })
+        ]);
+        return postgresReady === true && recordProofReady === true;
       } catch (_error) {
         return false;
       }
@@ -170,6 +192,7 @@ module.exports = {
   DEFAULT_CACHE_TTL_MS,
   MAX_BACKUP_AGE_MS,
   checkProductionPostgres,
+  checkProductionRecordProofRuntime,
   createProductionReadinessChecker,
   parseBackupAttemptState,
   readProtectedBackupAttempt

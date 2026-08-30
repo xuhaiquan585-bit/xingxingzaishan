@@ -18,6 +18,7 @@ const { checkPostgresHealth } = require('../src/server/database/healthCheck');
 const {
   MAX_BACKUP_AGE_MS,
   checkProductionPostgres,
+  checkProductionRecordProofRuntime,
   createProductionReadinessChecker,
   parseBackupAttemptState,
   readProtectedBackupAttempt
@@ -294,6 +295,30 @@ test('stable PM2 state persists file references but never database or provider s
   assert.equal(report.database_secret_persisted, false);
   assert.equal(report.write_freeze_enabled, true);
 
+  const proofEnabledEnvironment = {
+    ...stableEnvironment,
+    env: {
+      ...stableEnvironment.env,
+      RECORD_PROOF_RUNTIME_ENABLED: 'true',
+      RECORD_PROOF_RUNTIME_SCOPE: 'all',
+      RECORD_PROOF_RUNTIME_SOURCE_SHA256: 'a'.repeat(64),
+      RECORD_PROOF_RUNTIME_DOMAIN_SHA256: 'b'.repeat(64),
+      RECORD_PROOF_WORKER_ID: 'production-proof-worker',
+      CHAIN_ENABLED: 'true',
+      AVATA_ENV: 'production',
+      AVATA_API_BASE: 'https://apis.avata.bianjie.ai',
+      POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED: 'false'
+    }
+  };
+  const proofReport = validateStablePm2State({
+    ...expected,
+    dump: [proofEnabledEnvironment],
+    freeze: 'false',
+    proofRuntime: 'enabled'
+  });
+  assert.equal(proofReport.record_proof_runtime_enabled, true);
+  assert.equal(proofReport.provider_secret_persisted, false);
+
   const jsonReport = validateStablePm2State({
     ...expected,
     authority: 'json',
@@ -369,6 +394,33 @@ test('stable PM2 state persists file references but never database or provider s
         ...stableEnvironment,
         env: { ...stableEnvironment.env, AVATA_IDENTITY_NUM: 'loaded' }
       }]
+    }),
+    (error) => error.code === 'STABLE_PM2_STATE_AVATA_CONFIGURATION_INVALID'
+  );
+  assert.throws(
+    () => validateStablePm2State({
+      ...expected,
+      dump: [{
+        ...proofEnabledEnvironment,
+        env: { ...proofEnabledEnvironment.env, AVATA_API_SECRET: 'secret' }
+      }],
+      freeze: 'false',
+      proofRuntime: 'enabled'
+    }),
+    (error) => error.code === 'STABLE_PM2_STATE_SECRET_PERSISTED'
+  );
+  assert.throws(
+    () => validateStablePm2State({
+      ...expected,
+      dump: [{
+        ...proofEnabledEnvironment,
+        env: {
+          ...proofEnabledEnvironment.env,
+          AVATA_API_BASE: 'https://attacker.example.test'
+        }
+      }],
+      freeze: 'false',
+      proofRuntime: 'enabled'
     }),
     (error) => error.code === 'STABLE_PM2_STATE_AVATA_CONFIGURATION_INVALID'
   );
@@ -539,9 +591,30 @@ test('production readiness PostgreSQL probe is bounded and closes its pool', asy
   assert.equal(calls[1], 'closed');
 });
 
+test('production readiness requires an enabled, healthy, started proof runtime', async () => {
+  assert.equal(await checkProductionRecordProofRuntime({
+    async getStatus() {
+      return { enabled: true, healthy: true, started: true };
+    }
+  }), true);
+  for (const status of [
+    { enabled: false, healthy: true, started: false },
+    { enabled: true, healthy: false, started: true },
+    { enabled: true, healthy: true, started: false }
+  ]) {
+    assert.equal(await checkProductionRecordProofRuntime({
+      async getStatus() { return status; }
+    }), false);
+  }
+  assert.equal(await checkProductionRecordProofRuntime({
+    async getStatus() { throw new Error('unavailable'); }
+  }), false);
+});
+
 test('production readiness fails closed and caches concurrent probes', async () => {
   let backupChecks = 0;
   let postgresChecks = 0;
+  let proofChecks = 0;
   const checker = createProductionReadinessChecker({
     env: { NODE_ENV: 'production' },
     now: () => 1000,
@@ -549,6 +622,10 @@ test('production readiness fails closed and caches concurrent probes', async () 
     async checkPostgres() {
       postgresChecks += 1;
       return false;
+    },
+    async checkRecordProof() {
+      proofChecks += 1;
+      return true;
     }
   });
 
@@ -557,6 +634,16 @@ test('production readiness fails closed and caches concurrent probes', async () 
   assert.equal(second, false);
   assert.equal(backupChecks, 1);
   assert.equal(postgresChecks, 1);
+  assert.equal(proofChecks, 1);
+
+  const readyChecker = createProductionReadinessChecker({
+    env: { NODE_ENV: 'production' },
+    now: () => 2000,
+    readBackup() {},
+    async checkPostgres() { return true; },
+    async checkRecordProof() { return true; }
+  });
+  assert.equal(await readyChecker(), true);
 });
 
 test('migration loader sorts files, hashes raw bytes, and rejects transaction control', async () => {
@@ -3559,6 +3646,13 @@ test('manual production backup is non-destructive, secret-safe, and manually inv
   assert.match(runner, /assert_authority_runtime/);
   assert.match(runner, /POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED/);
   assert.match(runner, /RECORD_PROOF_RUNTIME_ENABLED/);
+  assert.match(runner, /RECORD_PROOF_RUNTIME_SCOPE/);
+  assert.match(runner, /RECORD_PROOF_RUNTIME_SOURCE_SHA256/);
+  assert.match(runner, /RECORD_PROOF_RUNTIME_DOMAIN_SHA256/);
+  assert.match(runner, /RECORD_PROOF_WORKER_ID/);
+  assert.match(runner, /https:\/\/apis\.avata\.bianjie\.ai/);
+  assert.match(runner, /AVATA_ENABLED=YES/);
+  assert.doesNotMatch(runner, /AVATA_ENABLED=NO/);
   assert.match(runner, /OSS_ACCESS_KEY_ID\|OSS_ACCESS_KEY_SECRET/);
   assert.match(runner, /APP_PID_CHANGED/);
   assert.match(runner, /CRON_CONFIGURED=NO/);

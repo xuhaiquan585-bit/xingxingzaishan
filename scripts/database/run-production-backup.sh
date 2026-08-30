@@ -33,6 +33,10 @@ assert_root_private_regular_file() {
   [ "$(stat -c '%a' "$file")" = 600 ] || return 1
 }
 
+is_sha256() {
+  [[ "${1,,}" =~ ^[0-9a-f]{64}$ ]]
+}
+
 assert_authority_runtime() {
   local app_pid="$1"
   local key
@@ -56,21 +60,21 @@ assert_authority_runtime() {
   done
   [ "$(runtime_value "$app_pid" PGDATABASE)" = "$EXPECTED_DATABASE" ] || return 1
   [ "$(runtime_value "$app_pid" POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED)" = false ] || return 1
-  [ "$(runtime_value "$app_pid" RECORD_PROOF_RUNTIME_ENABLED)" = false ] || return 1
-  local chain_enabled
-  chain_enabled="$(runtime_value "$app_pid" CHAIN_ENABLED)"
-  [ -z "$chain_enabled" ] || [ "$chain_enabled" = false ] || return 1
-  for key in \
-    AVATA_API_KEY \
-    AVATA_API_SECRET \
-    AVATA_IDENTITY_NAME \
-    AVATA_IDENTITY_NUM \
-    AVATA_API_BASE \
-    AVATA_ENV \
-    CHAIN_CALLBACK_URL
-  do
-    [ -z "$(runtime_value "$app_pid" "$key")" ] || return 1
-  done
+  [ "$(runtime_value "$app_pid" RECORD_PROOF_RUNTIME_ENABLED)" = true ] || return 1
+  [ "$(runtime_value "$app_pid" RECORD_PROOF_RUNTIME_SCOPE)" = all ] || return 1
+  [ -z "$(runtime_value "$app_pid" RECORD_PROOF_RUNTIME_ALLOWLIST)" ] || return 1
+  is_sha256 "$(runtime_value "$app_pid" RECORD_PROOF_RUNTIME_SOURCE_SHA256)" || return 1
+  is_sha256 "$(runtime_value "$app_pid" RECORD_PROOF_RUNTIME_DOMAIN_SHA256)" || return 1
+  [ -n "$(runtime_value "$app_pid" RECORD_PROOF_WORKER_ID)" ] || return 1
+  [ "$(runtime_value "$app_pid" CHAIN_ENABLED)" = true ] || return 1
+  case "$(runtime_value "$app_pid" AVATA_ENV)" in
+    prod|production) ;;
+    *) return 1 ;;
+  esac
+  case "$(runtime_value "$app_pid" AVATA_API_BASE)" in
+    ''|https://apis.avata.bianjie.ai|https://apis.avata.bianjie.ai/) ;;
+    *) return 1 ;;
+  esac
   ! tr '\0' '\n' < "/proc/$app_pid/environ" |
     grep -Eq '^(DATABASE_URL|PGPASSWORD|OSS_ACCESS_KEY_ID|OSS_ACCESS_KEY_SECRET|AVATA_API_KEY|AVATA_API_SECRET)=.+$'
 }
@@ -162,7 +166,7 @@ echo "APP_PID_AFTER=$APP_PID_AFTER"
 echo "APP_HTTP_AFTER=$HTTP_AFTER"
 echo 'POSTGRES_AUTHORITY_REMAINS_ENABLED=YES'
 echo 'JSON_BUSINESS_PATH_CHANGED=NO'
-echo 'AVATA_ENABLED=NO'
+echo 'AVATA_ENABLED=YES'
 echo 'CRON_CONFIGURED=NO'
 echo 'PRODUCTION_MANUAL_OFFSITE_BACKUP=PASS'
 echo 'PRODUCTION_MANUAL_OFFSITE_BACKUP_ACCEPTANCE=PASS'
