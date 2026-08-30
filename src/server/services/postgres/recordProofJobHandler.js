@@ -156,10 +156,17 @@ function normalizeSubmission(result, timestamp) {
 
 function operationId(recordQrId, manifestHash) {
   const value = `record_${recordQrId}_${manifestHash.slice(0, 16)}`;
-  if (value.length > 200) {
+  if (/^[A-Za-z0-9_-]{1,64}$/.test(value)) return value;
+  const recordDigest = crypto
+    .createHash('sha256')
+    .update(recordQrId, 'utf8')
+    .digest('hex')
+    .slice(0, 24);
+  const compact = `record_${recordDigest}_${manifestHash.slice(0, 16)}`;
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(compact)) {
     throw new RecordProofJobError('RECORD_PROOF_OPERATION_ID_INVALID');
   }
-  return value;
+  return compact;
 }
 
 function createRecordProofJobHandler({
@@ -683,6 +690,7 @@ module.exports = {
   hasPreparedManifest,
   normalizePreparation,
   normalizeSubmission,
+  operationId,
   isProviderTerminalFailure,
   validateJob
 };

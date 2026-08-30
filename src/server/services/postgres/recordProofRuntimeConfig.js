@@ -5,7 +5,10 @@ const {
   SOURCE_HASH_PATTERN
 } = require('./publicQrPrimaryReadConfig');
 const { readPrimarySelectionScope } = require('./primarySelectionScope');
-const { REQUEST_TIMEOUT_MS } = require('../avataService');
+const {
+  REQUEST_TIMEOUT_MS,
+  hasValidAvataRecordContractConfig
+} = require('../avataService');
 
 const DEFAULT_INTERVAL_MS = 5000;
 const DEFAULT_BATCH_SIZE = 5;
@@ -63,22 +66,19 @@ function parseInteger(value, fallback, minimum, maximum) {
 function hasProviderConfiguration(env) {
   return [
     'AVATA_API_KEY',
-    'AVATA_API_SECRET',
-    'AVATA_IDENTITY_NAME',
-    'AVATA_IDENTITY_NUM'
+    'AVATA_API_SECRET'
   ].every((key) => text(env[key]));
 }
 
+function providerRecordConfiguration(env) {
+  return {
+    recordType: Number(text(env.AVATA_RECORD_TYPE) || 1),
+    hashType: Number(text(env.AVATA_HASH_TYPE) || 1)
+  };
+}
+
 function hasValidProviderNumericConfiguration(env) {
-  return [
-    ['AVATA_IDENTITY_TYPE', 1],
-    ['AVATA_RECORD_TYPE', 1],
-    ['AVATA_HASH_TYPE', 1]
-  ].every(([key, fallback]) => {
-    const value = text(env[key]);
-    const parsed = Number(value || fallback);
-    return Number.isSafeInteger(parsed) && parsed > 0;
-  });
+  return hasValidAvataRecordContractConfig(providerRecordConfiguration(env));
 }
 
 function hasSecureCallbackUrl(value) {

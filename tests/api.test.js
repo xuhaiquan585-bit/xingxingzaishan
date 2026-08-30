@@ -163,7 +163,7 @@ test('AVATA callback verification accepts only a current authentic signature', (
   }
 });
 
-test('AVATA record proof body should include official fields without secrets', () => {
+test('AVATA record proof body uses the minimal official contract without optional identity PII', () => {
   const { buildRecordProofBody } = require('../src/server/services/avataService');
   const body = buildRecordProofBody({
     operationId: 'record_STAR001_hash',
@@ -171,21 +171,28 @@ test('AVATA record proof body should include official fields without secrets', (
     starId: 'STAR001',
     sealedAt: '2026-07-09T00:00:00.000Z',
     config: {
-      identityType: 1,
-      identityName: '测试企业主体',
-      identityNum: 'TEST-CREDIT-CODE',
       recordType: 1,
       hashType: 1
     }
   });
-  assert.equal(body.identity_type, 1);
-  assert.equal(body.identity_name, '测试企业主体');
-  assert.equal(body.identity_num, 'TEST-CREDIT-CODE');
+  assert.equal('identity_type' in body, false);
+  assert.equal('identity_name' in body, false);
+  assert.equal('identity_num' in body, false);
+  assert.equal('identities' in body, false);
   assert.equal(body.type, 1);
   assert.equal(body.hash_type, 1);
   assert.equal(body.operation_id, 'record_STAR001_hash');
   assert.equal(body.hash, 'a'.repeat(64));
-  assert.equal(Array.isArray(body.identities), true);
+  assert.equal(buildRecordProofBody({
+    operationId: 'record_LONG_hash',
+    manifestHash: 'a'.repeat(64),
+    starId: 'Q'.repeat(64),
+    sealedAt: '2026-07-09T00:00:00.000Z',
+    config: {
+      recordType: 1,
+      hashType: 1
+    }
+  }).name.length, 64);
   const serialized = JSON.stringify(body);
   assert.equal(serialized.includes('AVATA_API_SECRET'), false);
   assert.equal(serialized.includes('openid'), false);

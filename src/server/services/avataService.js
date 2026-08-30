@@ -7,6 +7,9 @@ const PROVIDER_RESPONSE_MAX_BYTES = 1024 * 1024;
 const USER_AGENT = 'xingxingzaishan/record-proof-runtime';
 const AMBIGUOUS_NOT_FOUND_CODES = new Set(['NOT_FOUND']);
 const PROVIDER_ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,63}$/;
+const OPERATION_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const RECORD_TYPES = new Set(Array.from({ length: 14 }, (_value, index) => index + 1));
+const HASH_TYPES = new Set([1, 2, 3, 4]);
 
 function configuredOperationNotFoundCode(value) {
   const normalized = String(value || '').trim();
@@ -27,9 +30,6 @@ function getAvataConfig() {
     callbackUrl: process.env.CHAIN_CALLBACK_URL || '',
     projectId: process.env.AVATA_PROJECT_ID || '',
     chainId: process.env.AVATA_CHAIN_ID || '',
-    identityType: Number(process.env.AVATA_IDENTITY_TYPE || 1),
-    identityName: process.env.AVATA_IDENTITY_NAME || '',
-    identityNum: process.env.AVATA_IDENTITY_NUM || '',
     operationNotFoundCode: configuredOperationNotFoundCode(
       process.env.AVATA_OPERATION_NOT_FOUND_CODE
     ),
@@ -48,11 +48,7 @@ function isAvataRecordConfigured() {
   return !!(
     config.apiKey
     && config.apiSecret
-    && config.identityName
-    && config.identityNum
-    && Number.isFinite(config.identityType)
-    && Number.isFinite(config.recordType)
-    && Number.isFinite(config.hashType)
+    && hasValidAvataRecordContractConfig(config)
   );
 }
 
@@ -60,8 +56,11 @@ function shouldUseRealAvata() {
   return process.env.CHAIN_ENABLED === 'true' && isAvataRecordConfigured();
 }
 
-function validProviderInteger(value) {
-  return Number.isSafeInteger(value) && value > 0;
+function hasValidAvataRecordContractConfig(config = {}) {
+  return Boolean(
+    RECORD_TYPES.has(config.recordType)
+    && HASH_TYPES.has(config.hashType)
+  );
 }
 
 function validateProviderBase(config) {
@@ -313,13 +312,11 @@ function prepareRecordProofSubmission({ operationId, manifestHash, starId, seale
   const config = getAvataConfig();
   validateProviderBase(config);
   if (
-    !String(operationId || '').trim()
+    !OPERATION_ID_PATTERN.test(String(operationId || '').trim())
     || !/^[0-9a-f]{64}$/.test(String(manifestHash || '').trim().toLowerCase())
     || !String(starId || '').trim()
     || !String(sealedAt || '').trim()
-    || !validProviderInteger(config.identityType)
-    || !validProviderInteger(config.recordType)
-    || !validProviderInteger(config.hashType)
+    || !hasValidAvataRecordContractConfig(config)
   ) {
     const error = new Error('AVATA submission is invalid');
     error.code = 'AVATA_SUBMISSION_INVALID';
@@ -337,6 +334,16 @@ function prepareRecordProofSubmission({ operationId, manifestHash, starId, seale
     sealedAt,
     config
   }));
+  if (
+    body.name.length < 1
+    || body.name.length > 64
+    || body.description.length < 1
+    || body.description.length > 512
+  ) {
+    const error = new Error('AVATA submission is invalid');
+    error.code = 'AVATA_SUBMISSION_INVALID';
+    throw error;
+  }
   const path = '/v3/native/record/records';
   const serializedBody = JSON.stringify(body);
   stableJson(buildSignParams({ path, body }));
@@ -349,20 +356,13 @@ function prepareRecordProofSubmission({ operationId, manifestHash, starId, seale
 }
 
 function buildRecordProofBody({ operationId, manifestHash, starId, sealedAt, config = getAvataConfig() }) {
+  const name = `记在星上-${starId}`.slice(0, 64);
   return {
-    identity_type: config.identityType,
-    identity_name: config.identityName,
-    identity_num: config.identityNum,
-    identities: [{
-      identity_type: config.identityType,
-      identity_name: config.identityName,
-      identity_num: config.identityNum
-    }],
     type: config.recordType,
     hash_type: config.hashType,
     operation_id: operationId,
     hash: manifestHash,
-    name: `记在星上-${starId}`,
+    name,
     description: `星星ID ${starId} 于 ${sealedAt || ''} 生成的链上存证`
   };
 }
@@ -445,6 +445,7 @@ module.exports = {
   REQUEST_TIMEOUT_MS,
   PROVIDER_RESPONSE_MAX_BYTES,
   getAvataConfig,
+  hasValidAvataRecordContractConfig,
   isAvataConfigured,
   isAvataRecordConfigured,
   shouldUseRealAvata,

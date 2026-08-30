@@ -366,6 +366,29 @@ test('AVATA provider preflight performs no network work and contains no credenti
     assert.equal(fetchCalls, 0);
     assert.equal(prepared.path, '/v3/native/record/records');
     assert.doesNotMatch(serialized, /preflight-api-key|preflight-api-secret|signature|timestamp/i);
+    assert.equal('identity_type' in prepared.body, false);
+    assert.equal('identity_name' in prepared.body, false);
+    assert.equal('identity_num' in prepared.body, false);
+    assert.equal('identities' in prepared.body, false);
+    assert.throws(
+      () => prepareRecordProofSubmission({
+        operationId: `${'x'.repeat(65)}`,
+        manifestHash: submission().manifest_hash,
+        starId: submission().record_qr_id,
+        sealedAt: submission().sealed_at
+      }),
+      (error) => error.code === 'AVATA_SUBMISSION_INVALID'
+    );
+    assert.throws(
+      () => prepareRecordProofSubmission({
+        operationId: 'operation:invalid',
+        manifestHash: submission().manifest_hash,
+        starId: submission().record_qr_id,
+        sealedAt: submission().sealed_at
+      }),
+      (error) => error.code === 'AVATA_SUBMISSION_INVALID'
+    );
+    assert.equal(fetchCalls, 0);
     assert.deepEqual(verifyAvataCallback({ path: '/callback', body: {}, headers: {} }), {
       ok: false,
       reason: 'CALLBACK_DISABLED'

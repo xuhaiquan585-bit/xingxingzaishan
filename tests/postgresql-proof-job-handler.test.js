@@ -13,12 +13,25 @@ const {
   createRecordProofJobHandler,
   normalizePreparation,
   normalizeSubmission,
+  operationId,
   validateJob
 } = require('../src/server/services/postgres/recordProofJobHandler');
 
 const NOW = '2026-08-09T10:00:00.000Z';
 const MANIFEST_HASH = 'a'.repeat(64);
 const IMAGE_HASH = 'b'.repeat(64);
+
+test('record proof operation IDs preserve short IDs and compact long IDs to provider bounds', () => {
+  assert.equal(
+    operationId('QR_PROOF', MANIFEST_HASH),
+    `record_QR_PROOF_${MANIFEST_HASH.slice(0, 16)}`
+  );
+  const longQrId = `Q${'R'.repeat(63)}`;
+  const compact = operationId(longQrId, MANIFEST_HASH);
+  assert.match(compact, /^[A-Za-z0-9_-]{1,64}$/);
+  assert.equal(compact, operationId(longQrId, MANIFEST_HASH));
+  assert.notEqual(compact, operationId(`S${'R'.repeat(63)}`, MANIFEST_HASH));
+});
 
 async function startUncertainSubmissionProvider() {
   const sockets = new Set();
