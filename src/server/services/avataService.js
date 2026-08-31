@@ -7,6 +7,7 @@ const PROVIDER_RESPONSE_MAX_BYTES = 1024 * 1024;
 const USER_AGENT = 'xingxingzaishan/record-proof-runtime';
 const AMBIGUOUS_NOT_FOUND_CODES = new Set(['NOT_FOUND']);
 const PROVIDER_ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,63}$/;
+const AVATA_REQUEST_ERROR_MARKER = Symbol('avataRequestError');
 const OPERATION_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const RECORD_TYPES = new Set(Array.from({ length: 14 }, (_value, index) => index + 1));
 const HASH_TYPES = new Set([1, 2, 3, 4]);
@@ -117,7 +118,21 @@ function signRequest({ path, query, body, timestamp, apiSecret }) {
 function avataRequestError(code = 'AVATA_REQUEST_FAILED') {
   const error = new Error('AVATA request failed');
   error.code = code;
+  error[AVATA_REQUEST_ERROR_MARKER] = true;
   return error;
+}
+
+function providerRequestErrorCode(status, providerCode) {
+  const normalizedStatus = Number(status);
+  if (
+    !Number.isInteger(normalizedStatus)
+    || normalizedStatus < 400
+    || normalizedStatus > 599
+  ) return 'AVATA_REQUEST_FAILED';
+  const normalizedProviderCode = String(providerCode || '').trim();
+  return PROVIDER_ERROR_CODE_PATTERN.test(normalizedProviderCode)
+    ? `AVATA_HTTP_${normalizedStatus}_${normalizedProviderCode}`
+    : `AVATA_HTTP_${normalizedStatus}`;
 }
 
 async function readBoundedResponseText(response, {
@@ -222,19 +237,18 @@ async function requestAvata(
     }
 
     if (!response.ok) {
-      const error = avataRequestError();
+      const providerCode = providerErrorCode(data);
+      const error = avataRequestError(
+        providerRequestErrorCode(response.status, providerCode)
+      );
       error.status = response.status;
-      error.providerCode = providerErrorCode(data);
+      error.providerCode = providerCode;
       throw error;
     }
 
     return data;
   } catch (error) {
-    if (
-      error
-      && ['AVATA_REQUEST_FAILED', 'AVATA_RESPONSE_TOO_LARGE', 'AVATA_RESPONSE_INVALID']
-        .includes(error.code)
-    ) {
+    if (error && error[AVATA_REQUEST_ERROR_MARKER] === true) {
       throw error;
     }
     throw avataRequestError();
@@ -453,6 +467,7 @@ module.exports = {
   buildSignParams,
   stableJson,
   configuredOperationNotFoundCode,
+  providerRequestErrorCode,
   mapAvataQueryError,
   buildRecordProofBody,
   prepareRecordProofSubmission,

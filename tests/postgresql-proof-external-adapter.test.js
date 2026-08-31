@@ -47,6 +47,14 @@ async function startLocalProvider() {
       response.end('{"provider_secret":"must-not-leak"');
       return;
     }
+    if (request.url === '/provider-error') {
+      response.writeHead(400, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: 'must-not-leak'
+      }));
+      return;
+    }
     response.writeHead(200, { 'Content-Type': 'application/json' });
     response.end('{"status":"submitted"}');
   });
@@ -465,12 +473,19 @@ test('AVATA shared request bounds stalled, oversized, and malformed GET and POST
         (error) => error.code === 'AVATA_RESPONSE_INVALID'
           && !/provider_secret|must-not-leak/i.test(error.message)
       );
+      await assert.rejects(
+        requestAvata({ method: 'POST', path: '/provider-error', body: { value: 1 } }, dependencies),
+        (error) => error.code === 'AVATA_HTTP_400_BAD_REQUEST'
+          && error.status === 400
+          && error.providerCode === 'BAD_REQUEST'
+          && !/must-not-leak/i.test(error.message)
+      );
       assert.deepEqual(
         await requestAvata({ method: 'GET', path: '/ok' }, dependencies),
         { status: 'submitted' }
       );
     });
-    assert.equal(clearedTimerCount, 6);
+    assert.equal(clearedTimerCount, 7);
     assert.equal(PROVIDER_RESPONSE_MAX_BYTES, 1024 * 1024);
   } finally {
     await provider.close();
