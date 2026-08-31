@@ -31,6 +31,9 @@ function getAvataConfig() {
     callbackUrl: process.env.CHAIN_CALLBACK_URL || '',
     projectId: process.env.AVATA_PROJECT_ID || '',
     chainId: process.env.AVATA_CHAIN_ID || '',
+    identityType: Number(process.env.AVATA_IDENTITY_TYPE || 1),
+    identityName: process.env.AVATA_IDENTITY_NAME || '',
+    identityNum: process.env.AVATA_IDENTITY_NUM || '',
     operationNotFoundCode: configuredOperationNotFoundCode(
       process.env.AVATA_OPERATION_NOT_FOUND_CODE
     ),
@@ -59,7 +62,11 @@ function shouldUseRealAvata() {
 
 function hasValidAvataRecordContractConfig(config = {}) {
   return Boolean(
-    RECORD_TYPES.has(config.recordType)
+    Number.isSafeInteger(config.identityType)
+    && config.identityType > 0
+    && String(config.identityName || '').trim()
+    && String(config.identityNum || '').trim()
+    && RECORD_TYPES.has(config.recordType)
     && HASH_TYPES.has(config.hashType)
   );
 }
@@ -372,6 +379,9 @@ function prepareRecordProofSubmission({ operationId, manifestHash, starId, seale
 function buildRecordProofBody({ operationId, manifestHash, starId, sealedAt, config = getAvataConfig() }) {
   const name = `记在星上-${starId}`.slice(0, 64);
   return {
+    identity_type: config.identityType,
+    identity_name: config.identityName,
+    identity_num: config.identityNum,
     type: config.recordType,
     hash_type: config.hashType,
     operation_id: operationId,

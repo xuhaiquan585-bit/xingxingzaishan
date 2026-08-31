@@ -72,6 +72,9 @@ function hasProviderConfiguration(env) {
 
 function providerRecordConfiguration(env) {
   return {
+    identityType: Number(text(env.AVATA_IDENTITY_TYPE) || 1),
+    identityName: text(env.AVATA_IDENTITY_NAME),
+    identityNum: text(env.AVATA_IDENTITY_NUM),
     recordType: Number(text(env.AVATA_RECORD_TYPE) || 1),
     hashType: Number(text(env.AVATA_HASH_TYPE) || 1)
   };
@@ -159,7 +162,7 @@ function readRecordProofRuntimeConfig(env = process.env) {
     return disabled('CHAIN_PROVIDER_CONFIG_REQUIRED');
   }
   if (!hasValidProviderNumericConfiguration(source)) {
-    return disabled('CHAIN_PROVIDER_NUMERIC_CONFIG_INVALID');
+    return disabled('CHAIN_PROVIDER_RECORD_CONFIG_INVALID');
   }
   if (!hasProductionProviderConfiguration(source)) {
     return disabled('PRODUCTION_CHAIN_PROVIDER_REQUIRED');

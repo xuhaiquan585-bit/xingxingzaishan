@@ -163,7 +163,7 @@ test('AVATA callback verification accepts only a current authentic signature', (
   }
 });
 
-test('AVATA record proof body uses the minimal official contract without optional identity PII', () => {
+test('AVATA record proof body uses the official single-subject contract', () => {
   const { buildRecordProofBody } = require('../src/server/services/avataService');
   const body = buildRecordProofBody({
     operationId: 'record_STAR001_hash',
@@ -171,13 +171,16 @@ test('AVATA record proof body uses the minimal official contract without optiona
     starId: 'STAR001',
     sealedAt: '2026-07-09T00:00:00.000Z',
     config: {
+      identityType: 1,
+      identityName: 'fixture-subject',
+      identityNum: 'fixture-subject-number',
       recordType: 1,
       hashType: 1
     }
   });
-  assert.equal('identity_type' in body, false);
-  assert.equal('identity_name' in body, false);
-  assert.equal('identity_num' in body, false);
+  assert.equal(body.identity_type, 1);
+  assert.equal(body.identity_name, 'fixture-subject');
+  assert.equal(body.identity_num, 'fixture-subject-number');
   assert.equal('identities' in body, false);
   assert.equal(body.type, 1);
   assert.equal(body.hash_type, 1);
@@ -189,6 +192,9 @@ test('AVATA record proof body uses the minimal official contract without optiona
     starId: 'Q'.repeat(64),
     sealedAt: '2026-07-09T00:00:00.000Z',
     config: {
+      identityType: 1,
+      identityName: 'fixture-subject',
+      identityNum: 'fixture-subject-number',
       recordType: 1,
       hashType: 1
     }

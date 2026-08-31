@@ -101,15 +101,18 @@ test('record proof runtime config is default-off and requires complete real-prov
   const minimalEnv = enabledEnv();
   delete minimalEnv.AVATA_IDENTITY_NAME;
   delete minimalEnv.AVATA_IDENTITY_NUM;
-  assert.equal(readRecordProofRuntimeConfig(minimalEnv).enabled, true);
+  assert.equal(
+    readRecordProofRuntimeConfig(minimalEnv).reason,
+    'CHAIN_PROVIDER_RECORD_CONFIG_INVALID'
+  );
   assert.equal(readRecordProofRuntimeConfig({
     ...enabledEnv(),
     AVATA_RECORD_TYPE: '15'
-  }).reason, 'CHAIN_PROVIDER_NUMERIC_CONFIG_INVALID');
+  }).reason, 'CHAIN_PROVIDER_RECORD_CONFIG_INVALID');
   assert.equal(readRecordProofRuntimeConfig({
     ...enabledEnv(),
     AVATA_HASH_TYPE: '5'
-  }).reason, 'CHAIN_PROVIDER_NUMERIC_CONFIG_INVALID');
+  }).reason, 'CHAIN_PROVIDER_RECORD_CONFIG_INVALID');
   const invalidCallback = readRecordProofRuntimeConfig({
     ...enabledEnv(),
     CHAIN_CALLBACK_URL: 'http://example.test/callback'
@@ -153,7 +156,7 @@ test('record proof runtime config is default-off and requires complete real-prov
   assert.equal(readRecordProofRuntimeConfig({
     ...enabledEnv(),
     AVATA_HASH_TYPE: 'invalid'
-  }).reason, 'CHAIN_PROVIDER_NUMERIC_CONFIG_INVALID');
+  }).reason, 'CHAIN_PROVIDER_RECORD_CONFIG_INVALID');
   assert.equal(readRecordProofRuntimeConfig(enabledEnv({
     NODE_ENV: 'production',
     AVATA_ENV: 'prod',

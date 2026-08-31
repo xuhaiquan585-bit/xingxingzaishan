@@ -55,6 +55,21 @@ function sanitizedErrorCode(error, fallback) {
   return fallback;
 }
 
+const INITIAL_SUBMISSION_DIAGNOSTIC_CODES = new Set([
+  'ETIMEDOUT',
+  'ECONNRESET',
+  'AVATA_REQUEST_FAILED',
+  'AVATA_RESPONSE_INVALID',
+  'AVATA_RESPONSE_TOO_LARGE',
+  'RECORD_PROOF_PROVIDER_STATUS_INVALID'
+]);
+
+function isInitialSubmissionDiagnostic(value) {
+  const code = normalizedText(value).toUpperCase();
+  return INITIAL_SUBMISSION_DIAGNOSTIC_CODES.has(code)
+    || /^AVATA_HTTP_[0-9]{3}(?:_[A-Z0-9_]+)?$/.test(code);
+}
+
 function operationTimestamp(clock) {
   const candidate = clock();
   const value = candidate instanceof Date ? candidate : new Date(candidate);
@@ -459,9 +474,13 @@ function createRecordProofJobHandler({
       ) {
         return current;
       }
+      const persistedCode = current.status === 'retrying'
+        && isInitialSubmissionDiagnostic(current.last_error)
+        ? current.last_error
+        : code;
       const updated = await proofs.markRecoveryDeferred({
         id: proofId,
-        last_error: code,
+        last_error: persistedCode,
         updated_at: operationTimestamp(clock)
       });
       if (!updated) throw new RecordProofJobError('RECORD_PROOF_RECOVERY_STATE_CONFLICT');

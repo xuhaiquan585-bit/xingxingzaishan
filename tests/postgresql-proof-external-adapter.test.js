@@ -374,9 +374,9 @@ test('AVATA provider preflight performs no network work and contains no credenti
     assert.equal(fetchCalls, 0);
     assert.equal(prepared.path, '/v3/native/record/records');
     assert.doesNotMatch(serialized, /preflight-api-key|preflight-api-secret|signature|timestamp/i);
-    assert.equal('identity_type' in prepared.body, false);
-    assert.equal('identity_name' in prepared.body, false);
-    assert.equal('identity_num' in prepared.body, false);
+    assert.equal(prepared.body.identity_type, 1);
+    assert.equal(prepared.body.identity_name, 'identity-name');
+    assert.equal(prepared.body.identity_num, 'identity-number');
     assert.equal('identities' in prepared.body, false);
     assert.throws(
       () => prepareRecordProofSubmission({

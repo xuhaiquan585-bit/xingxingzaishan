@@ -654,11 +654,13 @@ for (const ambiguousCode of [
     });
 
     await assert.rejects(handler(job()), (error) => error.code === RECOVERY_DEFERRED_CODE);
+    assert.equal(harness.state.proof.last_error, ambiguousCode);
     await assert.rejects(handler(job()), (error) => error.code === RECOVERY_DEFERRED_CODE);
     assert.equal(submissionCalls, 1);
     assert.equal(queryCalls, 1);
     assert.equal(harness.state.attempts.length, 1);
     assert.equal(harness.state.proof.status, 'retrying');
+    assert.equal(harness.state.proof.last_error, ambiguousCode);
   });
 }
 
