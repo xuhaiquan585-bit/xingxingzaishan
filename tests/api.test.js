@@ -1677,6 +1677,7 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(html.includes('id="shippingModal"'), true);
   assert.equal(html.includes('id="orderSearch"'), true);
   assert.equal(html.includes('class="toolbar-divider"'), true);
+  assert.equal(html.includes('class="toolbar-divider batch-generation-divider"'), true);
   assert.equal(html.includes('id="batchQrImagesExportBtn"'), true);
   assert.equal(html.includes('导出数据 CSV'), true);
   assert.equal(html.includes('下载二维码图片'), true);

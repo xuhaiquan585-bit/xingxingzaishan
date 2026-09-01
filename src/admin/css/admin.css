@@ -159,6 +159,10 @@ button.secondary {
   background: #dbe3ec;
 }
 
+.batch-generation-divider {
+  margin: 8px 0 16px;
+}
+
 .toolbar.compact {
   justify-content: flex-end;
 }
