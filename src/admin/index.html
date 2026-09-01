@@ -30,6 +30,7 @@
           <button class="nav-item active" data-admin-section="dashboard">工作台</button>
           <button class="nav-item" data-admin-section="bottles">瓶码管理</button>
           <button class="nav-item" data-admin-section="labelTemplates">标签模板</button>
+          <button class="nav-item" data-admin-section="printBatches">印刷任务</button>
           <button class="nav-item" data-admin-section="records">记录管理</button>
           <button class="nav-item" data-admin-section="miniappContent">小程序内容</button>
           <button class="nav-item" data-admin-section="products">商品管理</button>
@@ -144,6 +145,7 @@
                 <button id="batchShowBtn">批量显示</button>
                 <button id="batchExportBtn" class="secondary">导出数据 CSV</button>
                 <button id="batchQrImagesExportBtn">下载二维码图片</button>
+                <button id="createPrintBatchFromSelectionBtn">创建印刷任务</button>
                 <span id="selectedCount">已选 0 条</span>
               </div>
               <div class="table-wrap">
@@ -280,6 +282,70 @@
                   </div>
                 </div>
               </section>
+            </div>
+          </section>
+
+          <section id="printBatchPanel" class="admin-panel hidden" data-admin-panel="printBatches">
+            <div class="panel-title">
+              <div>
+                <h2>印刷任务</h2>
+                <p>预留二维码、生成唯一生产文件并登记印刷结果。</p>
+              </div>
+              <button id="refreshPrintBatchesBtn" class="secondary">刷新</button>
+            </div>
+            <p id="printBatchMsg" class="msg"></p>
+            <div class="module-block print-batch-create">
+              <h3>创建任务</h3>
+              <div class="toolbar multi-line">
+                <input id="printBatchName" maxlength="160" placeholder="任务名称（必填）" />
+                <select id="printBatchTemplate"><option value="">选择已发布模板</option></select>
+                <input id="printBatchVendor" maxlength="160" placeholder="印刷厂家（选填）" />
+                <input id="printBatchNote" maxlength="2000" placeholder="备注（选填）" />
+              </div>
+              <label class="print-qr-id-input">二维码 ID（每行一个，最多 500 个）
+                <textarea id="printBatchQrIds" rows="5" placeholder="SSS00001&#10;SSS00002"></textarea>
+              </label>
+              <div class="toolbar compact">
+                <button id="createPrintBatchBtn">预留二维码并创建</button>
+                <span id="printBatchQrCount" class="muted">0 个</span>
+              </div>
+            </div>
+            <div class="module-block">
+              <div class="toolbar multi-line">
+                <select id="printBatchStatusFilter">
+                  <option value="">状态（全部）</option>
+                  <option value="reserved">已预留</option>
+                  <option value="generation_failed">生成失败</option>
+                  <option value="artifact_ready">文件已生成</option>
+                  <option value="printing">印刷中</option>
+                  <option value="completed">已完成</option>
+                  <option value="canceled">已取消</option>
+                  <option value="voided">已作废</option>
+                </select>
+                <input id="printBatchSearch" placeholder="任务编号或名称" />
+                <button id="filterPrintBatchesBtn">筛选</button>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>任务</th><th>模板</th><th>数量</th><th>状态</th><th>下载</th><th>创建时间</th><th>操作</th></tr></thead>
+                  <tbody id="printBatchTable"></tbody>
+                </table>
+              </div>
+            </div>
+            <div id="printBatchDetail" class="module-block hidden">
+              <div class="print-batch-detail-head">
+                <div><h3 id="printBatchDetailName">任务详情</h3><p id="printBatchDetailMeta" class="muted"></p></div>
+                <div id="printBatchActions" class="toolbar compact"></div>
+              </div>
+              <label id="printVoidReasonRow" class="hidden">报废原因
+                <input id="printVoidReason" maxlength="500" placeholder="填写具体原因" />
+              </label>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th><input id="selectAllPrintQr" type="checkbox" /></th><th>二维码 ID</th><th>原批次</th><th>印刷状态</th><th>报废原因</th></tr></thead>
+                  <tbody id="printBatchQrTable"></tbody>
+                </table>
+              </div>
             </div>
           </section>
 
@@ -700,6 +766,7 @@
     </main>
 
     <script src="/admin/js/label-template-editor.js"></script>
+    <script src="/admin/js/print-batch-admin.js"></script>
     <script src="/admin/js/admin.js"></script>
   </body>
 </html>

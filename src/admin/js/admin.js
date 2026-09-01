@@ -10,6 +10,7 @@ const orderMsg = document.getElementById('orderMsg');
 const recordMsg = document.getElementById('recordMsg');
 const miniappContentMsg = document.getElementById('miniappContentMsg');
 const labelTemplateMsg = document.getElementById('labelTemplateMsg');
+const printBatchMsg = document.getElementById('printBatchMsg');
 const systemMsg = document.getElementById('systemMsg');
 const tableBody = document.getElementById('recordTable');
 const contentRecordTableBody = document.getElementById('contentRecordTable');
@@ -142,6 +143,7 @@ function activateAdminSection(section) {
       dashboard: loginMsg,
       bottles: batchMsg,
       labelTemplates: labelTemplateMsg,
+      printBatches: printBatchMsg,
       records: recordMsg,
       miniappContent: miniappContentMsg,
       products: productMsg,
@@ -165,6 +167,10 @@ async function loadActiveSection() {
   }
   if (activeSection === 'labelTemplates') {
     await window.LabelTemplateEditor.load();
+    return;
+  }
+  if (activeSection === 'printBatches') {
+    await window.PrintBatchAdmin.load();
     return;
   }
   if (activeSection === 'records') {
@@ -1473,6 +1479,14 @@ document.getElementById('batchQrImagesExportBtn').addEventListener('click', asyn
   } catch (error) {
     alert(error.message || '二维码图片导出失败');
   }
+});
+document.getElementById('createPrintBatchFromSelectionBtn').addEventListener('click', () => {
+  if (selectedIds.size === 0) {
+    alert('请先勾选二维码。');
+    return;
+  }
+  window.PrintBatchAdmin.openWithQrIds([...selectedIds]);
+  activateAdminSection('printBatches');
 });
 
 selectAll.addEventListener('change', () => {

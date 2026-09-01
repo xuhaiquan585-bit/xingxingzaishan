@@ -316,6 +316,7 @@ BEGIN
     OR (OLD.print_status = 'available' AND NEW.print_status = 'reserved')
     OR (OLD.print_status = 'reserved' AND NEW.print_status IN ('available', 'artifact_generated'))
     OR (OLD.print_status = 'artifact_generated' AND NEW.print_status IN ('printed', 'voided'))
+    OR (OLD.print_status = 'printed' AND NEW.print_status = 'voided')
   ) THEN
     RAISE EXCEPTION USING
       ERRCODE = '23514',

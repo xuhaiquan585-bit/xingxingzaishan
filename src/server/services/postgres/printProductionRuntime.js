@@ -3,6 +3,7 @@
 const { checkSourceAndDomainFreshness } = require('./publicQrFreshness');
 const { readQrIssuanceAuthorityConfig } = require('./qrIssuanceAuthorityConfig');
 const { LabelTemplateServiceError } = require('./labelTemplateService');
+const { PrintBatchServiceError } = require('./printBatchService');
 const { LabelRenderError } = require('../labelRenderer');
 
 class PrintProductionRuntimeError extends Error {
@@ -18,6 +19,10 @@ function createPrintProductionRuntime({ env = process.env } = {}) {
   if (!config.requested || !config.enabled) {
     throw new PrintProductionRuntimeError('PRINT_PRODUCTION_POSTGRES_AUTHORITY_REQUIRED');
   }
+  if (String(env.NODE_ENV || '').trim().toLowerCase() === 'production'
+      && String(env.STORAGE_MODE || '').trim().toLowerCase() !== 'cloud') {
+    throw new PrintProductionRuntimeError('PRINT_PRODUCTION_PRIVATE_OSS_REQUIRED');
+  }
   const { createPostgresPool, closePostgresPool } = require('../../database/connection');
   const { readPostgresConfig } = require('../../database/config');
   const { withTransaction } = require('../../database/transaction');
@@ -32,29 +37,58 @@ function createPrintProductionRuntime({ env = process.env } = {}) {
       applicationName: 'xingxingzaishan-print-production'
     }
   });
-  const service = require('./labelTemplateService').createLabelTemplateService({
+  const operationGate = async ({ transactionContext }) => {
+    const eligibility = await checkSourceAndDomainFreshness({
+      provenanceRepository: new repositories.PublicQrProvenanceRepository(transactionContext),
+      sourceHash: config.sourceHash,
+      domainHash: config.domainHash,
+      migrations
+    });
+    if (eligibility !== 'ELIGIBLE') {
+      throw new PrintProductionRuntimeError(`PRINT_PRODUCTION_POSTGRES_${eligibility}`);
+    }
+  };
+  const templateService = require('./labelTemplateService').createLabelTemplateService({
     pool,
     transactionRunner: withTransaction,
     repositoryType: repositories.LabelTemplateRepository,
-    beforeOperation: async ({ transactionContext }) => {
-      const eligibility = await checkSourceAndDomainFreshness({
-        provenanceRepository: new repositories.PublicQrProvenanceRepository(transactionContext),
-        sourceHash: config.sourceHash,
-        domainHash: config.domainHash,
-        migrations
-      });
-      if (eligibility !== 'ELIGIBLE') {
-        throw new PrintProductionRuntimeError(`PRINT_PRODUCTION_POSTGRES_${eligibility}`);
-      }
-    }
+    beforeOperation: operationGate
+  });
+  const batchService = require('./printBatchService').createPrintBatchService({
+    pool,
+    transactionRunner: withTransaction,
+    repositoryType: repositories.PrintBatchRepository,
+    beforeOperation: operationGate
+  });
+  const operations = Object.freeze({
+    archive: templateService.archive,
+    copyTemplate: templateService.copyTemplate,
+    createTemplate: templateService.createTemplate,
+    createVersion: templateService.createVersion,
+    getTemplate: templateService.getTemplate,
+    listTemplates: templateService.listTemplates,
+    preview: templateService.preview,
+    publish: templateService.publish,
+    readAsset: templateService.readAsset,
+    registerAsset: templateService.registerAsset,
+    saveDraft: templateService.saveDraft,
+    cancelPrintBatch: batchService.cancel,
+    completePrintBatch: batchService.complete,
+    createPrintBatch: batchService.create,
+    downloadPrintArtifact: batchService.download,
+    generatePrintArtifact: batchService.generate,
+    getPrintBatch: batchService.get,
+    listPrintBatches: batchService.list,
+    startPrinting: batchService.startPrinting,
+    voidPrintBatch: batchService.voidBatch
   });
   let closed = false;
   async function execute(operation, input) {
     if (closed) throw new PrintProductionRuntimeError('PRINT_PRODUCTION_RUNTIME_CLOSED');
-    if (!operation || typeof service[operation] !== 'function') {
+    if (!operation || typeof operations[operation] !== 'function') {
       throw new PrintProductionRuntimeError('PRINT_PRODUCTION_OPERATION_INVALID');
     }
-    return service[operation](input || {});
+    return operations[operation](input || {});
   }
   async function close() {
     if (closed) return;
@@ -74,6 +108,7 @@ async function executePrintProduction(operation, input) {
     return await (await runtimePromise).execute(operation, input);
   } catch (error) {
     if (error instanceof LabelTemplateServiceError
+        || error instanceof PrintBatchServiceError
         || error instanceof PrintProductionRuntimeError
         || error instanceof LabelRenderError
         || error?.code === 'LABEL_TEMPLATE_INVALID') throw error;

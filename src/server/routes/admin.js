@@ -498,20 +498,30 @@ function sendPrintProductionError(res, error) {
     });
   }
   if (['TEMPLATE_NAME_INVALID', 'TEMPLATE_ASSET_TYPE_INVALID', 'QR_ID_INVALID',
-    'TEXT_OVERFLOW', 'QR_PHYSICAL_SIZE_TOO_SMALL'].includes(code)) {
+    'TEXT_OVERFLOW', 'QR_PHYSICAL_SIZE_TOO_SMALL', 'PRINT_QR_IDS_INVALID',
+    'IDEMPOTENCY_KEY_INVALID', 'PRINT_TEMPLATE_VERSION_INVALID',
+    'PRINT_BATCH_NAME_INVALID', 'PRINT_VENDOR_NAME_INVALID',
+    'PRINT_BATCH_NOTE_INVALID', 'PRINT_VOID_REASON_INVALID'].includes(code)) {
     return res.status(400).json({
       status: 'error', code, message: '模板参数不符合生产要求。'
     });
   }
   if (['TEMPLATE_NOT_FOUND', 'TEMPLATE_VERSION_NOT_FOUND',
-    'TEMPLATE_ASSET_NOT_FOUND'].includes(code)) {
+    'TEMPLATE_ASSET_NOT_FOUND', 'PRINT_BATCH_NOT_FOUND',
+    'PRINT_QR_NOT_FOUND'].includes(code)) {
     return res.status(404).json({
       status: 'error', code, message: '未找到对应的模板、版本或图片。'
     });
   }
   if (['TEMPLATE_ARCHIVED', 'TEMPLATE_DRAFT_NOT_FOUND',
     'TEMPLATE_DRAFT_ALREADY_EXISTS', 'TEMPLATE_NOT_PUBLISHED',
-    'TEMPLATE_ALREADY_ARCHIVED'].includes(code)) {
+    'TEMPLATE_ALREADY_ARCHIVED', 'PRINT_QR_NOT_UNACTIVATED',
+    'PRINT_QR_ALREADY_RESERVED', 'PRINT_QR_RESERVATION_CONFLICT',
+    'IDEMPOTENCY_KEY_CONFLICT', 'PRINT_TEMPLATE_NOT_AVAILABLE',
+    'PRINT_BATCH_CANNOT_CANCEL', 'PRINT_ARTIFACT_GENERATION_IN_PROGRESS',
+    'PRINT_ARTIFACT_GENERATION_NOT_ALLOWED', 'PRINT_ARTIFACT_NOT_READY',
+    'PRINT_BATCH_TRANSITION_INVALID', 'PRINT_VOID_QR_SCOPE_INVALID',
+    'PRINT_VOID_QR_CONFLICT'].includes(code)) {
     return res.status(409).json({
       status: 'error', code, message: '当前模板状态不允许执行该操作。'
     });
@@ -693,6 +703,128 @@ router.get('/label-templates/:templateId/assets/:assetId/preview', requireAdmin,
     res.setHeader('Content-Type', asset.mimeType);
     res.setHeader('Cache-Control', 'private, max-age=300');
     return res.send(asset.buffer);
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.get('/print-batches', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, {
+      batches: await executePrintProduction('listPrintBatches', {
+        status: req.query.status,
+        search: req.query.search
+      })
+    });
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post('/print-batches', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, await executePrintProduction('createPrintBatch', {
+      name: req.body && req.body.name,
+      vendorName: req.body && req.body.vendor_name,
+      note: req.body && req.body.note,
+      templateVersionId: req.body && req.body.template_version_id,
+      idempotencyKey: req.body && req.body.idempotency_key,
+      qrIds: req.body && req.body.qr_ids,
+      actor: printActor(req)
+    }));
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.get('/print-batches/:batchId', requireAdmin, async (req, res) => {
+  try {
+    const data = await executePrintProduction('getPrintBatch', {
+      batchId: req.params.batchId
+    });
+    if (!data) {
+      return res.status(404).json({
+        status: 'error', code: 'PRINT_BATCH_NOT_FOUND', message: '未找到印刷任务。'
+      });
+    }
+    return printSuccess(res, data);
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post('/print-batches/:batchId/cancel', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, await executePrintProduction('cancelPrintBatch', {
+      batchId: req.params.batchId,
+      actor: printActor(req)
+    }));
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post('/print-batches/:batchId/generate', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, await executePrintProduction('generatePrintArtifact', {
+      batchId: req.params.batchId,
+      actor: printActor(req)
+    }));
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.get('/print-batches/:batchId/artifact', requireAdmin, async (req, res, next) => {
+  try {
+    const artifact = await executePrintProduction('downloadPrintArtifact', {
+      batchId: req.params.batchId,
+      actor: printActor(req)
+    });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${artifact.filename}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Artifact-SHA256', artifact.sha256);
+    if (artifact.expectedSize > 0) res.setHeader('Content-Length', artifact.expectedSize);
+    artifact.stream.on('error', next);
+    return artifact.stream.pipe(res);
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post('/print-batches/:batchId/start-printing', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, await executePrintProduction('startPrinting', {
+      batchId: req.params.batchId,
+      actor: printActor(req)
+    }));
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post('/print-batches/:batchId/complete', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, await executePrintProduction('completePrintBatch', {
+      batchId: req.params.batchId,
+      voidQrIds: req.body && req.body.void_qr_ids,
+      voidReason: req.body && req.body.void_reason,
+      actor: printActor(req)
+    }));
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post('/print-batches/:batchId/void', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, await executePrintProduction('voidPrintBatch', {
+      batchId: req.params.batchId,
+      reason: req.body && req.body.reason,
+      actor: printActor(req)
+    }));
   } catch (error) {
     return sendPrintProductionError(res, error);
   }

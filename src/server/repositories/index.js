@@ -10,6 +10,7 @@ const { LabelTemplateRepository } = require('./labelTemplateRepository');
 const { OrderRepository } = require('./orderRepository');
 const { OutboxRepository } = require('./outboxRepository');
 const { PaymentRepository } = require('./paymentRepository');
+const { PrintBatchRepository } = require('./printBatchRepository');
 const { ProofRepository } = require('./proofRepository');
 const { PublicQrProvenanceRepository } = require('./publicQrProvenanceRepository');
 const { QrBatchRepository } = require('./qrBatchRepository');
@@ -29,6 +30,7 @@ module.exports = {
   OrderRepository,
   OutboxRepository,
   PaymentRepository,
+  PrintBatchRepository,
   ProofRepository,
   PublicQrProvenanceRepository,
   QrAdministrationRepository,

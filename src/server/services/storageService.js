@@ -7,6 +7,7 @@ const { pipeline } = require('node:stream/promises');
 const rootDir = path.join(__dirname, '..');
 const storageRoot = process.env.STORAGE_ROOT ? path.resolve(process.env.STORAGE_ROOT) : rootDir;
 const localUploadDir = path.join(storageRoot, 'public', 'uploads');
+const localPrivateObjectDir = path.join(storageRoot, 'private', 'objects');
 const bufferDir = path.join(storageRoot, 'buffer', 'uploads');
 const cloudMockDir = path.join(storageRoot, 'public', 'cloud');
 
@@ -336,6 +337,106 @@ async function uploadProtectedFileToOss({
     objectKey: safeObjectKey,
     client: activeClient
   });
+}
+
+async function sha256File(filePath) {
+  const hash = crypto.createHash('sha256');
+  let size = 0;
+  for await (const chunk of fs.createReadStream(filePath)) {
+    size += chunk.length;
+    hash.update(chunk);
+  }
+  return { sha256: hash.digest('hex'), size };
+}
+
+async function saveProtectedArtifactFile({
+  objectKey,
+  localPath,
+  contentType = 'application/octet-stream',
+  sha256,
+  size
+}) {
+  const safeObjectKey = sanitizeObjectKey(objectKey);
+  if (!safeObjectKey) throw new Error('OBJECT_KEY_REQUIRED');
+  if (!/^[a-f0-9]{64}$/.test(String(sha256 || ''))
+      || !Number.isSafeInteger(size) || size <= 0) {
+    throw new Error('OBJECT_INTEGRITY_INVALID');
+  }
+  if (getStorageMode() === 'cloud') {
+    try {
+      const metadata = await uploadProtectedFileToOss({
+        objectKey: safeObjectKey, localPath, contentType, sha256, size
+      });
+      if (metadata.status !== 200 || metadata.metadata_status !== 200
+          || metadata.size !== size || metadata.sha256 !== sha256
+          || metadata.declared_size !== String(size)) {
+        throw new Error('OBJECT_REMOTE_VERIFICATION_FAILED');
+      }
+      return { mode: 'cloud', object_key: safeObjectKey, ...metadata };
+    } catch (_error) {
+      try {
+        const metadata = await getProtectedObjectMetadata({ objectKey: safeObjectKey });
+        if (metadata.status === 200 && metadata.metadata_status === 200
+            && metadata.size === size && metadata.sha256 === sha256
+            && metadata.declared_size === String(size)) {
+          return { mode: 'cloud', object_key: safeObjectKey, ...metadata, existing: true };
+        }
+      } catch (_metadataError) {
+        // The stable public error below covers upload and verification failures.
+      }
+      throw new Error('PROTECTED_ARTIFACT_UPLOAD_FAILED');
+    }
+  }
+
+  const destination = path.join(localPrivateObjectDir, safeObjectKey);
+  ensureDir(path.dirname(destination));
+  try {
+    fs.copyFileSync(localPath, destination, fs.constants.COPYFILE_EXCL);
+    fs.chmodSync(destination, 0o600);
+  } catch (error) {
+    if (!error || error.code !== 'EEXIST') throw new Error('PROTECTED_ARTIFACT_SAVE_FAILED');
+    const existing = await sha256File(destination);
+    if (existing.sha256 !== sha256 || existing.size !== size) {
+      throw new Error('PROTECTED_ARTIFACT_COLLISION');
+    }
+    return { mode: 'local', object_key: safeObjectKey, sha256, size, existing: true };
+  }
+  const stored = await sha256File(destination);
+  if (stored.sha256 !== sha256 || stored.size !== size) {
+    throw new Error('PROTECTED_ARTIFACT_VERIFICATION_FAILED');
+  }
+  return { mode: 'local', object_key: safeObjectKey, sha256, size };
+}
+
+async function openPrivateObjectStream(objectKey) {
+  const safeObjectKey = sanitizeObjectKey(objectKey);
+  if (!safeObjectKey) throw new Error('OBJECT_KEY_REQUIRED');
+  if (getStorageMode() === 'cloud') {
+    const result = await getOssClient().getStream(safeObjectKey);
+    const status = Number(result?.res?.status || result?.status || 0);
+    if (status !== 200 || !result?.stream || typeof result.stream.pipe !== 'function') {
+      throw new Error('PRIVATE_OBJECT_STREAM_INVALID');
+    }
+    const headers = normalizeResponseHeaders(result);
+    return {
+      stream: result.stream,
+      size: Number(headers['content-length']) || null,
+      contentType: String(headers['content-type'] || 'application/octet-stream')
+    };
+  }
+  const localPath = path.join(localPrivateObjectDir, safeObjectKey);
+  let stats;
+  try {
+    stats = fs.statSync(localPath);
+  } catch (_error) {
+    throw new Error('PRIVATE_OBJECT_NOT_FOUND');
+  }
+  if (!stats.isFile()) throw new Error('PRIVATE_OBJECT_NOT_FOUND');
+  return {
+    stream: fs.createReadStream(localPath),
+    size: stats.size,
+    contentType: 'application/octet-stream'
+  };
 }
 
 async function downloadProtectedObjectFromOss({
@@ -674,6 +775,8 @@ module.exports = {
   saveJsonObjectAtKey,
   saveBinaryObjectAtKey,
   readObjectBuffer,
+  openPrivateObjectStream,
+  saveProtectedArtifactFile,
   readTextObjectAtKey,
   openRecordImageObjectStream,
   getPublicObjectUrl,
