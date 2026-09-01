@@ -8,6 +8,7 @@ const IDENTITY_FIELDS = [
 ];
 const QR_FIELDS = [
   'id', 'issue_status', 'lifecycle_status', 'hidden', 'batch_id', 'print_batch_id',
+  'print_status', 'print_status_updated_at', 'print_void_reason',
   'qr_image_url_snapshot', 'access_token', 'created_at', 'updated_at'
 ];
 const QR_BATCH_PUBLIC_FIELDS = [
