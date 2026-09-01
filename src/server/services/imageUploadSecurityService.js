@@ -98,7 +98,9 @@ async function normalizeUploadedImage(file, {
       ...file,
       buffer: output.data,
       mimetype: 'image/jpeg',
-      size: output.data.length
+      size: output.data.length,
+      pixel_width: output.info.width,
+      pixel_height: output.info.height
     });
   } catch (error) {
     if (error instanceof ImageUploadValidationError) throw error;

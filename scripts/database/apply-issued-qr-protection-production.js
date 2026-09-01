@@ -207,10 +207,11 @@ function validateProductionJson({ jsonPath = PRODUCTION_JSON } = {}) {
 
 function assertExpectedMigrationSet(migrations) {
   const names = migrations.map((migration) => migration.version);
-  if (JSON.stringify(names) !== JSON.stringify(EXPECTED_MIGRATION_NAMES)) {
+  const protectedPrefix = names.slice(0, EXPECTED_MIGRATION_NAMES.length);
+  if (JSON.stringify(protectedPrefix) !== JSON.stringify(EXPECTED_MIGRATION_NAMES)) {
     throw protectionError('ISSUED_QR_PROTECTION_MIGRATION_SET_INVALID');
   }
-  const expected = migrations[migrations.length - 1];
+  const expected = migrations[EXPECTED_MIGRATION_NAMES.length - 1];
   if (!expected || expected.checksum !== EXPECTED_MIGRATION_CHECKSUM) {
     throw protectionError('ISSUED_QR_PROTECTION_CHECKSUM_INVALID');
   }
@@ -372,6 +373,7 @@ async function applyExpectedMigrationWithVerification(client, migration, migrati
 
 async function executeIssuedQrProtection({ pool, migrations = loadMigrations() }) {
   const expectedMigration = assertExpectedMigrationSet(migrations);
+  const protectedMigrations = migrations.slice(0, EXPECTED_MIGRATION_NAMES.length);
   const client = await pool.connect();
   let lockAcquired = false;
   try {
@@ -380,15 +382,15 @@ async function executeIssuedQrProtection({ pool, migrations = loadMigrations() }
     await acquireMigrationLock(client);
     lockAcquired = true;
 
-    const beforeState = await inspectMigrationState(client, migrations);
-    const disposition = assertExpectedMigrationState(beforeState, migrations);
+    const beforeState = await inspectMigrationState(client, protectedMigrations);
+    const disposition = assertExpectedMigrationState(beforeState, protectedMigrations);
     let status = 'ALREADY_APPLIED';
     let counts;
     if (disposition === 'READY_TO_APPLY') {
       counts = await applyExpectedMigrationWithVerification(
         client,
         expectedMigration,
-        migrations
+        protectedMigrations
       );
       status = 'APPLIED_NOW';
     } else {

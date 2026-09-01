@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const JSZip = require('jszip');
 const {
@@ -29,7 +30,12 @@ const {
 } = require('../services/dbService');
 const { generateToken, verifyToken } = require('../services/authService');
 const { qrImagePath } = require('../services/qrImageService');
-const { getStorageMode, getSignedUrl, saveImage } = require('../services/storageService');
+const {
+  getStorageMode,
+  getSignedUrl,
+  saveBinaryObjectAtKey,
+  saveImage
+} = require('../services/storageService');
 const {
   normalizeUploadedImage,
   receiveSingleImage,
@@ -53,6 +59,9 @@ const {
 const {
   getRecordProofRuntimeStatus
 } = require('../services/postgres/recordProofRuntime');
+const {
+  executePrintProduction
+} = require('../services/postgres/printProductionRuntime');
 
 const router = express.Router();
 const MAX_QR_IMAGE_EXPORT_COUNT = 500;
@@ -470,6 +479,224 @@ router.get('/batches/:batchId/export', requireAdmin, async (req, res) => {
 function envConfigured(names) {
   return names.every((name) => !!process.env[name]);
 }
+
+function printActor(req) {
+  return {
+    operatorId: req.operator && req.operator.id,
+    username: req.operator && req.operator.username
+  };
+}
+
+function sendPrintProductionError(res, error) {
+  const code = String(error && error.code || 'PRINT_PRODUCTION_UNAVAILABLE');
+  if (code === 'LABEL_TEMPLATE_INVALID') {
+    return res.status(400).json({
+      status: 'error',
+      code,
+      message: '模板存在越界、重叠或印刷约束错误。',
+      data: { issues: Array.isArray(error.issues) ? error.issues : [] }
+    });
+  }
+  if (['TEMPLATE_NAME_INVALID', 'TEMPLATE_ASSET_TYPE_INVALID', 'QR_ID_INVALID',
+    'TEXT_OVERFLOW', 'QR_PHYSICAL_SIZE_TOO_SMALL'].includes(code)) {
+    return res.status(400).json({
+      status: 'error', code, message: '模板参数不符合生产要求。'
+    });
+  }
+  if (['TEMPLATE_NOT_FOUND', 'TEMPLATE_VERSION_NOT_FOUND',
+    'TEMPLATE_ASSET_NOT_FOUND'].includes(code)) {
+    return res.status(404).json({
+      status: 'error', code, message: '未找到对应的模板、版本或图片。'
+    });
+  }
+  if (['TEMPLATE_ARCHIVED', 'TEMPLATE_DRAFT_NOT_FOUND',
+    'TEMPLATE_DRAFT_ALREADY_EXISTS', 'TEMPLATE_NOT_PUBLISHED',
+    'TEMPLATE_ALREADY_ARCHIVED'].includes(code)) {
+    return res.status(409).json({
+      status: 'error', code, message: '当前模板状态不允许执行该操作。'
+    });
+  }
+  return res.status(503).json({
+    status: 'error',
+    code: 'PRINT_PRODUCTION_UNAVAILABLE',
+    message: '印刷生产服务暂时不可用，请稍后重试。'
+  });
+}
+
+function printSuccess(res, data) {
+  return res.json({ status: 'success', code: 'OK', data });
+}
+
+router.get('/label-templates', requireAdmin, async (_req, res) => {
+  try {
+    return printSuccess(res, {
+      templates: await executePrintProduction('listTemplates')
+    });
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post('/label-templates', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, await executePrintProduction('createTemplate', {
+      name: req.body && req.body.name,
+      actor: printActor(req)
+    }));
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.get('/label-templates/:templateId', requireAdmin, async (req, res) => {
+  try {
+    const data = await executePrintProduction('getTemplate', {
+      templateId: req.params.templateId
+    });
+    if (!data) {
+      return res.status(404).json({
+        status: 'error', code: 'TEMPLATE_NOT_FOUND', message: '未找到对应模板。'
+      });
+    }
+    return printSuccess(res, data);
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.put('/label-templates/:templateId/draft', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, await executePrintProduction('saveDraft', {
+      templateId: req.params.templateId,
+      schema: req.body && req.body.schema,
+      actor: printActor(req)
+    }));
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post('/label-templates/:templateId/versions', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, await executePrintProduction('createVersion', {
+      templateId: req.params.templateId,
+      actor: printActor(req)
+    }));
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post('/label-templates/:templateId/copy', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, await executePrintProduction('copyTemplate', {
+      templateId: req.params.templateId,
+      name: req.body && req.body.name,
+      actor: printActor(req)
+    }));
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post('/label-templates/:templateId/preview', requireAdmin, async (req, res) => {
+  try {
+    const buffer = await executePrintProduction('preview', {
+      templateId: req.params.templateId,
+      versionId: req.body && req.body.version_id,
+      schema: req.body && req.body.schema,
+      qrId: req.body && req.body.qr_id
+    });
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.send(buffer);
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post('/label-templates/:templateId/publish', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, await executePrintProduction('publish', {
+      templateId: req.params.templateId,
+      actor: printActor(req)
+    }));
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post('/label-templates/:templateId/archive', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, await executePrintProduction('archive', {
+      templateId: req.params.templateId,
+      actor: printActor(req)
+    }));
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post(
+  '/label-templates/:templateId/assets',
+  requireAdmin,
+  receiveSingleImage('image'),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          status: 'error', code: 'UPLOAD_FAILED', message: '请先选择图片。'
+        });
+      }
+      const assetType = String(req.body.asset_type || '').trim();
+      if (!['logo', 'background'].includes(assetType)) {
+        return res.status(400).json({
+          status: 'error', code: 'TEMPLATE_ASSET_TYPE_INVALID', message: '请选择图片用途。'
+        });
+      }
+      const file = await normalizeUploadedImage(req.file, {
+        maxOutputWidth: 4096,
+        jpegQuality: 90
+      });
+      const assetId = crypto.randomUUID();
+      const objectKey = `printing/template-assets/${req.params.templateId}/${assetId}.jpg`;
+      await saveBinaryObjectAtKey({
+        objectKey,
+        buffer: file.buffer,
+        contentType: 'image/jpeg',
+        allowCloudFallback: false
+      });
+      return printSuccess(res, await executePrintProduction('registerAsset', {
+        templateId: req.params.templateId,
+        assetId,
+        assetType,
+        objectKey,
+        mimeType: 'image/jpeg',
+        pixelWidth: file.pixel_width,
+        pixelHeight: file.pixel_height,
+        sizeBytes: file.buffer.length,
+        actor: printActor(req)
+      }));
+    } catch (error) {
+      if (respondToImageValidationError(error, res)) return undefined;
+      return sendPrintProductionError(res, error);
+    }
+  }
+);
+
+router.get('/label-templates/:templateId/assets/:assetId/preview', requireAdmin, async (req, res) => {
+  try {
+    const asset = await executePrintProduction('readAsset', {
+      templateId: req.params.templateId,
+      assetId: req.params.assetId
+    });
+    res.setHeader('Content-Type', asset.mimeType);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    return res.send(asset.buffer);
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
 
 router.get('/system-status', requireAdmin, async (_req, res) => {
   const storageMode = getStorageMode();

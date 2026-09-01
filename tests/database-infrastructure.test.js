@@ -847,6 +847,10 @@ test('compatibility migrations are additive and leave migration 001 unchanged', 
     path.join(migrationsDirectory, '007_prevent_issued_qr_deletion.sql'),
     'utf8'
   );
+  const labelPrintProductionMigration = fs.readFileSync(
+    path.join(migrationsDirectory, '008_add_label_print_production.sql'),
+    'utf8'
+  );
   assert.equal(
     crypto.createHash('sha256').update(initialBytes).digest('hex'),
     'c827cd85e9552805690d6837383fb6d23c043d32be359ce61b99f743ba477d18'
@@ -893,6 +897,9 @@ test('compatibility migrations are additive and leave migration 001 unchanged', 
     issuedQrProtectionMigration,
     /CONSTRAINT = 'qr_codes_issued_immutable'/
   );
+  assert.match(labelPrintProductionMigration, /CREATE TABLE app\.label_templates/);
+  assert.match(labelPrintProductionMigration, /CREATE TABLE app\.print_batches/);
+  assert.match(labelPrintProductionMigration, /ADD COLUMN print_status varchar\(32\)/);
 
   const migrations = loadMigrations({ migrationsDirectory });
   assert.deepEqual(
@@ -904,7 +911,8 @@ test('compatibility migrations are additive and leave migration 001 unchanged', 
       '004_allow_legacy_product_buy_type.sql',
       '005_add_account_id_sequence.sql',
       '006_guard_unissued_qr_lifecycle.sql',
-      '007_prevent_issued_qr_deletion.sql'
+      '007_prevent_issued_qr_deletion.sql',
+      '008_add_label_print_production.sql'
     ]
   );
 });
@@ -2137,6 +2145,9 @@ test('QR issuance repository locks prefixes and inserts only issued unactivated 
     hidden: false,
     batch_id: 'BATCH_PUBLIC',
     print_batch_id: null,
+    print_status: 'available',
+    print_status_updated_at: '2026-08-12T01:02:03.000Z',
+    print_void_reason: '',
     qr_image_url_snapshot: '/api/qr/image/token',
     access_token: 'token',
     created_at: '2026-08-12T01:02:03.000Z',

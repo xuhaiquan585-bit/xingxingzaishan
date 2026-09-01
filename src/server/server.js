@@ -29,6 +29,9 @@ const {
   closeRecordProofRuntime,
   startRecordProofRuntime
 } = require('./services/postgres/recordProofRuntime');
+const {
+  closePrintProductionRuntime
+} = require('./services/postgres/printProductionRuntime');
 
 const PORT = process.env.PORT || 3000;
 const SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -43,7 +46,8 @@ function closeShadowRuntimes() {
     closeIdentityShadowRuntime(),
     closeIdentityAuthorityRuntime(),
     closeQrIssuanceAuthorityRuntime(),
-    closeRecordProofRuntime()
+    closeRecordProofRuntime(),
+    closePrintProductionRuntime()
   ]);
 }
 

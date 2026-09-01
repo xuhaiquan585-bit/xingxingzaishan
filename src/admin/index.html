@@ -29,6 +29,7 @@
         <aside class="sidebar">
           <button class="nav-item active" data-admin-section="dashboard">工作台</button>
           <button class="nav-item" data-admin-section="bottles">瓶码管理</button>
+          <button class="nav-item" data-admin-section="labelTemplates">标签模板</button>
           <button class="nav-item" data-admin-section="records">记录管理</button>
           <button class="nav-item" data-admin-section="miniappContent">小程序内容</button>
           <button class="nav-item" data-admin-section="products">商品管理</button>
@@ -165,6 +166,120 @@
                   <tbody id="recordTable"></tbody>
                 </table>
               </div>
+            </div>
+          </section>
+
+          <section id="labelTemplatePanel" class="admin-panel hidden" data-admin-panel="labelTemplates">
+            <div class="panel-title">
+              <div>
+                <h2>标签模板</h2>
+                <p>管理标签尺寸、生产结构和外观版本。</p>
+              </div>
+              <div class="toolbar compact">
+                <input id="labelTemplateName" maxlength="160" placeholder="模板名称" />
+                <button id="createLabelTemplateBtn">新建模板</button>
+              </div>
+            </div>
+            <p id="labelTemplateMsg" class="msg"></p>
+            <div class="label-template-workspace">
+              <aside class="label-template-library" aria-label="模板列表">
+                <div class="label-template-library-head">
+                  <input id="labelTemplateSearch" placeholder="搜索模板" />
+                  <button id="refreshLabelTemplatesBtn" class="secondary">刷新</button>
+                </div>
+                <div id="labelTemplateList" class="label-template-list"></div>
+              </aside>
+              <div id="labelTemplateEmpty" class="label-template-empty">选择模板开始编辑</div>
+              <section id="labelTemplateEditor" class="label-template-editor hidden">
+                <div class="label-template-editor-head">
+                  <div>
+                    <strong id="activeLabelTemplateName">-</strong>
+                    <span id="activeLabelTemplateStatus" class="status-chip">-</span>
+                    <span id="activeLabelTemplateVersion" class="muted">-</span>
+                  </div>
+                  <div class="toolbar compact">
+                    <button id="copyLabelTemplateBtn" class="secondary">复制</button>
+                    <button id="newLabelTemplateVersionBtn" class="secondary">新版本</button>
+                    <button id="saveLabelTemplateBtn">保存草稿</button>
+                    <button id="previewLabelTemplateBtn" class="secondary">服务端预览</button>
+                    <button id="publishLabelTemplateBtn">发布</button>
+                    <button id="archiveLabelTemplateBtn" class="danger">停用</button>
+                  </div>
+                </div>
+                <div class="label-template-mode" role="tablist" aria-label="编辑模式">
+                  <button class="active" data-label-editor-mode="structure">结构</button>
+                  <button data-label-editor-mode="appearance">外观</button>
+                </div>
+                <div class="label-designer">
+                  <aside class="label-elements-panel">
+                    <div data-label-mode-panel="structure">
+                      <h3>元素</h3>
+                      <div class="label-tool-grid">
+                        <button data-add-label-element="text">文字</button>
+                        <button data-add-label-element="divider">分割线</button>
+                        <button data-add-label-element="handwriting">手写区</button>
+                      </div>
+                    </div>
+                    <div class="hidden" data-label-mode-panel="appearance">
+                      <h3>图片</h3>
+                      <select id="labelAssetType">
+                        <option value="logo">Logo</option>
+                        <option value="background">背景</option>
+                      </select>
+                      <input id="labelAssetFile" type="file" accept="image/jpeg,image/png,image/webp" />
+                      <button id="uploadLabelAssetBtn">上传并添加</button>
+                    </div>
+                    <h3>图层</h3>
+                    <div id="labelLayerList" class="label-layer-list"></div>
+                  </aside>
+                  <div class="label-canvas-stage">
+                    <div class="label-align-toolbar" aria-label="元素对齐">
+                      <button data-label-align="left">左对齐</button>
+                      <button data-label-align="center">水平居中</button>
+                      <button data-label-align="right">右对齐</button>
+                      <button data-label-align="top">顶对齐</button>
+                      <button data-label-align="middle">垂直居中</button>
+                      <button data-label-align="bottom">底对齐</button>
+                    </div>
+                    <div id="labelCanvas" class="label-canvas" aria-label="标签真实比例画布"></div>
+                  </div>
+                  <aside class="label-properties-panel">
+                    <h3>画布</h3>
+                    <div class="label-property-grid">
+                      <label>宽 mm<input id="labelCanvasWidth" type="number" min="10" max="300" step="0.5" /></label>
+                      <label>高 mm<input id="labelCanvasHeight" type="number" min="10" max="600" step="0.5" /></label>
+                      <label>背景<input id="labelCanvasColor" type="color" /></label>
+                      <label>上圆角<input id="labelCanvasTopRadius" type="number" min="0" step="0.5" /></label>
+                      <label>下圆角<input id="labelCanvasBottomRadius" type="number" min="0" step="0.5" /></label>
+                    </div>
+                    <div id="labelElementProperties" class="hidden">
+                      <h3>选中元素</h3>
+                      <div class="label-property-grid">
+                        <label>X mm<input id="labelElementX" type="number" min="0" step="0.5" /></label>
+                        <label>Y mm<input id="labelElementY" type="number" min="0" step="0.5" /></label>
+                        <label>宽 mm<input id="labelElementWidth" type="number" min="0.1" step="0.5" /></label>
+                        <label>高 mm<input id="labelElementHeight" type="number" min="0.1" step="0.5" /></label>
+                        <label>层级<input id="labelElementZ" type="number" min="0" max="1000" step="1" /></label>
+                        <label class="checkbox-label"><input id="labelElementLocked" type="checkbox" /><span>锁定</span></label>
+                      </div>
+                      <label id="labelElementTextRow">文字<textarea id="labelElementText" maxlength="160" rows="3"></textarea></label>
+                      <div id="labelElementFontRows" class="label-property-grid">
+                        <label>字体<select id="labelElementFont"><option value="noto-sans-sc">思源黑体</option><option value="ibm-plex-mono">IBM Plex Mono</option></select></label>
+                        <label>字号 pt<input id="labelElementFontSize" type="number" min="4" max="48" step="0.5" /></label>
+                        <label>颜色<input id="labelElementColor" type="color" /></label>
+                        <label>对齐<select id="labelElementAlign"><option value="left">左</option><option value="center">中</option><option value="right">右</option></select></label>
+                      </div>
+                      <button id="deleteLabelElementBtn" class="danger">删除元素</button>
+                    </div>
+                  </aside>
+                </div>
+                <div id="labelServerPreviewDialog" class="label-preview-dialog hidden" role="dialog" aria-modal="true">
+                  <div class="label-preview-dialog-body">
+                    <button id="closeLabelPreviewBtn" class="label-preview-close" aria-label="关闭">×</button>
+                    <img id="labelServerPreviewImage" alt="服务端标签预览" />
+                  </div>
+                </div>
+              </section>
             </div>
           </section>
 
@@ -584,6 +699,7 @@
       </div>
     </main>
 
+    <script src="/admin/js/label-template-editor.js"></script>
     <script src="/admin/js/admin.js"></script>
   </body>
 </html>

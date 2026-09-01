@@ -9,6 +9,7 @@ const productMsg = document.getElementById('productMsg');
 const orderMsg = document.getElementById('orderMsg');
 const recordMsg = document.getElementById('recordMsg');
 const miniappContentMsg = document.getElementById('miniappContentMsg');
+const labelTemplateMsg = document.getElementById('labelTemplateMsg');
 const systemMsg = document.getElementById('systemMsg');
 const tableBody = document.getElementById('recordTable');
 const contentRecordTableBody = document.getElementById('contentRecordTable');
@@ -140,6 +141,7 @@ function activateAdminSection(section) {
     const targetMsg = {
       dashboard: loginMsg,
       bottles: batchMsg,
+      labelTemplates: labelTemplateMsg,
       records: recordMsg,
       miniappContent: miniappContentMsg,
       products: productMsg,
@@ -159,6 +161,10 @@ async function loadActiveSection() {
   if (activeSection === 'bottles') {
     await loadBatches();
     await loadRecords();
+    return;
+  }
+  if (activeSection === 'labelTemplates') {
+    await window.LabelTemplateEditor.load();
     return;
   }
   if (activeSection === 'records') {

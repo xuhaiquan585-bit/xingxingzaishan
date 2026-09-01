@@ -25,19 +25,25 @@ function migrationRows(migrations) {
 
 test('issued QR protection pins exactly migration 007 and its checksum', () => {
   const migrations = loadMigrations();
-  assert.deepEqual(migrations.map(({ version }) => version), EXPECTED_MIGRATION_NAMES);
-  assert.equal(migrations.at(-1).version, EXPECTED_MIGRATION);
-  assert.equal(migrations.at(-1).checksum, EXPECTED_MIGRATION_CHECKSUM);
-  assert.equal(assertExpectedMigrationSet(migrations), migrations.at(-1));
+  const expected = migrations.find(({ version }) => version === EXPECTED_MIGRATION);
+  assert.deepEqual(
+    migrations.slice(0, EXPECTED_MIGRATION_NAMES.length).map(({ version }) => version),
+    EXPECTED_MIGRATION_NAMES
+  );
+  assert.equal(expected.checksum, EXPECTED_MIGRATION_CHECKSUM);
+  assert.equal(assertExpectedMigrationSet(migrations), expected);
 
   assert.throws(
-    () => assertExpectedMigrationSet(migrations.slice(0, -1)),
+    () => assertExpectedMigrationSet(migrations.filter(
+      ({ version }) => version !== EXPECTED_MIGRATION
+    )),
     { code: 'ISSUED_QR_PROTECTION_MIGRATION_SET_INVALID' }
   );
   assert.throws(
     () => assertExpectedMigrationSet([
-      ...migrations.slice(0, -1),
-      { ...migrations.at(-1), checksum: 'f'.repeat(64) }
+      ...migrations.map((migration) => migration.version === EXPECTED_MIGRATION
+        ? { ...migration, checksum: 'f'.repeat(64) }
+        : migration)
     ]),
     { code: 'ISSUED_QR_PROTECTION_CHECKSUM_INVALID' }
   );

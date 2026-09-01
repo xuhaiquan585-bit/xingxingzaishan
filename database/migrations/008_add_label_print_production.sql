@@ -101,7 +101,7 @@ CREATE TABLE app.label_template_assets (
   CONSTRAINT label_template_assets_dimensions_chk
     CHECK (pixel_width > 0 AND pixel_height > 0),
   CONSTRAINT label_template_assets_size_chk CHECK (size_bytes > 0),
-  CONSTRAINT label_template_assets_object_key_uq UNIQUE (object_key)
+  CONSTRAINT label_template_assets_template_object_key_uq UNIQUE (template_id, object_key)
 );
 
 CREATE INDEX label_template_assets_template_created_idx
