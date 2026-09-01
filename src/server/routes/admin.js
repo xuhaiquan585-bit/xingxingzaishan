@@ -1,4 +1,6 @@
 const express = require('express');
+const fs = require('node:fs/promises');
+const JSZip = require('jszip');
 const {
   findAdmin,
   getDashboardStats,
@@ -26,6 +28,7 @@ const {
   updateMiniappContent
 } = require('../services/dbService');
 const { generateToken, verifyToken } = require('../services/authService');
+const { qrImagePath } = require('../services/qrImageService');
 const { getStorageMode, getSignedUrl, saveImage } = require('../services/storageService');
 const {
   normalizeUploadedImage,
@@ -52,6 +55,18 @@ const {
 } = require('../services/postgres/recordProofRuntime');
 
 const router = express.Router();
+const MAX_QR_IMAGE_EXPORT_COUNT = 500;
+
+function normalizeQrImageExportIds(values) {
+  if (!Array.isArray(values)) return null;
+  const ids = [...new Set(values.map((value) => String(value || '').trim()))];
+  if (ids.length === 0
+    || ids.length > MAX_QR_IMAGE_EXPORT_COUNT
+    || ids.some((id) => !/^[A-Z0-9]+$/.test(id))) {
+    return null;
+  }
+  return ids;
+}
 
 async function selectQrAdministration(operation, input, fallback) {
   const authority = await administerQrs(operation, input);
@@ -1004,6 +1019,82 @@ router.post('/records/export', requireAdmin, async (req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="records-export-${Date.now()}.csv"`);
   return res.send(`\uFEFF${csv}`);
+});
+
+router.post('/records/qr-images/export', requireAdmin, async (req, res) => {
+  const ids = normalizeQrImageExportIds(req.body.ids);
+  if (!ids) {
+    return res.status(400).json({
+      status: 'error',
+      code: 'QR_IMAGE_EXPORT_SELECTION_INVALID',
+      message: `请选择 1 至 ${MAX_QR_IMAGE_EXPORT_COUNT} 条有效二维码记录。`
+    });
+  }
+
+  let data;
+  try {
+    data = await selectQrAdministration(
+      'listRecords',
+      { ids, page: 1, limit: ids.length },
+      () => ({
+        records: listQRRecords({ page: 1, limit: 100000 }).records
+          .filter((item) => ids.includes(item.id))
+      })
+    );
+  } catch (error) {
+    return sendQrAuthorityError(res, error);
+  }
+
+  const recordsById = new Map(data.records.map((record) => [record.id, record]));
+  const missingRecordIds = ids.filter((id) => !recordsById.has(id));
+  if (missingRecordIds.length > 0) {
+    return res.status(404).json({
+      status: 'error',
+      code: 'QR_IMAGE_EXPORT_RECORD_NOT_FOUND',
+      message: `未找到以下二维码记录：${missingRecordIds.join('、')}`
+    });
+  }
+
+  const images = await Promise.all(ids.map(async (id) => {
+    try {
+      return { id, content: await fs.readFile(qrImagePath(id)) };
+    } catch (error) {
+      if (error && error.code === 'ENOENT') return { id, content: null };
+      throw error;
+    }
+  })).catch(() => null);
+
+  if (!images) {
+    return res.status(500).json({
+      status: 'error',
+      code: 'QR_IMAGE_EXPORT_READ_FAILED',
+      message: '读取二维码原图失败，请稍后重试。'
+    });
+  }
+
+  const missingImageIds = images.filter((image) => !image.content).map((image) => image.id);
+  if (missingImageIds.length > 0) {
+    return res.status(409).json({
+      status: 'error',
+      code: 'QR_IMAGE_EXPORT_SOURCE_MISSING',
+      message: `以下二维码原图缺失，未生成压缩包：${missingImageIds.join('、')}`
+    });
+  }
+
+  const zip = new JSZip();
+  images.forEach((image) => zip.file(`${image.id}.png`, image.content));
+  const archive = await zip.generateAsync({
+    type: 'nodebuffer',
+    compression: 'STORE'
+  });
+  const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/u, 'Z');
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="qr-images-${timestamp}-${ids.length}.zip"`);
+  res.setHeader('Content-Length', archive.length);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  return res.send(archive);
 });
 
 router.post('/records/:qrId/hide', requireAdmin, async (req, res) => {

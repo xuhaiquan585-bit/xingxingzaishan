@@ -134,12 +134,14 @@
                 <input id="idSearch" placeholder="按ID前缀搜索，如 STAR00" />
                 <button id="filterBtn">筛选</button>
               </div>
-              <div class="toolbar">
+              <div class="toolbar-divider" role="separator"></div>
+              <div class="toolbar batch-action-toolbar">
                 <select id="assignBatchSelect"><option value="">选择批次后可绑定</option></select>
                 <button id="assignBatchBtn">批量绑定批次</button>
                 <button id="batchHideBtn">批量隐藏</button>
                 <button id="batchShowBtn">批量显示</button>
-                <button id="batchExportBtn">批量导出 CSV</button>
+                <button id="batchExportBtn" class="secondary">导出数据 CSV</button>
+                <button id="batchQrImagesExportBtn">下载二维码图片</button>
                 <span id="selectedCount">已选 0 条</span>
               </div>
               <div class="table-wrap">

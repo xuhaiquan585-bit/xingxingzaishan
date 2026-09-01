@@ -1159,6 +1159,33 @@ async function batchExport() {
   await downloadFromResponse(response, `records-export-${Date.now()}.csv`);
 }
 
+async function batchExportQrImages() {
+  if (selectedIds.size === 0) {
+    alert('请先勾选至少一条记录。');
+    return;
+  }
+
+  const response = await fetchWithTimeout('/api/admin/records/qr-images/export', {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ ids: [...selectedIds] }),
+    timeoutMs: EXPORT_TIMEOUT_MS
+  });
+
+  if (!response.ok) {
+    const data = await parseJsonResponse(response);
+    throw new Error(data.message || '二维码图片导出失败');
+  }
+
+  await downloadFromResponse(
+    response,
+    `二维码图片-${Date.now()}-${selectedIds.size}.zip`
+  );
+}
+
 async function exportBatch(batchId) {
   const response = await fetchWithTimeout(`/api/admin/batches/${encodeURIComponent(batchId)}/export`, {
     headers: authHeaders(),
@@ -1432,6 +1459,13 @@ document.getElementById('batchExportBtn').addEventListener('click', async () => 
     await batchExport();
   } catch (error) {
     alert(error.message || '导出失败');
+  }
+});
+document.getElementById('batchQrImagesExportBtn').addEventListener('click', async () => {
+  try {
+    await batchExportQrImages();
+  } catch (error) {
+    alert(error.message || '二维码图片导出失败');
   }
 });
 
