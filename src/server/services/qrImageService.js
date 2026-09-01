@@ -93,7 +93,7 @@ async function renderQrImage({ baseUrl, qrId, accessToken }) {
     margin: 2,
     errorCorrectionLevel: 'M'
   });
-  return addLabelToQR(raw, qrId, { scale: 3 });
+  return addLabelToQR(raw, qrId);
 }
 
 module.exports = {

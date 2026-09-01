@@ -3074,15 +3074,20 @@ test('POST /api/admin/records/qr-images/export should return selected original l
     assert.equal(png.width, 300);
     assert.ok(png.height > png.width);
     let labelInkPixels = 0;
+    let antialiasedLabelPixels = 0;
     for (let y = png.width; y < png.height; y += 1) {
       for (let x = 0; x < png.width; x += 1) {
         const offset = ((y * png.width) + x) * 4;
         if (png.data[offset] < 64 && png.data[offset + 1] < 64 && png.data[offset + 2] < 64) {
           labelInkPixels += 1;
         }
+        if (png.data[offset] > 0 && png.data[offset] < 255) {
+          antialiasedLabelPixels += 1;
+        }
       }
     }
     assert.ok(labelInkPixels > 0);
+    assert.ok(antialiasedLabelPixels > 0);
   }
 });
 
