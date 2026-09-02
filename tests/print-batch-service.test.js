@@ -92,6 +92,26 @@ class MemoryPrintBatchRepository {
     return [...this.store.qrs.values()].filter((qr) => qr.print_batch_id === batchId)
       .sort((left, right) => left.id.localeCompare(right.id)).map(clone);
   }
+  async listLegacyQrCodes({ sourceBatchId, idPrefix, limit = 500 } = {}) {
+    return [...this.store.qrs.values()].filter((qr) => (
+      qr.print_status === 'legacy_unclassified'
+      && (!sourceBatchId || qr.batch_id === sourceBatchId)
+      && (!idPrefix || qr.id.startsWith(idPrefix))
+    )).sort((left, right) => left.id.localeCompare(right.id)).slice(0, limit).map(clone);
+  }
+  async classifyLegacyQrCodes(ids, targetStatus, reason, at) {
+    const updated = [];
+    for (const id of ids) {
+      const qr = this.store.qrs.get(id);
+      if (qr && qr.print_status === 'legacy_unclassified') {
+        Object.assign(qr, { print_status: targetStatus,
+          print_void_reason: targetStatus === 'voided' ? reason : '',
+          print_status_updated_at: at });
+        updated.push(id);
+      }
+    }
+    return updated;
+  }
   async listTemplateAssets() { return clone(this.store.assets); }
   async startGeneration(id, at) {
     const row = this.store.batches.get(id);
@@ -274,6 +294,40 @@ test('formal artifact is unique, downloadable and closes with explicit scrap IDs
   assert.equal(store.qrs.get('SSS10001').print_status, 'printed');
   assert.equal(store.qrs.get('SSS10002').print_status, 'voided');
   assert.equal(store.qrs.get('SSS10002').print_void_reason, '裁切损坏');
+  const postPrintVoid = await service.voidPrintedQrCodes({
+    batchId: created.id, qrIds: ['SSS10001'], reason: '质检后发现污损', actor: ACTOR
+  });
+  assert.deepEqual(postPrintVoid.voided_ids, ['SSS10001']);
+  assert.equal(store.qrs.get('SSS10001').print_status, 'voided');
+});
+
+test('historical QR classification is explicit, filtered and eligibility checked', async () => {
+  const { service, store } = serviceFixture();
+  store.qrs.set('OLD10001', {
+    id: 'OLD10001', batch_id: 'LEGACY-A', issue_status: 'issued',
+    lifecycle_status: 'unactivated', print_batch_id: null,
+    print_status: 'legacy_unclassified', print_void_reason: '', created_at: '2026-01-01T00:00:00.000Z'
+  });
+  store.qrs.set('OLD10002', {
+    id: 'OLD10002', batch_id: 'LEGACY-B', issue_status: 'issued',
+    lifecycle_status: 'activated', print_batch_id: null,
+    print_status: 'legacy_unclassified', print_void_reason: '', created_at: '2026-01-01T00:00:00.000Z'
+  });
+  const listed = await service.listLegacyQrCodes({ sourceBatchId: 'LEGACY-A' });
+  assert.deepEqual(listed.map((qr) => qr.id), ['OLD10001']);
+  const available = await service.classifyLegacyQrCodes({
+    qrIds: ['OLD10001'], targetStatus: 'available', actor: ACTOR
+  });
+  assert.deepEqual(available.updated_ids, ['OLD10001']);
+  assert.equal(store.qrs.get('OLD10001').print_status, 'available');
+  await assert.rejects(service.classifyLegacyQrCodes({
+    qrIds: ['OLD10002'], targetStatus: 'available', actor: ACTOR
+  }), (error) => error.code === 'PRINT_HISTORY_QR_NOT_AVAILABLE');
+  const voided = await service.classifyLegacyQrCodes({
+    qrIds: ['OLD10002'], targetStatus: 'voided', reason: '历史测试码', actor: ACTOR
+  });
+  assert.deepEqual(voided.updated_ids, ['OLD10002']);
+  assert.equal(store.qrs.get('OLD10002').print_void_reason, '历史测试码');
 });
 
 test('manifest and ZIP generation are deterministic and do not expose access tokens', async () => {
@@ -299,4 +353,23 @@ test('manifest and ZIP generation are deterministic and do not expose access tok
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
+});
+
+test('admin production UI closes the legacy image export bypass', async () => {
+  const [html, printJs, adminJs, editorJs, routeSource] = await Promise.all([
+    fs.readFile(path.join(__dirname, '../src/admin/index.html'), 'utf8'),
+    fs.readFile(path.join(__dirname, '../src/admin/js/print-batch-admin.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, '../src/admin/js/admin.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, '../src/admin/js/label-template-editor.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, '../src/server/routes/admin.js'), 'utf8')
+  ]);
+  assert.equal(html.includes('batchQrImagesExportBtn'), false);
+  assert.match(html, /历史二维码分类/u);
+  assert.match(printJs, /\/print-production\/legacy-qr-codes/u);
+  assert.match(printJs, /qr-codes\/void/u);
+  assert.equal(adminJs.includes('/api/admin/records/qr-images/export'), false);
+  assert.match(editorJs, /el\(id\)\.addEventListener\('input', updateElementProperties\)/u);
+  assert.match(editorJs, /syncElementPropertiesFromControls\(\);\s+await api\(/u);
+  assert.match(routeSource, /LEGACY_QR_IMAGE_EXPORT_RETIRED/u);
+  assert.match(routeSource, /status\(410\)/u);
 });

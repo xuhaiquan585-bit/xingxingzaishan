@@ -7,8 +7,6 @@ const http = require('http');
 const https = require('https');
 const { EventEmitter } = require('events');
 const crypto = require('crypto');
-const JSZip = require('jszip');
-const { PNG } = require('pngjs');
 
 let server;
 let baseUrl;
@@ -1678,9 +1676,10 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(html.includes('id="orderSearch"'), true);
   assert.equal(html.includes('class="toolbar-divider"'), true);
   assert.equal(html.includes('class="toolbar-divider batch-generation-divider"'), true);
-  assert.equal(html.includes('id="batchQrImagesExportBtn"'), true);
+  assert.equal(html.includes('id="batchQrImagesExportBtn"'), false);
   assert.equal(html.includes('导出数据 CSV'), true);
-  assert.equal(html.includes('下载二维码图片'), true);
+  assert.equal(html.includes('创建印刷任务'), true);
+  assert.equal(html.includes('历史二维码分类'), true);
   assert.equal(js.includes('adminActiveSection'), true);
   assert.equal(js.includes('function activateAdminSection'), true);
   assert.equal(js.includes('async function loadContentRecords'), true);
@@ -1696,7 +1695,7 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(js.includes('if (productSaving) return'), true);
   assert.equal(js.includes('async function loadOrders'), true);
   assert.equal(js.includes('/api/admin/orders'), true);
-  assert.equal(js.includes('/api/admin/records/qr-images/export'), true);
+  assert.equal(js.includes('/api/admin/records/qr-images/export'), false);
   assert.equal(js.includes('/ship'), true);
   assert.equal(js.includes('window.prompt'), false);
   assert.equal(js.includes('async function openOrderDetail'), true);
@@ -3047,80 +3046,15 @@ test('GET /api/qc/logs should reject missing token', async () => {
   assert.equal(res.body.code, 'UNAUTHORIZED');
 });
 
-test('POST /api/admin/records/qr-images/export should return selected original labeled PNG files', async () => {
+test('POST /api/admin/records/qr-images/export is retired as a formal production bypass', async () => {
   const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
   const token = login.body.data.token;
-  const generated = await postJson('/api/admin/qr/generate', {
-    prefix: 'ZIP',
-    count: 2
-  }, token);
-  const ids = generated.body.data.ids;
-
   const response = await postJson('/api/admin/records/qr-images/export', {
-    ids: [ids[0], ids[1], ids[0]]
+    ids: ['ZIP00001']
   }, token);
-
-  assert.equal(response.status, 200);
-  assert.equal(response.headers['content-type'], 'application/zip');
-  assert.match(response.headers['content-disposition'], /qr-images-.*-2\.zip/u);
-  const zip = await JSZip.loadAsync(response.rawBuffer);
-  assert.deepEqual(Object.keys(zip.files).sort(), ids.map((id) => `${id}.png`).sort());
-
-  const { qrImagePath } = require('../src/server/services/qrImageService');
-  for (const id of ids) {
-    const archived = await zip.file(`${id}.png`).async('nodebuffer');
-    const source = fs.readFileSync(qrImagePath(id));
-    assert.deepEqual(archived, source);
-    const png = PNG.sync.read(archived);
-    assert.equal(png.width, 300);
-    assert.ok(png.height > png.width);
-    let labelInkPixels = 0;
-    let antialiasedLabelPixels = 0;
-    for (let y = png.width; y < png.height; y += 1) {
-      for (let x = 0; x < png.width; x += 1) {
-        const offset = ((y * png.width) + x) * 4;
-        if (png.data[offset] < 64 && png.data[offset + 1] < 64 && png.data[offset + 2] < 64) {
-          labelInkPixels += 1;
-        }
-        if (png.data[offset] > 0 && png.data[offset] < 255) {
-          antialiasedLabelPixels += 1;
-        }
-      }
-    }
-    assert.ok(labelInkPixels > 0);
-    assert.ok(antialiasedLabelPixels > 0);
-  }
-});
-
-test('POST /api/admin/records/qr-images/export should fail atomically for missing records or images', async () => {
-  const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
-  const token = login.body.data.token;
-  const generated = await postJson('/api/admin/qr/generate', {
-    prefix: 'ZIM',
-    count: 1
-  }, token);
-  const [id] = generated.body.data.ids;
-
-  const unknown = await postJson('/api/admin/records/qr-images/export', {
-    ids: [id, 'ZIM99999']
-  }, token);
-  assert.equal(unknown.status, 404);
-  assert.equal(unknown.body.code, 'QR_IMAGE_EXPORT_RECORD_NOT_FOUND');
-
-  const { qrImagePath } = require('../src/server/services/qrImageService');
-  fs.unlinkSync(qrImagePath(id));
-  const missingImage = await postJson('/api/admin/records/qr-images/export', {
-    ids: [id]
-  }, token);
-  assert.equal(missingImage.status, 409);
-  assert.equal(missingImage.body.code, 'QR_IMAGE_EXPORT_SOURCE_MISSING');
-  assert.equal(missingImage.headers['content-type'].startsWith('application/json'), true);
-
-  const excessive = await postJson('/api/admin/records/qr-images/export', {
-    ids: Array.from({ length: 501 }, (_, index) => `MAX${String(index).padStart(5, '0')}`)
-  }, token);
-  assert.equal(excessive.status, 400);
-  assert.equal(excessive.body.code, 'QR_IMAGE_EXPORT_SELECTION_INVALID');
+  assert.equal(response.status, 410);
+  assert.equal(response.body.code, 'LEGACY_QR_IMAGE_EXPORT_RETIRED');
+  assert.match(response.body.message, /印刷任务/u);
 });
 
 test('POST /api/admin/qr/generate should surface image staging failures', async () => {

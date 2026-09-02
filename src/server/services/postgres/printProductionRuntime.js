@@ -73,14 +73,17 @@ function createPrintProductionRuntime({ env = process.env } = {}) {
     registerAsset: templateService.registerAsset,
     saveDraft: templateService.saveDraft,
     cancelPrintBatch: batchService.cancel,
+    classifyLegacyPrintQrCodes: batchService.classifyLegacyQrCodes,
     completePrintBatch: batchService.complete,
     createPrintBatch: batchService.create,
     downloadPrintArtifact: batchService.download,
     generatePrintArtifact: batchService.generate,
     getPrintBatch: batchService.get,
+    listLegacyPrintQrCodes: batchService.listLegacyQrCodes,
     listPrintBatches: batchService.list,
     startPrinting: batchService.startPrinting,
-    voidPrintBatch: batchService.voidBatch
+    voidPrintBatch: batchService.voidBatch,
+    voidPrintedQrCodes: batchService.voidPrintedQrCodes
   });
   let closed = false;
   async function execute(operation, input) {

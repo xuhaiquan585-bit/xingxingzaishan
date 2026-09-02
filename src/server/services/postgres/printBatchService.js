@@ -199,9 +199,9 @@ function createPrintBatchService({
     }, { isolationLevel: 'read committed', readOnly });
   }
 
-  async function audit(repository, action, entityId, operator, metadata = {}) {
+  async function audit(repository, action, entityId, operator, metadata = {}, entityType = 'print_batch') {
     await repository.appendAudit({
-      actor: operator.username, action, entityId, metadata, createdAt: timestamp()
+      actor: operator.username, action, entityId, entityType, metadata, createdAt: timestamp()
     });
   }
 
@@ -229,6 +229,60 @@ function createPrintBatchService({
         })))
       });
     }, { readOnly: true });
+  }
+
+  async function listLegacyQrCodes(input = {}) {
+    const sourceBatchId = boundedText(input.sourceBatchId, 'PRINT_HISTORY_FILTER_INVALID', {
+      max: 160
+    });
+    const idPrefix = String(input.idPrefix || '').trim().toUpperCase();
+    if (idPrefix.length > 80 || (idPrefix && !QR_ID_PATTERN.test(idPrefix))) {
+      throw new PrintBatchServiceError('PRINT_HISTORY_FILTER_INVALID');
+    }
+    return run('list_legacy_print_qr_codes', async (repository) => Object.freeze(
+      (await repository.listLegacyQrCodes({ sourceBatchId, idPrefix, limit: 500 }))
+        .map((qr) => Object.freeze({
+          id: qr.id,
+          original_batch_id: qr.batch_id || null,
+          issue_status: qr.issue_status,
+          lifecycle_status: qr.lifecycle_status,
+          print_status: qr.print_status,
+          created_at: qr.created_at
+        }))
+    ), { readOnly: true });
+  }
+
+  async function classifyLegacyQrCodes(input = {}) {
+    const operator = actor(input.actor);
+    const qrIds = normalizeQrIds(input.qrIds);
+    const targetStatus = String(input.targetStatus || '').trim();
+    if (!['available', 'voided'].includes(targetStatus)) {
+      throw new PrintBatchServiceError('PRINT_HISTORY_TARGET_INVALID');
+    }
+    const reason = targetStatus === 'voided'
+      ? boundedText(input.reason, 'PRINT_VOID_REASON_INVALID', { required: true, max: 500 }) : '';
+    return run('classify_legacy_print_qr_codes', async (repository) => {
+      const qrCodes = await repository.lockQrCodes(qrIds);
+      if (qrCodes.length !== qrIds.length) throw new PrintBatchServiceError('PRINT_QR_NOT_FOUND');
+      if (qrCodes.some((qr) => qr.print_status !== 'legacy_unclassified'
+          || qr.print_batch_id !== null)) {
+        throw new PrintBatchServiceError('PRINT_HISTORY_QR_CONFLICT');
+      }
+      if (targetStatus === 'available' && qrCodes.some((qr) => (
+        qr.issue_status !== 'issued' || qr.lifecycle_status !== 'unactivated'
+      ))) {
+        throw new PrintBatchServiceError('PRINT_HISTORY_QR_NOT_AVAILABLE');
+      }
+      const updated = await repository.classifyLegacyQrCodes(
+        qrIds, targetStatus, reason, timestamp()
+      );
+      if (updated.length !== qrIds.length) {
+        throw new PrintBatchServiceError('PRINT_HISTORY_QR_CONFLICT');
+      }
+      await audit(repository, 'legacy_print_qr_codes_classified', 'legacy-print-classification',
+        operator, { target_status: targetStatus, qr_ids: qrIds, reason }, 'qr_print_classification');
+      return Object.freeze({ target_status: targetStatus, updated_ids: Object.freeze(updated.sort()) });
+    });
   }
 
   async function create(input = {}) {
@@ -529,8 +583,39 @@ function createPrintBatchService({
     });
   }
 
+  async function voidPrintedQrCodes(input = {}) {
+    const operator = actor(input.actor);
+    const batchId = String(input.batchId || '').trim();
+    const qrIds = normalizeQrIds(input.qrIds);
+    const reason = boundedText(input.reason, 'PRINT_VOID_REASON_INVALID', {
+      required: true, max: 500
+    });
+    return run('void_printed_qr_codes', async (repository) => {
+      const current = await repository.find(batchId, { forUpdate: true });
+      if (!current) throw new PrintBatchServiceError('PRINT_BATCH_NOT_FOUND');
+      if (current.status !== 'completed') {
+        throw new PrintBatchServiceError('PRINT_BATCH_TRANSITION_INVALID');
+      }
+      const qrCodes = await repository.listQrCodes(batchId, { forUpdate: true });
+      const selected = new Map(qrCodes.map((qr) => [qr.id, qr]));
+      if (qrIds.some((id) => !selected.has(id))) {
+        throw new PrintBatchServiceError('PRINT_VOID_QR_SCOPE_INVALID');
+      }
+      if (qrIds.some((id) => selected.get(id).print_status !== 'printed')) {
+        throw new PrintBatchServiceError('PRINT_VOID_QR_CONFLICT');
+      }
+      const voided = await repository.voidQrCodes(batchId, qrIds, reason, timestamp());
+      if (voided.length !== qrIds.length) throw new PrintBatchServiceError('PRINT_VOID_QR_CONFLICT');
+      await audit(repository, 'printed_qr_codes_voided', batchId, operator, {
+        qr_ids: qrIds, reason
+      });
+      return Object.freeze({ batch_id: batchId, voided_ids: Object.freeze(voided.sort()) });
+    });
+  }
+
   return Object.freeze({
-    cancel, complete, create, download, generate, get, list, startPrinting, voidBatch
+    cancel, classifyLegacyQrCodes, complete, create, download, generate, get,
+    list, listLegacyQrCodes, startPrinting, voidBatch, voidPrintedQrCodes
   });
 }
 

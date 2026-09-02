@@ -302,6 +302,8 @@
 
   async function saveDraft({ quiet = false } = {}) {
     if (!editable()) throw new Error('当前模板没有可编辑草稿。');
+    syncCanvasPropertiesFromControls();
+    syncElementPropertiesFromControls();
     await api(`/label-templates/${activeTemplate().id}/draft`, {
       method: 'PUT', body: JSON.stringify({ schema: state.schema })
     });
@@ -331,7 +333,7 @@
   }
 
   async function publishTemplate() {
-    if (state.dirty) await saveDraft({ quiet: true });
+    if (editable()) await saveDraft({ quiet: true });
     await api(`/label-templates/${activeTemplate().id}/publish`, { method: 'POST', body: '{}' });
     await loadTemplates();
     message('模板版本已发布并锁定。');
@@ -415,8 +417,7 @@
     message('图片已上传并加入草稿。');
   }
 
-  function updateCanvasProperties() {
-    if (!editable()) return;
+  function syncCanvasPropertiesFromControls() {
     const canvas = state.schema.canvas;
     canvas.widthMm = Number(el('labelCanvasWidth').value);
     canvas.heightMm = Number(el('labelCanvasHeight').value);
@@ -424,13 +425,18 @@
     const top = Number(el('labelCanvasTopRadius').value);
     const bottom = Number(el('labelCanvasBottomRadius').value);
     canvas.cornerRadiiMm = { topLeft: top, topRight: top, bottomRight: bottom, bottomLeft: bottom };
+  }
+
+  function updateCanvasProperties() {
+    if (!editable()) return;
+    syncCanvasPropertiesFromControls();
     markDirty();
     renderCanvas();
   }
 
-  function updateElementProperties() {
+  function syncElementPropertiesFromControls() {
     const element = activeElement();
-    if (!editable() || !element) return;
+    if (!element) return;
     element.xMm = Number(el('labelElementX').value);
     element.yMm = Number(el('labelElementY').value);
     element.widthMm = Number(el('labelElementWidth').value);
@@ -445,6 +451,11 @@
       element.color = el('labelElementColor').value.toUpperCase();
       element.align = el('labelElementAlign').value;
     }
+  }
+
+  function updateElementProperties() {
+    if (!editable() || !activeElement()) return;
+    syncElementPropertiesFromControls();
     markDirty();
     renderCanvas();
     renderLayers();
@@ -550,11 +561,13 @@
     });
     ['labelCanvasWidth', 'labelCanvasHeight', 'labelCanvasColor',
       'labelCanvasTopRadius', 'labelCanvasBottomRadius'].forEach((id) => {
-      el(id).addEventListener('change', updateCanvasProperties);
+      el(id).addEventListener('input', updateCanvasProperties);
     });
     ['labelElementX', 'labelElementY', 'labelElementWidth', 'labelElementHeight',
-      'labelElementZ', 'labelElementLocked', 'labelElementText', 'labelElementFont',
-      'labelElementFontSize', 'labelElementColor', 'labelElementAlign'].forEach((id) => {
+      'labelElementZ', 'labelElementText', 'labelElementFontSize', 'labelElementColor'].forEach((id) => {
+      el(id).addEventListener('input', updateElementProperties);
+    });
+    ['labelElementLocked', 'labelElementFont', 'labelElementAlign'].forEach((id) => {
       el(id).addEventListener('change', updateElementProperties);
     });
     el('deleteLabelElementBtn').addEventListener('click', deleteElement);

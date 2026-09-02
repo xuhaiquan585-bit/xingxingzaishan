@@ -128,6 +128,45 @@ class PrintBatchRepository {
     return result.rows;
   }
 
+  async listLegacyQrCodes(input = {}) {
+    const params = [];
+    const where = ["qr.print_status = 'legacy_unclassified'"];
+    if (input.sourceBatchId) {
+      params.push(input.sourceBatchId);
+      where.push(`qr.batch_id = $${params.length}`);
+    }
+    if (input.idPrefix) {
+      params.push(`${input.idPrefix}%`);
+      where.push(`qr.id LIKE $${params.length}`);
+    }
+    params.push(input.limit || 500);
+    const result = await executeQuery(
+      this.transactionContext,
+      `SELECT qr.id, qr.batch_id, qr.issue_status, qr.lifecycle_status,
+         qr.print_status, qr.print_status_updated_at, qr.created_at
+       FROM app.qr_codes qr
+       WHERE ${where.join(' AND ')}
+       ORDER BY qr.batch_id NULLS FIRST, qr.id
+       LIMIT $${params.length}`,
+      params
+    );
+    return result.rows;
+  }
+
+  async classifyLegacyQrCodes(qrIds, targetStatus, reason, updatedAt) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `UPDATE app.qr_codes
+       SET print_status = $2::varchar,
+           print_void_reason = CASE WHEN $2::varchar = 'voided'::varchar THEN $3 ELSE '' END,
+           print_status_updated_at = $4, updated_at = $4
+       WHERE id = ANY($1::text[]) AND print_status = 'legacy_unclassified'
+       RETURNING id`,
+      [qrIds, targetStatus, reason, updatedAt]
+    );
+    return result.rows.map((row) => row.id);
+  }
+
   async listTemplateAssets(templateId) {
     const result = await executeQuery(
       this.transactionContext,
@@ -234,8 +273,8 @@ class PrintBatchRepository {
     const result = await executeQuery(
       this.transactionContext,
       `UPDATE app.print_batches
-       SET status = $3, ${timestampColumn} = $4, updated_at = $4,
-           void_reason = CASE WHEN $3 = 'voided' THEN $5 ELSE void_reason END
+       SET status = $3::varchar, ${timestampColumn} = $4, updated_at = $4,
+           void_reason = CASE WHEN $3::varchar = 'voided'::varchar THEN $5 ELSE void_reason END
        WHERE id = $1 AND status = ANY($2::text[])
        RETURNING *`,
       [batchId, fromStatuses, status, updatedAt, reason]
@@ -275,8 +314,8 @@ class PrintBatchRepository {
       `INSERT INTO app.audit_events
          (actor_type, actor_reference, action, entity_type, entity_id,
           result_status, metadata, created_at)
-       VALUES ('operator', $1, $2, 'print_batch', $3, 'success', $4::jsonb, $5)`,
-      [event.actor, event.action, event.entityId,
+       VALUES ('operator', $1, $2, $3, $4, 'success', $5::jsonb, $6)`,
+      [event.actor, event.action, event.entityType || 'print_batch', event.entityId,
         JSON.stringify(event.metadata || {}), event.createdAt]
     );
   }

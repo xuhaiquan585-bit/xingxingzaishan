@@ -1,7 +1,5 @@
 const express = require('express');
 const crypto = require('node:crypto');
-const fs = require('node:fs/promises');
-const JSZip = require('jszip');
 const {
   findAdmin,
   getDashboardStats,
@@ -29,7 +27,6 @@ const {
   updateMiniappContent
 } = require('../services/dbService');
 const { generateToken, verifyToken } = require('../services/authService');
-const { qrImagePath } = require('../services/qrImageService');
 const {
   getStorageMode,
   getSignedUrl,
@@ -64,18 +61,6 @@ const {
 } = require('../services/postgres/printProductionRuntime');
 
 const router = express.Router();
-const MAX_QR_IMAGE_EXPORT_COUNT = 500;
-
-function normalizeQrImageExportIds(values) {
-  if (!Array.isArray(values)) return null;
-  const ids = [...new Set(values.map((value) => String(value || '').trim()))];
-  if (ids.length === 0
-    || ids.length > MAX_QR_IMAGE_EXPORT_COUNT
-    || ids.some((id) => !/^[A-Z0-9]+$/.test(id))) {
-    return null;
-  }
-  return ids;
-}
 
 async function selectQrAdministration(operation, input, fallback) {
   const authority = await administerQrs(operation, input);
@@ -501,7 +486,8 @@ function sendPrintProductionError(res, error) {
     'TEXT_OVERFLOW', 'QR_PHYSICAL_SIZE_TOO_SMALL', 'PRINT_QR_IDS_INVALID',
     'IDEMPOTENCY_KEY_INVALID', 'PRINT_TEMPLATE_VERSION_INVALID',
     'PRINT_BATCH_NAME_INVALID', 'PRINT_VENDOR_NAME_INVALID',
-    'PRINT_BATCH_NOTE_INVALID', 'PRINT_VOID_REASON_INVALID'].includes(code)) {
+    'PRINT_BATCH_NOTE_INVALID', 'PRINT_VOID_REASON_INVALID',
+    'PRINT_HISTORY_FILTER_INVALID', 'PRINT_HISTORY_TARGET_INVALID'].includes(code)) {
     return res.status(400).json({
       status: 'error', code, message: '模板参数不符合生产要求。'
     });
@@ -521,7 +507,8 @@ function sendPrintProductionError(res, error) {
     'PRINT_BATCH_CANNOT_CANCEL', 'PRINT_ARTIFACT_GENERATION_IN_PROGRESS',
     'PRINT_ARTIFACT_GENERATION_NOT_ALLOWED', 'PRINT_ARTIFACT_NOT_READY',
     'PRINT_BATCH_TRANSITION_INVALID', 'PRINT_VOID_QR_SCOPE_INVALID',
-    'PRINT_VOID_QR_CONFLICT'].includes(code)) {
+    'PRINT_VOID_QR_CONFLICT', 'PRINT_HISTORY_QR_CONFLICT',
+    'PRINT_HISTORY_QR_NOT_AVAILABLE'].includes(code)) {
     return res.status(409).json({
       status: 'error', code, message: '当前模板状态不允许执行该操作。'
     });
@@ -721,6 +708,32 @@ router.get('/print-batches', requireAdmin, async (req, res) => {
   }
 });
 
+router.get('/print-production/legacy-qr-codes', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, {
+      qr_codes: await executePrintProduction('listLegacyPrintQrCodes', {
+        sourceBatchId: req.query.source_batch_id,
+        idPrefix: req.query.id_prefix
+      })
+    });
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post('/print-production/legacy-qr-codes/classify', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, await executePrintProduction('classifyLegacyPrintQrCodes', {
+      qrIds: req.body && req.body.qr_ids,
+      targetStatus: req.body && req.body.target_status,
+      reason: req.body && req.body.reason,
+      actor: printActor(req)
+    }));
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
 router.post('/print-batches', requireAdmin, async (req, res) => {
   try {
     return printSuccess(res, await executePrintProduction('createPrintBatch', {
@@ -822,6 +835,19 @@ router.post('/print-batches/:batchId/void', requireAdmin, async (req, res) => {
   try {
     return printSuccess(res, await executePrintProduction('voidPrintBatch', {
       batchId: req.params.batchId,
+      reason: req.body && req.body.reason,
+      actor: printActor(req)
+    }));
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post('/print-batches/:batchId/qr-codes/void', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, await executePrintProduction('voidPrintedQrCodes', {
+      batchId: req.params.batchId,
+      qrIds: req.body && req.body.qr_ids,
       reason: req.body && req.body.reason,
       actor: printActor(req)
     }));
@@ -1381,79 +1407,11 @@ router.post('/records/export', requireAdmin, async (req, res) => {
 });
 
 router.post('/records/qr-images/export', requireAdmin, async (req, res) => {
-  const ids = normalizeQrImageExportIds(req.body.ids);
-  if (!ids) {
-    return res.status(400).json({
-      status: 'error',
-      code: 'QR_IMAGE_EXPORT_SELECTION_INVALID',
-      message: `请选择 1 至 ${MAX_QR_IMAGE_EXPORT_COUNT} 条有效二维码记录。`
-    });
-  }
-
-  let data;
-  try {
-    data = await selectQrAdministration(
-      'listRecords',
-      { ids, page: 1, limit: ids.length },
-      () => ({
-        records: listQRRecords({ page: 1, limit: 100000 }).records
-          .filter((item) => ids.includes(item.id))
-      })
-    );
-  } catch (error) {
-    return sendQrAuthorityError(res, error);
-  }
-
-  const recordsById = new Map(data.records.map((record) => [record.id, record]));
-  const missingRecordIds = ids.filter((id) => !recordsById.has(id));
-  if (missingRecordIds.length > 0) {
-    return res.status(404).json({
-      status: 'error',
-      code: 'QR_IMAGE_EXPORT_RECORD_NOT_FOUND',
-      message: `未找到以下二维码记录：${missingRecordIds.join('、')}`
-    });
-  }
-
-  const images = await Promise.all(ids.map(async (id) => {
-    try {
-      return { id, content: await fs.readFile(qrImagePath(id)) };
-    } catch (error) {
-      if (error && error.code === 'ENOENT') return { id, content: null };
-      throw error;
-    }
-  })).catch(() => null);
-
-  if (!images) {
-    return res.status(500).json({
-      status: 'error',
-      code: 'QR_IMAGE_EXPORT_READ_FAILED',
-      message: '读取二维码原图失败，请稍后重试。'
-    });
-  }
-
-  const missingImageIds = images.filter((image) => !image.content).map((image) => image.id);
-  if (missingImageIds.length > 0) {
-    return res.status(409).json({
-      status: 'error',
-      code: 'QR_IMAGE_EXPORT_SOURCE_MISSING',
-      message: `以下二维码原图缺失，未生成压缩包：${missingImageIds.join('、')}`
-    });
-  }
-
-  const zip = new JSZip();
-  images.forEach((image) => zip.file(`${image.id}.png`, image.content));
-  const archive = await zip.generateAsync({
-    type: 'nodebuffer',
-    compression: 'STORE'
+  return res.status(410).json({
+    status: 'error',
+    code: 'LEGACY_QR_IMAGE_EXPORT_RETIRED',
+    message: '正式二维码标签只能通过印刷任务生成；数据 CSV 导出不受影响。'
   });
-  const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/u, 'Z');
-
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', `attachment; filename="qr-images-${timestamp}-${ids.length}.zip"`);
-  res.setHeader('Content-Length', archive.length);
-  res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  return res.send(archive);
 });
 
 router.post('/records/:qrId/hide', requireAdmin, async (req, res) => {

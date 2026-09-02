@@ -144,7 +144,6 @@
                 <button id="batchHideBtn">批量隐藏</button>
                 <button id="batchShowBtn">批量显示</button>
                 <button id="batchExportBtn" class="secondary">导出数据 CSV</button>
-                <button id="batchQrImagesExportBtn">下载二维码图片</button>
                 <button id="createPrintBatchFromSelectionBtn">创建印刷任务</button>
                 <span id="selectedCount">已选 0 条</span>
               </div>
@@ -340,10 +339,43 @@
               <label id="printVoidReasonRow" class="hidden">报废原因
                 <input id="printVoidReason" maxlength="500" placeholder="填写具体原因" />
               </label>
+              <div class="toolbar multi-line print-qr-filter-toolbar">
+                <input id="printQrSourceBatchFilter" placeholder="按原二维码批次筛选" />
+                <input id="printQrIdPrefixFilter" placeholder="按二维码 ID 前缀筛选" />
+                <button id="filterPrintQrBtn" class="secondary">筛选任务内二维码</button>
+              </div>
               <div class="table-wrap">
                 <table>
                   <thead><tr><th><input id="selectAllPrintQr" type="checkbox" /></th><th>二维码 ID</th><th>原批次</th><th>印刷状态</th><th>报废原因</th></tr></thead>
                   <tbody id="printBatchQrTable"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="module-block">
+              <div class="print-batch-detail-head">
+                <div>
+                  <h3>历史二维码分类</h3>
+                  <p class="muted">历史码必须人工确认为可生产或永久报废，单次最多处理 500 个。</p>
+                </div>
+                <button id="refreshLegacyPrintQrBtn" class="secondary">刷新</button>
+              </div>
+              <div class="toolbar multi-line">
+                <input id="legacyPrintQrBatchFilter" placeholder="按原二维码批次筛选" />
+                <input id="legacyPrintQrIdFilter" placeholder="按二维码 ID 前缀筛选" />
+                <button id="filterLegacyPrintQrBtn">筛选历史码</button>
+              </div>
+              <label>报废原因（仅选择永久报废时必填）
+                <input id="legacyPrintQrVoidReason" maxlength="500" placeholder="例如：历史测试二维码，不进入商品生产" />
+              </label>
+              <div class="toolbar compact">
+                <button id="classifyLegacyAvailableBtn">确认为可用于生产</button>
+                <button id="classifyLegacyVoidedBtn" class="danger">永久报废所选 ID</button>
+                <span id="legacyPrintQrSelectionCount" class="muted">已选 0 个</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th><input id="selectAllLegacyPrintQr" type="checkbox" /></th><th>二维码 ID</th><th>原批次</th><th>发行状态</th><th>激活状态</th><th>创建时间</th></tr></thead>
+                  <tbody id="legacyPrintQrTable"></tbody>
                 </table>
               </div>
             </div>
