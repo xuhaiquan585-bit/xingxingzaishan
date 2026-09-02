@@ -23,6 +23,12 @@
     target.classList.toggle('error', error);
   }
 
+  function detailMessage(text, error = false) {
+    const target = el('printBatchDetailMsg');
+    target.textContent = text || '';
+    target.classList.toggle('error', error);
+  }
+
   async function api(path, options = {}) {
     const timeout = options.timeout || 30000;
     const controller = new AbortController();
@@ -169,6 +175,7 @@
   async function openBatch(batchId) {
     state.detail = await api(`/print-batches/${batchId}`);
     state.selectedQrIds.clear();
+    detailMessage('');
     renderDetail();
   }
 
@@ -187,7 +194,7 @@
     ));
     el('printBatchQrTable').innerHTML = visibleQrCodes.map((qr) => `
       <tr>
-        <td><input type="checkbox" data-print-qr-id="${qr.id}" ${state.selectedQrIds.has(qr.id) ? 'checked' : ''} ${qr.print_status === 'voided' ? 'disabled' : ''} /></td>
+        <td><input type="checkbox" data-print-qr-id="${qr.id}" ${state.selectedQrIds.has(qr.id) ? 'checked' : ''} ${isQrSelectable(qr) ? '' : 'disabled'} /></td>
         <td>${escapeHtml(qr.id)}</td>
         <td>${escapeHtml(qr.original_batch_id || '-')}</td>
         <td>${printQrStatus(qr.print_status)}</td>
@@ -206,7 +213,12 @@
   }
 
   function actionButton(action, label, style = '') {
-    return `<button data-print-action="${action}" class="${style}">${label}</button>`;
+    return `<button type="button" data-print-action="${action}" class="${style}">${label}</button>`;
+  }
+
+  function isQrSelectable(qr) {
+    if (!state.detail || qr.print_status === 'voided') return false;
+    return state.detail.batch.status !== 'completed' || qr.print_status === 'printed';
   }
 
   function renderActions() {
@@ -228,7 +240,7 @@
       actions.push(actionButton('void', '整单作废', 'danger'));
     }
     if (status === 'completed' && state.selectedQrIds.size > 0) {
-      actions.push(actionButton('scrap', '报废所选 ID', 'danger'));
+      actions.push(actionButton('scrap', `报废所选 ${state.selectedQrIds.size} 个 ID`, 'danger'));
     }
     el('printBatchActions').innerHTML = actions.join('');
   }
@@ -237,7 +249,7 @@
     const sourceBatchFilter = el('printQrSourceBatchFilter').value.trim();
     const idPrefixFilter = el('printQrIdPrefixFilter').value.trim().toUpperCase();
     const ids = state.detail ? state.detail.qr_codes.filter((qr) => (
-      qr.print_status !== 'voided'
+      isQrSelectable(qr)
       && (!sourceBatchFilter || qr.original_batch_id === sourceBatchFilter)
       && (!idPrefixFilter || qr.id.startsWith(idPrefixFilter))
     )).map((qr) => qr.id) : [];
@@ -245,6 +257,8 @@
     const status = state.detail ? state.detail.batch.status : '';
     el('printVoidReasonRow').classList.toggle('hidden',
       state.selectedQrIds.size === 0 && !['artifact_ready', 'printing'].includes(status));
+    el('printBatchSelectionSummary').classList.toggle('hidden', state.selectedQrIds.size === 0);
+    el('printBatchSelectionCount').textContent = `已选 ${state.selectedQrIds.size} 个`;
   }
 
   async function mutate(action) {
@@ -276,7 +290,11 @@
     if (action === 'scrap') {
       const qrIds = [...state.selectedQrIds];
       const reason = el('printVoidReason').value.trim();
-      if (!qrIds.length || !reason) throw new Error('请选择具体二维码并填写报废原因。');
+      if (!qrIds.length) throw new Error('请先勾选需要报废的二维码 ID。');
+      if (!reason) {
+        el('printVoidReason').focus();
+        throw new Error('请先填写报废原因，再报废所选二维码。');
+      }
       if (!window.confirm(`将所选 ${qrIds.length} 个已打印二维码永久报废，确定继续吗？`)) return;
       endpoint = 'qr-codes/void';
       body = { qr_ids: qrIds, reason };
@@ -286,7 +304,10 @@
     });
     await loadBatches();
     await openBatch(batch.id);
-    message(action === 'generate' ? '正式文件已生成并永久锁定。' : '任务状态已更新。');
+    const success = action === 'generate' ? '正式文件已生成并永久锁定。'
+      : action === 'scrap' ? '所选二维码已永久报废。' : '任务状态已更新。';
+    detailMessage(success);
+    message(success);
   }
 
   async function downloadArtifact(batchId) {
@@ -327,7 +348,7 @@
     });
     el('printBatchActions').addEventListener('click', (event) => {
       const button = event.target.closest('[data-print-action]');
-      if (button) run(() => mutate(button.dataset.printAction));
+      if (button) run(() => mutate(button.dataset.printAction), { detail: true });
     });
     el('printBatchQrTable').addEventListener('change', (event) => {
       const checkbox = event.target.closest('[data-print-qr-id]');
@@ -343,7 +364,7 @@
         const sourceBatchFilter = el('printQrSourceBatchFilter').value.trim();
         const idPrefixFilter = el('printQrIdPrefixFilter').value.trim().toUpperCase();
         state.detail.qr_codes.filter((qr) => (
-          qr.print_status !== 'voided'
+          isQrSelectable(qr)
           && (!sourceBatchFilter || qr.original_batch_id === sourceBatchFilter)
           && (!idPrefixFilter || qr.id.startsWith(idPrefixFilter))
         )).forEach((qr) => state.selectedQrIds.add(qr.id));
@@ -366,12 +387,16 @@
     });
   }
 
-  async function run(callback) {
+  async function run(callback, options = {}) {
+    const showDetailMessage = options.detail === true;
     try {
-      message('');
+      if (showDetailMessage) detailMessage('');
+      else message('');
       await callback();
     } catch (error) {
-      message(error.message || '操作失败。', true);
+      const text = error.message || '操作失败。';
+      if (showDetailMessage) detailMessage(text, true);
+      else message(text, true);
     }
   }
 

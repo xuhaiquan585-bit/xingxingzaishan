@@ -369,6 +369,11 @@ test('admin production UI closes the legacy image export bypass', async () => {
   assert.match(html, /历史二维码分类/u);
   assert.match(printJs, /\/print-production\/legacy-qr-codes/u);
   assert.match(printJs, /qr-codes\/void/u);
+  assert.match(html, /id="printBatchDetailMsg"/u);
+  assert.match(html, /id="printBatchSelectionCount"/u);
+  assert.match(printJs, /报废所选 \$\{state\.selectedQrIds\.size\} 个 ID/u);
+  assert.match(printJs, /el\('printVoidReason'\)\.focus\(\)/u);
+  assert.match(printJs, /run\(\(\) => mutate\(button\.dataset\.printAction\), \{ detail: true \}\)/u);
   assert.equal(adminJs.includes('/api/admin/records/qr-images/export'), false);
   assert.match(editorJs, /el\(id\)\.addEventListener\('input', updateElementProperties\)/u);
   assert.match(editorJs, /syncElementPropertiesFromControls\(\);\s+await api\(/u);

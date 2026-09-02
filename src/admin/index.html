@@ -339,6 +339,11 @@
               <label id="printVoidReasonRow" class="hidden">报废原因
                 <input id="printVoidReason" maxlength="500" placeholder="填写具体原因" />
               </label>
+              <div id="printBatchSelectionSummary" class="print-batch-selection-summary hidden">
+                <span id="printBatchSelectionCount" class="muted">已选 0 个</span>
+                <span>报废后不可恢复。</span>
+              </div>
+              <p id="printBatchDetailMsg" class="msg print-batch-detail-msg" role="status"></p>
               <div class="toolbar multi-line print-qr-filter-toolbar">
                 <input id="printQrSourceBatchFilter" placeholder="按原二维码批次筛选" />
                 <input id="printQrIdPrefixFilter" placeholder="按二维码 ID 前缀筛选" />

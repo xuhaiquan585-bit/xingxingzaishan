@@ -1292,3 +1292,26 @@ th {
 #printVoidReasonRow.hidden {
   display: none;
 }
+
+.print-batch-selection-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -4px 0 8px 98px;
+  color: #b32d2d;
+  font-size: 14px;
+}
+
+.print-batch-detail-msg {
+  margin: 4px 0 10px;
+}
+
+@media (max-width: 700px) {
+  #printVoidReasonRow {
+    grid-template-columns: 1fr;
+  }
+
+  .print-batch-selection-summary {
+    margin-left: 0;
+  }
+}
