@@ -10,7 +10,7 @@ const { pipeline } = require('node:stream/promises');
 const JSZip = require('jszip');
 
 const { renderLabel } = require('../labelRenderer');
-const { validateTemplateSchema } = require('../labelTemplateSchema');
+const { linkedComponentRevision, validateTemplateSchema } = require('../labelTemplateSchema');
 
 const MAX_PRINT_BATCH_SIZE = 500;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -92,14 +92,15 @@ function csvCell(value) {
   return `"${String(value ?? '').replace(/"/g, '""')}"`;
 }
 
-function buildQrManifestCsv({ batch, qrCodes }) {
+function buildQrManifestCsv({ batch, qrCodes, componentRevision = 1 }) {
   const rows = [[
-    '二维码ID', 'PNG文件名', '原二维码批次', '印刷任务编号', '模板名称', '模板版本'
+    '二维码ID', 'PNG文件名', '原二维码批次', '印刷任务编号', '模板名称', '模板版本',
+    '二维码组件版本'
   ]];
   for (const qr of qrCodes) {
     rows.push([
       qr.id, `${qr.id}.png`, qr.batch_id || '', batch.id,
-      batch.template_name, `v${batch.template_version_number}`
+      batch.template_name, `v${batch.template_version_number}`, `v${componentRevision}`
     ]);
   }
   return `\uFEFF${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;
@@ -139,7 +140,11 @@ async function writeFormalZip({
       onProgress({ completed: index + 1, total: qrCodes.length, rss: process.memoryUsage().rss });
     }
   }
-  zip.file('二维码ID清单.csv', buildQrManifestCsv({ batch, qrCodes }), {
+  const idElement = Array.isArray(template.elements)
+    ? template.elements.find((element) => element.type === 'id') : null;
+  zip.file('二维码ID清单.csv', buildQrManifestCsv({
+    batch, qrCodes, componentRevision: linkedComponentRevision(idElement) || 1
+  }), {
     date: zipDate, compression: 'DEFLATE', compressionOptions: { level: 6 },
     unixPermissions: 0o600
   });

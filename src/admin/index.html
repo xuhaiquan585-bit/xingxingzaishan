@@ -256,7 +256,10 @@
                     </div>
                     <div id="labelElementProperties" class="hidden">
                       <h3>选中元素</h3>
-                      <p id="labelQrIdLinkNote" class="label-property-note hidden">二维码 ID 与二维码联动，位置、宽度和字号由二维码尺寸自动确定。</p>
+                      <div id="labelQrIdLinkNote" class="label-property-note label-component-note hidden">
+                        <span id="labelQrIdRevisionText">二维码 ID 与二维码联动，位置、宽度和字号由二维码尺寸自动确定。</span>
+                        <button id="upgradeQrIdComponentBtn" type="button" class="secondary hidden">升级到新版组件</button>
+                      </div>
                       <div class="label-property-grid">
                         <label>X mm<input id="labelElementX" type="number" min="0" step="0.5" /></label>
                         <label>Y mm<input id="labelElementY" type="number" min="0" step="0.5" /></label>
@@ -267,7 +270,7 @@
                       </div>
                       <label id="labelElementTextRow">文字<textarea id="labelElementText" maxlength="160" rows="3"></textarea></label>
                       <div id="labelElementFontRows" class="label-property-grid">
-                        <label>字体<select id="labelElementFont"><option value="noto-sans-sc">思源黑体</option><option value="ibm-plex-mono">IBM Plex Mono</option></select></label>
+                        <label>字体<select id="labelElementFont"><option value="noto-sans-sc">思源黑体</option><option value="ibm-plex-mono">IBM Plex Mono Medium</option><option value="ibm-plex-mono-regular">IBM Plex Mono Regular</option></select></label>
                         <label>字号 pt<input id="labelElementFontSize" type="number" min="4" max="48" step="0.5" /></label>
                         <label>颜色<input id="labelElementColor" type="color" /></label>
                         <label>对齐<select id="labelElementAlign"><option value="left">左</option><option value="center">中</option><option value="right">右</option></select></label>

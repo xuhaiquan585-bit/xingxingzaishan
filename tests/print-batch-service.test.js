@@ -336,17 +336,24 @@ test('manifest and ZIP generation are deterministic and do not expose access tok
     created_at: '2026-09-02T00:00:00.000Z'
   };
   const qrCodes = [{ id: 'SSS10001', batch_id: 'BATCH-1', access_token: 'secret-token' }];
-  assert.doesNotMatch(buildQrManifestCsv({ batch, qrCodes }), /secret-token/);
+  const manifest = buildQrManifestCsv({ batch, qrCodes, componentRevision: 2 });
+  assert.doesNotMatch(manifest, /secret-token/);
+  assert.match(manifest, /二维码组件版本/u);
+  assert.match(manifest, /"v2"/u);
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'print-batch-test-'));
   const paths = [path.join(directory, 'a.zip'), path.join(directory, 'b.zip')];
   try {
     const fakeRender = async ({ qrId }) => ({ buffer: Buffer.from(`png:${qrId}`) });
     const first = await writeFormalZip({
-      batch, qrCodes, template: {}, assets: new Map(), outputPath: paths[0],
+      batch, qrCodes,
+      template: { elements: [{ type: 'id', linkedToQr: true, componentRevision: 2 }] },
+      assets: new Map(), outputPath: paths[0],
       baseUrl: 'https://example.invalid', render: fakeRender
     });
     const second = await writeFormalZip({
-      batch, qrCodes, template: {}, assets: new Map(), outputPath: paths[1],
+      batch, qrCodes,
+      template: { elements: [{ type: 'id', linkedToQr: true, componentRevision: 2 }] },
+      assets: new Map(), outputPath: paths[1],
       baseUrl: 'https://example.invalid', render: fakeRender
     });
     assert.deepEqual(first, second);
@@ -384,12 +391,16 @@ test('admin production UI closes the legacy image export bypass', async () => {
   assert.match(editorJs, /syncElementPropertiesFromControls\(\);\s+await api\(/u);
   assert.match(editorJs, /const POINT_TO_MM = 25\.4 \/ 72/u);
   assert.match(editorJs, /canvasFontSize\(element\.fontSizePt, scale\)/u);
-  assert.match(editorJs, /function synchronizeQrIdComponent\(\)/u);
+  assert.match(editorJs, /function synchronizeQrIdComponent\(targetRevision = null\)/u);
   assert.match(editorJs, /if \(element\.type === 'qr'\) synchronizeQrIdComponent\(\)/u);
   assert.match(html, /二维码 ID 与二维码联动/u);
+  assert.match(html, /upgradeQrIdComponentBtn/u);
+  assert.match(editorJs, /QR_ID_COMPONENT_LATEST_REVISION = 2/u);
+  assert.match(editorJs, /ibm-plex-mono-regular/u);
   assert.match(adminCss, /white-space: nowrap/u);
   assert.match(adminCss, /font-family: "Label Noto Sans SC"/u);
   assert.match(adminCss, /font-family: "Label IBM Plex Mono"/u);
+  assert.match(adminCss, /font-family: "Label IBM Plex Mono Regular"/u);
   assert.match(appSource, /app\.use\('\/admin\/fonts', express\.static/u);
   assert.match(routeSource, /LEGACY_QR_IMAGE_EXPORT_RETIRED/u);
   assert.match(routeSource, /status\(410\)/u);

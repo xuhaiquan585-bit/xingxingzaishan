@@ -194,8 +194,11 @@ test('template lifecycle preserves published versions and requires a new draft',
   const second = await service.createVersion({ templateId: created.template.id, actor });
   assert.equal(second.version_number, 2);
   assert.equal(second.template_schema.elements.find((item) => item.type === 'qr').widthMm, 17);
-  assert.equal(second.template_schema.elements.find((item) => item.type === 'id').yMm, 19.1);
-  assert.equal(second.template_schema.elements.find((item) => item.type === 'id').fontSizePt, 6.5);
+  assert.equal(second.template_schema.elements.find((item) => item.type === 'id').yMm, 18.85);
+  assert.equal(second.template_schema.elements.find((item) => item.type === 'id').fontSizePt, 5.5);
+  assert.equal(second.template_schema.elements.find((item) => item.type === 'id').componentRevision, 2);
+  assert.equal(second.template_schema.elements.find((item) => item.type === 'id').fontFamily,
+    'ibm-plex-mono-regular');
   assert.equal(second.template_schema.elements.find((item) => item.type === 'id').linkedToQr, true);
   second.template_schema.elements.find((item) => item.id === 'prompt').text = '本地篡改';
   const original = store.versions.get(published.id);

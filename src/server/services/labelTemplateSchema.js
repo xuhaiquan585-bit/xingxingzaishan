@@ -11,13 +11,42 @@ const ELEMENT_TYPES = Object.freeze([
 ]);
 const COLOR_PATTERN = /^#[0-9A-F]{6}$/i;
 const ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
-const QR_ID_COMPONENT = Object.freeze({
-  referenceQrSizeMm: 17,
-  gapMm: 0.6,
-  heightMm: 2.8,
-  fontSizePt: 6.5,
-  minimumFontSizePt: 4
+const QR_ID_COMPONENT_LATEST_REVISION = 2;
+const QR_ID_COMPONENT_PROFILES = Object.freeze({
+  1: Object.freeze({
+    referenceQrSizeMm: 17,
+    gapMm: 0.6,
+    minimumGapMm: 0,
+    maximumGapMm: 48,
+    heightMm: 2.8,
+    minimumHeightMm: 0.1,
+    maximumHeightMm: 48,
+    fontSizePt: 6.5,
+    minimumBaseFontSizePt: 4,
+    maximumBaseFontSizePt: 48,
+    minimumFitFontSizePt: 4,
+    fontFamily: 'ibm-plex-mono',
+    color: null,
+    horizontalPaddingMm: 0
+  }),
+  2: Object.freeze({
+    referenceQrSizeMm: 17,
+    gapMm: 0.35,
+    minimumGapMm: 0.3,
+    maximumGapMm: 0.6,
+    heightMm: 2.4,
+    minimumHeightMm: 2.2,
+    maximumHeightMm: 3.6,
+    fontSizePt: 5.5,
+    minimumBaseFontSizePt: 4.5,
+    maximumBaseFontSizePt: 9,
+    minimumFitFontSizePt: 4,
+    fontFamily: 'ibm-plex-mono-regular',
+    color: '#1F2937',
+    horizontalPaddingMm: 0.35
+  })
 });
+const QR_ID_COMPONENT = QR_ID_COMPONENT_PROFILES[QR_ID_COMPONENT_LATEST_REVISION];
 
 class LabelTemplateValidationError extends Error {
   constructor(issues) {
@@ -61,11 +90,12 @@ function defaultLabelTemplateSchema() {
         foregroundColor: '#000000', backgroundColor: '#FFFFFF'
       },
       {
-        id: 'qr-id', type: 'id', xMm: 1.5, yMm: 19.1,
-        widthMm: 17, heightMm: 2.8, zIndex: 4, locked: true,
-        linkedToQr: true, fontFamily: 'ibm-plex-mono',
-        fontSizePt: 6.5, minFontSizePt: 4,
-        color: '#111827', align: 'center', letterSpacing: 0
+        id: 'qr-id', type: 'id', xMm: 1.5, yMm: 18.85,
+        widthMm: 17, heightMm: 2.4, zIndex: 4, locked: true,
+        linkedToQr: true, componentRevision: QR_ID_COMPONENT_LATEST_REVISION,
+        fontFamily: 'ibm-plex-mono-regular',
+        fontSizePt: 5.5, minFontSizePt: 4,
+        color: '#1F2937', align: 'center', letterSpacing: 0
       },
       {
         id: 'prompt', type: 'text', xMm: 2.5, yMm: 26.5,
@@ -91,29 +121,57 @@ function rounded(value) {
   return Number(Number(value).toFixed(4));
 }
 
-function qrIdComponentLayout(qrElement) {
-  const scale = Number(qrElement.widthMm) / QR_ID_COMPONENT.referenceQrSizeMm;
+function clamp(value, minimum, maximum) {
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+function qrIdComponentProfile(revision) {
+  return QR_ID_COMPONENT_PROFILES[Number(revision)] || null;
+}
+
+function linkedComponentRevision(idElement) {
+  if (!idElement || idElement.linkedToQr !== true) return 0;
+  const revision = Number(idElement.componentRevision ?? 1);
+  return qrIdComponentProfile(revision) ? revision : 1;
+}
+
+function qrIdComponentLayout(qrElement, revision = QR_ID_COMPONENT_LATEST_REVISION) {
+  const profile = qrIdComponentProfile(revision) || QR_ID_COMPONENT;
+  const scale = Number(qrElement.widthMm) / profile.referenceQrSizeMm;
+  const gapMm = clamp(
+    profile.gapMm * scale,
+    profile.minimumGapMm,
+    profile.maximumGapMm
+  );
   return Object.freeze({
     xMm: rounded(qrElement.xMm),
     yMm: rounded(
-      Number(qrElement.yMm) + Number(qrElement.heightMm) + QR_ID_COMPONENT.gapMm * scale
+      Number(qrElement.yMm) + Number(qrElement.heightMm) + gapMm
     ),
     widthMm: rounded(qrElement.widthMm),
-    heightMm: rounded(QR_ID_COMPONENT.heightMm * scale),
-    fontSizePt: rounded(Math.max(
-      QR_ID_COMPONENT.minimumFontSizePt,
-      Math.min(48, QR_ID_COMPONENT.fontSizePt * scale)
+    heightMm: rounded(clamp(
+      profile.heightMm * scale,
+      profile.minimumHeightMm,
+      profile.maximumHeightMm
+    )),
+    fontSizePt: rounded(clamp(
+      profile.fontSizePt * scale,
+      profile.minimumBaseFontSizePt,
+      profile.maximumBaseFontSizePt
     ))
   });
 }
 
-function synchronizeQrIdComponent(input, { upgradeStandardQr = false } = {}) {
+function synchronizeQrIdComponent(
+  input,
+  { upgradeStandardQr = false, targetRevision = null } = {}
+) {
   const schema = JSON.parse(JSON.stringify(input || {}));
   const elements = Array.isArray(schema.elements) ? schema.elements : [];
   const qr = elements.find((element) => element && element.type === 'qr');
   const id = elements.find((element) => element && element.type === 'id');
   if (!qr || !id) return schema;
-  if (id.linkedToQr !== true && !upgradeStandardQr) return schema;
+  if (id.linkedToQr !== true && !upgradeStandardQr && targetRevision === null) return schema;
   const canvas = schema.canvas || {};
   const isLegacyStandard = upgradeStandardQr
     && Number(canvas.widthMm) === 20
@@ -125,15 +183,23 @@ function synchronizeQrIdComponent(input, { upgradeStandardQr = false } = {}) {
   if (isLegacyStandard) {
     Object.assign(qr, { xMm: 1.5, yMm: 1.5, widthMm: 17, heightMm: 17 });
   }
-  const layout = qrIdComponentLayout(qr);
+  const requestedRevision = targetRevision === null
+    ? (upgradeStandardQr ? QR_ID_COMPONENT_LATEST_REVISION : linkedComponentRevision(id))
+    : Number(targetRevision);
+  const revision = qrIdComponentProfile(requestedRevision)
+    ? requestedRevision : QR_ID_COMPONENT_LATEST_REVISION;
+  const profile = qrIdComponentProfile(revision);
+  const layout = qrIdComponentLayout(qr, revision);
   Object.assign(id, layout, {
     linkedToQr: true,
+    componentRevision: revision,
     locked: true,
-    fontFamily: 'ibm-plex-mono',
-    minFontSizePt: QR_ID_COMPONENT.minimumFontSizePt,
+    fontFamily: profile.fontFamily,
+    minFontSizePt: profile.minimumFitFontSizePt,
     align: 'center',
     letterSpacing: 0
   });
+  if (profile.color) id.color = profile.color;
   return schema;
 }
 
@@ -182,7 +248,8 @@ function normalizeGeometry(element, index, canvas, issues) {
 
 function normalizeFont(element, path, issues) {
   const fontFamily = String(element.fontFamily || '').trim();
-  if (!['ibm-plex-mono', 'noto-sans-sc'].includes(fontFamily)) {
+  const supportedFonts = ['ibm-plex-mono', 'ibm-plex-mono-regular', 'noto-sans-sc'];
+  if (!supportedFonts.includes(fontFamily)) {
     issue(issues, 'FONT_FAMILY_INVALID', `${path}.fontFamily`, 'Only bundled fonts are allowed.');
   }
   const align = String(element.align || 'left').trim();
@@ -190,7 +257,7 @@ function normalizeFont(element, path, issues) {
     issue(issues, 'TEXT_ALIGN_INVALID', `${path}.align`, 'Text alignment is invalid.');
   }
   return {
-    fontFamily: ['ibm-plex-mono', 'noto-sans-sc'].includes(fontFamily)
+    fontFamily: supportedFonts.includes(fontFamily)
       ? fontFamily : 'noto-sans-sc',
     fontSizePt: numeric(element.fontSizePt, `${path}.fontSizePt`, issues, { min: 4, max: 48 }),
     minFontSizePt: numeric(
@@ -259,9 +326,22 @@ function normalizeElement(element, index, canvas, issues, options) {
   }
 
   if (type === 'id') {
+    const linkedToQr = element.linkedToQr === true;
+    const rawRevision = Number(element.componentRevision ?? 1);
+    const componentRevision = linkedToQr && Number.isInteger(rawRevision)
+      && qrIdComponentProfile(rawRevision) ? rawRevision : linkedToQr ? 1 : 0;
+    if (linkedToQr && (!Number.isInteger(rawRevision) || !qrIdComponentProfile(rawRevision))) {
+      issue(
+        issues,
+        'QR_ID_COMPONENT_REVISION_INVALID',
+        `${path}.componentRevision`,
+        'The QR ID component revision is not supported.'
+      );
+    }
     return {
       ...base,
-      linkedToQr: element.linkedToQr === true,
+      linkedToQr,
+      ...(linkedToQr ? { componentRevision } : {}),
       ...normalizeFont(element, path, issues)
     };
   }
@@ -394,7 +474,9 @@ function validateTemplateSchema(input, options = {}) {
   if (qrElements.length !== 1) issue(issues, 'QR_ELEMENT_REQUIRED', 'elements', 'Exactly one QR element is required.');
   if (idElements.length !== 1) issue(issues, 'ID_ELEMENT_REQUIRED', 'elements', 'Exactly one ID element is required.');
   if (qrElements.length === 1 && idElements.length === 1 && idElements[0].linkedToQr) {
-    const expected = qrIdComponentLayout(qrElements[0]);
+    const revision = linkedComponentRevision(idElements[0]);
+    const profile = qrIdComponentProfile(revision);
+    const expected = qrIdComponentLayout(qrElements[0], revision);
     for (const property of ['xMm', 'yMm', 'widthMm', 'heightMm', 'fontSizePt']) {
       if (Math.abs(Number(idElements[0][property]) - Number(expected[property])) > 0.0001) {
         issue(
@@ -412,6 +494,35 @@ function validateTemplateSchema(input, options = {}) {
         `elements.${idElements[0].id}.align`,
         'The QR ID must stay centered beneath the QR.'
       );
+    }
+    if (revision === QR_ID_COMPONENT_LATEST_REVISION
+        && idElements[0].fontFamily !== profile.fontFamily) {
+      issue(
+        issues,
+        'QR_ID_COMPONENT_FONT_INVALID',
+        `elements.${idElements[0].id}.fontFamily`,
+        'The latest QR ID component must use the bundled Regular font.'
+      );
+    }
+    if (revision === QR_ID_COMPONENT_LATEST_REVISION
+        && idElements[0].color !== profile.color) {
+      issue(
+        issues,
+        'QR_ID_COMPONENT_COLOR_INVALID',
+        `elements.${idElements[0].id}.color`,
+        'The latest QR ID component must use its production text color.'
+      );
+    }
+    for (const element of elements) {
+      if (!['background', 'qr', 'id'].includes(element.type)
+          && boxesOverlap(idElements[0], element)) {
+        issue(
+          issues,
+          'QR_ID_COMPONENT_OVERLAP',
+          `elements.${element.id}`,
+          'Nothing may overlap the linked QR ID.'
+        );
+      }
     }
   }
   if (qrElements.length === 1) {
@@ -441,9 +552,13 @@ module.exports = {
   FORMAL_DPI,
   LabelTemplateValidationError,
   QR_ID_COMPONENT,
+  QR_ID_COMPONENT_LATEST_REVISION,
+  QR_ID_COMPONENT_PROFILES,
   SCHEMA_VERSION,
   defaultLabelTemplateSchema,
+  linkedComponentRevision,
   qrIdComponentLayout,
+  qrIdComponentProfile,
   synchronizeQrIdComponent,
   validateTemplateSchema
 };

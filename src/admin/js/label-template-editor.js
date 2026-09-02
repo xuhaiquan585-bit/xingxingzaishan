@@ -12,12 +12,22 @@
   };
   const SNAP_MM = 0.5;
   const POINT_TO_MM = 25.4 / 72;
-  const QR_ID_COMPONENT = Object.freeze({
-    referenceQrSizeMm: 17,
-    gapMm: 0.6,
-    heightMm: 2.8,
-    fontSizePt: 6.5,
-    minimumFontSizePt: 4
+  const QR_ID_COMPONENT_LATEST_REVISION = 2;
+  const QR_ID_COMPONENT_PROFILES = Object.freeze({
+    1: Object.freeze({
+      referenceQrSizeMm: 17, gapMm: 0.6, minimumGapMm: 0, maximumGapMm: 48,
+      heightMm: 2.8, minimumHeightMm: 0.1, maximumHeightMm: 48,
+      fontSizePt: 6.5, minimumBaseFontSizePt: 4, maximumBaseFontSizePt: 48,
+      minimumFitFontSizePt: 4, fontFamily: 'ibm-plex-mono', color: null,
+      horizontalPaddingMm: 0
+    }),
+    2: Object.freeze({
+      referenceQrSizeMm: 17, gapMm: 0.35, minimumGapMm: 0.3, maximumGapMm: 0.6,
+      heightMm: 2.4, minimumHeightMm: 2.2, maximumHeightMm: 3.6,
+      fontSizePt: 5.5, minimumBaseFontSizePt: 4.5, maximumBaseFontSizePt: 9,
+      minimumFitFontSizePt: 4, fontFamily: 'ibm-plex-mono-regular', color: '#1F2937',
+      horizontalPaddingMm: 0.35
+    })
   });
   const TYPE_LABELS = {
     background: '背景图', handwriting: '手写区', image: '图片', divider: '分割线',
@@ -94,25 +104,42 @@
     return state.schema && state.schema.elements.find((element) => element.type === type);
   }
 
-  function synchronizeQrIdComponent() {
+  function linkedComponentRevision(id) {
+    if (!id || id.linkedToQr !== true) return 0;
+    return QR_ID_COMPONENT_PROFILES[Number(id.componentRevision ?? 1)]
+      ? Number(id.componentRevision ?? 1) : 1;
+  }
+
+  function synchronizeQrIdComponent(targetRevision = null) {
     const qr = elementByType('qr');
     const id = elementByType('id');
     if (!qr || !id || id.linkedToQr !== true) return;
-    const scale = Number(qr.widthMm) / QR_ID_COMPONENT.referenceQrSizeMm;
+    const revision = targetRevision === null
+      ? linkedComponentRevision(id) : Number(targetRevision);
+    const profile = QR_ID_COMPONENT_PROFILES[revision]
+      || QR_ID_COMPONENT_PROFILES[QR_ID_COMPONENT_LATEST_REVISION];
+    const scale = Number(qr.widthMm) / profile.referenceQrSizeMm;
+    const gapMm = clamp(profile.gapMm * scale, profile.minimumGapMm, profile.maximumGapMm);
     Object.assign(id, {
       xMm: rounded(qr.xMm),
-      yMm: rounded(Number(qr.yMm) + Number(qr.heightMm) + QR_ID_COMPONENT.gapMm * scale),
+      yMm: rounded(Number(qr.yMm) + Number(qr.heightMm) + gapMm),
       widthMm: rounded(qr.widthMm),
-      heightMm: rounded(QR_ID_COMPONENT.heightMm * scale),
-      fontSizePt: rounded(Math.max(
-        QR_ID_COMPONENT.minimumFontSizePt,
-        Math.min(48, QR_ID_COMPONENT.fontSizePt * scale)
+      heightMm: rounded(clamp(
+        profile.heightMm * scale, profile.minimumHeightMm, profile.maximumHeightMm
       )),
-      minFontSizePt: QR_ID_COMPONENT.minimumFontSizePt,
+      fontSizePt: rounded(clamp(
+        profile.fontSizePt * scale,
+        profile.minimumBaseFontSizePt,
+        profile.maximumBaseFontSizePt
+      )),
+      minFontSizePt: profile.minimumFitFontSizePt,
+      componentRevision: revision,
+      fontFamily: profile.fontFamily,
       align: 'center',
       letterSpacing: 0,
       locked: true
     });
+    if (profile.color) id.color = profile.color;
   }
 
   function statusText(status) {
@@ -187,9 +214,11 @@
   }
 
   function canvasFontFamily(fontFamily) {
-    return fontFamily === 'ibm-plex-mono'
-      ? '"Label IBM Plex Mono", monospace'
-      : '"Label Noto Sans SC", sans-serif';
+    if (fontFamily === 'ibm-plex-mono') return '"Label IBM Plex Mono", monospace';
+    if (fontFamily === 'ibm-plex-mono-regular') {
+      return '"Label IBM Plex Mono Regular", monospace';
+    }
+    return '"Label Noto Sans SC", sans-serif';
   }
 
   function renderCanvas() {
@@ -221,14 +250,19 @@
     ];
     let content = '';
     if (element.type === 'id') {
+      const profile = QR_ID_COMPONENT_PROFILES[linkedComponentRevision(element)]
+        || QR_ID_COMPONENT_PROFILES[1];
       const justify = { left: 'flex-start', center: 'center', right: 'flex-end' }[element.align]
         || 'flex-start';
       style.push(`color:${element.color}`,
         `font-size:${canvasFontSize(element.fontSizePt, scale)}px`,
         `font-family:${canvasFontFamily(element.fontFamily)}`,
-        'font-weight:500', 'display:flex', 'align-items:center', `justify-content:${justify}`,
-        `text-align:${element.align}`);
-      content = 'SSS00016';
+        `font-weight:${element.fontFamily === 'ibm-plex-mono-regular' ? 400 : 500}`,
+        'display:flex', 'align-items:center', `justify-content:${justify}`,
+        `text-align:${element.align}`,
+        `padding-left:${profile.horizontalPaddingMm * scale}px`,
+        `padding-right:${profile.horizontalPaddingMm * scale}px`);
+      content = '<span class="label-id-value">SSS00016</span>';
     } else if (element.type === 'text') {
       style.push(`color:${element.color}`,
         `font-size:${canvasFontSize(element.fontSizePt, scale)}px`,
@@ -258,7 +292,7 @@
         <button type="button" data-label-layer-id="${element.id}"
           class="${element.id === state.selectedElementId ? 'active' : ''}">
           <span>${TYPE_LABELS[element.type] || element.type}</span>
-          <small>${element.linkedToQr ? '联动' : element.locked ? '锁定' : element.id}</small>
+          <small>${element.linkedToQr ? `v${linkedComponentRevision(element)} 联动` : element.locked ? '锁定' : element.id}</small>
         </button>
       `).join('');
   }
@@ -279,8 +313,18 @@
     const element = activeElement();
     el('labelElementProperties').classList.toggle('hidden', !element);
     if (!element) return;
+    const linkedIdElement = elementByType('id');
+    const linkedComponent = ['qr', 'id'].includes(element.type)
+      && linkedIdElement && linkedIdElement.linkedToQr === true;
     const linkedId = element.type === 'id' && element.linkedToQr === true;
-    el('labelQrIdLinkNote').classList.toggle('hidden', !linkedId);
+    const revision = linkedComponentRevision(linkedIdElement);
+    el('labelQrIdLinkNote').classList.toggle('hidden', !linkedComponent);
+    el('labelQrIdRevisionText').textContent = linkedComponent
+      ? `二维码与 ID 为 v${revision} 联动组件，ID 的位置、宽度和字号随二维码受控调整。`
+      : '';
+    el('upgradeQrIdComponentBtn').classList.toggle(
+      'hidden', !linkedComponent || !editable() || revision >= QR_ID_COMPONENT_LATEST_REVISION
+    );
     setValue('labelElementX', element.xMm);
     setValue('labelElementY', element.yMm);
     setValue('labelElementWidth', element.widthMm);
@@ -300,7 +344,9 @@
       el(id).disabled = linkedId || (id === 'labelElementHeight' && element.type === 'qr');
     });
     el('labelElementLocked').disabled = linkedId;
+    el('labelElementFont').disabled = linkedId;
     el('labelElementFontSize').disabled = linkedId;
+    el('labelElementColor').disabled = linkedId && revision >= QR_ID_COMPONENT_LATEST_REVISION;
     el('labelElementAlign').disabled = linkedId;
     el('deleteLabelElementBtn').disabled = !editable() || ['qr', 'id'].includes(element.type);
   }
@@ -553,6 +599,18 @@
     renderEditor();
   }
 
+  function upgradeQrIdComponent() {
+    if (!editable()) return;
+    const id = elementByType('id');
+    if (!id || id.linkedToQr !== true
+        || linkedComponentRevision(id) >= QR_ID_COMPONENT_LATEST_REVISION) return;
+    if (!window.confirm('升级后将采用新版字号、间距和像素居中规范。继续吗？')) return;
+    synchronizeQrIdComponent(QR_ID_COMPONENT_LATEST_REVISION);
+    markDirty();
+    renderEditor();
+    message('二维码与 ID 已升级为 v2，保存草稿后生效。');
+  }
+
   function beginPointerEdit(event) {
     const target = event.target.closest('[data-label-element-id]');
     if (!target) return;
@@ -641,6 +699,7 @@
       el(id).addEventListener('change', updateElementProperties);
     });
     el('deleteLabelElementBtn').addEventListener('click', deleteElement);
+    el('upgradeQrIdComponentBtn').addEventListener('click', upgradeQrIdComponent);
     el('labelLayerList').addEventListener('click', (event) => {
       const button = event.target.closest('[data-label-layer-id]');
       if (button) selectElement(button.dataset.labelLayerId);

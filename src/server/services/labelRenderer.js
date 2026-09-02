@@ -5,6 +5,8 @@ const QRCode = require('qrcode');
 const sharp = require('sharp');
 const {
   FORMAL_DPI,
+  linkedComponentRevision,
+  qrIdComponentProfile,
   validateTemplateSchema
 } = require('./labelTemplateSchema');
 
@@ -13,6 +15,10 @@ const FONT_FILES = Object.freeze({
   'ibm-plex-mono': {
     family: 'IBM Plex Mono Medium',
     file: path.join(FONT_DIRECTORY, 'IBMPlexMono-Medium.ttf')
+  },
+  'ibm-plex-mono-regular': {
+    family: 'IBM Plex Mono Regular',
+    file: path.join(FONT_DIRECTORY, 'IBMPlexMono-Regular.ttf')
   },
   'noto-sans-sc': {
     family: 'Noto Sans SC',
@@ -61,6 +67,13 @@ function compositePosition(element, dpi) {
   };
 }
 
+function alignedOffset(containerSize, contentSize, align) {
+  const remaining = Math.max(0, Number(containerSize) - Number(contentSize));
+  if (align === 'right') return remaining;
+  if (align === 'center') return Math.floor(remaining / 2);
+  return 0;
+}
+
 async function renderQrCodeForLabel(payload, sizePx, colors = {}, { minScale = 4 } = {}) {
   const value = String(payload || '').trim();
   if (!value) throw new LabelRenderError('QR_PAYLOAD_REQUIRED');
@@ -89,7 +102,7 @@ async function renderTextBox(
   element,
   box,
   dpi,
-  { shrink = false, allowWrap = true } = {}
+  { shrink = false, allowWrap = true, fitVisibleBounds = false } = {}
 ) {
   const font = FONT_FILES[element.fontFamily];
   if (!font) throw new LabelRenderError('FONT_NOT_BUNDLED');
@@ -100,17 +113,26 @@ async function renderTextBox(
     const markup = `<span foreground="${element.color}" letter_spacing="${Math.round(
       Number(element.letterSpacing || 0) * 1024
     )}">${escapePango(textValue)}</span>`;
-    const rendered = await sharp({
+    const text = {
+      text: markup,
+      font: `${font.family} ${size}`,
+      fontfile: font.file,
+      align: element.align,
+      rgba: true,
+      dpi
+    };
+    if (allowWrap || !fitVisibleBounds) text.width = box.width;
+    let rendered = await sharp({
       text: {
-        text: markup,
-        font: `${font.family} ${size}`,
-        fontfile: font.file,
-        width: box.width,
-        align: element.align,
-        rgba: true,
-        dpi
+        ...text
       }
     }).png().toBuffer({ resolveWithObject: true });
+    if (fitVisibleBounds) {
+      rendered = await sharp(rendered.data)
+        .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 }, threshold: 1 })
+        .png()
+        .toBuffer({ resolveWithObject: true });
+    }
     if (rendered.info.width <= box.width && rendered.info.height <= box.height) {
       return rendered;
     }
@@ -229,14 +251,25 @@ async function renderElement(element, context) {
     };
   }
   if (element.type === 'id') {
-    const rendered = await renderTextBox(context.qrId, element, box, context.dpi, {
+    const revision = linkedComponentRevision(element);
+    const profile = qrIdComponentProfile(revision);
+    const horizontalPadding = Math.max(0, mmToPixels(
+      profile ? profile.horizontalPaddingMm : 0, context.dpi
+    ));
+    const textBox = {
+      ...box,
+      width: Math.max(1, box.width - horizontalPadding * 2)
+    };
+    const rendered = await renderTextBox(context.qrId, element, textBox, context.dpi, {
       shrink: true,
-      allowWrap: false
+      allowWrap: false,
+      fitVisibleBounds: revision >= 2
     });
     return {
       input: rendered.data,
-      left: box.left,
-      top: box.top + Math.max(0, Math.floor((box.height - rendered.info.height) / 2))
+      left: box.left + horizontalPadding
+        + alignedOffset(textBox.width, rendered.info.width, 'center'),
+      top: box.top + alignedOffset(box.height, rendered.info.height, 'center')
     };
   }
   if (element.type === 'text') {
@@ -351,6 +384,7 @@ module.exports = {
   FONT_FILES,
   LabelRenderError,
   PREVIEW_DPI,
+  alignedOffset,
   mmToPixels,
   renderLabel,
   renderLabelPreview,
