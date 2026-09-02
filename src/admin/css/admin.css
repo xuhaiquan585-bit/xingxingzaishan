@@ -1129,8 +1129,17 @@ th {
   border-width: 0;
   font-synthesis: none;
   line-height: 1.2;
+}
+
+.label-canvas-element[data-type="text"] {
   overflow-wrap: anywhere;
   word-break: break-all;
+}
+
+.label-canvas-element[data-type="id"] {
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .label-canvas-element.selected {
@@ -1185,6 +1194,13 @@ th {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 9px;
   margin-bottom: 12px;
+}
+
+.label-property-note {
+  margin: 0 0 12px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .label-property-grid label,

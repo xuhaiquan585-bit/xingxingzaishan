@@ -384,6 +384,10 @@ test('admin production UI closes the legacy image export bypass', async () => {
   assert.match(editorJs, /syncElementPropertiesFromControls\(\);\s+await api\(/u);
   assert.match(editorJs, /const POINT_TO_MM = 25\.4 \/ 72/u);
   assert.match(editorJs, /canvasFontSize\(element\.fontSizePt, scale\)/u);
+  assert.match(editorJs, /function synchronizeQrIdComponent\(\)/u);
+  assert.match(editorJs, /if \(element\.type === 'qr'\) synchronizeQrIdComponent\(\)/u);
+  assert.match(html, /二维码 ID 与二维码联动/u);
+  assert.match(adminCss, /white-space: nowrap/u);
   assert.match(adminCss, /font-family: "Label Noto Sans SC"/u);
   assert.match(adminCss, /font-family: "Label IBM Plex Mono"/u);
   assert.match(appSource, /app\.use\('\/admin\/fonts', express\.static/u);

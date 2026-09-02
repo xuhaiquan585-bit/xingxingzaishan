@@ -172,6 +172,13 @@ test('template lifecycle preserves published versions and requires a new draft',
   assert.equal(created.draft.version_number, 1);
 
   const schema = defaultLabelTemplateSchema();
+  const legacyQr = schema.elements.find((element) => element.type === 'qr');
+  const legacyId = schema.elements.find((element) => element.type === 'id');
+  Object.assign(legacyQr, { xMm: 2, yMm: 2, widthMm: 16, heightMm: 16 });
+  Object.assign(legacyId, {
+    xMm: 1.5, yMm: 18.8, widthMm: 17, heightMm: 3.6,
+    fontSizePt: 8, linkedToQr: false
+  });
   schema.elements.find((element) => element.id === 'prompt').text = '第一版提示';
   await service.saveDraft({ templateId: created.template.id, schema, actor });
   const published = await service.publish({ templateId: created.template.id, actor });
@@ -186,10 +193,16 @@ test('template lifecycle preserves published versions and requires a new draft',
   );
   const second = await service.createVersion({ templateId: created.template.id, actor });
   assert.equal(second.version_number, 2);
+  assert.equal(second.template_schema.elements.find((item) => item.type === 'qr').widthMm, 17);
+  assert.equal(second.template_schema.elements.find((item) => item.type === 'id').yMm, 19.1);
+  assert.equal(second.template_schema.elements.find((item) => item.type === 'id').fontSizePt, 6.5);
+  assert.equal(second.template_schema.elements.find((item) => item.type === 'id').linkedToQr, true);
   second.template_schema.elements.find((item) => item.id === 'prompt').text = '本地篡改';
   const original = store.versions.get(published.id);
   assert.equal(original.template_schema.elements.find((item) => item.id === 'prompt').text,
     '第一版提示');
+  assert.equal(original.template_schema.elements.find((item) => item.type === 'qr').widthMm, 16);
+  assert.equal(original.template_schema.elements.find((item) => item.type === 'id').linkedToQr, false);
 });
 
 test('copy remaps private assets and archived templates reject edits', async () => {

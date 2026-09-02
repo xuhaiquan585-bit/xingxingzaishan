@@ -84,7 +84,13 @@ async function renderQrCodeForLabel(payload, sizePx, colors = {}, { minScale = 4
   return Object.freeze({ buffer, dataModules, totalModules, scale, size: totalModules * scale });
 }
 
-async function renderTextBox(value, element, box, dpi, { shrink = false } = {}) {
+async function renderTextBox(
+  value,
+  element,
+  box,
+  dpi,
+  { shrink = false, allowWrap = true } = {}
+) {
   const font = FONT_FILES[element.fontFamily];
   if (!font) throw new LabelRenderError('FONT_NOT_BUNDLED');
   let fontSize = Number(element.fontSizePt);
@@ -157,7 +163,7 @@ async function renderTextBox(value, element, box, dpi, { shrink = false } = {}) 
     if (!shrink || fontSize <= minimum) break;
     fontSize = Math.max(minimum, fontSize - 0.5);
   }
-  if (shrink) {
+  if (shrink && allowWrap) {
     const characters = Array.from(String(value));
     for (const lineCount of [2, 3]) {
       const lineLength = Math.ceil(characters.length / lineCount);
@@ -223,7 +229,10 @@ async function renderElement(element, context) {
     };
   }
   if (element.type === 'id') {
-    const rendered = await renderTextBox(context.qrId, element, box, context.dpi, { shrink: true });
+    const rendered = await renderTextBox(context.qrId, element, box, context.dpi, {
+      shrink: true,
+      allowWrap: false
+    });
     return {
       input: rendered.data,
       left: box.left,

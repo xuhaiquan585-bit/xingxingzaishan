@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const {
   defaultLabelTemplateSchema,
+  synchronizeQrIdComponent,
   validateTemplateSchema
 } = require('../labelTemplateSchema');
 const { renderLabelPreview } = require('../labelRenderer');
@@ -199,7 +200,7 @@ function createLabelTemplateService({
       if (template.status === 'archived') throw new LabelTemplateServiceError('TEMPLATE_ARCHIVED');
       const draft = await repository.findDraft(templateId, { forUpdate: true });
       if (!draft) throw new LabelTemplateServiceError('TEMPLATE_DRAFT_NOT_FOUND');
-      const schema = validateTemplateSchema(input.schema);
+      const schema = validateTemplateSchema(synchronizeQrIdComponent(input.schema));
       const now = timestamp();
       const saved = await repository.updateDraft(draft.id, schema, now);
       if (!saved) throw new LabelTemplateServiceError('TEMPLATE_DRAFT_NOT_FOUND');
@@ -225,17 +226,21 @@ function createLabelTemplateService({
       if (!source || source.status !== 'published') {
         throw new LabelTemplateServiceError('TEMPLATE_PUBLISHED_VERSION_INVALID');
       }
+      const schema = validateTemplateSchema(synchronizeQrIdComponent(
+        source.template_schema,
+        { upgradeStandardQr: true }
+      ));
       const now = timestamp();
       const version = await repository.insertVersion({
         id: uuid(),
         template_id: templateId,
         version_number: await repository.nextVersionNumber(templateId),
         status: 'draft',
-        width_mm: Number(source.width_mm),
-        height_mm: Number(source.height_mm),
-        dpi: Number(source.dpi),
-        schema_version: Number(source.schema_version),
-        template_schema: source.template_schema,
+        width_mm: Number(schema.canvas.widthMm),
+        height_mm: Number(schema.canvas.heightMm),
+        dpi: Number(schema.canvas.dpi),
+        schema_version: Number(schema.schemaVersion),
+        template_schema: schema,
         created_by_operator_id: operator.operatorId,
         created_by_snapshot: operator.username,
         created_at: now

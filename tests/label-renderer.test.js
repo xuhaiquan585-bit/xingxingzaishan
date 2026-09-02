@@ -10,6 +10,7 @@ const sharp = require('sharp');
 const {
   LabelTemplateValidationError,
   defaultLabelTemplateSchema,
+  synchronizeQrIdComponent,
   validateTemplateSchema
 } = require('../src/server/services/labelTemplateSchema');
 const {
@@ -41,6 +42,43 @@ test('default label template freezes the confirmed 20 by 80 mm contract', () => 
   });
   assert.equal(schema.elements.find((element) => element.id === 'prompt').text,
     '写下此刻，提交后仅可查看');
+  const qr = schema.elements.find((element) => element.type === 'qr');
+  const id = schema.elements.find((element) => element.type === 'id');
+  assert.deepEqual(
+    { xMm: qr.xMm, yMm: qr.yMm, widthMm: qr.widthMm, heightMm: qr.heightMm },
+    { xMm: 1.5, yMm: 1.5, widthMm: 17, heightMm: 17 }
+  );
+  assert.deepEqual(
+    {
+      xMm: id.xMm, yMm: id.yMm, widthMm: id.widthMm,
+      heightMm: id.heightMm, fontSizePt: id.fontSizePt,
+      align: id.align, linkedToQr: id.linkedToQr
+    },
+    {
+      xMm: 1.5, yMm: 19.1, widthMm: 17,
+      heightMm: 2.8, fontSizePt: 6.5,
+      align: 'center', linkedToQr: true
+    }
+  );
+});
+
+test('QR ID component upgrades the legacy 20 by 80 layout without mutating it', () => {
+  const legacy = defaultLabelTemplateSchema();
+  const legacyQr = legacy.elements.find((element) => element.type === 'qr');
+  const legacyId = legacy.elements.find((element) => element.type === 'id');
+  Object.assign(legacyQr, { xMm: 2, yMm: 2, widthMm: 16, heightMm: 16 });
+  Object.assign(legacyId, {
+    xMm: 1.5, yMm: 18.8, widthMm: 17, heightMm: 3.6,
+    fontSizePt: 8, linkedToQr: false
+  });
+
+  const upgraded = synchronizeQrIdComponent(legacy, { upgradeStandardQr: true });
+  assert.equal(legacyQr.widthMm, 16);
+  assert.equal(legacyId.linkedToQr, false);
+  assert.equal(upgraded.elements.find((element) => element.type === 'qr').widthMm, 17);
+  assert.equal(upgraded.elements.find((element) => element.type === 'id').yMm, 19.1);
+  assert.equal(upgraded.elements.find((element) => element.type === 'id').linkedToQr, true);
+  assert.doesNotThrow(() => validateTemplateSchema(upgraded));
 });
 
 test('formal label renders exact dimensions, density, rounded alpha and editable text', async () => {
@@ -79,13 +117,24 @@ test('QR rendering reserves four modules and uses an integer production scale', 
   }
 });
 
-test('long production IDs fit by bounded font reduction', async () => {
+test('maximum business-format production IDs fit by bounded font reduction', async () => {
   const rendered = await renderLabel({
     template: defaultLabelTemplateSchema(),
-    qrId: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456',
+    qrId: 'ABCDEFGHIJKL123456',
     qrPayload: QR_PAYLOAD
   });
   assert.equal(rendered.width, 472);
+});
+
+test('production IDs stay on one line instead of wrapping below the QR', async () => {
+  await assert.rejects(
+    renderLabel({
+      template: defaultLabelTemplateSchema(),
+      qrId: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456',
+      qrPayload: QR_PAYLOAD
+    }),
+    (error) => error && error.code === 'TEXT_OVERFLOW'
+  );
 });
 
 test('preview is low resolution and cannot be confused with a formal output', async () => {
@@ -121,5 +170,13 @@ test('schema rejects QR overlap, text overflow geometry and low-resolution asset
     }),
     (error) => error instanceof LabelTemplateValidationError
       && error.issues.some((entry) => entry.code === 'IMAGE_RESOLUTION_TOO_LOW')
+  );
+
+  const detachedId = defaultLabelTemplateSchema();
+  detachedId.elements.find((element) => element.type === 'id').xMm += 0.5;
+  assert.throws(
+    () => validateTemplateSchema(detachedId),
+    (error) => error instanceof LabelTemplateValidationError
+      && error.issues.some((entry) => entry.code === 'QR_ID_COMPONENT_GEOMETRY_INVALID')
   );
 });

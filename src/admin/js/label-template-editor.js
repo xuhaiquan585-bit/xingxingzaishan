@@ -12,6 +12,13 @@
   };
   const SNAP_MM = 0.5;
   const POINT_TO_MM = 25.4 / 72;
+  const QR_ID_COMPONENT = Object.freeze({
+    referenceQrSizeMm: 17,
+    gapMm: 0.6,
+    heightMm: 2.8,
+    fontSizePt: 6.5,
+    minimumFontSizePt: 4
+  });
   const TYPE_LABELS = {
     background: '背景图', handwriting: '手写区', image: '图片', divider: '分割线',
     qr: '二维码', id: '二维码 ID', text: '文字'
@@ -77,6 +84,35 @@
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
+  }
+
+  function rounded(value) {
+    return Number(Number(value).toFixed(4));
+  }
+
+  function elementByType(type) {
+    return state.schema && state.schema.elements.find((element) => element.type === type);
+  }
+
+  function synchronizeQrIdComponent() {
+    const qr = elementByType('qr');
+    const id = elementByType('id');
+    if (!qr || !id || id.linkedToQr !== true) return;
+    const scale = Number(qr.widthMm) / QR_ID_COMPONENT.referenceQrSizeMm;
+    Object.assign(id, {
+      xMm: rounded(qr.xMm),
+      yMm: rounded(Number(qr.yMm) + Number(qr.heightMm) + QR_ID_COMPONENT.gapMm * scale),
+      widthMm: rounded(qr.widthMm),
+      heightMm: rounded(QR_ID_COMPONENT.heightMm * scale),
+      fontSizePt: rounded(Math.max(
+        QR_ID_COMPONENT.minimumFontSizePt,
+        Math.min(48, QR_ID_COMPONENT.fontSizePt * scale)
+      )),
+      minFontSizePt: QR_ID_COMPONENT.minimumFontSizePt,
+      align: 'center',
+      letterSpacing: 0,
+      locked: true
+    });
   }
 
   function statusText(status) {
@@ -222,7 +258,7 @@
         <button type="button" data-label-layer-id="${element.id}"
           class="${element.id === state.selectedElementId ? 'active' : ''}">
           <span>${TYPE_LABELS[element.type] || element.type}</span>
-          <small>${element.locked ? '锁定' : element.id}</small>
+          <small>${element.linkedToQr ? '联动' : element.locked ? '锁定' : element.id}</small>
         </button>
       `).join('');
   }
@@ -243,6 +279,8 @@
     const element = activeElement();
     el('labelElementProperties').classList.toggle('hidden', !element);
     if (!element) return;
+    const linkedId = element.type === 'id' && element.linkedToQr === true;
+    el('labelQrIdLinkNote').classList.toggle('hidden', !linkedId);
     setValue('labelElementX', element.xMm);
     setValue('labelElementY', element.yMm);
     setValue('labelElementWidth', element.widthMm);
@@ -258,6 +296,12 @@
     setValue('labelElementFontSize', element.fontSizePt || 5.5);
     setValue('labelElementColor', element.color || '#111827');
     setValue('labelElementAlign', element.align || 'left');
+    ['labelElementX', 'labelElementY', 'labelElementWidth', 'labelElementHeight'].forEach((id) => {
+      el(id).disabled = linkedId || (id === 'labelElementHeight' && element.type === 'qr');
+    });
+    el('labelElementLocked').disabled = linkedId;
+    el('labelElementFontSize').disabled = linkedId;
+    el('labelElementAlign').disabled = linkedId;
     el('deleteLabelElementBtn').disabled = !editable() || ['qr', 'id'].includes(element.type);
   }
 
@@ -455,20 +499,25 @@
   function syncElementPropertiesFromControls() {
     const element = activeElement();
     if (!element) return;
-    element.xMm = Number(el('labelElementX').value);
-    element.yMm = Number(el('labelElementY').value);
-    element.widthMm = Number(el('labelElementWidth').value);
-    element.heightMm = Number(el('labelElementHeight').value);
+    const linkedId = element.type === 'id' && element.linkedToQr === true;
+    if (!linkedId) {
+      element.xMm = Number(el('labelElementX').value);
+      element.yMm = Number(el('labelElementY').value);
+      element.widthMm = Number(el('labelElementWidth').value);
+      element.heightMm = element.type === 'qr'
+        ? element.widthMm : Number(el('labelElementHeight').value);
+      element.locked = el('labelElementLocked').checked;
+    }
     element.zIndex = Number(el('labelElementZ').value);
-    element.locked = el('labelElementLocked').checked;
     if (element.type === 'text') element.text = el('labelElementText').value;
     if (['text', 'id'].includes(element.type)) {
       element.fontFamily = el('labelElementFont').value;
-      element.fontSizePt = Number(el('labelElementFontSize').value);
+      if (!linkedId) element.fontSizePt = Number(el('labelElementFontSize').value);
       element.minFontSizePt = Math.min(element.minFontSizePt || element.fontSizePt, element.fontSizePt);
       element.color = el('labelElementColor').value.toUpperCase();
-      element.align = el('labelElementAlign').value;
+      element.align = linkedId ? 'center' : el('labelElementAlign').value;
     }
+    if (element.type === 'qr' || linkedId) synchronizeQrIdComponent();
   }
 
   function updateElementProperties() {
@@ -477,6 +526,7 @@
     markDirty();
     renderCanvas();
     renderLayers();
+    if (activeElement().type === 'qr' || activeElement().linkedToQr === true) renderProperties();
   }
 
   function alignElement(direction) {
@@ -489,6 +539,7 @@
     if (direction === 'top') element.yMm = 0;
     if (direction === 'middle') element.yMm = snap((canvas.heightMm - element.heightMm) / 2);
     if (direction === 'bottom') element.yMm = canvas.heightMm - element.heightMm;
+    if (element.type === 'qr') synchronizeQrIdComponent();
     markDirty();
     renderEditor();
   }
@@ -532,6 +583,7 @@
         element.yMm = clamp(snap(start.yMm + dy), 0,
           state.schema.canvas.heightMm - element.heightMm);
       }
+      if (element.type === 'qr') synchronizeQrIdComponent();
       state.dirty = true;
       renderCanvas();
       renderProperties();

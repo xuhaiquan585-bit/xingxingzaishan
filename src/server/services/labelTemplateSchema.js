@@ -11,6 +11,13 @@ const ELEMENT_TYPES = Object.freeze([
 ]);
 const COLOR_PATTERN = /^#[0-9A-F]{6}$/i;
 const ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
+const QR_ID_COMPONENT = Object.freeze({
+  referenceQrSizeMm: 17,
+  gapMm: 0.6,
+  heightMm: 2.8,
+  fontSizePt: 6.5,
+  minimumFontSizePt: 4
+});
 
 class LabelTemplateValidationError extends Error {
   constructor(issues) {
@@ -49,14 +56,15 @@ function defaultLabelTemplateSchema() {
         color: '#D7B467'
       },
       {
-        id: 'qr', type: 'qr', xMm: 2, yMm: 2,
-        widthMm: 16, heightMm: 16, zIndex: 3, locked: true,
+        id: 'qr', type: 'qr', xMm: 1.5, yMm: 1.5,
+        widthMm: 17, heightMm: 17, zIndex: 3, locked: true,
         foregroundColor: '#000000', backgroundColor: '#FFFFFF'
       },
       {
-        id: 'qr-id', type: 'id', xMm: 1.5, yMm: 18.8,
-        widthMm: 17, heightMm: 3.6, zIndex: 4, locked: true,
-        fontFamily: 'ibm-plex-mono', fontSizePt: 8, minFontSizePt: 4,
+        id: 'qr-id', type: 'id', xMm: 1.5, yMm: 19.1,
+        widthMm: 17, heightMm: 2.8, zIndex: 4, locked: true,
+        linkedToQr: true, fontFamily: 'ibm-plex-mono',
+        fontSizePt: 6.5, minFontSizePt: 4,
         color: '#111827', align: 'center', letterSpacing: 0
       },
       {
@@ -77,6 +85,56 @@ function issue(issues, code, path, message) {
 function finiteNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function rounded(value) {
+  return Number(Number(value).toFixed(4));
+}
+
+function qrIdComponentLayout(qrElement) {
+  const scale = Number(qrElement.widthMm) / QR_ID_COMPONENT.referenceQrSizeMm;
+  return Object.freeze({
+    xMm: rounded(qrElement.xMm),
+    yMm: rounded(
+      Number(qrElement.yMm) + Number(qrElement.heightMm) + QR_ID_COMPONENT.gapMm * scale
+    ),
+    widthMm: rounded(qrElement.widthMm),
+    heightMm: rounded(QR_ID_COMPONENT.heightMm * scale),
+    fontSizePt: rounded(Math.max(
+      QR_ID_COMPONENT.minimumFontSizePt,
+      Math.min(48, QR_ID_COMPONENT.fontSizePt * scale)
+    ))
+  });
+}
+
+function synchronizeQrIdComponent(input, { upgradeStandardQr = false } = {}) {
+  const schema = JSON.parse(JSON.stringify(input || {}));
+  const elements = Array.isArray(schema.elements) ? schema.elements : [];
+  const qr = elements.find((element) => element && element.type === 'qr');
+  const id = elements.find((element) => element && element.type === 'id');
+  if (!qr || !id) return schema;
+  if (id.linkedToQr !== true && !upgradeStandardQr) return schema;
+  const canvas = schema.canvas || {};
+  const isLegacyStandard = upgradeStandardQr
+    && Number(canvas.widthMm) === 20
+    && Number(canvas.heightMm) === 80
+    && Number(qr.xMm) === 2
+    && Number(qr.yMm) === 2
+    && Number(qr.widthMm) === 16
+    && Number(qr.heightMm) === 16;
+  if (isLegacyStandard) {
+    Object.assign(qr, { xMm: 1.5, yMm: 1.5, widthMm: 17, heightMm: 17 });
+  }
+  const layout = qrIdComponentLayout(qr);
+  Object.assign(id, layout, {
+    linkedToQr: true,
+    locked: true,
+    fontFamily: 'ibm-plex-mono',
+    minFontSizePt: QR_ID_COMPONENT.minimumFontSizePt,
+    align: 'center',
+    letterSpacing: 0
+  });
+  return schema;
 }
 
 function numeric(input, path, issues, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
@@ -200,7 +258,13 @@ function normalizeElement(element, index, canvas, issues, options) {
     };
   }
 
-  if (type === 'id') return { ...base, ...normalizeFont(element, path, issues) };
+  if (type === 'id') {
+    return {
+      ...base,
+      linkedToQr: element.linkedToQr === true,
+      ...normalizeFont(element, path, issues)
+    };
+  }
   if (type === 'text') {
     return {
       ...base,
@@ -329,6 +393,27 @@ function validateTemplateSchema(input, options = {}) {
   const idElements = elements.filter((element) => element.type === 'id');
   if (qrElements.length !== 1) issue(issues, 'QR_ELEMENT_REQUIRED', 'elements', 'Exactly one QR element is required.');
   if (idElements.length !== 1) issue(issues, 'ID_ELEMENT_REQUIRED', 'elements', 'Exactly one ID element is required.');
+  if (qrElements.length === 1 && idElements.length === 1 && idElements[0].linkedToQr) {
+    const expected = qrIdComponentLayout(qrElements[0]);
+    for (const property of ['xMm', 'yMm', 'widthMm', 'heightMm', 'fontSizePt']) {
+      if (Math.abs(Number(idElements[0][property]) - Number(expected[property])) > 0.0001) {
+        issue(
+          issues,
+          'QR_ID_COMPONENT_GEOMETRY_INVALID',
+          `elements.${idElements[0].id}.${property}`,
+          'The QR ID must retain its production position relative to the QR.'
+        );
+      }
+    }
+    if (idElements[0].align !== 'center') {
+      issue(
+        issues,
+        'QR_ID_COMPONENT_ALIGNMENT_INVALID',
+        `elements.${idElements[0].id}.align`,
+        'The QR ID must stay centered beneath the QR.'
+      );
+    }
+  }
   if (qrElements.length === 1) {
     for (const element of elements) {
       if (!['background', 'handwriting', 'qr'].includes(element.type)
@@ -355,7 +440,10 @@ module.exports = {
   ELEMENT_TYPES,
   FORMAL_DPI,
   LabelTemplateValidationError,
+  QR_ID_COMPONENT,
   SCHEMA_VERSION,
   defaultLabelTemplateSchema,
+  qrIdComponentLayout,
+  synchronizeQrIdComponent,
   validateTemplateSchema
 };
