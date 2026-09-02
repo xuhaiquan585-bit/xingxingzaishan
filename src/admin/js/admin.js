@@ -200,7 +200,10 @@ async function loadActiveSection() {
 }
 
 function updateSelectedUI() {
-  selectedCount.textContent = `已选 ${selectedIds.size} 条`;
+  const eligibleCount = currentRecords.filter((item) => (
+    selectedIds.has(item.id) && isQrAvailableForPrinting(item)
+  )).length;
+  selectedCount.textContent = `已选 ${selectedIds.size} 条，可生产 ${eligibleCount} 条`;
   const currentIds = currentRecords.map((item) => item.id);
   const allSelected = currentIds.length > 0 && currentIds.every((id) => selectedIds.has(id));
   selectAll.checked = allSelected;
@@ -228,6 +231,25 @@ function formatActivationStatus(status) {
     content: '有内容记录'
   };
   return map[status] || status || '-';
+}
+
+function formatPrintStatus(status) {
+  const map = {
+    legacy_unclassified: '历史未分类',
+    available: '可用于生产',
+    reserved: '已预留',
+    artifact_generated: '文件已生成',
+    printed: '已打印',
+    voided: '已报废'
+  };
+  return map[status] || status || '状态未知';
+}
+
+function isQrAvailableForPrinting(item) {
+  return item.issue_status === 'issued'
+    && item.activation_status === 'unactivated'
+    && item.print_status === 'available'
+    && !item.print_batch_id;
 }
 
 function formatChainStatus(status) {
@@ -984,6 +1006,7 @@ function renderRows(records) {
         <td>${escapeHtml(getBatchNote(item.batch_id))}</td>
         <td>${escapeHtml(formatIssueStatus(item.issue_status))}</td>
         <td>${escapeHtml(formatActivationStatus(item.activation_status))}</td>
+        <td>${escapeHtml(formatPrintStatus(item.print_status))}</td>
         <td>${item.hidden ? '隐藏' : '显示'}</td>
         <td>${escapeHtml(item.phone || '-')}</td>
         <td>${escapeHtml(item.activated_at || item.co_creation_started_at || item.created_at || '-')}</td>
@@ -1451,7 +1474,17 @@ document.getElementById('createPrintBatchFromSelectionBtn').addEventListener('cl
     alert('请先勾选二维码。');
     return;
   }
-  window.PrintBatchAdmin.openWithQrIds([...selectedIds]);
+  const selectedRecords = currentRecords.filter((item) => selectedIds.has(item.id));
+  const eligibleIds = selectedRecords.filter(isQrAvailableForPrinting).map((item) => item.id);
+  const excludedCount = selectedIds.size - eligibleIds.length;
+  if (eligibleIds.length === 0) {
+    alert('所选二维码均不可用于新印刷任务。历史未分类二维码需先确认可生产，已打印或已报废二维码不能重复使用。');
+    return;
+  }
+  if (excludedCount > 0 && !window.confirm(
+    `已排除 ${excludedCount} 个不可生产二维码，只带入 ${eligibleIds.length} 个可生产二维码。是否继续？`
+  )) return;
+  window.PrintBatchAdmin.openWithQrIds(eligibleIds);
   activateAdminSection('printBatches');
 });
 

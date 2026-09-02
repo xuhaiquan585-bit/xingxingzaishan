@@ -67,6 +67,9 @@ test('QR administration lists, hides, and presents PostgreSQL records', async ()
     lifecycle_status: 'activated',
     hidden: false,
     batch_id: 'BATCH_20260813_001',
+    print_batch_id: null,
+    print_status: 'available',
+    print_void_reason: null,
     access_token: 'a'.repeat(32),
     content: 'record',
     image_object_key: 'records/pga.jpg',
@@ -108,6 +111,8 @@ test('QR administration lists, hides, and presents PostgreSQL records', async ()
     activationStatus: 'content', page: 1, limit: 20
   });
   assert.equal(listed.records[0].activation_status, 'activated');
+  assert.equal(listed.records[0].print_status, 'available');
+  assert.equal(listed.records[0].print_void_reason, '');
   assert.equal(listed.records[0].quality_check.checked, true);
   assert.equal(listed.records[0].co_creation_enabled, true);
   assert.equal(listed.records[0].co_creation_owner_account_id, 'ACC_TEST');

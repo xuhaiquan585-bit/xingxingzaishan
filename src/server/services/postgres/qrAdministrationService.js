@@ -93,6 +93,8 @@ function presentAdminQr(row) {
     hidden: row.hidden === true,
     batch_id: row.batch_id || null,
     print_batch_id: row.print_batch_id || null,
+    print_status: row.print_status || null,
+    print_void_reason: row.print_void_reason || '',
     quality_check: Object.freeze({
       checked: qualityChecked,
       checked_at: iso(row.quality_checked_at),

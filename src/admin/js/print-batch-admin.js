@@ -72,8 +72,14 @@
     const published = data.templates.filter((template) => (
       template.status === 'published' && template.current_published_version_id
     ));
+    const selectedVersionId = el('printBatchTemplate').value;
     el('printBatchTemplate').innerHTML = '<option value="">选择已发布模板</option>'
       + published.map((template) => `<option value="${template.current_published_version_id}">${escapeHtml(template.name)} · v${template.current_published_version_number}</option>`).join('');
+    if (published.some((template) => template.current_published_version_id === selectedVersionId)) {
+      el('printBatchTemplate').value = selectedVersionId;
+    } else if (published.length === 1) {
+      el('printBatchTemplate').value = published[0].current_published_version_id;
+    }
   }
 
   async function loadBatches() {

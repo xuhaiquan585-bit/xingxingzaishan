@@ -501,16 +501,35 @@ function sendPrintProductionError(res, error) {
   }
   if (['TEMPLATE_ARCHIVED', 'TEMPLATE_DRAFT_NOT_FOUND',
     'TEMPLATE_DRAFT_ALREADY_EXISTS', 'TEMPLATE_NOT_PUBLISHED',
-    'TEMPLATE_ALREADY_ARCHIVED', 'PRINT_QR_NOT_UNACTIVATED',
-    'PRINT_QR_ALREADY_RESERVED', 'PRINT_QR_RESERVATION_CONFLICT',
-    'IDEMPOTENCY_KEY_CONFLICT', 'PRINT_TEMPLATE_NOT_AVAILABLE',
+    'TEMPLATE_ALREADY_ARCHIVED', 'PRINT_TEMPLATE_NOT_AVAILABLE'].includes(code)) {
+    return res.status(409).json({
+      status: 'error', code, message: '当前模板状态不允许执行该操作。'
+    });
+  }
+  if (code === 'PRINT_QR_NOT_UNACTIVATED') {
+    return res.status(409).json({
+      status: 'error', code, message: '所选二维码中包含已记录或共创中的二维码，不能用于新印刷任务。'
+    });
+  }
+  if (code === 'PRINT_QR_ALREADY_RESERVED') {
+    return res.status(409).json({
+      status: 'error', code,
+      message: '所选二维码中包含历史未分类、已预留、已打印或已报废的二维码。'
+    });
+  }
+  if (code === 'PRINT_QR_RESERVATION_CONFLICT') {
+    return res.status(409).json({
+      status: 'error', code, message: '二维码印刷状态刚刚发生变化，请刷新后重新选择。'
+    });
+  }
+  if (['IDEMPOTENCY_KEY_CONFLICT',
     'PRINT_BATCH_CANNOT_CANCEL', 'PRINT_ARTIFACT_GENERATION_IN_PROGRESS',
     'PRINT_ARTIFACT_GENERATION_NOT_ALLOWED', 'PRINT_ARTIFACT_NOT_READY',
     'PRINT_BATCH_TRANSITION_INVALID', 'PRINT_VOID_QR_SCOPE_INVALID',
     'PRINT_VOID_QR_CONFLICT', 'PRINT_HISTORY_QR_CONFLICT',
     'PRINT_HISTORY_QR_NOT_AVAILABLE'].includes(code)) {
     return res.status(409).json({
-      status: 'error', code, message: '当前模板状态不允许执行该操作。'
+      status: 'error', code, message: '当前印刷任务状态不允许执行该操作。'
     });
   }
   return res.status(503).json({

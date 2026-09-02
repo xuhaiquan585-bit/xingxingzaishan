@@ -5,7 +5,8 @@ const { assertTransactionContext, executeQuery } = require('./query');
 const ADMIN_QR_SELECT = `
   SELECT
     qr.id, qr.issue_status, qr.lifecycle_status, qr.hidden,
-    qr.batch_id, qr.print_batch_id, qr.qr_image_url_snapshot,
+    qr.batch_id, qr.print_batch_id, qr.print_status, qr.print_void_reason,
+    qr.qr_image_url_snapshot,
     qr.access_token, qr.created_at, qr.updated_at,
     record.content, record.image_url_snapshot, record.image_object_key,
     record.image_sha256, record.phone_snapshot, record.sealed_at,
