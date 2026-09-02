@@ -356,12 +356,14 @@ test('manifest and ZIP generation are deterministic and do not expose access tok
 });
 
 test('admin production UI closes the legacy image export bypass', async () => {
-  const [html, printJs, adminJs, editorJs, routeSource] = await Promise.all([
+  const [html, printJs, adminJs, editorJs, routeSource, adminCss, appSource] = await Promise.all([
     fs.readFile(path.join(__dirname, '../src/admin/index.html'), 'utf8'),
     fs.readFile(path.join(__dirname, '../src/admin/js/print-batch-admin.js'), 'utf8'),
     fs.readFile(path.join(__dirname, '../src/admin/js/admin.js'), 'utf8'),
     fs.readFile(path.join(__dirname, '../src/admin/js/label-template-editor.js'), 'utf8'),
-    fs.readFile(path.join(__dirname, '../src/server/routes/admin.js'), 'utf8')
+    fs.readFile(path.join(__dirname, '../src/server/routes/admin.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, '../src/admin/css/admin.css'), 'utf8'),
+    fs.readFile(path.join(__dirname, '../src/server/app.js'), 'utf8')
   ]);
   assert.equal(html.includes('batchQrImagesExportBtn'), false);
   assert.match(html, /历史二维码分类/u);
@@ -370,6 +372,11 @@ test('admin production UI closes the legacy image export bypass', async () => {
   assert.equal(adminJs.includes('/api/admin/records/qr-images/export'), false);
   assert.match(editorJs, /el\(id\)\.addEventListener\('input', updateElementProperties\)/u);
   assert.match(editorJs, /syncElementPropertiesFromControls\(\);\s+await api\(/u);
+  assert.match(editorJs, /const POINT_TO_MM = 25\.4 \/ 72/u);
+  assert.match(editorJs, /canvasFontSize\(element\.fontSizePt, scale\)/u);
+  assert.match(adminCss, /font-family: "Label Noto Sans SC"/u);
+  assert.match(adminCss, /font-family: "Label IBM Plex Mono"/u);
+  assert.match(appSource, /app\.use\('\/admin\/fonts', express\.static/u);
   assert.match(routeSource, /LEGACY_QR_IMAGE_EXPORT_RETIRED/u);
   assert.match(routeSource, /status\(410\)/u);
 });

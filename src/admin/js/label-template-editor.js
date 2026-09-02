@@ -11,6 +11,7 @@
     loaded: false
   };
   const SNAP_MM = 0.5;
+  const POINT_TO_MM = 25.4 / 72;
   const TYPE_LABELS = {
     background: '背景图', handwriting: '手写区', image: '图片', divider: '分割线',
     qr: '二维码', id: '二维码 ID', text: '文字'
@@ -145,6 +146,16 @@
     return Math.min(8, 420 / state.schema.canvas.widthMm, 620 / state.schema.canvas.heightMm);
   }
 
+  function canvasFontSize(fontSizePt, scale) {
+    return Number(fontSizePt) * POINT_TO_MM * scale;
+  }
+
+  function canvasFontFamily(fontFamily) {
+    return fontFamily === 'ibm-plex-mono'
+      ? '"Label IBM Plex Mono", monospace'
+      : '"Label Noto Sans SC", sans-serif';
+  }
+
   function renderCanvas() {
     const canvas = el('labelCanvas');
     if (!state.schema) {
@@ -174,12 +185,19 @@
     ];
     let content = '';
     if (element.type === 'id') {
-      style.push(`color:${element.color}`, `font-size:${Math.max(8, element.fontSizePt * 1.25)}px`,
-        `text-align:${element.align}`, `font-family:${element.fontFamily === 'ibm-plex-mono' ? 'monospace' : 'sans-serif'}`);
+      const justify = { left: 'flex-start', center: 'center', right: 'flex-end' }[element.align]
+        || 'flex-start';
+      style.push(`color:${element.color}`,
+        `font-size:${canvasFontSize(element.fontSizePt, scale)}px`,
+        `font-family:${canvasFontFamily(element.fontFamily)}`,
+        'font-weight:500', 'display:flex', 'align-items:center', `justify-content:${justify}`,
+        `text-align:${element.align}`);
       content = 'SSS00016';
     } else if (element.type === 'text') {
-      style.push(`color:${element.color}`, `font-size:${Math.max(8, element.fontSizePt * 1.25)}px`,
-        `text-align:${element.align}`, 'white-space:pre-wrap');
+      style.push(`color:${element.color}`,
+        `font-size:${canvasFontSize(element.fontSizePt, scale)}px`,
+        `font-family:${canvasFontFamily(element.fontFamily)}`,
+        'font-weight:400', `text-align:${element.align}`, 'white-space:pre-wrap');
       content = escapeHtml(element.text);
     } else if (element.type === 'divider') {
       style.push(`background:${element.color}`);

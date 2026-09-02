@@ -1,3 +1,19 @@
+@font-face {
+  font-family: "Label IBM Plex Mono";
+  src: url("/admin/fonts/IBMPlexMono-Medium.ttf") format("truetype");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 500;
+}
+
+@font-face {
+  font-family: "Label Noto Sans SC";
+  src: url("/admin/fonts/NotoSansSC-Variable.ttf") format("truetype");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 100 900;
+}
+
 body {
   margin: 0;
   font-family: Arial, sans-serif;
@@ -1106,6 +1122,15 @@ th {
   border: 1px solid transparent;
   letter-spacing: 0;
   user-select: none;
+}
+
+.label-canvas-element[data-type="id"],
+.label-canvas-element[data-type="text"] {
+  border-width: 0;
+  font-synthesis: none;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .label-canvas-element.selected {
