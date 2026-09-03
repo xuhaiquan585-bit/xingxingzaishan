@@ -39,9 +39,7 @@ router.post('/', requireUserSession, receiveSingleImage('image'), async (req, re
     const prepared = await processRecordImageUpload({
       file: req.file,
       accessToken: qrKey,
-      accountId,
-      maxOutputWidth: 1080,
-      jpegQuality: 80
+      accountId
     });
     const { stored, uploadProof } = prepared;
 
@@ -54,7 +52,8 @@ router.post('/', requireUserSession, receiveSingleImage('image'), async (req, re
         storage_mode: stored.mode,
         object_key: stored.object_key,
         upload_proof: uploadProof,
-        buffered: true,
+        buffered: stored.buffer_released !== true,
+        buffer_released: stored.buffer_released === true,
         active_storage_mode: getStorageMode(),
         fallback: stored.fallback === true
       }

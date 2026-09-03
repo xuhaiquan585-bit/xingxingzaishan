@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const {
   getPublicObjectUrl,
   getSignedUrl,
+  buildRecordImageThumbnailObjectKey,
   classifyRecordImageReference,
   recordImageQrIdSha256
 } = require('./storageService');
@@ -13,14 +14,15 @@ function certificateObjectKey(proof) {
   return proof && (proof.certificate_object_key || proof.chain_certificate_object_key) || null;
 }
 
-function buildRecordImageCacheKey({ decision, authority, channel }) {
+function buildRecordImageCacheKey({ decision, authority, channel, variant = 'full' }) {
   const qrId = String(authority && (authority.qrId || authority.qr_id) || '').trim();
   const qrHash = qrId ? recordImageQrIdSha256(qrId) : 'none';
   const reference = decision.kind === 'object'
     ? decision.objectKey
     : decision.url || '';
   const referenceHash = crypto.createHash('sha256').update(reference, 'utf8').digest('hex');
-  return `image:${channel}:${qrHash}:${decision.kind}:${referenceHash}`;
+  const normalizedVariant = variant === 'thumbnail' ? 'thumbnail' : 'full';
+  return `image:${channel}:${normalizedVariant}:${qrHash}:${decision.kind}:${referenceHash}`;
 }
 
 function buildLegacyRecordImageProxyUrl(authority, env = process.env) {
@@ -44,13 +46,15 @@ function createPublicQrAssetResolver({
     return value;
   }
 
-  function resolveRecordImage({ record, authority, channel }) {
+  function resolveRecordImage({ record, authority, channel, variant = 'full' }) {
     const normalizedChannel = channel === 'miniapp' ? 'miniapp' : 'h5';
+    const normalizedVariant = variant === 'thumbnail' ? 'thumbnail' : 'full';
     const decision = classifyRecordImageReference({ record, authority });
     const cacheKey = buildRecordImageCacheKey({
       decision,
       authority,
-      channel: normalizedChannel
+      channel: normalizedChannel,
+      variant: normalizedVariant
     });
     return memoized(cacheKey, () => {
       if (decision.kind === 'rejected') return null;
@@ -58,7 +62,9 @@ function createPublicQrAssetResolver({
       if (decision.namespace === 'legacy-prefixed') {
         return buildLegacyRecordImageProxyUrl(authority);
       }
-      const objectKey = decision.objectKey;
+      const objectKey = normalizedVariant === 'thumbnail'
+        ? buildRecordImageThumbnailObjectKey(decision.objectKey) || decision.objectKey
+        : decision.objectKey;
       if (normalizedChannel === 'miniapp') {
         try {
           const publicUrl = resolvePublicObjectUrl(objectKey);

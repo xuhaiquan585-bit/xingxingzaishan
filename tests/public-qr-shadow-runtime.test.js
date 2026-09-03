@@ -172,6 +172,33 @@ test('request-scoped asset resolver validates QR authority before memoization an
   );
 });
 
+test('record image thumbnails are selected only for v2 list variants', () => {
+  const resolved = [];
+  const resolver = createPublicQrAssetResolver({
+    resolveSignedUrl: (key) => {
+      resolved.push(key);
+      return `signed://${key}`;
+    }
+  });
+  const authority = { qrId: 'QR_PUBLIC_1', accessToken: '' };
+  const hash = recordImageQrIdSha256(authority.qrId);
+  const canonical = `stars/record-images/${hash}/upload-record-v2.jpg`;
+  const record = { image_object_key: canonical };
+
+  assert.equal(
+    resolver.resolveRecordImage({ record, authority, channel: 'h5', variant: 'thumbnail' }),
+    `signed://stars/record-images/${hash}/upload-thumb-v2.jpg`
+  );
+  assert.equal(
+    resolver.resolveRecordImage({ record, authority, channel: 'h5' }),
+    `signed://${canonical}`
+  );
+  assert.deepEqual(resolved, [
+    `stars/record-images/${hash}/upload-thumb-v2.jpg`,
+    canonical
+  ]);
+});
+
 test('public certificate projection exposes only application-archived certificates', () => {
   const signedCalls = [];
   const assetResolver = createPublicQrAssetResolver({

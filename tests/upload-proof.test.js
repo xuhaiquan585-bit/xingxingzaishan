@@ -12,6 +12,7 @@ const {
   verifyRecordImageUploadProof
 } = require('../src/server/services/uploadProofService');
 const {
+  buildRecordImageThumbnailObjectKey,
   classifyRecordImageReference,
   isLegacyPrefixedRecordImageObjectKeyForAuthority,
   isRecordImageObjectKeyForQrId,
@@ -127,6 +128,7 @@ test('ineligible QR input stops before normalization, storage, and proof issuanc
     }, {
       eligibilityResolver: async () => { throw new RecordImageUploadEligibilityError(); },
       imageNormalizer: async () => { calls.normalize += 1; },
+      thumbnailNormalizer: async () => { calls.normalize += 1; },
       imageSaver: async () => { calls.save += 1; },
       proofIssuer: () => { calls.proof += 1; }
     }),
@@ -146,7 +148,9 @@ test('record image upload derives storage and proof identity from canonical QR i
   }, {
     eligibilityResolver: async () => ({ id: 'SSS_CANONICAL' }),
     imageNormalizer: async (file) => ({ ...file, mimetype: 'image/jpeg' }),
-    imageSaver: async ({ qrId }) => {
+    thumbnailNormalizer: async (file) => ({ ...file, thumbnail: true }),
+    imageSaver: async ({ qrId, thumbnailFile }) => {
+      assert.equal(thumbnailFile.thumbnail, true);
       calls.push(['save', qrId]);
       return { object_key: 'stars/record-images/hash/photo.jpg' };
     },
@@ -272,6 +276,19 @@ test('record image resolver accepts only QR-bound current and historical media r
   ]) {
     assert.deepEqual(classifyRecordImageReference({ record, authority }), { kind: 'rejected' });
   }
+});
+
+test('only v2 record images have a deterministic thumbnail companion', () => {
+  const hash = recordImageQrIdSha256('SSS00001');
+  const canonical = `stars/record-images/${hash}/upload-record-v2.jpg`;
+  assert.equal(
+    buildRecordImageThumbnailObjectKey(canonical),
+    `stars/record-images/${hash}/upload-thumb-v2.jpg`
+  );
+  assert.equal(
+    buildRecordImageThumbnailObjectKey(`stars/record-images/${hash}/legacy.jpg`),
+    null
+  );
 });
 
 test('production runtime config fails closed for environment, legacy login, SMS, cookie, and proof secret', () => {

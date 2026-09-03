@@ -207,13 +207,18 @@ async function bindAuthoritativeMiniappPhone(input) {
   return authority.selected ? authority.result : bindMiniappUserPhone(input);
 }
 
-function resolveImageUrl(record, assetResolver = null) {
+function resolveImageUrl(record, assetResolver = null, variant = 'full') {
   if (assetResolver && typeof assetResolver.resolveRecordImage === 'function') {
     const authority = record.record_media_authority || {
       qrId: record.id || record.qr_id,
       accessToken: record.qr_access_token || record.authority_access_token
     };
-    return assetResolver.resolveRecordImage({ record, authority, channel: 'miniapp' });
+    return assetResolver.resolveRecordImage({
+      record,
+      authority,
+      channel: 'miniapp',
+      variant
+    });
   }
   return record.image_object_key ? null : record.image_url;
 }
@@ -855,8 +860,6 @@ router.post('/upload', requireMiniappAuth, requireMiniappPhone, receiveSingleIma
       file: req.file,
       accessToken: qrKey,
       accountId,
-      maxOutputWidth: 1080,
-      jpegQuality: 80,
       async validateNormalizedImage(normalizedFile) {
         await checkImageBuffer(normalizedFile.buffer, {
           filename: normalizedFile.originalname,
@@ -874,7 +877,8 @@ router.post('/upload', requireMiniappAuth, requireMiniappPhone, receiveSingleIma
         storage_mode: stored.mode,
         object_key: stored.object_key,
         upload_proof: uploadProof,
-        buffered: true,
+        buffered: stored.buffer_released !== true,
+        buffer_released: stored.buffer_released === true,
         active_storage_mode: getStorageMode(),
         fallback: stored.fallback === true
       }
@@ -1307,7 +1311,7 @@ async function handleMiniappPersonalRecords(req, res) {
     activated_at: item.activated_at,
     display_at: item.display_at,
     activation_status: item.activation_status,
-    image_url: resolveImageUrl(item, assetResolver)
+    image_url: resolveImageUrl(item, assetResolver, 'thumbnail')
   }));
   const data = { total: records.length, records };
   registerPersonalRecordShadowObservation({

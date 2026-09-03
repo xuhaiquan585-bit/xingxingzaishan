@@ -63,14 +63,15 @@ npm run check:conflicts
 
 ## 上传存储设计（含云存储缓冲）
 
-当前上传链路已调整为“先缓冲，再入正式存储”模式：
+当前上传链路采用“规范化、短暂缓冲、正式存储、立即释放缓冲”模式：
 
 1. 客户端上传图片到 `/api/upload`；
-2. 服务端先把图片写入 `src/server/buffer/uploads` 作为缓冲；
-3. 根据 `STORAGE_MODE` 决定正式存储位置：
+2. 用户记录图片生成最长边不超过 1600px、最大 800KiB 的 JPEG 主图，以及最长边不超过 640px 的列表缩略图；
+3. 主图和缩略图短暂写入 `src/server/buffer/uploads`；
+4. 根据 `STORAGE_MODE` 决定正式存储位置：
    - `local`（默认）：写入 `src/server/public/uploads`，返回 `/uploads/<file>`；
    - `cloud`：上传到 OSS，返回短期签名 URL + `object_key`；
-4. `object_key` 会入库，页面展示/下载时动态生成签名 URL，避免过期链接长期存储。
+5. 两份图片均保存成功后立即释放本地缓冲；主图 `object_key` 入库，列表自动使用缩略图，详情使用主图。
 
 示例：
 
@@ -113,20 +114,22 @@ ADMIN_INIT_ACCOUNTS_JSON='[{"username":"admin","password":"replace-admin-pass","
 ### 运行模式
 
 - `STORAGE_MODE=local`：
-  - 上传先进入缓冲目录 `src/server/buffer/uploads`；
+  - 上传期间短暂进入缓冲目录 `src/server/buffer/uploads`；
   - 再写入 `src/server/public/uploads`；
+  - 正式写入完成后立即释放缓冲文件；
   - 返回 `/uploads/<object_key>`。
 - `STORAGE_MODE=cloud`：
-  - 上传先进入缓冲目录 `src/server/buffer/uploads`；
+  - 上传期间短暂进入缓冲目录 `src/server/buffer/uploads`；
   - 再写入真实 OSS（对象 key 默认 `stars/{qrId}/...`）；
+  - 主图和缩略图均上传成功后立即释放缓冲文件；
   - 返回短期签名 URL（展示/下载）；
   - 可通过 `OSS_SIGNED_URL_EXPIRES`、`OSS_DOWNLOAD_SIGN_EXPIRES` 控制签名有效期。
 
 ### 生产环境建议
 
-1. 保留“先缓冲再写正式存储”的流程，便于失败重试与审计。
-2. 给缓冲目录设置定时清理（例如每天离峰清理超过 7 天的文件）。
-3. 私有 Bucket 场景建议仅存储 `image_object_key`，展示/下载时动态签名，避免 URL 过期。
+1. 私有 Bucket 场景仅持久化主图 `image_object_key`，展示时动态解析主图或缩略图。
+2. 上线前为记录图片建立与主 Bucket 隔离的备份目标；数据库备份不包含图片字节。
+3. 历史缓冲和孤立对象只能在独立备份完成后按审计清单清理，不能依据文件年龄直接删除。
 
 ## API 错误码建议（当前实现）
 

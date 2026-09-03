@@ -3825,7 +3825,8 @@ test('all image upload routes share strict server-side normalization', () => {
   assert.match(service, /\.toColorspace\('srgb'\)/);
   assert.match(service, /\.jpeg\(\{ quality: jpegQuality \}\)/);
   assert.doesNotMatch(service, /withMetadata|withExif/);
-  assert.match(recordUploadService, /normalizeUploadedImage/);
+  assert.match(recordUploadService, /normalizeRecordImageUpload/);
+  assert.match(recordUploadService, /createRecordImageThumbnail/);
   assert.match(recordUploadService, /await eligibilityResolver/);
   assert.ok(
     recordUploadService.indexOf('await eligibilityResolver')

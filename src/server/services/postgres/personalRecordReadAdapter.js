@@ -173,6 +173,7 @@ class PersonalRecordReadAdapter {
       return assetResolver.resolveRecordImage({
         record,
         channel,
+        variant: 'thumbnail',
         authority: {
           qrId: record.qr_id,
           accessToken: record.authority_access_token

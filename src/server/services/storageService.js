@@ -132,6 +132,12 @@ function buildRecordImageObjectKey({ qrId, fileName }) {
   return `${getObjectPrefix()}/record-images/${hash}/${safeFileName}`;
 }
 
+function buildRecordImageThumbnailObjectKey(objectKey) {
+  if (!isCurrentRecordImageObjectKey(objectKey)
+      || !String(objectKey).endsWith('-record-v2.jpg')) return null;
+  return String(objectKey).replace(/-record-v2\.jpg$/, '-thumb-v2.jpg');
+}
+
 function isCurrentRecordImageObjectKey(value) {
   const objectKey = String(value || '').trim();
   if (!objectKey || objectKey.includes('\\') || objectKey.includes('%')
@@ -257,6 +263,17 @@ async function putObjectToOss({ objectKey, localPath }) {
       'Cache-Control': 'public, max-age=31536000'
     }
   });
+}
+
+async function deleteObjectFromOss(objectKey) {
+  await getOssClient().delete(objectKey);
+}
+
+function removeBufferedFile(filePath) {
+  if (!filePath) return;
+  try {
+    fs.unlinkSync(filePath);
+  } catch (_error) {}
 }
 
 async function putBufferToOss({ objectKey, buffer, contentType = 'application/octet-stream' }) {
@@ -581,31 +598,71 @@ async function saveImage({ file, qrId }) {
   };
 }
 
-async function saveRecordImage({ file, qrId }) {
-  const fileName = buildFileName(file.originalname, 'image/jpeg').replace(/\.[^.]+$/, '.jpg');
+async function saveRecordImage({ file, thumbnailFile, qrId }) {
+  if (!file || !Buffer.isBuffer(file.buffer)
+      || !thumbnailFile || !Buffer.isBuffer(thumbnailFile.buffer)) {
+    throw new Error('RECORD_IMAGE_VARIANTS_REQUIRED');
+  }
+  const stem = buildFileName(file.originalname, 'image/jpeg').replace(/\.[^.]+$/, '');
+  const fileName = `${stem}-record-v2.jpg`;
+  const thumbnailFileName = `${stem}-thumb-v2.jpg`;
   const bufferedPath = saveBinaryFile(bufferDir, fileName, file.buffer);
+  const thumbnailBufferedPath = saveBinaryFile(
+    bufferDir,
+    thumbnailFileName,
+    thumbnailFile.buffer
+  );
   const mode = getStorageMode();
   const objectKey = buildRecordImageObjectKey({ qrId, fileName });
+  const thumbnailObjectKey = buildRecordImageObjectKey({
+    qrId,
+    fileName: thumbnailFileName
+  });
+  const createdObjectKeys = [];
+  const createdLocalPaths = [];
 
-  if (mode === 'cloud') {
-    try {
+  try {
+    if (mode === 'cloud') {
+      await putObjectToOss({ objectKey: thumbnailObjectKey, localPath: thumbnailBufferedPath });
+      createdObjectKeys.push(thumbnailObjectKey);
       await putObjectToOss({ objectKey, localPath: bufferedPath });
-    } catch (_error) {
+      createdObjectKeys.push(objectKey);
+    } else {
+      for (const [key, buffer] of [
+        [objectKey, file.buffer],
+        [thumbnailObjectKey, thumbnailFile.buffer]
+      ]) {
+        const localPath = path.join(localUploadDir, ...key.split('/'));
+        ensureDir(path.dirname(localPath));
+        fs.writeFileSync(localPath, buffer, { flag: 'wx' });
+        createdLocalPaths.push(localPath);
+      }
+    }
+  } catch (_error) {
+    if (mode === 'cloud') {
+      await Promise.allSettled(createdObjectKeys.map((key) => deleteObjectFromOss(key)));
       throw new Error('OSS_UPLOAD_FAILED');
     }
-  } else {
-    const localPath = path.join(localUploadDir, ...objectKey.split('/'));
-    ensureDir(path.dirname(localPath));
-    fs.writeFileSync(localPath, file.buffer);
+    for (const localPath of createdLocalPaths) {
+      try { fs.unlinkSync(localPath); } catch (_cleanupError) {}
+    }
+    throw new Error('RECORD_IMAGE_LOCAL_SAVE_FAILED');
+  } finally {
+    removeBufferedFile(bufferedPath);
+    removeBufferedFile(thumbnailBufferedPath);
   }
 
   const publicUrl = getPublicObjectUrl(objectKey);
+  const thumbnailPublicUrl = getPublicObjectUrl(thumbnailObjectKey);
   return {
     mode,
     url: publicUrl,
     preview_url: publicUrl,
     object_key: objectKey,
-    buffer_path: bufferedPath
+    thumbnail_url: thumbnailPublicUrl,
+    thumbnail_object_key: thumbnailObjectKey,
+    buffer_path: null,
+    buffer_released: true
   };
 }
 
@@ -783,6 +840,7 @@ module.exports = {
   getSignedUrl,
   getObjectPrefix,
   buildRecordImageObjectKey,
+  buildRecordImageThumbnailObjectKey,
   recordImageQrIdSha256,
   isCurrentRecordImageObjectKey,
   isRecordImageObjectKeyForQrId,

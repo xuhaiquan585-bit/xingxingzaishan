@@ -247,13 +247,13 @@ function handleLogout(req, res) {
   });
 }
 
-function resolveImageUrl(record, assetResolver = null) {
+function resolveImageUrl(record, assetResolver = null, variant = 'full') {
   if (assetResolver && typeof assetResolver.resolveRecordImage === 'function') {
     const authority = record.record_media_authority || {
       qrId: record.id || record.qr_id,
       accessToken: record.qr_access_token || record.authority_access_token
     };
-    return assetResolver.resolveRecordImage({ record, authority, channel: 'h5' });
+    return assetResolver.resolveRecordImage({ record, authority, channel: 'h5', variant });
   }
   return record.image_object_key ? null : record.image_url;
 }
@@ -309,7 +309,7 @@ async function handleRecords(req, res) {
     activated_at: item.activated_at,
     display_at: item.display_at,
     activation_status: item.activation_status,
-    image_url: resolveImageUrl(item, assetResolver)
+    image_url: resolveImageUrl(item, assetResolver, 'thumbnail')
   }));
   const data = {
     total: records.length,

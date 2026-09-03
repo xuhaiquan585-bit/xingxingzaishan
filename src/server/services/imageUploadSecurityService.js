@@ -7,6 +7,20 @@ const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const MAX_INPUT_DIMENSION = 12000;
 const MAX_INPUT_PIXELS = 50_000_000;
 const ALLOWED_INPUT_FORMATS = new Set(['jpeg', 'png']);
+const RECORD_IMAGE_MAX_BYTES = 800 * 1024;
+const RECORD_IMAGE_TARGET_BYTES = 760 * 1024;
+const RECORD_IMAGE_HARD_MAX_BYTES = RECORD_IMAGE_MAX_BYTES;
+const RECORD_IMAGE_MAX_EDGE = 1600;
+const RECORD_IMAGE_THUMBNAIL_MAX_BYTES = 120 * 1024;
+const RECORD_IMAGE_THUMBNAIL_MAX_EDGE = 640;
+const RECORD_IMAGE_RENDER_CANDIDATES = Object.freeze([
+  Object.freeze({ maxEdge: 1600, quality: 82 }),
+  Object.freeze({ maxEdge: 1600, quality: 74 }),
+  Object.freeze({ maxEdge: 1440, quality: 78 }),
+  Object.freeze({ maxEdge: 1280, quality: 76 }),
+  Object.freeze({ maxEdge: 1080, quality: 70 }),
+  Object.freeze({ maxEdge: 900, quality: 64 })
+]);
 
 class ImageUploadValidationError extends Error {
   constructor(code = 'UPLOAD_FAILED') {
@@ -56,6 +70,7 @@ function assertSafeMetadata(metadata) {
 
 async function normalizeUploadedImage(file, {
   maxOutputWidth = 1080,
+  maxOutputHeight = null,
   jpegQuality = 80
 } = {}) {
   if (!file || !Buffer.isBuffer(file.buffer)
@@ -64,6 +79,8 @@ async function normalizeUploadedImage(file, {
     throw validationError();
   }
   if (!Number.isInteger(maxOutputWidth) || maxOutputWidth < 1 || maxOutputWidth > 4096
+      || (maxOutputHeight !== null
+        && (!Number.isInteger(maxOutputHeight) || maxOutputHeight < 1 || maxOutputHeight > 4096))
       || !Number.isInteger(jpegQuality) || jpegQuality < 1 || jpegQuality > 100) {
     throw validationError();
   }
@@ -85,7 +102,12 @@ async function normalizeUploadedImage(file, {
     })
       .rotate()
       .toColorspace('srgb')
-      .resize({ width: maxOutputWidth, withoutEnlargement: true })
+      .resize({
+        width: maxOutputWidth,
+        height: maxOutputHeight || undefined,
+        fit: maxOutputHeight ? 'inside' : 'cover',
+        withoutEnlargement: true
+      })
       .flatten({ background: { r: 255, g: 255, b: 255 } })
       .jpeg({ quality: jpegQuality })
       .toBuffer({ resolveWithObject: true });
@@ -106,6 +128,36 @@ async function normalizeUploadedImage(file, {
     if (error instanceof ImageUploadValidationError) throw error;
     throw validationError();
   }
+}
+
+async function normalizeRecordImageUpload(file) {
+  let smallest = null;
+  for (const candidate of RECORD_IMAGE_RENDER_CANDIDATES) {
+    const normalized = await normalizeUploadedImage(file, {
+      maxOutputWidth: candidate.maxEdge,
+      maxOutputHeight: candidate.maxEdge,
+      jpegQuality: candidate.quality
+    });
+    if (!smallest || normalized.size < smallest.size) smallest = normalized;
+    if (normalized.size <= RECORD_IMAGE_TARGET_BYTES) return normalized;
+  }
+  if (smallest && smallest.size <= RECORD_IMAGE_HARD_MAX_BYTES) return smallest;
+  throw validationError();
+}
+
+async function createRecordImageThumbnail(file) {
+  const qualities = [72, 64];
+  let smallest = null;
+  for (const jpegQuality of qualities) {
+    const normalized = await normalizeUploadedImage(file, {
+      maxOutputWidth: RECORD_IMAGE_THUMBNAIL_MAX_EDGE,
+      maxOutputHeight: RECORD_IMAGE_THUMBNAIL_MAX_EDGE,
+      jpegQuality
+    });
+    if (!smallest || normalized.size < smallest.size) smallest = normalized;
+    if (normalized.size <= RECORD_IMAGE_THUMBNAIL_MAX_BYTES) return normalized;
+  }
+  return smallest;
 }
 
 const imageUploadParser = multer({
@@ -153,9 +205,17 @@ module.exports = {
   MAX_INPUT_DIMENSION,
   MAX_INPUT_PIXELS,
   MAX_UPLOAD_BYTES,
+  RECORD_IMAGE_HARD_MAX_BYTES,
+  RECORD_IMAGE_MAX_BYTES,
+  RECORD_IMAGE_MAX_EDGE,
+  RECORD_IMAGE_TARGET_BYTES,
+  RECORD_IMAGE_THUMBNAIL_MAX_BYTES,
+  RECORD_IMAGE_THUMBNAIL_MAX_EDGE,
   assertSafeMetadata,
+  createRecordImageThumbnail,
   hasAllowedImageSignature,
   normalizeUploadedImage,
+  normalizeRecordImageUpload,
   receiveSingleImage,
   respondToImageValidationError
 };
