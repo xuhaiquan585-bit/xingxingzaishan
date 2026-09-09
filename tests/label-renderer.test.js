@@ -21,6 +21,9 @@ const {
   renderLabelPreview,
   renderQrCodeForLabel
 } = require('../src/server/services/labelRenderer');
+const {
+  printProductionHttpError
+} = require('../src/server/services/printProductionHttpError');
 
 const QR_PAYLOAD = 'https://xingxingzaishan.top/q/fixture-token-not-secret';
 
@@ -231,8 +234,43 @@ test('production IDs stay on one line instead of wrapping below the QR', async (
       qrId: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456',
       qrPayload: QR_PAYLOAD
     }),
-    (error) => error && error.code === 'TEXT_OVERFLOW'
+    (error) => {
+      assert.equal(error.code, 'TEXT_OVERFLOW');
+      assert.equal(error.elementId, 'qr-id');
+      assert.equal(error.elementType, 'id');
+      assert.equal(error.widthMm, 17);
+      assert.equal(error.heightMm, 2.4);
+      assert.equal(error.fontSizePt, 5.5);
+      return true;
+    }
   );
+});
+
+test('template production errors provide actionable Chinese details', () => {
+  const overflow = printProductionHttpError({
+    code: 'TEXT_OVERFLOW', elementId: 'title', elementType: 'text',
+    widthMm: 26, heightMm: 4, fontSizePt: 8
+  });
+  assert.equal(overflow.statusCode, 400);
+  assert.match(overflow.body.message, /文字内容超出文本框/u);
+  assert.deepEqual(overflow.body.data, {
+    element_id: 'title', element_type: 'text',
+    width_mm: 26, height_mm: 4, font_size_pt: 8
+  });
+
+  const invalid = printProductionHttpError({
+    code: 'LABEL_TEMPLATE_INVALID',
+    issues: [{
+      code: 'QR_OVERLAP_FORBIDDEN',
+      path: 'elements.subtitle',
+      message: 'Nothing may overlap the QR.'
+    }]
+  });
+  assert.equal(invalid.statusCode, 400);
+  assert.match(invalid.body.message, /1 处生产校验问题/u);
+  assert.equal(invalid.body.data.issues[0].path, 'elements.subtitle');
+  assert.match(invalid.body.data.issues[0].message, /遮挡二维码/u);
+  assert.doesNotMatch(invalid.body.data.issues[0].message, /Nothing/u);
 });
 
 test('preview is low resolution and cannot be confused with a formal output', async () => {

@@ -363,12 +363,15 @@ test('manifest and ZIP generation are deterministic and do not expose access tok
 });
 
 test('admin production UI closes the legacy image export bypass', async () => {
-  const [html, printJs, adminJs, editorJs, routeSource, adminCss, appSource] = await Promise.all([
+  const [
+    html, printJs, adminJs, editorJs, routeSource, errorSource, adminCss, appSource
+  ] = await Promise.all([
     fs.readFile(path.join(__dirname, '../src/admin/index.html'), 'utf8'),
     fs.readFile(path.join(__dirname, '../src/admin/js/print-batch-admin.js'), 'utf8'),
     fs.readFile(path.join(__dirname, '../src/admin/js/admin.js'), 'utf8'),
     fs.readFile(path.join(__dirname, '../src/admin/js/label-template-editor.js'), 'utf8'),
     fs.readFile(path.join(__dirname, '../src/server/routes/admin.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, '../src/server/services/printProductionHttpError.js'), 'utf8'),
     fs.readFile(path.join(__dirname, '../src/admin/css/admin.css'), 'utf8'),
     fs.readFile(path.join(__dirname, '../src/server/app.js'), 'utf8')
   ]);
@@ -385,12 +388,14 @@ test('admin production UI closes the legacy image export bypass', async () => {
   assert.match(adminJs, /function isQrAvailableForPrinting\(item\)/u);
   assert.match(adminJs, /已排除 \$\{excludedCount\} 个不可生产二维码/u);
   assert.match(printJs, /published\.length === 1/u);
-  assert.match(routeSource, /所选二维码中包含历史未分类、已预留、已打印或已报废的二维码/u);
+  assert.match(errorSource, /所选二维码中包含历史未分类、已预留、已打印或已报废的二维码/u);
   assert.equal(adminJs.includes('/api/admin/records/qr-images/export'), false);
   assert.match(editorJs, /el\(id\)\.addEventListener\('input', updateElementProperties\)/u);
   assert.match(editorJs, /syncElementPropertiesFromControls\(\);\s+await api\(/u);
   assert.match(editorJs, /const POINT_TO_MM = 25\.4 \/ 72/u);
   assert.match(editorJs, /canvasFontSize\(element\.fontSizePt, scale\)/u);
+  assert.match(editorJs, /function formatTemplateError\(error\)/u);
+  assert.match(editorJs, /无法完整放入当前文本框/u);
   assert.match(editorJs, /function synchronizeQrIdComponent\(targetRevision = null\)/u);
   assert.match(editorJs, /if \(element\.type === 'qr'\) synchronizeQrIdComponent\(\)/u);
   assert.match(html, /二维码 ID 与二维码联动/u);
@@ -402,6 +407,7 @@ test('admin production UI closes the legacy image export bypass', async () => {
   assert.match(adminCss, /font-family: "Label IBM Plex Mono"/u);
   assert.match(adminCss, /font-family: "Label IBM Plex Mono Regular"/u);
   assert.match(appSource, /app\.use\('\/admin\/fonts', express\.static/u);
+  assert.match(routeSource, /printProductionHttpError/u);
   assert.match(routeSource, /LEGACY_QR_IMAGE_EXPORT_RETIRED/u);
   assert.match(routeSource, /status\(410\)/u);
 });

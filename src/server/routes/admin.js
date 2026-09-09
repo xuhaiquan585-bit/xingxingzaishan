@@ -59,6 +59,9 @@ const {
 const {
   executePrintProduction
 } = require('../services/postgres/printProductionRuntime');
+const {
+  printProductionHttpError
+} = require('../services/printProductionHttpError');
 
 const router = express.Router();
 
@@ -473,70 +476,8 @@ function printActor(req) {
 }
 
 function sendPrintProductionError(res, error) {
-  const code = String(error && error.code || 'PRINT_PRODUCTION_UNAVAILABLE');
-  if (code === 'LABEL_TEMPLATE_INVALID') {
-    return res.status(400).json({
-      status: 'error',
-      code,
-      message: '模板存在越界、重叠或印刷约束错误。',
-      data: { issues: Array.isArray(error.issues) ? error.issues : [] }
-    });
-  }
-  if (['TEMPLATE_NAME_INVALID', 'TEMPLATE_ASSET_TYPE_INVALID', 'QR_ID_INVALID',
-    'TEXT_OVERFLOW', 'QR_PHYSICAL_SIZE_TOO_SMALL', 'PRINT_QR_IDS_INVALID',
-    'IDEMPOTENCY_KEY_INVALID', 'PRINT_TEMPLATE_VERSION_INVALID',
-    'PRINT_BATCH_NAME_INVALID', 'PRINT_VENDOR_NAME_INVALID',
-    'PRINT_BATCH_NOTE_INVALID', 'PRINT_VOID_REASON_INVALID',
-    'PRINT_HISTORY_FILTER_INVALID', 'PRINT_HISTORY_TARGET_INVALID'].includes(code)) {
-    return res.status(400).json({
-      status: 'error', code, message: '模板参数不符合生产要求。'
-    });
-  }
-  if (['TEMPLATE_NOT_FOUND', 'TEMPLATE_VERSION_NOT_FOUND',
-    'TEMPLATE_ASSET_NOT_FOUND', 'PRINT_BATCH_NOT_FOUND',
-    'PRINT_QR_NOT_FOUND'].includes(code)) {
-    return res.status(404).json({
-      status: 'error', code, message: '未找到对应的模板、版本或图片。'
-    });
-  }
-  if (['TEMPLATE_ARCHIVED', 'TEMPLATE_DRAFT_NOT_FOUND',
-    'TEMPLATE_DRAFT_ALREADY_EXISTS', 'TEMPLATE_NOT_PUBLISHED',
-    'TEMPLATE_ALREADY_ARCHIVED', 'PRINT_TEMPLATE_NOT_AVAILABLE'].includes(code)) {
-    return res.status(409).json({
-      status: 'error', code, message: '当前模板状态不允许执行该操作。'
-    });
-  }
-  if (code === 'PRINT_QR_NOT_UNACTIVATED') {
-    return res.status(409).json({
-      status: 'error', code, message: '所选二维码中包含已记录或共创中的二维码，不能用于新印刷任务。'
-    });
-  }
-  if (code === 'PRINT_QR_ALREADY_RESERVED') {
-    return res.status(409).json({
-      status: 'error', code,
-      message: '所选二维码中包含历史未分类、已预留、已打印或已报废的二维码。'
-    });
-  }
-  if (code === 'PRINT_QR_RESERVATION_CONFLICT') {
-    return res.status(409).json({
-      status: 'error', code, message: '二维码印刷状态刚刚发生变化，请刷新后重新选择。'
-    });
-  }
-  if (['IDEMPOTENCY_KEY_CONFLICT',
-    'PRINT_BATCH_CANNOT_CANCEL', 'PRINT_ARTIFACT_GENERATION_IN_PROGRESS',
-    'PRINT_ARTIFACT_GENERATION_NOT_ALLOWED', 'PRINT_ARTIFACT_NOT_READY',
-    'PRINT_BATCH_TRANSITION_INVALID', 'PRINT_VOID_QR_SCOPE_INVALID',
-    'PRINT_VOID_QR_CONFLICT', 'PRINT_HISTORY_QR_CONFLICT',
-    'PRINT_HISTORY_QR_NOT_AVAILABLE'].includes(code)) {
-    return res.status(409).json({
-      status: 'error', code, message: '当前印刷任务状态不允许执行该操作。'
-    });
-  }
-  return res.status(503).json({
-    status: 'error',
-    code: 'PRINT_PRODUCTION_UNAVAILABLE',
-    message: '印刷生产服务暂时不可用，请稍后重试。'
-  });
+  const response = printProductionHttpError(error);
+  return res.status(response.statusCode).json(response.body);
 }
 
 function printSuccess(res, data) {

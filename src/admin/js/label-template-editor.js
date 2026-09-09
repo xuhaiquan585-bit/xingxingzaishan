@@ -60,7 +60,8 @@
     if (!response.ok || data.status !== 'success') {
       const error = new Error(data.message || '请求失败');
       error.code = data.code || 'REQUEST_FAILED';
-      error.issues = data.data && data.data.issues;
+      error.details = data.data || null;
+      error.issues = error.details && error.details.issues;
       throw error;
     }
     return data.data;
@@ -78,6 +79,73 @@
     return state.schema && state.schema.elements.find(
       (element) => element.id === state.selectedElementId
     );
+  }
+
+  function compactElementText(value, maxLength = 18) {
+    const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+    return normalized.length > maxLength
+      ? `${normalized.slice(0, maxLength)}…` : normalized;
+  }
+
+  function templateElementName(element, fallbackId = '') {
+    if (!element) return fallbackId ? `元素“${fallbackId}”` : '模板元素';
+    if (element.type === 'text') {
+      const value = compactElementText(element.text);
+      return value ? `文字“${value}”` : '文字元素';
+    }
+    return TYPE_LABELS[element.type] || `元素“${element.id || fallbackId}”`;
+  }
+
+  function elementForIssue(issue) {
+    const issuePath = String(issue && issue.path || '');
+    const indexed = issuePath.match(/^elements\[(\d+)]/);
+    if (indexed) return state.schema && state.schema.elements[Number(indexed[1])];
+    const identified = issuePath.match(/^elements\.([^.]+)/);
+    return identified && state.schema
+      ? state.schema.elements.find((element) => element.id === identified[1]) : null;
+  }
+
+  function describeValidationIssue(issue) {
+    const target = templateElementName(elementForIssue(issue));
+    const messages = {
+      ELEMENT_OUT_OF_BOUNDS: `${target}超出标签画布，请调整位置或宽高。`,
+      QR_OVERLAP_FORBIDDEN: `${target}遮挡了二维码，请将它移出二维码区域。`,
+      QR_ID_COMPONENT_OVERLAP: `${target}遮挡了二维码 ID，请将它移出编号区域。`,
+      QR_ID_COMPONENT_GEOMETRY_INVALID: '二维码 ID 已偏离二维码，请点击“升级并同步组件”。',
+      QR_ID_COMPONENT_ALIGNMENT_INVALID: '二维码 ID 必须在二维码下方水平居中。',
+      QR_GEOMETRY_INVALID: '二维码必须为正方形，且边长不能小于 10 mm。',
+      IMAGE_RESOLUTION_TOO_LOW: `${target}清晰度不足以按 600 DPI 输出，请缩小图片区域或上传更清晰的图片。`
+    };
+    return String(
+      messages[issue.code] || issue.message || '模板元素不符合生产要求。'
+    ).replace(/[。；]+$/u, '');
+  }
+
+  function formatTemplateError(error) {
+    if (error.code === 'TEXT_OVERFLOW') {
+      const details = error.details || {};
+      const element = state.schema && state.schema.elements.find(
+        (item) => item.id === details.element_id
+      );
+      const target = templateElementName(element, details.element_id);
+      const metrics = [];
+      if (Number.isFinite(Number(details.width_mm))
+          && Number.isFinite(Number(details.height_mm))) {
+        metrics.push(`${details.width_mm} × ${details.height_mm} mm`);
+      }
+      if (Number.isFinite(Number(details.font_size_pt))) {
+        metrics.push(`${details.font_size_pt} pt`);
+      }
+      return `${target}无法完整放入当前文本框${metrics.length ? `（${metrics.join('，')}）` : ''}。`
+        + '请增大文本框、减小字号或缩短文字。';
+    }
+    if (Array.isArray(error.issues) && error.issues.length) {
+      const visible = error.issues.slice(0, 3).map(describeValidationIssue);
+      const remaining = error.issues.length - visible.length;
+      return `模板有 ${error.issues.length} 处生产校验问题：${visible.join('；')}`
+        + `${remaining > 0 ? `；另有 ${remaining} 处问题` : ''}。`;
+    }
+    return error.message || '操作失败。';
   }
 
   function editable() {
@@ -712,9 +780,7 @@
       message('');
       await callback();
     } catch (error) {
-      const detail = Array.isArray(error.issues) && error.issues.length
-        ? ` ${error.issues[0].message}` : '';
-      message(`${error.message || '操作失败。'}${detail}`, true);
+      message(formatTemplateError(error), true);
     }
   }
 

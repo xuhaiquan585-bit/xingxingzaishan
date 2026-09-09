@@ -196,7 +196,13 @@ async function renderTextBox(
       if (wrapped) return wrapped;
     }
   }
-  throw new LabelRenderError('TEXT_OVERFLOW', { elementId: element.id });
+  throw new LabelRenderError('TEXT_OVERFLOW', {
+    elementId: element.id,
+    elementType: element.type,
+    widthMm: Number(element.widthMm),
+    heightMm: Number(element.heightMm),
+    fontSizePt: Number(element.fontSizePt)
+  });
 }
 
 function roundedRectSvg(width, height, radius, fill, stroke, strokeWidth) {
