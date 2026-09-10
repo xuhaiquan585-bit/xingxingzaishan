@@ -60,6 +60,7 @@ const {
   executePrintProduction
 } = require('../services/postgres/printProductionRuntime');
 const {
+  presentTemplatePreviewIssue,
   printProductionHttpError
 } = require('../services/printProductionHttpError');
 
@@ -567,6 +568,27 @@ router.post('/label-templates/:templateId/preview', requireAdmin, async (req, re
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Cache-Control', 'no-store');
     return res.send(buffer);
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
+router.post('/label-templates/:templateId/live-preview', requireAdmin, async (req, res) => {
+  try {
+    const rendered = await executePrintProduction('livePreview', {
+      templateId: req.params.templateId,
+      versionId: req.body && req.body.version_id,
+      schema: req.body && req.body.schema,
+      qrId: req.body && req.body.qr_id
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    return printSuccess(res, {
+      image_data_url: `data:image/png;base64,${rendered.buffer.toString('base64')}`,
+      width: rendered.width,
+      height: rendered.height,
+      density: rendered.density,
+      issues: rendered.issues.map(presentTemplatePreviewIssue)
+    });
   } catch (error) {
     return sendPrintProductionError(res, error);
   }

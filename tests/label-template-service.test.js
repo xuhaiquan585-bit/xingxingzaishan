@@ -196,7 +196,7 @@ test('template lifecycle preserves published versions and requires a new draft',
   assert.equal(second.template_schema.elements.find((item) => item.type === 'qr').widthMm, 17);
   assert.equal(second.template_schema.elements.find((item) => item.type === 'id').yMm, 18.85);
   assert.equal(second.template_schema.elements.find((item) => item.type === 'id').fontSizePt, 5.5);
-  assert.equal(second.template_schema.elements.find((item) => item.type === 'id').componentRevision, 2);
+  assert.equal(second.template_schema.elements.find((item) => item.type === 'id').componentRevision, 3);
   assert.equal(second.template_schema.elements.find((item) => item.type === 'id').fontFamily,
     'ibm-plex-mono-regular');
   assert.equal(second.template_schema.elements.find((item) => item.type === 'id').linkedToQr, true);
@@ -241,4 +241,49 @@ test('copy remaps private assets and archived templates reject edits', async () 
     service.saveDraft({ templateId: copied.template_id, schema, actor }),
     (error) => error instanceof LabelTemplateServiceError && error.code === 'TEMPLATE_ARCHIVED'
   );
+});
+
+test('live preview is read-only and returns clipped production-layout issues', async () => {
+  const { service, store } = serviceFixture();
+  const actor = { operatorId: 7, username: 'admin' };
+  const created = await service.createTemplate({ name: '实时预览', actor });
+  const schema = defaultLabelTemplateSchema();
+  schema.elements.push({
+    id: 'title', type: 'text', xMm: 2, yMm: 36, widthMm: 16, heightMm: 0.5,
+    zIndex: 9, locked: false, text: '记在星上', fontFamily: 'noto-sans-sc',
+    fontSizePt: 10, minFontSizePt: 10, color: '#111827', align: 'center', letterSpacing: 0
+  });
+  const versionBefore = JSON.stringify([...store.versions.values()]);
+  const preview = await service.livePreview({
+    templateId: created.template.id, schema, qrId: 'SSS00016'
+  });
+  assert.ok(Buffer.isBuffer(preview.buffer));
+  assert.ok(preview.issues.some((issue) => issue.code === 'TEXT_OVERFLOW'
+    && issue.elementId === 'title'));
+  assert.equal(JSON.stringify([...store.versions.values()]), versionBefore);
+});
+
+test('invalid typography can be previewed but cannot be published', async () => {
+  const { service, store } = serviceFixture();
+  const actor = { operatorId: 7, username: 'admin' };
+  const created = await service.createTemplate({ name: '严格发布', actor });
+  const schema = defaultLabelTemplateSchema();
+  schema.elements.push({
+    id: 'title', type: 'text', xMm: 2, yMm: 36, widthMm: 16, heightMm: 0.5,
+    zIndex: 9, locked: false, text: '记在星上', fontFamily: 'noto-sans-sc',
+    fontSizePt: 10, minFontSizePt: 10, color: '#111827', align: 'center', letterSpacing: 0
+  });
+  await service.saveDraft({ templateId: created.template.id, schema, actor });
+  const preview = await service.livePreview({
+    templateId: created.template.id, schema, qrId: 'SSS00016'
+  });
+  assert.ok(preview.issues.some((issue) => issue.code === 'TEXT_OVERFLOW'));
+  await assert.rejects(
+    service.publish({ templateId: created.template.id, actor }),
+    (error) => error && error.code === 'TEXT_OVERFLOW'
+  );
+  assert.equal(store.templates.get(created.template.id).status, 'draft');
+  assert.equal([...store.versions.values()].find(
+    (version) => version.template_id === created.template.id
+  ).status, 'draft');
 });

@@ -400,7 +400,17 @@ test('admin production UI closes the legacy image export bypass', async () => {
   assert.match(editorJs, /if \(element\.type === 'qr'\) synchronizeQrIdComponent\(\)/u);
   assert.match(html, /二维码 ID 与二维码联动/u);
   assert.match(html, /upgradeQrIdComponentBtn/u);
-  assert.match(editorJs, /QR_ID_COMPONENT_LATEST_REVISION = 2/u);
+  assert.match(editorJs, /QR_ID_COMPONENT_LATEST_REVISION = 3/u);
+  assert.match(editorJs, /LIVE_PREVIEW_DELAY_MS = 350/u);
+  assert.match(editorJs, /\/live-preview/u);
+  assert.match(editorJs, /livePreviewController\.abort\(\)/u);
+  assert.match(editorJs, /has-authoritative-preview/u);
+  assert.match(editorJs, /label-canvas-element\$\{selected\}\$\{locked\}\$\{invalid\}/u);
+  assert.match(editorJs, /labelElementDividerColor/u);
+  assert.match(routeSource, /label-templates\/:templateId\/live-preview', requireAdmin/u);
+  assert.match(routeSource, /image_data_url/u);
+  assert.match(html, /id="labelLivePreviewStatus"/u);
+  assert.match(html, /id="labelElementDividerColor"/u);
   assert.match(editorJs, /ibm-plex-mono-regular/u);
   assert.match(adminCss, /white-space: nowrap/u);
   assert.match(adminCss, /font-family: "Label Noto Sans SC"/u);

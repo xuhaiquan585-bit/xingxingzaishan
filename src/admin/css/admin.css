@@ -1112,6 +1112,18 @@ th {
   margin-bottom: 14px;
 }
 
+.label-live-preview-status {
+  min-height: 20px;
+  margin: -6px 0 10px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.label-live-preview-status.error {
+  color: #b42318;
+}
+
 .label-canvas {
   position: relative;
   width: 160px;
@@ -1121,6 +1133,18 @@ th {
   background: #fff;
   box-shadow: 0 2px 12px rgba(31, 42, 61, 0.16);
   touch-action: none;
+}
+
+.label-canvas-authoritative-preview {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: fill;
+  pointer-events: none;
 }
 
 .label-canvas-element {
@@ -1160,6 +1184,22 @@ th {
 .label-canvas-element.selected {
   border-color: #1769c2;
   outline: 1px solid rgba(23, 105, 194, 0.25);
+}
+
+.label-canvas.has-authoritative-preview .label-canvas-element {
+  color: transparent !important;
+  border-color: transparent;
+  background: none !important;
+}
+
+.label-canvas.has-authoritative-preview .label-canvas-element.selected {
+  border-color: #1769c2;
+}
+
+.label-canvas-element.invalid,
+.label-canvas.has-authoritative-preview .label-canvas-element.invalid {
+  border-color: #d92d20;
+  outline: 2px solid rgba(217, 45, 32, 0.24);
 }
 
 .label-canvas-element.locked::after {

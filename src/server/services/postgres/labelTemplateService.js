@@ -6,7 +6,7 @@ const {
   synchronizeQrIdComponent,
   validateTemplateSchema
 } = require('../labelTemplateSchema');
-const { renderLabelPreview } = require('../labelRenderer');
+const { renderLabelDraftPreview, renderLabelPreview } = require('../labelRenderer');
 
 class LabelTemplateServiceError extends Error {
   constructor(code) {
@@ -351,6 +351,29 @@ function createLabelTemplateService({
     }, { readOnly: true });
   }
 
+  async function livePreview(input = {}) {
+    const templateId = String(input.templateId || '').trim();
+    return run('live_preview_template', async (repository) => {
+      const template = await repository.findTemplate(templateId);
+      if (!template) throw new LabelTemplateServiceError('TEMPLATE_NOT_FOUND');
+      const version = input.versionId
+        ? await repository.findVersion(String(input.versionId))
+        : await repository.findDraft(templateId)
+          || await repository.findVersion(template.current_published_version_id);
+      if (!version || version.template_id !== templateId) {
+        throw new LabelTemplateServiceError('TEMPLATE_VERSION_NOT_FOUND');
+      }
+      const assets = await assetMaps(repository, templateId, { includeBuffers: true });
+      return renderLabelDraftPreview({
+        template: input.schema || version.template_schema,
+        qrId: String(input.qrId || 'SSS00001').trim().toUpperCase(),
+        qrPayload: 'https://xingxingzaishan.top/q/template-preview-not-a-live-token',
+        assets: assets.buffers,
+        requireAssets: true
+      });
+    }, { readOnly: true });
+  }
+
   async function publish(input = {}) {
     const templateId = String(input.templateId || '').trim();
     const operator = actor(input.actor);
@@ -453,6 +476,7 @@ function createLabelTemplateService({
     createTemplate,
     createVersion,
     getTemplate,
+    livePreview,
     listTemplates,
     preview,
     publish,

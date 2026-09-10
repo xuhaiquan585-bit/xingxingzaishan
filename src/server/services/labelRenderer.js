@@ -5,6 +5,7 @@ const QRCode = require('qrcode');
 const sharp = require('sharp');
 const {
   FORMAL_DPI,
+  analyzeTemplateSchema,
   linkedComponentRevision,
   qrIdComponentProfile,
   validateTemplateSchema
@@ -38,6 +39,10 @@ class LabelRenderError extends Error {
 
 function mmToPixels(value, dpi = FORMAL_DPI) {
   return Math.round(Number(value) / 25.4 * dpi);
+}
+
+function pixelsToMm(value, dpi = FORMAL_DPI) {
+  return Number((Number(value) / dpi * 25.4).toFixed(2));
 }
 
 function escapePango(value) {
@@ -102,7 +107,7 @@ async function renderTextBox(
   element,
   box,
   dpi,
-  { shrink = false, allowWrap = true, fitVisibleBounds = false } = {}
+  { shrink = false, allowWrap = true, fitVisibleBounds = false, clipOverflow = false } = {}
 ) {
   const font = FONT_FILES[element.fontFamily];
   if (!font) throw new LabelRenderError('FONT_NOT_BUNDLED');
@@ -133,10 +138,7 @@ async function renderTextBox(
         .png()
         .toBuffer({ resolveWithObject: true });
     }
-    if (rendered.info.width <= box.width && rendered.info.height <= box.height) {
-      return rendered;
-    }
-    return null;
+    return rendered;
   }
 
   async function attemptLines(lines, size) {
@@ -179,9 +181,11 @@ async function renderTextBox(
     }).composite(composites).png().toBuffer({ resolveWithObject: true });
   }
 
+  let overflow = null;
   while (fontSize + 0.001 >= minimum) {
     const rendered = await attempt(value, fontSize);
-    if (rendered) return rendered;
+    if (!overflow) overflow = rendered;
+    if (rendered.info.width <= box.width && rendered.info.height <= box.height) return rendered;
     if (!shrink || fontSize <= minimum) break;
     fontSize = Math.max(minimum, fontSize - 0.5);
   }
@@ -196,13 +200,56 @@ async function renderTextBox(
       if (wrapped) return wrapped;
     }
   }
-  throw new LabelRenderError('TEXT_OVERFLOW', {
+  const error = new LabelRenderError('TEXT_OVERFLOW', {
     elementId: element.id,
     elementType: element.type,
     widthMm: Number(element.widthMm),
     heightMm: Number(element.heightMm),
-    fontSizePt: Number(element.fontSizePt)
+    fontSizePt: Number(element.fontSizePt),
+    requiredWidthMm: overflow ? pixelsToMm(overflow.info.width, dpi) : undefined,
+    requiredHeightMm: overflow ? pixelsToMm(overflow.info.height, dpi) : undefined
   });
+  if (!clipOverflow || !overflow) throw error;
+  const cropLeft = overflow.info.width <= box.width
+    ? 0
+    : element.align === 'right'
+      ? overflow.info.width - box.width
+      : element.align === 'center'
+        ? Math.floor((overflow.info.width - box.width) / 2)
+        : 0;
+  const cropWidth = Math.min(box.width, overflow.info.width - cropLeft);
+  const cropHeight = Math.min(box.height, overflow.info.height);
+  const cropped = await sharp(overflow.data)
+    .extract({ left: cropLeft, top: 0, width: cropWidth, height: cropHeight })
+    .png()
+    .toBuffer();
+  const horizontalOffset = overflow.info.width <= box.width
+    ? alignedOffset(box.width, cropWidth, element.align)
+    : 0;
+  const clipped = await sharp({
+    create: {
+      width: box.width,
+      height: box.height,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 }
+    }
+  }).composite([{ input: cropped, left: horizontalOffset, top: 0 }])
+    .png()
+    .toBuffer({ resolveWithObject: true });
+  return {
+    ...clipped,
+    issue: Object.freeze({
+      code: error.code,
+      path: `elements.${element.id}`,
+      elementId: error.elementId,
+      elementType: error.elementType,
+      widthMm: error.widthMm,
+      heightMm: error.heightMm,
+      fontSizePt: error.fontSizePt,
+      requiredWidthMm: error.requiredWidthMm,
+      requiredHeightMm: error.requiredHeightMm
+    })
+  };
 }
 
 function roundedRectSvg(width, height, radius, fill, stroke, strokeWidth) {
@@ -269,8 +316,10 @@ async function renderElement(element, context) {
     const rendered = await renderTextBox(context.qrId, element, textBox, context.dpi, {
       shrink: true,
       allowWrap: false,
-      fitVisibleBounds: revision >= 2
+      fitVisibleBounds: revision >= 2,
+      clipOverflow: context.allowInvalid
     });
+    if (rendered.issue) context.issues.push(rendered.issue);
     return {
       input: rendered.data,
       left: box.left + horizontalPadding
@@ -279,7 +328,10 @@ async function renderElement(element, context) {
     };
   }
   if (element.type === 'text') {
-    const rendered = await renderTextBox(element.text, element, box, context.dpi);
+    const rendered = await renderTextBox(element.text, element, box, context.dpi, {
+      clipOverflow: context.allowInvalid
+    });
+    if (rendered.issue) context.issues.push(rendered.issue);
     return { input: rendered.data, left: box.left, top: box.top };
   }
   if (element.type === 'divider') {
@@ -323,18 +375,47 @@ async function renderElement(element, context) {
   return null;
 }
 
+async function clipCompositeToCanvas(composite, canvasWidth, canvasHeight) {
+  const left = Math.max(0, Number(composite.left) || 0);
+  const top = Math.max(0, Number(composite.top) || 0);
+  const availableWidth = canvasWidth - left;
+  const availableHeight = canvasHeight - top;
+  if (availableWidth <= 0 || availableHeight <= 0) return null;
+
+  const metadata = await sharp(composite.input).metadata();
+  const sourceWidth = Number(metadata.width);
+  const sourceHeight = Number(metadata.height);
+  if (!sourceWidth || !sourceHeight) return null;
+  const width = Math.min(sourceWidth, availableWidth);
+  const height = Math.min(sourceHeight, availableHeight);
+  if (width === sourceWidth && height === sourceHeight) return composite;
+
+  const input = await sharp(composite.input)
+    .extract({ left: 0, top: 0, width, height })
+    .png()
+    .toBuffer();
+  return { ...composite, input, left, top };
+}
+
 async function renderLabel({
   template,
   qrId,
   qrPayload,
   assets = new Map(),
   renderDpi = FORMAL_DPI,
-  requireAssets = true
+  requireAssets = true,
+  allowInvalid = false
 }) {
   if (![FORMAL_DPI, PREVIEW_DPI].includes(renderDpi)) {
     throw new LabelRenderError('RENDER_DPI_INVALID');
   }
-  const schema = validateTemplateSchema(template, { assets, requireAssets });
+  const analysis = allowInvalid
+    ? analyzeTemplateSchema(template, { assets, requireAssets })
+    : null;
+  const schema = analysis
+    ? analysis.schema
+    : validateTemplateSchema(template, { assets, requireAssets });
+  const issues = analysis ? [...analysis.issues] : [];
   const normalizedQrId = String(qrId || '').trim().toUpperCase();
   if (!/^[A-Z0-9]{1,64}$/.test(normalizedQrId)) {
     throw new LabelRenderError('QR_ID_INVALID');
@@ -346,11 +427,26 @@ async function renderLabel({
     assets,
     dpi: renderDpi,
     qrId: normalizedQrId,
-    qrPayload: String(qrPayload || '').trim()
+    qrPayload: String(qrPayload || '').trim(),
+    allowInvalid,
+    issues
   };
   for (const element of schema.elements) {
-    const rendered = await renderElement(element, context);
-    if (rendered) composites.push(rendered);
+    try {
+      const rendered = await renderElement(element, context);
+      const visible = rendered && allowInvalid
+        ? await clipCompositeToCanvas(rendered, width, height)
+        : rendered;
+      if (visible) composites.push(visible);
+    } catch (error) {
+      if (!allowInvalid || !(error instanceof LabelRenderError)) throw error;
+      issues.push(Object.freeze({
+        code: error.code,
+        path: `elements.${element.id}`,
+        elementId: element.id,
+        elementType: element.type
+      }));
+    }
   }
   const radii = Object.fromEntries(Object.entries(schema.canvas.cornerRadiiMm)
     .map(([key, value]) => [key, mmToPixels(value, renderDpi)]));
@@ -378,12 +474,41 @@ async function renderLabel({
     width: result.info.width,
     height: result.info.height,
     density: renderDpi,
-    schema
+    schema,
+    issues: Object.freeze(issues)
   });
 }
 
-function renderLabelPreview(input) {
-  return renderLabel({ ...input, renderDpi: PREVIEW_DPI });
+async function downscaleFormalPreview(rendered) {
+  const width = mmToPixels(rendered.schema.canvas.widthMm, PREVIEW_DPI);
+  const height = mmToPixels(rendered.schema.canvas.heightMm, PREVIEW_DPI);
+  const preview = await sharp(rendered.buffer)
+    .resize(width, height, { fit: 'fill', kernel: sharp.kernel.lanczos3 })
+    .withMetadata({ density: PREVIEW_DPI })
+    .png({ compressionLevel: 9, adaptiveFiltering: true })
+    .toBuffer({ resolveWithObject: true });
+  return Object.freeze({
+    buffer: preview.data,
+    width: preview.info.width,
+    height: preview.info.height,
+    density: PREVIEW_DPI,
+    schema: rendered.schema,
+    issues: rendered.issues
+  });
+}
+
+async function renderLabelPreview(input) {
+  const formal = await renderLabel({ ...input, renderDpi: FORMAL_DPI });
+  return downscaleFormalPreview(formal);
+}
+
+async function renderLabelDraftPreview(input) {
+  const formal = await renderLabel({
+    ...input,
+    renderDpi: FORMAL_DPI,
+    allowInvalid: true
+  });
+  return downscaleFormalPreview(formal);
 }
 
 module.exports = {
@@ -393,6 +518,7 @@ module.exports = {
   alignedOffset,
   mmToPixels,
   renderLabel,
+  renderLabelDraftPreview,
   renderLabelPreview,
   renderQrCodeForLabel
 };

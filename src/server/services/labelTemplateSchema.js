@@ -11,7 +11,7 @@ const ELEMENT_TYPES = Object.freeze([
 ]);
 const COLOR_PATTERN = /^#[0-9A-F]{6}$/i;
 const ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
-const QR_ID_COMPONENT_LATEST_REVISION = 2;
+const QR_ID_COMPONENT_LATEST_REVISION = 3;
 const QR_ID_COMPONENT_PROFILES = Object.freeze({
   1: Object.freeze({
     referenceQrSizeMm: 17,
@@ -40,6 +40,22 @@ const QR_ID_COMPONENT_PROFILES = Object.freeze({
     fontSizePt: 5.5,
     minimumBaseFontSizePt: 4.5,
     maximumBaseFontSizePt: 9,
+    minimumFitFontSizePt: 4,
+    fontFamily: 'ibm-plex-mono-regular',
+    color: '#1F2937',
+    horizontalPaddingMm: 0.35
+  }),
+  3: Object.freeze({
+    referenceQrSizeMm: 17,
+    gapMm: 0.35,
+    minimumGapMm: 0.3,
+    maximumGapMm: 0.6,
+    heightMm: 2.4,
+    minimumHeightMm: 2.2,
+    maximumHeightMm: 3.2,
+    fontSizePt: 5.5,
+    minimumBaseFontSizePt: 4.5,
+    maximumBaseFontSizePt: 7,
     minimumFitFontSizePt: 4,
     fontFamily: 'ibm-plex-mono-regular',
     color: '#1F2937',
@@ -410,7 +426,7 @@ function boxesOverlap(left, right) {
     && left.yMm + left.heightMm > right.yMm;
 }
 
-function validateTemplateSchema(input, options = {}) {
+function analyzeTemplateSchema(input, options = {}) {
   const issues = [];
   const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
   const schemaVersion = numeric(source.schemaVersion, 'schemaVersion', issues, {
@@ -534,8 +550,7 @@ function validateTemplateSchema(input, options = {}) {
     }
   }
 
-  if (issues.length) throw new LabelTemplateValidationError(issues);
-  return Object.freeze({
+  const schema = Object.freeze({
     schemaVersion,
     canvas: Object.freeze({
       ...canvas,
@@ -545,6 +560,16 @@ function validateTemplateSchema(input, options = {}) {
       .sort((left, right) => left.zIndex - right.zIndex || left.id.localeCompare(right.id))
       .map((element) => Object.freeze({ ...element })))
   });
+  return Object.freeze({
+    schema,
+    issues: Object.freeze(issues.map((entry) => Object.freeze({ ...entry })))
+  });
+}
+
+function validateTemplateSchema(input, options = {}) {
+  const analysis = analyzeTemplateSchema(input, options);
+  if (analysis.issues.length) throw new LabelTemplateValidationError(analysis.issues);
+  return analysis.schema;
 }
 
 module.exports = {
@@ -555,6 +580,7 @@ module.exports = {
   QR_ID_COMPONENT_LATEST_REVISION,
   QR_ID_COMPONENT_PROFILES,
   SCHEMA_VERSION,
+  analyzeTemplateSchema,
   defaultLabelTemplateSchema,
   linkedComponentRevision,
   qrIdComponentLayout,

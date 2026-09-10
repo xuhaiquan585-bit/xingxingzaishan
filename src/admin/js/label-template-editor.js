@@ -7,12 +7,20 @@
     schema: null,
     selectedElementId: '',
     assetUrls: new Map(),
+    livePreviewDataUrl: '',
+    livePreviewIssues: [],
+    livePreviewState: 'idle',
+    livePreviewError: '',
+    livePreviewRequestId: 0,
     dirty: false,
     loaded: false
   };
   const SNAP_MM = 0.5;
   const POINT_TO_MM = 25.4 / 72;
-  const QR_ID_COMPONENT_LATEST_REVISION = 2;
+  const LIVE_PREVIEW_DELAY_MS = 350;
+  let livePreviewTimer = null;
+  let livePreviewController = null;
+  const QR_ID_COMPONENT_LATEST_REVISION = 3;
   const QR_ID_COMPONENT_PROFILES = Object.freeze({
     1: Object.freeze({
       referenceQrSizeMm: 17, gapMm: 0.6, minimumGapMm: 0, maximumGapMm: 48,
@@ -25,6 +33,13 @@
       referenceQrSizeMm: 17, gapMm: 0.35, minimumGapMm: 0.3, maximumGapMm: 0.6,
       heightMm: 2.4, minimumHeightMm: 2.2, maximumHeightMm: 3.6,
       fontSizePt: 5.5, minimumBaseFontSizePt: 4.5, maximumBaseFontSizePt: 9,
+      minimumFitFontSizePt: 4, fontFamily: 'ibm-plex-mono-regular', color: '#1F2937',
+      horizontalPaddingMm: 0.35
+    }),
+    3: Object.freeze({
+      referenceQrSizeMm: 17, gapMm: 0.35, minimumGapMm: 0.3, maximumGapMm: 0.6,
+      heightMm: 2.4, minimumHeightMm: 2.2, maximumHeightMm: 3.2,
+      fontSizePt: 5.5, minimumBaseFontSizePt: 4.5, maximumBaseFontSizePt: 7,
       minimumFitFontSizePt: 4, fontFamily: 'ibm-plex-mono-regular', color: '#1F2937',
       horizontalPaddingMm: 0.35
     })
@@ -45,6 +60,14 @@
     target.classList.toggle('error', isError);
   }
 
+  function responseError(data, fallback = '请求失败') {
+    const error = new Error(data.message || fallback);
+    error.code = data.code || 'REQUEST_FAILED';
+    error.details = data.data || null;
+    error.issues = error.details && error.details.issues;
+    return error;
+  }
+
   async function api(path, options = {}) {
     const response = await fetch(`/api/admin${path}`, {
       ...options,
@@ -58,11 +81,7 @@
       status: 'error', message: '服务器返回了无法识别的响应。'
     }));
     if (!response.ok || data.status !== 'success') {
-      const error = new Error(data.message || '请求失败');
-      error.code = data.code || 'REQUEST_FAILED';
-      error.details = data.data || null;
-      error.issues = error.details && error.details.issues;
-      throw error;
+      throw responseError(data);
     }
     return data.data;
   }
@@ -136,7 +155,15 @@
       if (Number.isFinite(Number(details.font_size_pt))) {
         metrics.push(`${details.font_size_pt} pt`);
       }
+      const required = [];
+      if (Number.isFinite(Number(details.required_width_mm))) {
+        required.push(`宽 ${details.required_width_mm} mm`);
+      }
+      if (Number.isFinite(Number(details.required_height_mm))) {
+        required.push(`高 ${details.required_height_mm} mm`);
+      }
       return `${target}无法完整放入当前文本框${metrics.length ? `（${metrics.join('，')}）` : ''}。`
+        + `${required.length ? `服务端排版至少需要${required.join('、')}。` : ''}`
         + '请增大文本框、减小字号或缩短文字。';
     }
     if (Array.isArray(error.issues) && error.issues.length) {
@@ -146,6 +173,44 @@
         + `${remaining > 0 ? `；另有 ${remaining} 处问题` : ''}。`;
     }
     return error.message || '操作失败。';
+  }
+
+  function previewIssueElementId(issue) {
+    if (issue && issue.element_id) return String(issue.element_id);
+    const path = String(issue && issue.path || '');
+    const identified = path.match(/^elements\.([^.]+)/);
+    if (identified) return identified[1];
+    const indexed = path.match(/^elements\[(\d+)]/);
+    const element = indexed && state.schema && state.schema.elements[Number(indexed[1])];
+    return element ? element.id : '';
+  }
+
+  function describeLivePreviewIssue(issue) {
+    if (issue.code !== 'TEXT_OVERFLOW') return describeValidationIssue(issue);
+    const elementId = previewIssueElementId(issue);
+    const element = state.schema && state.schema.elements.find((item) => item.id === elementId);
+    const target = templateElementName(element, elementId);
+    const current = Number.isFinite(Number(issue.width_mm))
+      && Number.isFinite(Number(issue.height_mm))
+      ? `${issue.width_mm} × ${issue.height_mm} mm` : '';
+    const required = Number.isFinite(Number(issue.required_width_mm))
+      && Number.isFinite(Number(issue.required_height_mm))
+      ? `${issue.required_width_mm} × ${issue.required_height_mm} mm` : '';
+    return `${target}当前文本框${current ? `为 ${current}` : '尺寸不足'}`
+      + `${required ? `，完整排版至少需要 ${required}` : ''}`;
+  }
+
+  function focusErrorElement(error) {
+    const issue = Array.isArray(error.issues) && error.issues[0];
+    const elementId = error.details && error.details.element_id
+      || previewIssueElementId(issue);
+    if (elementId && state.schema
+        && state.schema.elements.some((element) => element.id === elementId)) {
+      state.selectedElementId = elementId;
+      renderCanvas();
+      renderLayers();
+      renderProperties();
+    }
   }
 
   function editable() {
@@ -217,6 +282,100 @@
   function clearAssetUrls() {
     for (const url of state.assetUrls.values()) URL.revokeObjectURL(url);
     state.assetUrls.clear();
+  }
+
+  function cancelLivePreview() {
+    if (livePreviewTimer) window.clearTimeout(livePreviewTimer);
+    livePreviewTimer = null;
+    if (livePreviewController) livePreviewController.abort();
+    livePreviewController = null;
+  }
+
+  function resetLivePreview() {
+    cancelLivePreview();
+    state.livePreviewDataUrl = '';
+    state.livePreviewIssues = [];
+    state.livePreviewState = 'idle';
+    state.livePreviewError = '';
+    state.livePreviewRequestId += 1;
+  }
+
+  function renderLivePreviewStatus() {
+    const target = el('labelLivePreviewStatus');
+    if (!target) return;
+    target.classList.toggle('error', state.livePreviewState === 'error'
+      || state.livePreviewIssues.length > 0);
+    if (state.livePreviewState === 'loading') {
+      target.textContent = '正在同步生产预览…';
+      return;
+    }
+    if (state.livePreviewState === 'error') {
+      target.textContent = state.livePreviewError || '生产预览暂时无法更新。';
+      return;
+    }
+    if (state.livePreviewIssues.length) {
+      const first = describeLivePreviewIssue(state.livePreviewIssues[0]);
+      target.textContent = `生产预览发现 ${state.livePreviewIssues.length} 处问题：${first}。`;
+      return;
+    }
+    target.textContent = state.livePreviewState === 'ready' ? '生产预览已同步' : '';
+  }
+
+  async function refreshLivePreview() {
+    if (!activeTemplate() || !state.schema) return;
+    if (livePreviewController) livePreviewController.abort();
+    const controller = new AbortController();
+    livePreviewController = controller;
+    const requestId = ++state.livePreviewRequestId;
+    const templateId = activeTemplate().id;
+    state.livePreviewState = 'loading';
+    state.livePreviewError = '';
+    renderLivePreviewStatus();
+    try {
+      const data = await api(`/label-templates/${templateId}/live-preview`, {
+        method: 'POST',
+        body: JSON.stringify({ schema: state.schema, qr_id: 'SSS00016' }),
+        signal: controller.signal
+      });
+      if (requestId !== state.livePreviewRequestId
+          || !activeTemplate() || activeTemplate().id !== templateId) return;
+      state.livePreviewDataUrl = String(data.image_data_url || '');
+      state.livePreviewIssues = Array.isArray(data.issues) ? data.issues : [];
+      state.livePreviewState = 'ready';
+      const firstElementId = previewIssueElementId(state.livePreviewIssues[0]);
+      if (firstElementId && state.schema.elements.some((item) => item.id === firstElementId)) {
+        state.selectedElementId = firstElementId;
+      }
+      renderCanvas();
+      renderLayers();
+      renderProperties();
+      renderLivePreviewStatus();
+    } catch (error) {
+      if (error && error.name === 'AbortError') return;
+      if (requestId !== state.livePreviewRequestId) return;
+      state.livePreviewState = 'error';
+      state.livePreviewError = formatTemplateError(error);
+      renderLivePreviewStatus();
+    } finally {
+      if (livePreviewController === controller) livePreviewController = null;
+    }
+  }
+
+  function scheduleLivePreview({ immediate = false } = {}) {
+    if (!activeTemplate() || !state.schema) return;
+    if (livePreviewTimer) window.clearTimeout(livePreviewTimer);
+    if (livePreviewController) {
+      livePreviewController.abort();
+      livePreviewController = null;
+    }
+    state.livePreviewRequestId += 1;
+    state.livePreviewState = 'loading';
+    state.livePreviewError = '';
+    renderLivePreviewStatus();
+    livePreviewTimer = window.setTimeout(() => {
+      livePreviewTimer = null;
+      refreshLivePreview();
+    }, immediate ? 0 : LIVE_PREVIEW_DELAY_MS);
   }
 
   async function loadAssetUrls() {
@@ -301,7 +460,11 @@
     canvas.style.height = `${spec.heightMm * scale}px`;
     canvas.style.backgroundColor = spec.backgroundColor;
     canvas.style.borderRadius = `${spec.cornerRadiiMm.topLeft * scale}px ${spec.cornerRadiiMm.topRight * scale}px ${spec.cornerRadiiMm.bottomRight * scale}px ${spec.cornerRadiiMm.bottomLeft * scale}px`;
-    canvas.innerHTML = state.schema.elements
+    canvas.classList.toggle('has-authoritative-preview', Boolean(state.livePreviewDataUrl));
+    const authoritativePreview = state.livePreviewDataUrl
+      ? `<img class="label-canvas-authoritative-preview" src="${state.livePreviewDataUrl}" alt="" aria-hidden="true" />`
+      : '';
+    canvas.innerHTML = authoritativePreview + state.schema.elements
       .slice()
       .sort((left, right) => left.zIndex - right.zIndex)
       .map((element) => canvasElementHtml(element, scale))
@@ -311,6 +474,9 @@
   function canvasElementHtml(element, scale) {
     const selected = element.id === state.selectedElementId ? ' selected' : '';
     const locked = element.locked ? ' locked' : '';
+    const invalid = state.livePreviewIssues.some(
+      (issue) => previewIssueElementId(issue) === element.id
+    ) ? ' invalid' : '';
     const style = [
       `left:${element.xMm * scale}px`, `top:${element.yMm * scale}px`,
       `width:${element.widthMm * scale}px`, `height:${element.heightMm * scale}px`,
@@ -348,7 +514,7 @@
     }
     const resize = editable() && !element.locked && selected
       ? '<span class="label-resize-handle" data-label-resize="true"></span>' : '';
-    return `<div class="label-canvas-element${selected}${locked}" data-label-element-id="${element.id}" data-type="${element.type}" style="${style.join(';')}">${content}${resize}</div>`;
+    return `<div class="label-canvas-element${selected}${locked}${invalid}" data-label-element-id="${element.id}" data-type="${element.type}" style="${style.join(';')}">${content}${resize}</div>`;
   }
 
   function renderLayers() {
@@ -403,10 +569,12 @@
     const hasFont = ['text', 'id'].includes(element.type);
     el('labelElementTextRow').classList.toggle('hidden', !hasText);
     el('labelElementFontRows').classList.toggle('hidden', !hasFont);
+    el('labelElementDividerColorRow').classList.toggle('hidden', element.type !== 'divider');
     setValue('labelElementText', element.text || '');
     setValue('labelElementFont', element.fontFamily || 'noto-sans-sc');
     setValue('labelElementFontSize', element.fontSizePt || 5.5);
     setValue('labelElementColor', element.color || '#111827');
+    setValue('labelElementDividerColor', element.color || '#D1D5DB');
     setValue('labelElementAlign', element.align || 'left');
     ['labelElementX', 'labelElementY', 'labelElementWidth', 'labelElementHeight'].forEach((id) => {
       el(id).disabled = linkedId || (id === 'labelElementHeight' && element.type === 'qr');
@@ -430,6 +598,7 @@
   function markDirty() {
     state.dirty = true;
     message('草稿有未保存的修改。');
+    scheduleLivePreview();
   }
 
   function selectElement(elementId) {
@@ -451,6 +620,7 @@
 
   async function openTemplate(templateId) {
     if (state.dirty && !window.confirm('当前草稿尚未保存，确定切换模板吗？')) return;
+    resetLivePreview();
     state.detail = await api(`/label-templates/${templateId}`);
     const version = draftVersion() || state.detail.versions.find(
       (item) => item.id === state.detail.template.current_published_version_id
@@ -461,6 +631,8 @@
     state.dirty = false;
     await loadAssetUrls();
     renderEditor();
+    renderLivePreviewStatus();
+    scheduleLivePreview({ immediate: true });
     message('');
   }
 
@@ -499,7 +671,7 @@
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      throw new Error(data.message || '服务端预览失败。');
+      throw responseError(data, '服务端预览失败。');
     }
     const image = el('labelServerPreviewImage');
     if (image.dataset.url) URL.revokeObjectURL(image.dataset.url);
@@ -631,6 +803,7 @@
       element.color = el('labelElementColor').value.toUpperCase();
       element.align = linkedId ? 'center' : el('labelElementAlign').value;
     }
+    if (element.type === 'divider') element.color = el('labelElementDividerColor').value.toUpperCase();
     if (element.type === 'qr' || linkedId) synchronizeQrIdComponent();
   }
 
@@ -676,7 +849,7 @@
     synchronizeQrIdComponent(QR_ID_COMPONENT_LATEST_REVISION);
     markDirty();
     renderEditor();
-    message('二维码与 ID 已升级为 v2，保存草稿后生效。');
+    message(`二维码与 ID 已升级为 v${QR_ID_COMPONENT_LATEST_REVISION}，保存草稿后生效。`);
   }
 
   function beginPointerEdit(event) {
@@ -685,6 +858,8 @@
     selectElement(target.dataset.labelElementId);
     const element = activeElement();
     if (!editable() || !element || element.locked) return;
+    cancelLivePreview();
+    state.livePreviewRequestId += 1;
     event.preventDefault();
     const resizing = Boolean(event.target.closest('[data-label-resize]'));
     const scale = canvasScale();
@@ -718,6 +893,7 @@
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', end);
       message('草稿有未保存的修改。');
+      scheduleLivePreview({ immediate: true });
     }
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', end, { once: true });
@@ -760,7 +936,8 @@
       el(id).addEventListener('input', updateCanvasProperties);
     });
     ['labelElementX', 'labelElementY', 'labelElementWidth', 'labelElementHeight',
-      'labelElementZ', 'labelElementText', 'labelElementFontSize', 'labelElementColor'].forEach((id) => {
+      'labelElementZ', 'labelElementText', 'labelElementFontSize', 'labelElementColor',
+      'labelElementDividerColor'].forEach((id) => {
       el(id).addEventListener('input', updateElementProperties);
     });
     ['labelElementLocked', 'labelElementFont', 'labelElementAlign'].forEach((id) => {
@@ -780,6 +957,7 @@
       message('');
       await callback();
     } catch (error) {
+      focusErrorElement(error);
       message(formatTemplateError(error), true);
     }
   }

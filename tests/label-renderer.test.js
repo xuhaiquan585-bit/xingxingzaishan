@@ -10,6 +10,7 @@ const sharp = require('sharp');
 const {
   LabelTemplateValidationError,
   QR_ID_COMPONENT_LATEST_REVISION,
+  analyzeTemplateSchema,
   defaultLabelTemplateSchema,
   qrIdComponentLayout,
   synchronizeQrIdComponent,
@@ -18,10 +19,12 @@ const {
 const {
   mmToPixels,
   renderLabel,
+  renderLabelDraftPreview,
   renderLabelPreview,
   renderQrCodeForLabel
 } = require('../src/server/services/labelRenderer');
 const {
+  presentTemplatePreviewIssue,
   printProductionHttpError
 } = require('../src/server/services/printProductionHttpError');
 
@@ -70,7 +73,7 @@ test('default label template freezes the confirmed 20 by 80 mm contract', () => 
       xMm: 1.5, yMm: 18.85, widthMm: 17,
       heightMm: 2.4, fontSizePt: 5.5,
       align: 'center', linkedToQr: true,
-      componentRevision: 2, fontFamily: 'ibm-plex-mono-regular',
+      componentRevision: 3, fontFamily: 'ibm-plex-mono-regular',
       color: '#1F2937'
     }
   );
@@ -127,6 +130,37 @@ test('v2 QR ID layout scales within production typography limits', () => {
       qrIdComponentLayout({ xMm: 1.5, yMm: 1.5, widthMm: size, heightMm: size }, 2),
       { xMm: 1.5, yMm, widthMm: size, heightMm, fontSizePt }
     );
+  }
+});
+
+test('v3 QR ID layout caps customer-facing typography at seven points', () => {
+  const expected = [
+    [17, 18.85, 2.4, 5.5],
+    [20, 21.9118, 2.8235, 6.4706],
+    [24, 25.9941, 3.2, 7],
+    [30, 32.1, 3.2, 7]
+  ];
+  for (const [size, yMm, heightMm, fontSizePt] of expected) {
+    assert.deepEqual(
+      qrIdComponentLayout({ xMm: 1.5, yMm: 1.5, widthMm: size, heightMm: size }, 3),
+      { xMm: 1.5, yMm, widthMm: size, heightMm, fontSizePt }
+    );
+  }
+});
+
+test('v3 QR ID component renders at 17, 20, 24 and 30 mm QR sizes', async () => {
+  for (const size of [17, 20, 24, 30]) {
+    const template = defaultLabelTemplateSchema();
+    template.canvas.widthMm = 40;
+    template.elements = template.elements.filter((element) => ['qr', 'qr-id'].includes(element.id));
+    const qr = template.elements.find((element) => element.type === 'qr');
+    Object.assign(qr, { xMm: 5, yMm: 2, widthMm: size, heightMm: size });
+    const synchronized = synchronizeQrIdComponent(template, { targetRevision: 3 });
+    const rendered = await renderLabel({
+      template: synchronized, qrId: 'SSS00016', qrPayload: QR_PAYLOAD
+    });
+    assert.equal(rendered.width, mmToPixels(40));
+    assert.equal(rendered.issues.length, 0);
   }
 });
 
@@ -273,6 +307,74 @@ test('template production errors provide actionable Chinese details', () => {
   assert.doesNotMatch(invalid.body.data.issues[0].message, /Nothing/u);
 });
 
+test('draft analysis preserves a renderable schema while reporting validation issues', () => {
+  const template = defaultLabelTemplateSchema();
+  template.elements.find((element) => element.id === 'prompt').xMm = 19;
+  const analysis = analyzeTemplateSchema(template);
+  assert.equal(analysis.schema.canvas.widthMm, 20);
+  assert.equal(analysis.schema.elements.find((element) => element.id === 'prompt').xMm, 19);
+  assert.ok(analysis.issues.some((issue) => issue.code === 'ELEMENT_OUT_OF_BOUNDS'));
+  assert.throws(() => validateTemplateSchema(template), LabelTemplateValidationError);
+});
+
+test('draft preview clips overflow and reports exact formal typography requirements', async () => {
+  const template = defaultLabelTemplateSchema();
+  template.elements.push({
+    id: 'title', type: 'text', xMm: 2, yMm: 36, widthMm: 16, heightMm: 0.5,
+    zIndex: 9, locked: false, text: '记在星上', fontFamily: 'noto-sans-sc',
+    fontSizePt: 10, minFontSizePt: 10, color: '#111827', align: 'center', letterSpacing: 0
+  });
+  const draft = await renderLabelDraftPreview({
+    template, qrId: 'SSS00016', qrPayload: QR_PAYLOAD
+  });
+  const overflow = draft.issues.find((issue) => issue.code === 'TEXT_OVERFLOW');
+  assert.ok(overflow);
+  assert.equal(overflow.elementId, 'title');
+  assert.equal(overflow.heightMm, 0.5);
+  assert.ok(overflow.requiredHeightMm > overflow.heightMm);
+  assert.equal((await sharp(draft.buffer).metadata()).width, 118);
+  await assert.rejects(
+    renderLabel({ template, qrId: 'SSS00016', qrPayload: QR_PAYLOAD }),
+    (error) => error.code === 'TEXT_OVERFLOW'
+      && error.elementId === 'title'
+      && error.requiredHeightMm > error.heightMm
+  );
+  const presented = presentTemplatePreviewIssue(overflow);
+  assert.equal(presented.element_id, 'title');
+  assert.equal(presented.required_height_mm, overflow.requiredHeightMm);
+  assert.match(presented.message, /文字内容超出文本框/u);
+});
+
+test('draft preview clips elements that extend beyond the canvas', async () => {
+  const template = defaultLabelTemplateSchema();
+  const divider = template.elements.find((element) => element.type === 'divider');
+  Object.assign(divider, { xMm: 19, widthMm: 5, color: '#E11D48' });
+  const draft = await renderLabelDraftPreview({
+    template, qrId: 'SSS00016', qrPayload: QR_PAYLOAD
+  });
+  assert.ok(draft.issues.some((issue) => issue.code === 'ELEMENT_OUT_OF_BOUNDS'));
+  assert.equal((await sharp(draft.buffer).metadata()).width, 118);
+  await assert.rejects(
+    renderLabel({ template, qrId: 'SSS00016', qrPayload: QR_PAYLOAD }),
+    (error) => error instanceof LabelTemplateValidationError
+      && error.issues.some((issue) => issue.code === 'ELEMENT_OUT_OF_BOUNDS')
+  );
+});
+
+test('divider color is preserved in the formal production pixels', async () => {
+  const template = defaultLabelTemplateSchema();
+  const divider = template.elements.find((element) => element.type === 'divider');
+  divider.color = '#E11D48';
+  const rendered = await renderLabel({
+    template, qrId: 'SSS00016', qrPayload: QR_PAYLOAD
+  });
+  const png = PNG.sync.read(rendered.buffer);
+  const x = mmToPixels(divider.xMm + divider.widthMm / 2);
+  const y = mmToPixels(divider.yMm + divider.heightMm / 2);
+  const offset = ((y * png.width) + x) * 4;
+  assert.deepEqual(Array.from(png.data.slice(offset, offset + 4)), [225, 29, 72, 255]);
+});
+
 test('preview is low resolution and cannot be confused with a formal output', async () => {
   const preview = await renderLabelPreview({
     template: defaultLabelTemplateSchema(),
@@ -283,6 +385,19 @@ test('preview is low resolution and cannot be confused with a formal output', as
   assert.equal(metadata.width, 118);
   assert.equal(metadata.height, 472);
   assert.equal(Math.round(metadata.density), 150);
+});
+
+test('preview pixels are the formal 600 DPI result downscaled for display', async () => {
+  const input = {
+    template: defaultLabelTemplateSchema(), qrId: 'SSS00016', qrPayload: QR_PAYLOAD
+  };
+  const formal = await renderLabel(input);
+  const preview = await renderLabelPreview(input);
+  const expected = await sharp(formal.buffer)
+    .resize(preview.width, preview.height, { fit: 'fill', kernel: sharp.kernel.lanczos3 })
+    .png({ compressionLevel: 9, adaptiveFiltering: true })
+    .toBuffer();
+  assert.deepEqual(PNG.sync.read(preview.buffer).data, PNG.sync.read(expected).data);
 });
 
 test('schema rejects QR overlap, text overflow geometry and low-resolution assets', () => {

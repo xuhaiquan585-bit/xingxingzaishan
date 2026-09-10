@@ -67,6 +67,7 @@ function createPrintProductionRuntime({ env = process.env } = {}) {
     createVersion: templateService.createVersion,
     getTemplate: templateService.getTemplate,
     listTemplates: templateService.listTemplates,
+    livePreview: templateService.livePreview,
     preview: templateService.preview,
     publish: templateService.publish,
     readAsset: templateService.readAsset,

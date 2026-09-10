@@ -66,6 +66,23 @@ function presentValidationIssue(input) {
   };
 }
 
+function presentTemplatePreviewIssue(input) {
+  const issue = input && typeof input === 'object' ? input : {};
+  const code = String(issue.code || 'LABEL_TEMPLATE_INVALID');
+  const validation = presentValidationIssue(issue);
+  return compactData({
+    ...validation,
+    message: code === 'TEXT_OVERFLOW' ? BAD_REQUEST_MESSAGES.TEXT_OVERFLOW : validation.message,
+    element_id: String(issue.elementId || ''),
+    element_type: String(issue.elementType || ''),
+    width_mm: finiteNumber(issue.widthMm),
+    height_mm: finiteNumber(issue.heightMm),
+    font_size_pt: finiteNumber(issue.fontSizePt),
+    required_width_mm: finiteNumber(issue.requiredWidthMm),
+    required_height_mm: finiteNumber(issue.requiredHeightMm)
+  });
+}
+
 function printProductionHttpError(error) {
   const code = String(error && error.code || 'PRINT_PRODUCTION_UNAVAILABLE');
   if (code === 'LABEL_TEMPLATE_INVALID') {
@@ -89,7 +106,9 @@ function printProductionHttpError(error) {
       element_type: String(error && error.elementType || ''),
       width_mm: finiteNumber(error && error.widthMm),
       height_mm: finiteNumber(error && error.heightMm),
-      font_size_pt: finiteNumber(error && error.fontSizePt)
+      font_size_pt: finiteNumber(error && error.fontSizePt),
+      required_width_mm: finiteNumber(error && error.requiredWidthMm),
+      required_height_mm: finiteNumber(error && error.requiredHeightMm)
     }) : undefined;
     return {
       statusCode: 400,
@@ -163,6 +182,7 @@ function printProductionHttpError(error) {
 }
 
 module.exports = {
+  presentTemplatePreviewIssue,
   presentValidationIssue,
   printProductionHttpError
 };
