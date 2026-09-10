@@ -1301,14 +1301,17 @@ th {
 .label-preview-dialog-body {
   position: relative;
   max-height: 88vh;
-  padding: 24px;
-  background: #fff;
+  padding: 12px;
+  background: transparent;
 }
 
 .label-preview-dialog img {
   display: block;
   width: auto;
-  max-height: 78vh;
+  height: auto;
+  max-width: calc(100vw - 96px);
+  max-height: calc(88vh - 24px);
+  object-fit: contain;
 }
 
 .label-preview-close {

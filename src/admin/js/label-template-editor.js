@@ -18,6 +18,8 @@
   const SNAP_MM = 0.5;
   const POINT_TO_MM = 25.4 / 72;
   const LIVE_PREVIEW_DELAY_MS = 350;
+  const CANVAS_MAX_DISPLAY_WIDTH_PX = 420;
+  const CANVAS_MAX_DISPLAY_HEIGHT_PX = 620;
   let livePreviewTimer = null;
   let livePreviewController = null;
   const QR_ID_COMPONENT_LATEST_REVISION = 3;
@@ -433,7 +435,31 @@
 
   function canvasScale() {
     if (!state.schema) return 1;
-    return Math.min(8, 420 / state.schema.canvas.widthMm, 620 / state.schema.canvas.heightMm);
+    return Math.min(
+      8,
+      CANVAS_MAX_DISPLAY_WIDTH_PX / state.schema.canvas.widthMm,
+      CANVAS_MAX_DISPLAY_HEIGHT_PX / state.schema.canvas.heightMm
+    );
+  }
+
+  function previewCanvasScale() {
+    if (!state.schema) return 1;
+    const { widthMm, heightMm } = state.schema.canvas;
+    const viewportWidth = Math.max(1, window.innerWidth - 96);
+    const viewportHeight = Math.max(1, window.innerHeight * 0.88 - 24);
+    return Math.min(
+      canvasScale(),
+      viewportWidth / widthMm,
+      viewportHeight / heightMm
+    );
+  }
+
+  function updatePreviewImageLayout() {
+    const image = el('labelServerPreviewImage');
+    if (!image || !state.schema) return;
+    const scale = previewCanvasScale();
+    image.style.width = `${Math.round(state.schema.canvas.widthMm * scale)}px`;
+    image.style.height = 'auto';
   }
 
   function canvasFontSize(fontSizePt, scale) {
@@ -677,6 +703,7 @@
     if (image.dataset.url) URL.revokeObjectURL(image.dataset.url);
     image.dataset.url = URL.createObjectURL(await response.blob());
     image.src = image.dataset.url;
+    updatePreviewImageLayout();
     el('labelServerPreviewDialog').classList.remove('hidden');
   }
 
@@ -919,6 +946,7 @@
     el('closeLabelPreviewBtn').addEventListener('click', () => {
       el('labelServerPreviewDialog').classList.add('hidden');
     });
+    window.addEventListener('resize', updatePreviewImageLayout);
     document.querySelectorAll('[data-label-editor-mode]').forEach((button) => {
       button.addEventListener('click', () => {
         document.querySelectorAll('[data-label-editor-mode]').forEach((item) => item.classList.toggle('active', item === button));
