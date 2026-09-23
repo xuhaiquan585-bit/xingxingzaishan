@@ -15,7 +15,7 @@
         </view>
       </view>
 
-      <view class="hero-title record-title">留下这瓶酒的专属记录</view>
+      <view class="hero-title record-title">留下这件物品背后的故事</view>
       <view class="subtitle record-subtitle">选一张照片，写一句话，下次扫码还能看到。</view>
       <view class="trust-line">✦ 区块链存证</view>
     </view>

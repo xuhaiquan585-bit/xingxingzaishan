@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const http = require('http');
 const https = require('https');
+const vm = require('node:vm');
 const { EventEmitter } = require('events');
 const crypto = require('crypto');
 
@@ -1758,6 +1759,109 @@ test('miniapp QR parser should normalize only confirmed scan key formats', () =>
   assert.equal(extractQrKey({}), '');
 });
 
+test('public website should present the Star Sticker product and use only the configured WeChat shop', () => {
+  const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'index.html'), 'utf8');
+  const landingHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'landing.html'), 'utf8');
+  const landingJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'js', 'landing.js'), 'utf8');
+  const landingCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'css', 'landing.css'), 'utf8');
+  const recordHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'record.html'), 'utf8');
+  const recordJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'js', 'record.js'), 'utf8');
+  const meHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'me.html'), 'utf8');
+
+  assert.equal(indexHtml.includes('<title>记在星上｜二维码纪念贴</title>'), true);
+  assert.equal(indexHtml.includes('一贴一码'), true);
+  assert.equal(indexHtml.includes('照片文字记录'), true);
+  assert.equal(indexHtml.includes('扫码随时回看'), true);
+  assert.equal(indexHtml.includes('可手写备注'), true);
+  assert.equal(indexHtml.includes('30 × 80 mm'), false);
+  assert.equal(indexHtml.includes('data-wechat-shop'), true);
+  assert.equal(indexHtml.includes('抖音'), false);
+  assert.equal(indexHtml.includes('sample-unactivated'), false);
+  assert.equal(indexHtml.includes('酒瓶二维码记忆产品'), false);
+  assert.equal(indexHtml.includes('剪下一段时光，'), true);
+  assert.equal(indexHtml.includes('记在星上。'), true);
+  assert.equal(indexHtml.includes('/assets/memory-hero.jpg'), true);
+  assert.equal(indexHtml.includes('/assets/hero-bottle-desktop.webp'), true);
+  assert.equal(indexHtml.includes('/assets/product-sticker-demo.webp'), true);
+  assert.equal(indexHtml.includes('DEMO00001'), true);
+  assert.equal(landingHtml.includes('window.location.replace(next.toString())'), true);
+  assert.equal(landingJs.includes("fetch('/api/miniapp/content'"), true);
+  assert.equal(landingJs.includes('payload.data.wechat_shop_url'), true);
+  assert.equal(landingJs.includes('payload.data.consult_url'), false);
+  assert.equal(landingJs.includes("url.protocol === 'https:' || url.protocol === 'http:'"), true);
+  assert.equal(landingJs.includes("link.removeAttribute('href')"), true);
+  assert.equal(landingJs.includes("link.setAttribute('tabindex', '-1')"), true);
+  assert.equal(landingCss.includes('.feature-strip'), true);
+  assert.equal(landingCss.includes('/assets/hero-bottle-mobile.webp'), true);
+  assert.equal(landingCss.includes('pointer-events: none'), true);
+  assert.equal(landingCss.includes('@media (prefers-reduced-motion: reduce)'), true);
+  assert.equal(indexHtml.includes('content="https://xingxingzaishan.top/assets/hero-bottle-desktop.webp"'), true);
+  assert.equal(indexHtml.includes('href="https://xingxingzaishan.top/"'), true);
+  assert.equal(recordHtml.includes('留下这件物品背后的故事'), true);
+  assert.equal(recordHtml.includes('保存凭证可核对'), true);
+  assert.equal(recordHtml.includes('显示品牌信息'), true);
+  assert.equal(recordHtml.includes('href="/?from=success"'), true);
+  assert.equal(recordJs.includes("'这颗星贴的记录'"), true);
+  assert.equal(meHtml.includes('查看你记在星上的照片和留言'), true);
+  assert.equal(meHtml.includes('href="/?from=me"'), true);
+});
+
+test('public website should enable only an explicit safe WeChat shop URL', async () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'js', 'landing.js'), 'utf8');
+
+  async function run(payload) {
+    const makeLink = () => {
+      const attributes = new Map([
+        ['aria-disabled', 'true'],
+        ['tabindex', '-1']
+      ]);
+      return {
+        href: '',
+        rel: '',
+        setAttribute(name, value) {
+          attributes.set(name, String(value));
+        },
+        removeAttribute(name) {
+          attributes.delete(name);
+          if (name === 'href') this.href = '';
+          if (name === 'rel') this.rel = '';
+        },
+        getAttribute(name) {
+          return attributes.get(name) ?? null;
+        }
+      };
+    };
+    const links = [makeLink(), makeLink(), makeLink()];
+    const status = { textContent: '' };
+    vm.runInNewContext(source, {
+      URL,
+      document: {
+        querySelectorAll: () => links,
+        getElementById: () => status
+      },
+      fetch: async () => ({ ok: true, json: async () => payload })
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    return { links, status };
+  }
+
+  const unavailable = await run({ data: { consult_url: 'https://example.com/customer-service' } });
+  unavailable.links.forEach((link) => {
+    assert.equal(link.href, '');
+    assert.equal(link.getAttribute('aria-disabled'), 'true');
+    assert.equal(link.getAttribute('tabindex'), '-1');
+  });
+  assert.equal(unavailable.status.textContent, '微信店铺入口暂未开放，请稍后再来。');
+
+  const available = await run({ data: { wechat_shop_url: 'https://shop.example.com/item' } });
+  available.links.forEach((link) => {
+    assert.equal(link.href, 'https://shop.example.com/item');
+    assert.equal(link.getAttribute('aria-disabled'), null);
+    assert.equal(link.getAttribute('tabindex'), null);
+  });
+  assert.equal(available.status.textContent, '点击下方按钮，前往微信店铺查看和购买星贴。');
+});
+
 test('user login pages should keep copy and expose miniapp-first login cues', () => {
   const registerHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'register.html'), 'utf8');
   const recordHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'frontend', 'record.html'), 'utf8');
@@ -1823,8 +1927,8 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const recordDetailWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record-detail', 'record-detail.wxml'), 'utf8');
   const recordDetailWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'record-detail', 'record-detail.wxss'), 'utf8');
 
-  assert.equal(registerHtml.includes('把此刻，记在这瓶酒里'), true);
-  assert.equal(registerHtml.includes('让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。'), true);
+  assert.equal(registerHtml.includes('把这一刻，记在星上'), true);
+  assert.equal(registerHtml.includes('验证手机号后，继续完成这颗星贴的记录。'), true);
   assert.equal(registerHtml.includes('微信扫码会优先进入小程序'), true);
   assert.equal(registerHtml.includes('class="login-input sms-row auth-sms-row"'), true);
   assert.equal(registerHtml.includes('inputmode="numeric"'), true);
@@ -1915,11 +2019,11 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(bindPhoneSmsCss.includes('.sms-submit-btn::after'), true);
   assert.equal(bindPhoneSmsCss.includes('grid-template-columns: minmax(0, 1fr) 184rpx'), true);
   assert.equal(recordWxml.includes('星星在闪 · 记在星上'), false);
-  assert.equal(recordWxml.includes('留下这瓶酒的专属记录'), true);
+  assert.equal(recordWxml.includes('留下这件物品背后的故事'), true);
   assert.equal(recordWxml.includes('✦ 区块链存证'), true);
   assert.equal(recordWxml.includes('NFT凭证'), false);
   assert.equal(recordWxml.includes('选一张照片，写一句话，下次扫码还能看到。'), true);
-  const recordTitleIndex = recordWxml.indexOf('留下这瓶酒的专属记录');
+  const recordTitleIndex = recordWxml.indexOf('留下这件物品背后的故事');
   const recordSubtitleIndex = recordWxml.indexOf('选一张照片，写一句话，下次扫码还能看到。');
   const recordTrustIndex = recordWxml.indexOf('✦ 区块链存证');
   assert.equal(recordTitleIndex < recordSubtitleIndex, true);
@@ -2028,7 +2132,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(h5RecordJs.includes('验证成功，请继续完成这条记录。'), true);
   assert.equal(h5RecordJs.includes("switchPhoneBtn.textContent = boundPhone ? '更换手机号' : '验证手机号'"), true);
   assert.equal(h5RecordJs.includes('clearRecordDraft();'), true);
-  assert.equal(h5RecordJs.includes("resultTitle.textContent = justSaved ? '保存成功' : '这瓶酒里的记录'"), true);
+  assert.equal(h5RecordJs.includes("resultTitle.textContent = justSaved ? '保存成功' : '这颗星贴的记录'"), true);
   assert.equal(h5RecordJs.includes("'以后再扫码，还能回到这一刻'"), true);
   assert.equal(h5RecordJs.includes('formatRecordDate(data.activated_at)'), true);
   assert.equal(h5RecordJs.includes("document.querySelector('.result-success-title')"), false);
@@ -2128,7 +2232,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(appWxss.includes('backdrop-filter: blur(16px)'), true);
   assert.equal(appWxss.includes('.btn::after'), true);
   assert.equal(appWxss.includes('background: #d4af37'), true);
-  assert.equal(resultJs.includes("pageTitle: this.data.justSaved ? '保存成功' : '这瓶酒里的记录'"), true);
+  assert.equal(resultJs.includes("pageTitle: this.data.justSaved ? '保存成功' : '这颗星贴的记录'"), true);
   assert.equal(resultJs.includes("'以后再扫码，还能回到这一刻'"), true);
   assert.equal(resultJs.includes('保存于 ${displayDate}'), true);
   assert.equal(resultWxml.includes('{{pageTitle}}'), true);
@@ -2144,7 +2248,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(resultWxss.includes('color: #263445'), true);
   assert.equal(resultWxss.includes('.result-page .result-secondary'), true);
   assert.equal(resultWxss.includes('font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace'), true);
-  assert.equal(recordDetailWxml.includes('这瓶酒里的记录'), true);
+  assert.equal(recordDetailWxml.includes('这颗星贴的记录'), true);
   assert.equal(recordDetailWxml.includes('照片和那句话，都替你安静留在这里'), true);
   assert.equal(recordDetailWxml.includes('bindtap="copyHash"'), true);
   assert.equal(recordDetailWxml.includes('bindtap="toggleHash"'), true);
@@ -2173,7 +2277,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(meWxml.includes('{{recordCounts.coCreating}}'), true);
   assert.equal(miniappMeJs.includes('applyRecordFilter()'), true);
   assert.equal(miniappMeJs.includes("wx.switchTab({ url: '/pages/home/home' })"), true);
-  assert.equal(coCreateWxml.includes('这瓶酒正在共创中'), true);
+  assert.equal(coCreateWxml.includes('这颗星贴正在共创中'), true);
   assert.equal(coCreateWxml.includes('bindtap="submitComment"'), true);
   assert.equal(coCreateWxml.includes('bindtap="finalize"'), true);
   assert.equal(coCreateWxml.includes('bindtap="deleteComment"'), true);
@@ -2199,10 +2303,10 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(homeWxml.includes('src="{{bannerImage}}"'), true);
   assert.equal(homeWxml.includes('binderror="onBannerError"'), true);
   assert.equal(homeWxml.includes('home-memory-scene'), false);
-  assert.equal(homeWxml.includes('星贴贴在酒瓶或礼盒上'), true);
+  assert.equal(homeWxml.includes('星贴可粘贴在表面平整的物品上'), true);
   assert.equal(homeWxml.includes('一张照片'), true);
   assert.equal(homeWxml.includes('一句话'), true);
-  assert.equal(homeWxml.includes('把一段记忆，留在这瓶酒里'), true);
+  assert.equal(homeWxml.includes('把一段记忆，留在一颗星贴里'), true);
   assert.equal(homeWxml.includes('贴上星贴'), true);
   assert.equal(homeWxml.includes('扫码记录'), true);
   assert.equal(homeWxml.includes('重新看见'), true);
@@ -2228,7 +2332,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(homeWxml.includes('保存凭证需要时可查看'), true);
   assert.equal(homeWxml.includes('专属星贴编号'), true);
   assert.equal(homeWxml.includes('照片与文字妥善保存'), true);
-  assert.equal(homeWxml.includes('不含酒水'), true);
+  assert.equal(homeWxml.includes('不含酒水'), false);
   assert.equal(homeWxml.includes('购物车'), false);
   assert.equal(homeWxml.includes('home-secondary-actions'), false);
   assert.equal(homeWxml.includes('lazy-load'), true);
@@ -2705,9 +2809,23 @@ test('admin miniapp content should update public miniapp content', async () => {
 
   const defaultRes = await getJson('/api/admin/miniapp-content', token);
   assert.equal(defaultRes.status, 200);
-  assert.equal(defaultRes.body.data.home_title, '给这瓶酒，贴上一颗星');
+  assert.equal(defaultRes.body.data.home_title, '把这一刻，记在星上');
   assert.equal(Array.isArray(defaultRes.body.data.home_slides), true);
   assert.equal(Array.isArray(defaultRes.body.data.scene_cards), true);
+
+  const legacyCopyRes = await postJson('/api/admin/miniapp-content', {
+    home_title: '给这瓶酒，贴上一颗星',
+    home_subtitle: '酒瓶星贴，不含酒水；贴上后扫码，留下照片和一句话。',
+    project_body: '把值得记住的时刻，存在这瓶酒里。适合成年礼、婚礼、生日、纪念日和送礼。',
+    brand_story_body: '我们希望每一瓶被送出的酒，都能留下属于它和收礼人的一段记忆。',
+    share_description: '让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。'
+  }, token);
+  assert.equal(legacyCopyRes.status, 200);
+  assert.equal(legacyCopyRes.body.data.home_title, '把这一刻，记在星上');
+  assert.equal(legacyCopyRes.body.data.home_subtitle, '把星贴贴在值得记住的物品上，扫码留下照片和一句话。');
+  assert.equal(legacyCopyRes.body.data.project_body, '把值得记住的时刻，留在一件看得见的物品上。适合成年礼、婚礼、生日、纪念日和送礼。');
+  assert.equal(legacyCopyRes.body.data.brand_story_body, '我们希望每一件被认真送出的物品，都能留下属于它和收礼人的一段记忆。');
+  assert.equal(legacyCopyRes.body.data.share_description, '把照片和想说的话，留在值得记住的物品上。');
 
   const imageData = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
@@ -2771,7 +2889,18 @@ test('admin miniapp content should update public miniapp content', async () => {
   assert.equal(publicRes.body.data.home_slides[0].scene_key, 'lover');
   assert.equal(publicRes.body.data.scene_cards[0].key, 'elder');
   assert.equal(publicRes.body.data.consult_url, 'https://ktt.example.com/shop');
+  assert.equal(publicRes.body.data.wechat_shop_url, '');
   assert.equal(Object.hasOwn(publicRes.body.data, 'updated_by'), false);
+
+  const shopUpdateRes = await postJson('/api/admin/miniapp-content', {
+    consult_label: '微信购买',
+    consult_url: 'https://ktt.example.com/shop'
+  }, token);
+  assert.equal(shopUpdateRes.status, 200);
+
+  const shopPublicRes = await getJson('/api/miniapp/content');
+  assert.equal(shopPublicRes.status, 200);
+  assert.equal(shopPublicRes.body.data.wechat_shop_url, 'https://ktt.example.com/shop');
 
   const invalidRes = await postJson('/api/admin/miniapp-content', {
     logo_image: 'javascript:alert(1)'

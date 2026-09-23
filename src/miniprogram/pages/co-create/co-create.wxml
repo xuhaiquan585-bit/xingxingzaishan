@@ -1,6 +1,6 @@
 <view class="page">
-  <view class="hero-title">这瓶酒正在共创中</view>
-  <view class="subtitle">邀请朋友扫码，为这瓶酒留下一句话。</view>
+  <view class="hero-title">这颗星贴正在共创中</view>
+  <view class="subtitle">邀请朋友扫码，为这一刻留下一句话。</view>
 
   <view wx:if="{{qr}}" class="card">
     <image class="cover memory-image" mode="aspectFill" lazy-load src="{{qr.image_url}}" />

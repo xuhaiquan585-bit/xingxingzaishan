@@ -17,7 +17,7 @@ Page({
   onShareAppMessage() {
     const product = this.data.product || {};
     return {
-      title: product.title || '酒瓶星贴',
+      title: product.title || '记在星上星贴',
       path: `/pages/product-detail/product-detail?id=${encodeURIComponent(this.data.id)}`
     };
   },
@@ -25,7 +25,7 @@ Page({
   onShareTimeline() {
     const product = this.data.product || {};
     return {
-      title: product.title || '酒瓶星贴',
+      title: product.title || '记在星上星贴',
       query: `id=${encodeURIComponent(this.data.id)}`
     };
   },

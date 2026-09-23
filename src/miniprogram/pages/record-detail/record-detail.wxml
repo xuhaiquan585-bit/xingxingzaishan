@@ -1,7 +1,7 @@
 <view class="page dawn-page record-detail-page">
   <view class="detail-hero">
     <view class="dawn-eyebrow">私人记忆档案</view>
-    <view class="dawn-title">这瓶酒里的记录</view>
+    <view class="dawn-title">这颗星贴的记录</view>
     <view class="dawn-subtitle">照片和那句话，都替你安静留在这里。</view>
   </view>
 

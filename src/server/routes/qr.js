@@ -640,7 +640,7 @@ router.post('/:qrId/comments', requireUserSession, async (req, res) => {
     return res.status(409).json({
       status: 'error',
       code: 'CO_CREATION_CLOSED',
-      message: '这瓶酒已经封存，不能继续留言。'
+      message: '这颗星贴已经封存，不能继续留言。'
     });
   }
   if (result.error === 'CO_CREATION_COMMENT_EXISTS') {
@@ -766,7 +766,7 @@ router.post('/:qrId/finalize', requireUserSession, async (req, res) => {
     return res.status(409).json({
       status: 'error',
       code: 'CO_CREATION_CLOSED',
-      message: '这瓶酒不在共创中，不能确认封存。'
+      message: '这颗星贴不在共创中，不能确认封存。'
     });
   }
 

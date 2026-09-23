@@ -22,7 +22,7 @@ Page({
 
   onShareAppMessage() {
     return {
-      title: '邀请你共创这瓶酒的记录',
+      title: '邀请你共创一颗星贴的记录',
       path: `/pages/co-create/co-create?key=${encodeURIComponent(this.data.key)}`
     };
   },
@@ -115,7 +115,7 @@ Page({
   finalize() {
     wx.showModal({
       title: '确认封存共创记录',
-      content: '封存后，这张照片、这句话和保留的共创留言，将保存到这瓶酒的记录里。以后扫码只能查看，不能修改。',
+      content: '封存后，这张照片、这句话和保留的共创留言，将保存到这颗星贴的记录里。以后扫码只能查看，不能修改。',
       confirmText: '确认封存',
       cancelText: '再检查一下',
       success: (res) => {

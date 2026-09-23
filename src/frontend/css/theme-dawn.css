@@ -113,7 +113,7 @@ html.theme-dawn .page-intro .subtitle {
 }
 
 html.theme-dawn .page-intro::after {
-  content: "✦ 区块链存证";
+  content: "保存凭证可核对";
   display: block;
   margin-top: 18px;
   color: var(--gold-soft);

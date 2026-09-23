@@ -492,7 +492,7 @@ function renderResult(data, { justSaved = false } = {}) {
   currentCoCreate = null;
 
   if (resultTitle) {
-    resultTitle.textContent = justSaved ? '保存成功' : '这瓶酒里的记录';
+    resultTitle.textContent = justSaved ? '保存成功' : '这颗星贴的记录';
   }
   if (resultSubtitle) {
     resultSubtitle.textContent = justSaved
@@ -638,7 +638,7 @@ function openConfirmOverlay(mode = 'record') {
     if (confirmOverlaySubtitle) {
       confirmOverlaySubtitle.textContent = '';
       confirmOverlaySubtitle.append(
-        document.createTextNode('封存后，这张照片、这句话和保留的共创留言，将保存到这瓶酒的记录里。'),
+        document.createTextNode('封存后，这张照片、这句话和保留的共创留言，将保存到这颗星贴的记录里。'),
         document.createElement('br'),
         document.createTextNode('以后扫码可查看，'),
         Object.assign(document.createElement('strong'), { textContent: '不能修改' }),
@@ -682,7 +682,7 @@ function openConfirmOverlay(mode = 'record') {
     } else {
       confirmOverlaySubtitle.textContent = '';
       confirmOverlaySubtitle.append(
-        document.createTextNode('提交后，这张照片和这句话会保存到这瓶酒的记录中。'),
+        document.createTextNode('提交后，这张照片和这句话会保存到这颗星贴的记录中。'),
         document.createElement('br'),
         document.createTextNode('以后扫码可以查看，提交后'),
         Object.assign(document.createElement('strong'), { textContent: '不能修改' }),
@@ -1164,8 +1164,8 @@ if (finalizeCoCreateBtn) {
 if (coCreateShareBtn) {
   coCreateShareBtn.addEventListener('click', async () => {
     const payload = {
-      title: '星星在闪｜邀请你共创这瓶酒的记录',
-      text: '这瓶酒正在共创中，来留下一句话吧。',
+      title: '记在星上｜邀请你共创一颗星贴的记录',
+      text: '这颗星贴正在共创中，来留下一句话吧。',
       url: window.location.href
     };
 

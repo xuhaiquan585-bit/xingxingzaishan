@@ -6,5 +6,6 @@ src/server/public/cloud/
 public/qrcodes/
 src/server/public/qrcodes/
 src/server/logs/
-server-start.log
+server-start*.log
 .env
+src/miniprogram/project.private.config.json

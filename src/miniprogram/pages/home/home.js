@@ -25,18 +25,18 @@ function normalizeHomeContent(content = {}) {
 }
 
 const SCENE_OPTIONS = [
-  { key: 'lover', label: '恋人', title: '恋人', description: '把说不出口的话，贴在这一瓶酒上。', image: '', button_text: '查看恋人星贴' },
+  { key: 'lover', label: '恋人', title: '恋人', description: '把说不出口的话，留在一件纪念物上。', image: '', button_text: '查看恋人星贴' },
   { key: 'elder', label: '长辈', title: '长辈', description: '把感谢和祝福，认真留给重要的人。', image: '', button_text: '查看长辈星贴' },
   { key: 'birthday', label: '生日', title: '生日', description: '把今天的祝福，留到以后还能看见。', image: '', button_text: '查看生日星贴' },
   { key: 'wedding', label: '婚礼', title: '婚礼', description: '把承诺和祝福，留在共同举杯时。', image: '', button_text: '查看婚礼星贴' },
-  { key: 'party', label: '聚会', title: '聚会', description: '让一桌人的话，一起留在这瓶酒里。', image: '', button_text: '查看聚会星贴' }
+  { key: 'party', label: '聚会', title: '聚会', description: '让大家想说的话，一起留在这一刻。', image: '', button_text: '查看聚会星贴' }
 ];
 
 const DEFAULT_SLIDES = [
   {
     image: '',
-    title: '给这瓶酒，贴上一颗星',
-    subtitle: '一张照片，一句话，让这瓶酒有自己的故事。',
+    title: '把这一刻，记在星上',
+    subtitle: '一张照片，一句话，让一件物品有自己的故事。',
     button_text: '去封存',
     action_type: 'products',
     scene_key: 'free'
@@ -44,7 +44,7 @@ const DEFAULT_SLIDES = [
   {
     image: '',
     title: '已有星贴，直接扫码记录',
-    subtitle: '拿到酒瓶星贴后，扫码上传照片和一句话。',
+    subtitle: '拿到星贴后，扫码上传照片和一句话。',
     button_text: '扫码记录',
     action_type: 'scan',
     scene_key: 'free'
@@ -57,11 +57,11 @@ Page({
       home_title: DEFAULT_HOME_TITLE,
       home_subtitle: DEFAULT_HOME_SUBTITLE,
       project_title: '星星在闪',
-      project_body: '把值得记住的时刻，存在这瓶酒里。',
-      consult_label: '咨询购买',
+      project_body: '把值得记住的时刻，留在一件看得见的物品上。',
+      consult_label: '微信购买',
       consult_url: '',
       share_title: '记在星上，闪到永远',
-      share_description: '让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。'
+      share_description: '把照片和想说的话，留在值得记住的物品上。'
     },
     logoImage: '',
     hasLogo: false,

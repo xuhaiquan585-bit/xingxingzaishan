@@ -26,23 +26,23 @@ const ACCOUNT_ID_WIDTH = 6;
 const ACCOUNT_STATUS_ACTIVE = 'active';
 
 const DEFAULT_MINIAPP_CONTENT = {
-  home_title: '给这瓶酒，贴上一颗星',
-  home_subtitle: '酒瓶星贴，不含酒水；贴上后扫码，留下照片和一句话。',
+  home_title: '把这一刻，记在星上',
+  home_subtitle: '把星贴贴在值得记住的物品上，扫码留下照片和一句话。',
   logo_image: '',
   home_banner_image: '',
   home_slides: [
     {
       image: '',
-      title: '给这瓶酒，贴上一颗星',
-      subtitle: '一张照片，一句话，让这瓶酒有自己的故事。',
+      title: '把这一刻，记在星上',
+      subtitle: '一张照片，一句话，让一件物品有自己的故事。',
       button_text: '去封存',
       action_type: 'products',
       scene_key: 'free'
     },
     {
       image: '',
-      title: '把说不出口的话，留在酒里',
-      subtitle: '贴上星贴，扫码后就能留下这一次举杯。',
+      title: '把说不出口的话，留在星贴里',
+      subtitle: '贴上星贴，扫码后就能留下这一刻。',
       button_text: '选择星贴',
       action_type: 'products',
       scene_key: 'lover'
@@ -50,24 +50,24 @@ const DEFAULT_MINIAPP_CONTENT = {
     {
       image: '',
       title: '已有星贴，直接扫码记录',
-      subtitle: '拿到酒瓶星贴后，扫码上传照片和一句话。',
+      subtitle: '拿到星贴后，扫码上传照片和一句话。',
       button_text: '扫码记录',
       action_type: 'scan',
       scene_key: 'free'
     }
   ],
   scene_cards: [
-    { key: 'lover', label: '恋人', title: '恋人', description: '把说不出口的话，贴在这一瓶酒上。', image: '', button_text: '查看恋人星贴' },
+    { key: 'lover', label: '恋人', title: '恋人', description: '把说不出口的话，留在一件纪念物上。', image: '', button_text: '查看恋人星贴' },
     { key: 'elder', label: '长辈', title: '长辈', description: '把感谢和祝福，认真留给重要的人。', image: '', button_text: '查看长辈星贴' },
     { key: 'birthday', label: '生日', title: '生日', description: '把今天的祝福，留到以后还能看见。', image: '', button_text: '查看生日星贴' },
     { key: 'wedding', label: '婚礼', title: '婚礼', description: '把承诺和祝福，留在共同举杯时。', image: '', button_text: '查看婚礼星贴' },
-    { key: 'party', label: '聚会', title: '聚会', description: '让一桌人的话，一起留在这瓶酒里。', image: '', button_text: '查看聚会星贴' }
+    { key: 'party', label: '聚会', title: '聚会', description: '让大家想说的话，一起留在这一刻。', image: '', button_text: '查看聚会星贴' }
   ],
   project_title: '星星在闪',
-  project_body: '把值得记住的时刻，存在这瓶酒里。适合成年礼、婚礼、生日、纪念日和送礼。',
+  project_body: '把值得记住的时刻，留在一件看得见的物品上。适合成年礼、婚礼、生日、纪念日和送礼。',
   brand_story_title: '关于记在星上',
-  brand_story_body: '我们希望每一瓶被送出的酒，都能留下属于它和收礼人的一段记忆。',
-  consult_label: '咨询购买',
+  brand_story_body: '我们希望每一件被认真送出的物品，都能留下属于它和收礼人的一段记忆。',
+  consult_label: '微信购买',
   consult_url: '',
   share_title: '记在星上，闪到永远',
   share_description: '让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。',
@@ -2556,6 +2556,26 @@ function normalizeImageUrl(value) {
   return String(value || '').trim();
 }
 
+const LEGACY_MINIAPP_TEXT_REPLACEMENTS = Object.freeze({
+  '给这瓶酒，贴上一颗星': '把这一刻，记在星上',
+  '酒瓶星贴，不含酒水；贴上后扫码，留下照片和一句话。': '把星贴贴在值得记住的物品上，扫码留下照片和一句话。',
+  '一张照片，一句话，让这瓶酒有自己的故事。': '一张照片，一句话，让一件物品有自己的故事。',
+  '把说不出口的话，留在酒里': '把说不出口的话，留在星贴里',
+  '贴上星贴，扫码后就能留下这一次举杯。': '贴上星贴，扫码后就能留下这一刻。',
+  '拿到酒瓶星贴后，扫码上传照片和一句话。': '拿到星贴后，扫码上传照片和一句话。',
+  '把说不出口的话，贴在这一瓶酒上。': '把说不出口的话，留在一件纪念物上。',
+  '让一桌人的话，一起留在这瓶酒里。': '让大家想说的话，一起留在这一刻。',
+  '把值得记住的时刻，存在这瓶酒里。适合成年礼、婚礼、生日、纪念日和送礼。': '把值得记住的时刻，留在一件看得见的物品上。适合成年礼、婚礼、生日、纪念日和送礼。',
+  '我们希望每一瓶被送出的酒，都能留下属于它和收礼人的一段记忆。': '我们希望每一件被认真送出的物品，都能留下属于它和收礼人的一段记忆。',
+  '让故事与时间一同酝酿，区块链存证，一经封存，不可篡改。': '把照片和想说的话，留在值得记住的物品上。'
+});
+
+function normalizeMiniappText(value, fallback = '') {
+  const text = String(value ?? '').trim();
+  if (!text) return fallback;
+  return LEGACY_MINIAPP_TEXT_REPLACEMENTS[text] || text;
+}
+
 function isValidImageUrl(value) {
   return !value || /^https?:\/\//i.test(value) || value.startsWith('/');
 }
@@ -2574,8 +2594,8 @@ function normalizeHomeSlides(input, existing) {
     const sceneKey = PRODUCT_SCENE_KEYS.includes(item && item.scene_key) ? item.scene_key : fallback.scene_key;
     return {
       image: normalizeImageUrl(item && item.image),
-      title: String((item && item.title) || fallback.title || '').trim() || fallback.title,
-      subtitle: String((item && item.subtitle) || fallback.subtitle || '').trim() || fallback.subtitle,
+      title: normalizeMiniappText(item && item.title, fallback.title),
+      subtitle: normalizeMiniappText(item && item.subtitle, fallback.subtitle),
       button_text: String((item && item.button_text) || fallback.button_text || '').trim() || fallback.button_text,
       action_type: actionType,
       scene_key: sceneKey
@@ -2597,7 +2617,7 @@ function normalizeSceneCards(input, existing) {
       key,
       label: String((item && item.label) || fallback.label || '').trim() || fallback.label,
       title: String((item && item.title) || fallback.title || '').trim() || fallback.title,
-      description: String((item && item.description) || fallback.description || '').trim() || fallback.description,
+      description: normalizeMiniappText(item && item.description, fallback.description),
       image: normalizeImageUrl(item && item.image),
       button_text: String((item && item.button_text) || fallback.button_text || '').trim() || fallback.button_text
     };
@@ -2607,20 +2627,20 @@ function normalizeSceneCards(input, existing) {
 
 function normalizeMiniappContent(input = {}, existing = {}) {
   return {
-    home_title: String(input.home_title ?? existing.home_title ?? DEFAULT_MINIAPP_CONTENT.home_title).trim() || DEFAULT_MINIAPP_CONTENT.home_title,
-    home_subtitle: String(input.home_subtitle ?? existing.home_subtitle ?? DEFAULT_MINIAPP_CONTENT.home_subtitle).trim() || DEFAULT_MINIAPP_CONTENT.home_subtitle,
+    home_title: normalizeMiniappText(input.home_title ?? existing.home_title, DEFAULT_MINIAPP_CONTENT.home_title),
+    home_subtitle: normalizeMiniappText(input.home_subtitle ?? existing.home_subtitle, DEFAULT_MINIAPP_CONTENT.home_subtitle),
     logo_image: normalizeImageUrl(input.logo_image ?? existing.logo_image ?? ''),
     home_banner_image: normalizeImageUrl(input.home_banner_image ?? existing.home_banner_image ?? ''),
     home_slides: normalizeHomeSlides(input.home_slides, existing.home_slides),
     scene_cards: normalizeSceneCards(input.scene_cards, existing.scene_cards),
     project_title: String(input.project_title ?? existing.project_title ?? DEFAULT_MINIAPP_CONTENT.project_title).trim() || DEFAULT_MINIAPP_CONTENT.project_title,
-    project_body: String(input.project_body ?? existing.project_body ?? DEFAULT_MINIAPP_CONTENT.project_body).trim() || DEFAULT_MINIAPP_CONTENT.project_body,
+    project_body: normalizeMiniappText(input.project_body ?? existing.project_body, DEFAULT_MINIAPP_CONTENT.project_body),
     brand_story_title: String(input.brand_story_title ?? existing.brand_story_title ?? DEFAULT_MINIAPP_CONTENT.brand_story_title).trim() || DEFAULT_MINIAPP_CONTENT.brand_story_title,
-    brand_story_body: String(input.brand_story_body ?? existing.brand_story_body ?? DEFAULT_MINIAPP_CONTENT.brand_story_body).trim() || DEFAULT_MINIAPP_CONTENT.brand_story_body,
+    brand_story_body: normalizeMiniappText(input.brand_story_body ?? existing.brand_story_body, DEFAULT_MINIAPP_CONTENT.brand_story_body),
     consult_label: String(input.consult_label ?? existing.consult_label ?? DEFAULT_MINIAPP_CONTENT.consult_label).trim() || DEFAULT_MINIAPP_CONTENT.consult_label,
     consult_url: String(input.consult_url ?? existing.consult_url ?? '').trim(),
     share_title: String(input.share_title ?? existing.share_title ?? DEFAULT_MINIAPP_CONTENT.share_title).trim() || DEFAULT_MINIAPP_CONTENT.share_title,
-    share_description: String(input.share_description ?? existing.share_description ?? DEFAULT_MINIAPP_CONTENT.share_description).trim() || DEFAULT_MINIAPP_CONTENT.share_description,
+    share_description: normalizeMiniappText(input.share_description ?? existing.share_description, DEFAULT_MINIAPP_CONTENT.share_description),
     updated_at: input.updated_at ?? existing.updated_at ?? null,
     updated_by: input.updated_by ?? existing.updated_by ?? null
   };
@@ -2642,7 +2662,7 @@ function validateMiniappContent(data) {
     return '场景图片需填写 http(s) 地址或站内路径。';
   }
   if (data.consult_url && !/^https?:\/\//i.test(data.consult_url)) {
-    return '咨询入口链接必须以 http:// 或 https:// 开头。';
+    return '微信店铺链接必须以 http:// 或 https:// 开头。';
   }
   return '';
 }
@@ -2654,7 +2674,10 @@ function getMiniappContent({ publicOnly = false } = {}) {
     return content;
   }
   const { updated_at: _updatedAt, updated_by: _updatedBy, ...publicContent } = content;
-  return publicContent;
+  return {
+    ...publicContent,
+    wechat_shop_url: content.consult_label === '微信购买' ? content.consult_url : ''
+  };
 }
 
 function updateMiniappContent(input, updatedBy = 'admin') {

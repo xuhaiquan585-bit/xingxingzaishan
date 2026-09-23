@@ -31,13 +31,13 @@
           <button class="btn home-primary-cta" bindtap="goProducts">选择一颗星贴</button>
           <button class="btn secondary home-scan-link" bindtap="scanCode">已有星贴？扫码记录</button>
         </view>
-        <view class="home-hero-note">星贴贴在酒瓶或礼盒上，不含酒水</view>
+        <view class="home-hero-note">星贴可粘贴在表面平整的物品上</view>
       </view>
     </view>
   </view>
 
   <view class="home-section home-steps-section">
-    <view class="home-section-title">把一段记忆，留在这瓶酒里</view>
+    <view class="home-section-title">把一段记忆，留在一颗星贴里</view>
     <view class="home-steps">
       <view class="home-step">
         <view class="home-step-index">01</view>

@@ -134,7 +134,7 @@ function requestWechatPayApi({ method, path, body }) {
 
 async function createJsapiPrepay({ openid, order }) {
   const config = getConfig();
-  const description = String((order.product_snapshot && order.product_snapshot.title) || '酒瓶星贴').slice(0, 127);
+  const description = String((order.product_snapshot && order.product_snapshot.title) || '记在星上星贴').slice(0, 127);
   const body = {
     appid: config.appid,
     mchid: config.mchid,

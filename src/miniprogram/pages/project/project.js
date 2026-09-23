@@ -4,11 +4,11 @@ Page({
   data: {
     content: {
       project_title: '星星在闪',
-      project_body: '把值得记住的时刻，存在这瓶酒里。',
+      project_body: '把值得记住的时刻，留在一件看得见的物品上。',
       brand_story_title: '关于记在星上',
-      brand_story_body: '我们希望每一瓶被送出的酒，都能留下属于它和收礼人的一段记忆。',
+      brand_story_body: '我们希望每一件被认真送出的物品，都能留下属于它和收礼人的一段记忆。',
       share_title: '记在星上，闪到永远',
-      share_description: '一瓶酒，一张照片，一句话。'
+      share_description: '一张照片，一句话，留住一个值得记住的时刻。'
     },
     message: '加载中...'
   },

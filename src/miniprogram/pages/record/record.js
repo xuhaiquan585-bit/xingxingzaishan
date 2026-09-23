@@ -16,7 +16,7 @@ const RECORD_DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
 const DRAFT_SOURCES = new Set(['upload', 'replace-photo', 'submit']);
 
 const MISSING_QR_TITLE = '请通过星贴二维码进入';
-const MISSING_QR_MESSAGE = '扫描星贴上的二维码，才能查看或留下这瓶酒的记录。';
+const MISSING_QR_MESSAGE = '扫描星贴上的二维码，才能查看或留下这颗星贴的记录。';
 const INVALID_QR_TITLE = '没有找到这张星贴';
 const INVALID_QR_MESSAGE = '请重新扫描星贴上的二维码。';
 const LOAD_FAILED_TITLE = '加载失败';

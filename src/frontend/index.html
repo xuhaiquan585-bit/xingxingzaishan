@@ -1,40 +1,197 @@
 <!doctype html>
-<html lang="zh-CN" class="theme-dawn">
+<html lang="zh-CN" class="marketing-site">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>星星在闪</title>
-    <script>
-      if (new URLSearchParams(window.location.search).get('ui') === 'dark') {
-        document.documentElement.classList.remove('theme-dawn');
+    <meta name="description" content="记在星上是一款可粘贴、可书写的二维码纪念贴。用照片和文字记录此刻，再次扫码即可回看。" />
+    <meta name="theme-color" content="#f4f7fa" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="记在星上｜扫码记录，随时回看" />
+    <meta property="og:description" content="剪下一段时光，记在星上。" />
+    <meta property="og:url" content="https://xingxingzaishan.top/" />
+    <meta property="og:image" content="https://xingxingzaishan.top/assets/hero-bottle-desktop.webp" />
+    <meta property="og:image:width" content="1536" />
+    <meta property="og:image:height" content="1024" />
+    <meta property="og:image:alt" content="记在星上二维码纪念贴" />
+    <title>记在星上｜二维码纪念贴</title>
+    <link rel="canonical" href="https://xingxingzaishan.top/" />
+    <link rel="stylesheet" href="/css/landing.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": "记在星上星贴",
+        "description": "可粘贴、可书写的二维码纪念贴，用照片和文字记录此刻，再次扫码即可回看。",
+        "brand": {
+          "@type": "Brand",
+          "name": "记在星上"
+        }
       }
     </script>
-    <link rel="stylesheet" href="/css/style.css" />
-    <link rel="stylesheet" href="/css/theme-dawn.css" />
   </head>
   <body>
-    <main class="container">
-      <h1>星星在闪</h1>
-      <p class="subtitle">记在星上，闪到永远</p>
-      <a id="startBtn" class="btn">加载中...</a>
+    <a class="skip-link" href="#mainContent">跳到主要内容</a>
+
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="wordmark" href="/" aria-label="记在星上首页">
+          <span>记在星上</span>
+          <small>星贴</small>
+        </a>
+        <nav class="site-nav" aria-label="主要导航">
+          <a href="#how-it-works">使用方法</a>
+          <a href="#product">了解星贴</a>
+          <a href="#faq">常见问题</a>
+        </nav>
+        <a class="header-buy-link" data-wechat-shop aria-disabled="true" tabindex="-1">微信购买</a>
+      </div>
+    </header>
+
+    <main id="mainContent">
+      <section class="brand-hero" aria-labelledby="heroTitle">
+        <div class="hero-shade" aria-hidden="true"></div>
+        <div class="hero-inner">
+          <div class="hero-copy">
+            <p class="hero-kicker">二维码纪念贴</p>
+            <h1 id="heroTitle"><span>剪下一段时光，</span><span>记在星上。</span></h1>
+            <p class="hero-note">一贴一码，扫码记录，随时回看。</p>
+            <div class="hero-actions">
+              <a class="button button-primary" data-wechat-shop aria-disabled="true" tabindex="-1">微信购买</a>
+              <a class="button button-secondary" href="#how-it-works">已有星贴？查看使用方法</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="feature-strip" aria-label="星贴功能">
+        <div class="feature-strip-inner">
+          <span>一贴一码</span>
+          <span>照片文字记录</span>
+          <span>扫码随时回看</span>
+          <span>可手写备注</span>
+        </div>
+      </section>
+
+      <section id="how-it-works" class="section process-section">
+        <div class="section-heading">
+          <p class="section-kicker">从物品到记忆</p>
+          <h2>三步，把这一刻留下来</h2>
+          <p>星贴贴在物品上，数字记录留在扫码后的页面里。</p>
+        </div>
+        <div class="process-flow">
+          <article>
+            <p class="process-label">贴上星贴</p>
+            <h3>选一个值得记住的物品</h3>
+            <p>贴在礼盒、酒瓶、纪念册或其他表面平整的物品上。</p>
+          </article>
+          <article>
+            <p class="process-label">扫码记录</p>
+            <h3>保存照片和想说的话</h3>
+            <p>用手机扫码，上传一张照片，写下这一刻。</p>
+          </article>
+          <article>
+            <p class="process-label">随时回看</p>
+            <h3>让物品成为记忆入口</h3>
+            <p>再次扫码，就能重新看到已经完成的记录。</p>
+          </article>
+        </div>
+        <p class="process-notice">记录正式提交后不可修改，请确认照片和文字无误后再保存。</p>
+      </section>
+
+      <section class="section scene-section">
+        <div class="scene-photo">
+          <img src="/assets/memory-hero.jpg" alt="桌面上的照片、卡片和玻璃瓶，适合承载纪念星贴" loading="lazy" />
+        </div>
+        <div class="scene-copy">
+          <p class="section-kicker">不只贴在酒瓶上</p>
+          <h2>那些值得回头看的时刻，都可以有一颗星贴</h2>
+          <div class="scene-list">
+            <div><strong>生日与纪念日</strong><span>让礼物多一段可以再次打开的心意。</span></div>
+            <div><strong>旅行与聚会</strong><span>把一张合影和当时的话留在纪念物上。</span></div>
+            <div><strong>成长记录</strong><span>将照片和阶段性的文字留给未来。</span></div>
+            <div><strong>礼盒与收藏物</strong><span>为有意义的物品增加独立的记忆入口。</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="product" class="section product-section">
+        <div class="product-copy">
+          <p class="section-kicker">看得见，也写得下</p>
+          <h2>实体星贴，是记录的一部分</h2>
+          <p class="product-intro">二维码与独立编号用于识别记录，下方留白可以手写备注。收到星贴后，不需要额外安装应用。</p>
+          <dl class="product-facts">
+            <div><dt>身份</dt><dd>一贴一码，带独立编号</dd></div>
+            <div><dt>记录</dt><dd>照片与文字</dd></div>
+            <div><dt>使用</dt><dd>手机扫码进入</dd></div>
+          </dl>
+        </div>
+        <div class="product-scale" aria-label="星贴商品实拍图">
+          <img class="product-photo product-photo-detail" src="/assets/product-sticker-demo.webp" alt="记在星上星贴商品实拍图，二维码为不可扫描的展示码，编号为 DEMO00001" width="592" height="1568" loading="lazy" />
+        </div>
+      </section>
+
+      <section class="section trust-section">
+        <div class="section-heading trust-heading">
+          <p class="section-kicker">清楚地保存，安心地回看</p>
+          <h2>每颗星贴对应一条独立记录</h2>
+          <p>完成记录后，可以通过对应星贴再次查看。保存前，页面会再次提示确认。</p>
+        </div>
+        <div class="trust-points">
+          <article><h3>一次正式记录</h3><p>每颗星贴完成一次正式记录，避免同一个编号被重复创建不同内容。</p></article>
+          <article><h3>提交前再次确认</h3><p>照片和文字会先显示预览，确认提交后只能查看，不能修改。</p></article>
+          <article><h3>保存信息可核对</h3><p>完成后可以查看星贴编号、保存时间与对应的保存凭证。</p></article>
+        </div>
+      </section>
+
+      <section id="faq" class="section faq-section">
+        <div class="section-heading">
+          <p class="section-kicker">购买前常见问题</p>
+          <h2>关于星贴</h2>
+        </div>
+        <div class="faq-list">
+          <details>
+            <summary>星贴可以记录什么？</summary>
+            <p>可以保存一张照片和一段文字。再次扫描对应星贴，就能查看已经完成的记录。</p>
+          </details>
+          <details>
+            <summary>提交后还能修改吗？</summary>
+            <p>不能。正式提交后，照片和文字只能查看，不能修改。提交前会提供预览和确认步骤。</p>
+          </details>
+          <details>
+            <summary>星贴只能贴在酒瓶上吗？</summary>
+            <p>不是。可以贴在礼盒、纪念册、收藏物等表面平整、适合粘贴的位置，酒瓶只是其中一种使用场景。</p>
+          </details>
+          <details>
+            <summary>其他人扫码能看到记录吗？</summary>
+            <p>能拿到或看到这颗星贴的人，可能通过扫码查看对应记录。请不要上传不适合公开给扫码者查看的隐私内容。</p>
+          </details>
+          <details>
+            <summary>二维码损坏后怎么办？</summary>
+            <p>请保留星贴上的独立编号和购买信息，并通过微信店铺联系售后协助核对。</p>
+          </details>
+        </div>
+      </section>
+
+      <section id="wechat-shop" class="section purchase-section">
+        <p class="section-kicker">从微信店铺购买</p>
+        <h2>把这一刻，留在看得见的地方</h2>
+        <p id="shopStatus">购买入口将从微信店铺配置中加载。</p>
+        <a class="button button-primary purchase-button" data-wechat-shop aria-disabled="true" tabindex="-1">微信购买</a>
+      </section>
     </main>
-    <script src="/js/api.js"></script>
-    <script>
-      (async function () {
-        const btn = document.getElementById('startBtn');
-        try {
-          const res = await apiRequest('/api/qr/sample-unactivated');
-          if (res.data && res.data.token) {
-            btn.textContent = '开始点亮（' + res.data.id + '）';
-            btn.href = '/record.html?t=' + encodeURIComponent(res.data.token);
-          } else {
-            btn.textContent = '暂无可用的星星';
-            btn.style.pointerEvents = 'none';
-          }
-        } catch (_e) {
-          btn.textContent = '加载失败，请刷新';
-        }
-      })();
-    </script>
+
+    <footer class="site-footer">
+      <div>
+        <strong>记在星上</strong>
+        <span>由“星星在闪”提供服务</span>
+      </div>
+      <nav aria-label="页脚导航">
+        <a href="#how-it-works">使用方法</a>
+        <a href="#faq">常见问题</a>
+        <a href="/me.html">我的记录</a>
+      </nav>
+    </footer>
+
+    <script src="/js/landing.js"></script>
   </body>
 </html>

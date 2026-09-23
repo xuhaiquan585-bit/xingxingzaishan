@@ -1166,7 +1166,7 @@ router.post('/qr/:key/comments', requireMiniappAuth, requireMiniappPhone, async 
     return res.status(404).json({ status: 'error', code: 'QR_NOT_FOUND', message: '未找到这颗星，请确认二维码是否正确。' });
   }
   if (result.error === 'CO_CREATION_CLOSED') {
-    return res.status(409).json({ status: 'error', code: 'CO_CREATION_CLOSED', message: '这瓶酒已经封存，不能继续留言。' });
+    return res.status(409).json({ status: 'error', code: 'CO_CREATION_CLOSED', message: '这颗星贴已经封存，不能继续留言。' });
   }
   if (result.error === 'CO_CREATION_COMMENT_EXISTS') {
     return res.status(409).json({ status: 'error', code: 'CO_CREATION_COMMENT_EXISTS', message: '你已经留下过见证，每个人只能留言一次。' });
@@ -1259,7 +1259,7 @@ router.post('/qr/:key/finalize', requireMiniappAuth, requireMiniappPhone, async 
     return res.status(403).json({ status: 'error', code: 'FORBIDDEN', message: '只有发起人可以确认封存。' });
   }
   if (result.error === 'CO_CREATION_CLOSED') {
-    return res.status(409).json({ status: 'error', code: 'CO_CREATION_CLOSED', message: '这瓶酒不在共创中，不能确认封存。' });
+    return res.status(409).json({ status: 'error', code: 'CO_CREATION_CLOSED', message: '这颗星贴不在共创中，不能确认封存。' });
   }
   if (selectedWrite.selected) {
     return res.json({

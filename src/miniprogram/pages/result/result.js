@@ -40,14 +40,14 @@ Page({
 
   onShareAppMessage() {
     return {
-      title: '这瓶酒里的记录',
+      title: '这颗星贴的记录',
       path: `/pages/result/result?key=${encodeURIComponent(this.data.key)}`
     };
   },
 
   onShareTimeline() {
     return {
-      title: '这瓶酒里的记录',
+      title: '这颗星贴的记录',
       query: `key=${encodeURIComponent(this.data.key)}`
     };
   },
@@ -62,7 +62,7 @@ Page({
       const manifestHash = data.manifest_hash || data.blockchain_hash || '';
       const displayDate = formatRecordDate(data.activated_at);
       this.setData({
-        pageTitle: this.data.justSaved ? '保存成功' : '这瓶酒里的记录',
+        pageTitle: this.data.justSaved ? '保存成功' : '这颗星贴的记录',
         pageSubtitle: this.data.justSaved
           ? '以后再扫码，还能回到这一刻'
           : (displayDate ? `保存于 ${displayDate}` : '以后再扫码，还能回到这一刻'),
