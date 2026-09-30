@@ -1,5 +1,12 @@
 # PostgreSQL Authority and Rollback Contract
 
+> Baseline clarification (2026-09-28): see [PROJECT-REQUIREMENTS.md](../PROJECT-REQUIREMENTS.md),
+> especially DB-001 through DB-003 and section 12. The statements below about the
+> "current" JSON authority, disabled AVATA, and test-only customers describe the
+> original migration phase, not today's verified production state. Preserve the
+> domain-scoped authority and post-commit no-JSON-fallback rules. Do not disable
+> production selectors or providers based on this historical phase description.
+
 ## Purpose
 
 This contract defines when JSON or PostgreSQL is authoritative, what marks the
