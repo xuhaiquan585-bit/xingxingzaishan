@@ -83,7 +83,11 @@ function renderRecords(records) {
     detailLink.className = 'btn btn-secondary record-detail-link';
     if (isCoCreating) {
       detailLink.textContent = '继续共创 →';
-      detailLink.href = `/record.html?t=${encodeURIComponent(item.id || '')}`;
+      if (item.resume_key) {
+        detailLink.href = `/record.html?t=${encodeURIComponent(item.resume_key)}`;
+      } else {
+        detailLink.textContent = '请扫描原星贴继续共创';
+      }
     } else {
       detailLink.textContent = '查看详情 →';
       detailLink.href = `/me-detail.html?id=${encodeURIComponent(item.id || '')}`;

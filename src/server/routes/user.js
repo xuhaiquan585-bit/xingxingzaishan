@@ -28,6 +28,10 @@ const {
 } = require('../services/postgres/identityAuthorityRuntime');
 
 const router = express.Router();
+router.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 
 function isValidPhone(phone) {
   return /^1\d{10}$/.test(phone);
@@ -309,6 +313,8 @@ async function handleRecords(req, res) {
     activated_at: item.activated_at,
     display_at: item.display_at,
     activation_status: item.activation_status,
+    ...(item.activation_status === 'co_creating'
+      ? { resume_key: item.record_media_authority?.accessToken || null } : {}),
     image_url: resolveImageUrl(item, assetResolver, 'thumbnail')
   }));
   const data = {

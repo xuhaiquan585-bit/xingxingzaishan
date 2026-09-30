@@ -130,7 +130,11 @@ Page({
   openRecord(event) {
     const item = this.data.records.find((record) => record.id === event.currentTarget.dataset.id);
     if (item && item.activation_status === 'co_creating') {
-      wx.navigateTo({ url: `/pages/co-create/co-create?key=${encodeURIComponent(item.id)}` });
+      if (!item.resume_key) {
+        wx.showToast({ title: '请扫描原星贴继续共创', icon: 'none' });
+        return;
+      }
+      wx.navigateTo({ url: `/pages/co-create/co-create?key=${encodeURIComponent(item.resume_key)}` });
       return;
     }
     wx.navigateTo({ url: `/pages/record-detail/record-detail?id=${encodeURIComponent(event.currentTarget.dataset.id)}` });

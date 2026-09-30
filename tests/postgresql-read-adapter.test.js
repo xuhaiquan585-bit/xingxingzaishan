@@ -56,7 +56,7 @@ function makeHarness({
     qrRepository: {
       async findByKey(key) {
         calls.push(['qr.findByKey', key]);
-        return qr;
+        return qr && key === qr.access_token ? qr : null;
       }
     },
     recordRepository: {
@@ -1293,6 +1293,7 @@ test('public QR adapter preserves not-found and hidden fail-closed behavior', as
   const hidden = makeHarness({
     qr: {
       id: 'QR_HIDDEN_1',
+      access_token: 'hidden-token',
       lifecycle_status: 'activated',
       issue_status: 'issued',
       hidden: true,
@@ -1309,6 +1310,7 @@ test('public QR adapter preserves not-found and hidden fail-closed behavior', as
 test('unactivated H5 and miniapp DTOs keep their existing channel differences', async () => {
   const qr = {
     id: 'QR_NEW_1',
+    access_token: 'new-token',
     lifecycle_status: 'unactivated',
     issue_status: 'issued',
     hidden: false,
@@ -1316,11 +1318,11 @@ test('unactivated H5 and miniapp DTOs keep their existing channel differences', 
     show_brand_disclosure: true
   };
   const h5 = await makeHarness({ qr }).adapter.read({
-    key: 'QR_NEW_1',
+    key: 'new-token',
     channel: 'h5'
   });
   const miniapp = await makeHarness({ qr }).adapter.read({
-    key: 'QR_NEW_1',
+    key: 'new-token',
     channel: 'miniapp'
   });
 
@@ -1339,6 +1341,7 @@ test('unbound co-creation view stops after base reads and does not expose conten
   const harness = makeHarness({
     qr: {
       id: 'QR_CO_1',
+      access_token: 'co-token',
       lifecycle_status: 'co_creating',
       issue_status: 'issued',
       hidden: false,
@@ -1346,14 +1349,14 @@ test('unbound co-creation view stops after base reads and does not expose conten
     }
   });
   const payload = await harness.adapter.read({
-    key: 'QR_CO_1',
+    key: 'co-token',
     channel: 'miniapp',
     viewer: { account_id: 'ACC_VIEWER', phone_bound: false }
   });
 
   assert.equal(payload.phone_bound, false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'content'), false);
-  assert.deepEqual(harness.calls, [['qr.findByKey', 'QR_CO_1']]);
+  assert.deepEqual(harness.calls, [['qr.findByKey', 'co-token']]);
 });
 
 test('co-creation projection uses account IDs internally and strips them from the DTO', async () => {
@@ -1363,7 +1366,7 @@ test('co-creation projection uses account IDs internally and strips them from th
   });
   const harness = makeHarness({ ...fixture, proof: null });
   const payload = await harness.adapter.read({
-    key: 'QR_PUBLIC_1',
+    key: fixture.qr.access_token,
     channel: 'miniapp',
     viewer: { account_id: 'ACC_INTERNAL_OWNER', phone_bound: true }
   });
@@ -1465,12 +1468,12 @@ test('activated projection preserves channel fields, proof fields, and resolver 
   const fixture = activatedFixture();
   const h5Harness = makeHarness(fixture);
   const h5 = await h5Harness.adapter.read({
-    key: 'public-token',
+    key: fixture.qr.access_token,
     channel: 'h5',
     viewer: { account_id: 'ACC_OTHER', phone_bound: true }
   });
   const miniapp = await makeHarness(fixture).adapter.read({
-    key: 'public-token',
+    key: fixture.qr.access_token,
     channel: 'miniapp',
     viewer: { account_id: 'ACC_OTHER', phone_bound: true }
   });
@@ -1491,7 +1494,7 @@ test('activated projection preserves channel fields, proof fields, and resolver 
   assert.equal(Object.hasOwn(miniapp, 'image_object_key'), false);
   assert.equal(JSON.stringify(miniapp).includes(fixture.qr.access_token), false);
   assert.deepEqual(h5Harness.calls, [
-    ['qr.findByKey', 'public-token'],
+    ['qr.findByKey', fixture.qr.access_token],
     ['batch.findById', 'BATCH_1'],
     ['record.findByQrId', 'QR_PUBLIC_1'],
     ['coCreation.findByQrId', 'QR_PUBLIC_1'],
@@ -1512,7 +1515,7 @@ test('public proof projection never exposes a temporary provider certificate URL
   const harness = makeHarness(fixture);
 
   const result = await harness.adapter.read({
-    key: 'public-token',
+    key: fixture.qr.access_token,
     channel: 'h5',
     viewer: { account_id: 'ACC_OTHER', phone_bound: true }
   });
@@ -1532,7 +1535,7 @@ test('activated projection preserves a legacy proof marker without exposing its 
     legacy_hash_snapshot: legacyHash
   };
   const payload = await makeHarness(fixture).adapter.read({
-    key: 'public-token',
+    key: fixture.qr.access_token,
     channel: 'h5',
     viewer: { account_id: 'ACC_OTHER', phone_bound: true }
   });
@@ -1546,13 +1549,13 @@ test('missing required read dependencies fail closed instead of broadening the a
   const fixture = activatedFixture();
   const noBatchReader = makeHarness({ ...fixture, batchReader: null });
   await assert.rejects(
-    noBatchReader.adapter.read({ key: 'QR_PUBLIC_1', channel: 'h5' }),
+    noBatchReader.adapter.read({ key: fixture.qr.access_token, channel: 'h5' }),
     (error) => error.code === 'PUBLIC_QR_BATCH_REPOSITORY_GAP'
   );
 
   const noRecord = makeHarness({ ...fixture, record: null });
   await assert.rejects(
-    noRecord.adapter.read({ key: 'QR_PUBLIC_1', channel: 'h5' }),
+    noRecord.adapter.read({ key: fixture.qr.access_token, channel: 'h5' }),
     (error) => error.code === 'PUBLIC_QR_RECORD_MISSING'
   );
 });
@@ -1561,7 +1564,7 @@ test('object-key records require an injected resolver and never fall back silent
   const fixture = activatedFixture();
   const harness = makeHarness({ ...fixture, assetResolver: null });
   await assert.rejects(
-    harness.adapter.read({ key: 'QR_PUBLIC_1', channel: 'h5' }),
+    harness.adapter.read({ key: fixture.qr.access_token, channel: 'h5' }),
     (error) => error.code === 'PUBLIC_QR_IMAGE_RESOLVER_REQUIRED'
   );
 });
@@ -1570,7 +1573,7 @@ test('adapter separates database snapshot loading from asset presentation', asyn
   const fixture = activatedFixture();
   const harness = makeHarness(fixture);
   const snapshot = await harness.adapter.loadSnapshot({
-    key: 'public-token',
+    key: fixture.qr.access_token,
     channel: 'h5',
     viewer: null
   });
@@ -1591,7 +1594,7 @@ test('candidate comment overflow stops before DTO presentation', async () => {
   const harness = makeHarness({ ...fixture, comments, proof: null });
   await assert.rejects(
     harness.adapter.loadSnapshot({
-      key: 'public-token',
+      key: fixture.qr.access_token,
       channel: 'h5',
       viewer: { phone_bound: true }
     }),
@@ -1713,6 +1716,7 @@ test('personal record adapter lists only repository-scoped rows in the existing 
       activated_at: null,
       display_at: '2026-08-04T01:02:03.000Z',
       activation_status: 'co_creating',
+      resume_key: 'fedcba9876543210fedcba9876543210',
       image_url: 'h5://records/list.jpg'
     }]
   });

@@ -1,144 +1,61 @@
 const express = require('express');
-const path = require('path');
-const fs = require('fs');
-const { getQRCode } = require('../services/dbService');
-const {
-  administerQrs,
-  qrIssuanceAuthorityHttpError
-} = require('../services/postgres/qrIssuanceAuthorityRuntime');
-const {
-  classifyRecordImageReference,
-  getStorageMode,
-  getSignedUrl,
-  getLocalObjectPath
-} = require('../services/storageService');
-const { buildLegacyRecordImageProxyUrl } = require('../services/publicQrAssetResolver');
+const { readSharedRecord } = require('../services/publicRecordAccessService');
+const { publicQrPrimaryReadHttpError } = require('../services/postgres/publicQrPrimaryReadRuntime');
 
 const router = express.Router();
+router.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 
-async function getNftRecord(qrId) {
-  const authority = await administerQrs('getRecord', { qrId });
-  return authority.selected ? authority.result : getQRCode(qrId);
+function notFound(res) {
+  return res.status(404).json({
+    status: 'error', code: 'RECORD_NOT_FOUND', message: '未找到可访问的记录，请重新扫描星贴。'
+  });
 }
 
-function sendAuthorityError(res, error) {
-  const response = qrIssuanceAuthorityHttpError(error);
+function sendReadError(res, error) {
+  if (['QR_NOT_FOUND', 'QR_HIDDEN'].includes(error && error.code)) return notFound(res);
+  const response = publicQrPrimaryReadHttpError(error);
   return res.status(response.status).json({
     status: 'error', code: response.code, message: response.message
   });
 }
 
-router.get('/:qrId/download', async (req, res) => {
-  let qr;
+// The path parameter is a scan credential, not the printed QR ID (SEC-001/003).
+router.get('/:key/download', async (req, res) => {
   try {
-    qr = await getNftRecord(req.params.qrId);
+    const record = await readSharedRecord(req.params.key);
+    if (!record) return notFound(res);
+    if (!record.image_url) {
+      return res.status(404).json({
+        status: 'error', code: 'NFT_IMAGE_NOT_FOUND', message: '该记录暂无可下载图片。'
+      });
+    }
+    return res.json({ status: 'success', code: 'OK', data: { download_url: record.image_url } });
   } catch (error) {
-    return sendAuthorityError(res, error);
+    return sendReadError(res, error);
   }
-  if (!qr || qr.activation_status !== 'activated') {
-    return res.status(404).json({
-      status: 'error',
-      code: 'RECORD_NOT_FOUND',
-      message: '未找到可下载的NFT记录。'
-    });
-  }
-
-  const mode = getStorageMode();
-  const imageDecision = classifyRecordImageReference({
-    record: qr,
-    authority: { qrId: qr.id, accessToken: qr.qr_access_token }
-  });
-  if (imageDecision.kind === 'rejected') {
-    return res.status(404).json({
-      status: 'error',
-      code: 'NFT_IMAGE_NOT_FOUND',
-      message: '该记录暂无可下载图片。'
-    });
-  }
-  if (mode === 'cloud' && imageDecision.kind === 'object') {
-    if (imageDecision.namespace === 'legacy-prefixed') {
-      return res.json({
-        status: 'success',
-        code: 'OK',
-        data: {
-          download_url: buildLegacyRecordImageProxyUrl({ qrId: qr.id })
-        }
-      });
-    }
-    try {
-      const downloadUrl = getSignedUrl(
-        imageDecision.objectKey,
-        Number(process.env.OSS_DOWNLOAD_SIGN_EXPIRES || 3600)
-      );
-      return res.json({
-        status: 'success',
-        code: 'OK',
-        data: {
-          download_url: downloadUrl
-        }
-      });
-    } catch (_error) {
-      return res.status(502).json({
-        status: 'error',
-        code: 'OSS_DOWNLOAD_SIGN_FAILED',
-        message: '图片签名失败，请稍后重试。'
-      });
-    }
-  }
-
-  if (imageDecision.kind === 'snapshot') {
-    return res.json({ status: 'success', code: 'OK', data: { download_url: imageDecision.url } });
-  }
-
-  const localReference = imageDecision.kind === 'local'
-    ? path.basename(imageDecision.url)
-    : imageDecision.objectKey;
-  const localPath = getLocalObjectPath(localReference);
-  const filename = path.basename(localPath);
-  if (!fs.existsSync(localPath)) {
-    return res.status(404).json({
-      status: 'error',
-      code: 'NFT_IMAGE_NOT_FOUND',
-      message: '图片文件不存在，请稍后重试。'
-    });
-  }
-
-  return res.json({
-    status: 'success',
-    code: 'OK',
-    data: {
-      download_url: imageDecision.kind === 'local'
-        ? imageDecision.url
-        : `/uploads/${String(imageDecision.objectKey).split('/').map(encodeURIComponent).join('/')}`
-    }
-  });
 });
 
-router.get('/:qrId/share-meta', async (req, res) => {
-  let qr;
+router.get('/:key/share-meta', async (req, res) => {
   try {
-    qr = await getNftRecord(req.params.qrId);
-  } catch (error) {
-    return sendAuthorityError(res, error);
-  }
-  if (!qr || qr.activation_status !== 'activated') {
-    return res.status(404).json({
-      status: 'error',
-      code: 'RECORD_NOT_FOUND',
-      message: '未找到可分享的NFT记录。'
+    const key = String(req.params.key || '').trim();
+    const record = await readSharedRecord(key, {
+      assetResolver: { resolveRecordImage: () => null, resolveCertificate: () => null }
     });
+    if (!record) return notFound(res);
+    const baseUrl = String(process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+    return res.json({
+      status: 'success', code: 'OK', data: {
+        title: '星星在闪｜记在星上，闪到永远',
+        text: record.content || '我在星星在闪记录了一个珍贵时刻。',
+        url: `${baseUrl}/record.html?t=${encodeURIComponent(key)}`
+      }
+    });
+  } catch (error) {
+    return sendReadError(res, error);
   }
-
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
-  return res.json({
-    status: 'success',
-    code: 'OK',
-    data: {
-      title: '星星在闪｜记在星上，闪到永远',
-      text: qr.content || '我在星星在闪记录了一个珍贵时刻。',
-      url: `${baseUrl}/record.html?qr=${encodeURIComponent(qr.id)}`
-    }
-  });
 });
 
 module.exports = router;

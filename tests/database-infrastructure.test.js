@@ -2212,7 +2212,7 @@ test('QR administration repository keeps management reads and writes transaction
   ]);
 });
 
-test('admin, quality, and NFT QR routes share the issuance authority boundary', () => {
+test('admin and quality use administration while public sharing uses credential-authorized reads', () => {
   const readRoute = (name) => fs.readFileSync(
     path.join(__dirname, `../src/server/routes/${name}.js`),
     'utf8'
@@ -2226,7 +2226,12 @@ test('admin, quality, and NFT QR routes share the issuance authority boundary', 
   assert.match(adminRoute, /OPERATION_DISABLED_DURING_POSTGRES_AUTHORITY/);
   assert.match(qualityRoute, /administerQrs/);
   assert.match(qualityRoute, /selectQualityOperation/);
-  assert.match(nftRoute, /administerQrs\('getRecord'/);
+  assert.match(nftRoute, /readSharedRecord/);
+  assert.doesNotMatch(nftRoute, /administerQrs/);
+  const accessService = fs.readFileSync(
+    path.join(__dirname, '../src/server/services/publicRecordAccessService.js'), 'utf8'
+  );
+  assert.match(accessService, /readPublicQrPrimary/);
 });
 
 test('co-creation repository exposes stable source position without UUID ordering', async () => {
@@ -2713,13 +2718,18 @@ test('public QR provenance repository checks exact source hashes and canonical m
   );
 });
 
-test('public QR repository key lookup gives access tokens precedence over legacy ids', async () => {
-  const harness = createRepositoryContext([{ rows: [], rowCount: 0 }]);
-  await new QrRepository(harness.context).findByKey('ambiguous-public-key');
-  assert.match(harness.calls[0].sql, /WHERE access_token = \$1/);
-  assert.match(harness.calls[0].sql, /NOT EXISTS/);
-  assert.match(harness.calls[0].sql, /token_match\.access_token = \$1/);
-  assert.deepEqual(harness.calls[0].params, ['ambiguous-public-key']);
+test('SEC-002 public QR repository never falls back from a credential to an ID', async () => {
+  const harness = createRepositoryContext([{ rows: [], rowCount: 0 }, { rows: [], rowCount: 0 }]);
+  const repository = new QrRepository(harness.context);
+  assert.equal(await repository.findByKey('KNOWN_ID'), null);
+  assert.equal(await repository.findByKeyForUpdate('KNOWN_ID'), null);
+  assert.equal(harness.calls.length, 2);
+  for (const call of harness.calls) {
+    assert.match(call.sql, /WHERE access_token = \$1/);
+    assert.doesNotMatch(call.sql, /\b(?:OR|UNION|NOT EXISTS)\b|WHERE id =/);
+    assert.deepEqual(call.params, ['KNOWN_ID']);
+  }
+  assert.match(harness.calls[1].sql, /FOR UPDATE/);
 });
 
 test('unique identity lookups fail closed and do not select the first duplicate', async () => {

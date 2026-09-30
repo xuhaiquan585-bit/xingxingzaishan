@@ -27,31 +27,12 @@ class QrRepository {
   }
 
   async findByKey(key) {
-    const result = await executeQuery(
-      this.transactionContext,
-      `SELECT ${COLUMNS} FROM app.qr_codes
-       WHERE access_token = $1
-          OR (id = $1 AND NOT EXISTS (
-            SELECT 1 FROM app.qr_codes token_match WHERE token_match.access_token = $1
-          ))
-       LIMIT 2`,
-      [key]
-    );
-    return oneOrNull(result, mapQr, 'DUPLICATE_QR_KEY');
+    // SEC-002: public keys are credentials, never display IDs.
+    return this.findByAccessToken(key);
   }
 
   async findByKeyForUpdate(key) {
-    const result = await executeQuery(
-      this.transactionContext,
-      `SELECT ${COLUMNS} FROM app.qr_codes
-       WHERE access_token = $1
-          OR (id = $1 AND NOT EXISTS (
-            SELECT 1 FROM app.qr_codes token_match WHERE token_match.access_token = $1
-          ))
-       LIMIT 2 FOR UPDATE`,
-      [key]
-    );
-    return oneOrNull(result, mapQr, 'DUPLICATE_QR_KEY');
+    return this.findByAccessTokenForUpdate(key);
   }
 
   async updateLifecycle({ qr_id, expected_status, next_status, updated_at }) {

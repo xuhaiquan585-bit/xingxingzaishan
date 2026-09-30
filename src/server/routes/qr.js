@@ -41,8 +41,16 @@ const {
   submitPreparedRecord
 } = require('../services/chainProofService');
 const { requireUserSession } = require('../middlewares/userSession');
+const { verifyAssetAccess } = require('../services/assetAccessService');
+const { administerQrs } = require('../services/postgres/qrIssuanceAuthorityRuntime');
+const { readPublicQrPrimaryReadConfig } = require('../services/postgres/publicQrPrimaryReadConfig');
+const { isSelectedByPrimaryScope } = require('../services/postgres/primarySelectionScope');
 
 const router = express.Router();
+router.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 const CO_CREATION_COMMENT_LIMIT = 12;
 
 function isValidPhone(phone) {
@@ -291,48 +299,30 @@ router.get('/sample-unactivated', (_req, res) => {
 });
 
 router.get('/media/:qrId', async (req, res) => {
-  const key = String(req.params.qrId || '').trim();
-  const {
-    qr,
-    publicQrDomainHash
-  } = findPublicQrReadContextByKey(key);
+  const qrId = String(req.params.qrId || '').trim();
   let decision = null;
-  const captureResolver = {
-    resolveRecordImage(input) {
-      decision = classifyRecordImageReference(input);
-      return null;
-    },
-    resolveCertificate() {
-      return null;
-    }
-  };
-
-  try {
-    const primaryRead = await readPublicQrPrimary({
-      key,
-      publicQrId: qr && qr.id,
-      domainHash: publicQrDomainHash,
-      channel: 'h5',
-      viewer: {
-        accountId: getAccountId(req.user),
-        phoneBound: Boolean(req.user && req.user.phone)
-      },
-      assetResolver: captureResolver
-    });
-    if (!primaryRead.selected) {
-      if (!qr || qr.hidden === true || qr.activation_status === 'unactivated') {
-        decision = null;
-      } else if (qr.activation_status === 'co_creating' && !(req.user && req.user.phone)) {
-        decision = null;
-      } else {
+  // Only an image-scoped signature can authorize this internal-ID lookup.
+  if (verifyAssetAccess({
+    purpose: 'record-media', resource: qrId,
+    expires: req.query.expires, signature: req.query.signature
+  })) {
+    try {
+      const authority = await administerQrs('getRecord', { qrId });
+      const readConfig = readPublicQrPrimaryReadConfig();
+      if (!authority.selected && readConfig.requested
+          && (readConfig.enabled !== true || isSelectedByPrimaryScope(readConfig, qrId))) {
+        throw new Error('RECORD_IMAGE_AUTHORITY_UNAVAILABLE');
+      }
+      const qr = authority.selected ? authority.result : getQRCode(qrId);
+      if (qr && qr.hidden !== true && ['activated', 'co_creating'].includes(qr.activation_status)) {
         decision = classifyRecordImageReference({
           record: qr,
           authority: { qrId: qr.id, accessToken: qr.qr_access_token }
         });
       }
+    } catch (_error) {
+      decision = null;
     }
-  } catch (_error) {
-    decision = null;
   }
 
   if (!decision || decision.kind !== 'object' || decision.namespace !== 'legacy-prefixed') {
@@ -819,6 +809,12 @@ router.get('/image/:token', async (req, res) => {
       status: 'error',
       code: 'QR_NOT_FOUND',
       message: '未找到该二维码。'
+    });
+  }
+
+  if (qr.hidden === true) {
+    return res.status(404).json({
+      status: 'error', code: 'QR_NOT_FOUND', message: '未找到该二维码。'
     });
   }
 

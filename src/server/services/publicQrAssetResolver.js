@@ -1,9 +1,9 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { signAssetAccess, signLocalAssetUrl } = require('./assetAccessService');
 
 const {
-  getPublicObjectUrl,
   getSignedUrl,
   buildRecordImageThumbnailObjectKey,
   classifyRecordImageReference,
@@ -28,15 +28,13 @@ function buildRecordImageCacheKey({ decision, authority, channel, variant = 'ful
 function buildLegacyRecordImageProxyUrl(authority, env = process.env) {
   const qrId = String(authority && (authority.qrId || authority.qr_id) || '').trim();
   if (!qrId) return null;
-  const relativeUrl = `/api/qr/media/${encodeURIComponent(qrId)}`;
+  const grant = signAssetAccess({ purpose: 'record-media', resource: qrId, env });
+  const relativeUrl = `/api/qr/media/${encodeURIComponent(qrId)}?${new URLSearchParams(grant)}`;
   const baseUrl = String(env.BASE_URL || '').trim().replace(/\/$/, '');
   return baseUrl ? `${baseUrl}${relativeUrl}` : relativeUrl;
 }
 
-function createPublicQrAssetResolver({
-  resolveSignedUrl = getSignedUrl,
-  resolvePublicObjectUrl = getPublicObjectUrl
-} = {}) {
+function createPublicQrAssetResolver({ resolveSignedUrl = getSignedUrl } = {}) {
   const cache = new Map();
 
   function memoized(cacheKey, factory) {
@@ -58,27 +56,13 @@ function createPublicQrAssetResolver({
     });
     return memoized(cacheKey, () => {
       if (decision.kind === 'rejected') return null;
-      if (decision.kind === 'snapshot' || decision.kind === 'local') return decision.url;
+      if (decision.kind === 'snapshot' || decision.kind === 'local') return signLocalAssetUrl(decision.url);
       if (decision.namespace === 'legacy-prefixed') {
         return buildLegacyRecordImageProxyUrl(authority);
       }
       const objectKey = normalizedVariant === 'thumbnail'
         ? buildRecordImageThumbnailObjectKey(decision.objectKey) || decision.objectKey
         : decision.objectKey;
-      if (normalizedChannel === 'miniapp') {
-        try {
-          const publicUrl = resolvePublicObjectUrl(objectKey);
-          if (publicUrl) return publicUrl;
-        } catch (_error) {
-          // Preserve the current miniapp signed URL fallback.
-        }
-        try {
-          return resolveSignedUrl(objectKey);
-        } catch (_error) {
-          return null;
-        }
-      }
-
       try {
         return resolveSignedUrl(objectKey);
       } catch (_error) {

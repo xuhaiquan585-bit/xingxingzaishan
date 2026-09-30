@@ -86,6 +86,10 @@ const {
 } = require('../services/wechatPayService');
 
 const router = express.Router();
+router.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 const CO_CREATION_COMMENT_LIMIT = 12;
 
 function isValidPhone(phone) {
@@ -1311,6 +1315,8 @@ async function handleMiniappPersonalRecords(req, res) {
     activated_at: item.activated_at,
     display_at: item.display_at,
     activation_status: item.activation_status,
+    ...(item.activation_status === 'co_creating'
+      ? { resume_key: item.record_media_authority?.accessToken || null } : {}),
     image_url: resolveImageUrl(item, assetResolver, 'thumbnail')
   }));
   const data = { total: records.length, records };

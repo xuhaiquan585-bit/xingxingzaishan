@@ -499,6 +499,7 @@ test('default-off H5 route preserves the existing JSON write path without Postgr
   const databaseFile = path.join(directory, 'db.json');
   process.env.DB_FILE = databaseFile;
   process.env.STORAGE_ROOT = path.join(directory, 'storage');
+  process.env.AUDIT_LOG_DIR = path.join(directory, 'logs');
   process.env.AUTH_SECRET = 'qr-write-route-secret';
   process.env.UPLOAD_PROOF_SECRET = 'qr-write-route-upload-proof-secret';
   process.env.NODE_ENV = 'test';
@@ -565,7 +566,7 @@ test('default-off H5 route preserves the existing JSON write path without Postgr
     });
 
     const response = await postJson(
-      `/api/qr/${encodeURIComponent(qr.qr_access_token || qr.id)}/record`,
+      `/api/qr/${encodeURIComponent(qr.qr_access_token)}/record`,
       {
       content: 'Default-off JSON route contract',
       upload_proof: uploadProof
@@ -591,6 +592,7 @@ test('default-off H5 route preserves the existing JSON write path without Postgr
     fs.rmSync(directory, { recursive: true, force: true });
     delete process.env.DB_FILE;
     delete process.env.STORAGE_ROOT;
+    delete process.env.AUDIT_LOG_DIR;
     delete process.env.AUTH_SECRET;
     delete process.env.UPLOAD_PROOF_SECRET;
     delete process.env.NODE_ENV;

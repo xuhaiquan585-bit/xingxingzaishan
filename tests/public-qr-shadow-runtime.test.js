@@ -45,16 +45,18 @@ function enabledConfig() {
   };
 }
 
-test('request-scoped asset resolver validates QR authority before memoization and signing', () => {
+test('request-scoped asset resolver validates QR authority before memoization and signing', (t) => {
+  const oldSecret = process.env.AUTH_SECRET;
+  process.env.AUTH_SECRET = 'shadow-asset-fixture-secret';
+  t.after(() => {
+    if (oldSecret === undefined) delete process.env.AUTH_SECRET;
+    else process.env.AUTH_SECRET = oldSecret;
+  });
   const calls = [];
   const resolver = createPublicQrAssetResolver({
     resolveSignedUrl: (key) => {
       calls.push(['signed', key]);
       return `signed://${key}/one-time`;
-    },
-    resolvePublicObjectUrl: (key) => {
-      calls.push(['public', key]);
-      return `public://${key}`;
     }
   });
   const authority = {
@@ -73,7 +75,7 @@ test('request-scoped asset resolver validates QR authority before memoization an
   );
   assert.equal(
     resolver.resolveRecordImage({ record: objectOnly, authority, channel: 'miniapp' }),
-    `public://${objectKey}`
+    `signed://${objectKey}/one-time`
   );
   assert.equal(
     resolver.resolveRecordImage({
@@ -84,11 +86,11 @@ test('request-scoped asset resolver validates QR authority before memoization an
     null
   );
   const legacyKey = `stars/${authority.accessToken}/legacy.png`;
-  assert.equal(
+  assert.match(
     resolver.resolveRecordImage({
       record: { image_object_key: legacyKey }, authority, channel: 'h5'
     }),
-    '/api/qr/media/QR_PUBLIC_1'
+    /\/api\/qr\/media\/QR_PUBLIC_1\?expires=\d+&signature=[a-f0-9]{64}$/
   );
   assert.equal(
     resolver.resolveRecordImage({
@@ -101,7 +103,7 @@ test('request-scoped asset resolver validates QR authority before memoization an
     }),
     null
   );
-  assert.equal(
+  assert.match(
     resolver.resolveRecordImage({
       record: {
         image_object_key: 'historical.jpg',
@@ -110,7 +112,7 @@ test('request-scoped asset resolver validates QR authority before memoization an
       authority,
       channel: 'h5'
     }),
-    '/uploads/historical.jpg'
+    /^\/uploads\/historical\.jpg\?expires=\d+&signature=[a-f0-9]{64}$/
   );
   assert.equal(
     resolver.resolveRecordImage({
@@ -157,7 +159,7 @@ test('request-scoped asset resolver validates QR authority before memoization an
   }
   assert.deepEqual(calls, [
     ['signed', objectKey],
-    ['public', objectKey]
+    ['signed', objectKey]
   ]);
 
   const cacheKey = buildRecordImageCacheKey({

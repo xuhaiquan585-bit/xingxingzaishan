@@ -3,6 +3,7 @@ const path = require('path');
 const crypto = require('node:crypto');
 const { Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
+const { signLocalAssetUrl } = require('./assetAccessService');
 
 const rootDir = path.join(__dirname, '..');
 const storageRoot = process.env.STORAGE_ROOT ? path.resolve(process.env.STORAGE_ROOT) : rootDir;
@@ -53,7 +54,7 @@ function makeCloudPublicUrl(objectKey) {
   if (baseUrl) {
     return `${baseUrl.replace(/\/$/, '')}/${objectKey}`;
   }
-  return `/cloud/${objectKey}`;
+  return signLocalAssetUrl(`/cloud/${objectKey}`);
 }
 
 function getPublicObjectUrl(objectKey) {
@@ -62,7 +63,7 @@ function getPublicObjectUrl(objectKey) {
     return makeCloudPublicUrl(objectKey);
   }
   const safeKey = String(objectKey).replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/');
-  return `/uploads/${safeKey}`;
+  return signLocalAssetUrl(`/uploads/${safeKey}`);
 }
 
 function getOssConfig() {
@@ -543,7 +544,7 @@ function getSignedUrl(objectKey, expiresSeconds = Number(process.env.OSS_SIGNED_
   if (!objectKey) return null;
   if (getStorageMode() !== 'cloud') {
     const safeKey = String(objectKey).replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/');
-    return `/uploads/${safeKey}`;
+    return signLocalAssetUrl(`/uploads/${safeKey}`, { ttlSeconds: expiresSeconds });
   }
 
   const client = getOssClient();
@@ -577,8 +578,8 @@ async function saveImage({ file, qrId }) {
         saveBinaryFile(localUploadDir, fileName, file.buffer);
         return {
           mode: 'local',
-          url: `/uploads/${fileName}`,
-          preview_url: `/uploads/${fileName}`,
+          url: signLocalAssetUrl(`/uploads/${fileName}`),
+          preview_url: signLocalAssetUrl(`/uploads/${fileName}`),
           object_key: fileName,
           buffer_path: bufferedPath,
           fallback: true
@@ -591,8 +592,8 @@ async function saveImage({ file, qrId }) {
   saveBinaryFile(localUploadDir, fileName, file.buffer);
   return {
     mode,
-    url: `/uploads/${fileName}`,
-    preview_url: `/uploads/${fileName}`,
+    url: signLocalAssetUrl(`/uploads/${fileName}`),
+    preview_url: signLocalAssetUrl(`/uploads/${fileName}`),
     object_key: fileName,
     buffer_path: bufferedPath
   };
@@ -652,8 +653,8 @@ async function saveRecordImage({ file, thumbnailFile, qrId }) {
     removeBufferedFile(thumbnailBufferedPath);
   }
 
-  const publicUrl = getPublicObjectUrl(objectKey);
-  const thumbnailPublicUrl = getPublicObjectUrl(thumbnailObjectKey);
+  const publicUrl = getSignedUrl(objectKey);
+  const thumbnailPublicUrl = getSignedUrl(thumbnailObjectKey);
   return {
     mode,
     url: publicUrl,
@@ -704,7 +705,7 @@ async function saveBinaryObject({ qrId, fileName, buffer, contentType = 'applica
   return {
     mode: 'local',
     object_key: localName,
-    preview_url: `/uploads/${localName}`,
+    preview_url: signLocalAssetUrl(`/uploads/${localName}`),
     local_path: localPath,
     fallback: mode === 'cloud'
   };

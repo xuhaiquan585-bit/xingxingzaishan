@@ -157,8 +157,10 @@ test('record image storage persists both variants and releases local buffers', a
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'record-image-storage-'));
   const previousMode = process.env.STORAGE_MODE;
   const previousRoot = process.env.STORAGE_ROOT;
+  const previousAuthSecret = process.env.AUTH_SECRET;
   process.env.STORAGE_MODE = 'local';
   process.env.STORAGE_ROOT = root;
+  process.env.AUTH_SECRET = 'isolated-record-image-storage-signing-key';
   const modulePath = require.resolve('../src/server/services/storageService');
   delete require.cache[modulePath];
   t.after(() => {
@@ -167,6 +169,8 @@ test('record image storage persists both variants and releases local buffers', a
     else process.env.STORAGE_MODE = previousMode;
     if (previousRoot === undefined) delete process.env.STORAGE_ROOT;
     else process.env.STORAGE_ROOT = previousRoot;
+    if (previousAuthSecret === undefined) delete process.env.AUTH_SECRET;
+    else process.env.AUTH_SECRET = previousAuthSecret;
     fs.rmSync(root, { recursive: true, force: true });
   });
 

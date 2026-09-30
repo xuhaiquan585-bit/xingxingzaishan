@@ -1006,7 +1006,7 @@ test('database reads should not rewrite files or reissue issued QR codes', () =>
   }
 });
 
-test('public QR read context resolves token-first QR and batch from one source snapshot', () => {
+test('public QR read context resolves only credentials and batch from one source snapshot', () => {
   const {
     publicQrDomainSha256FromSource
   } = require('../scripts/database/importer/domain-markers');
@@ -1020,7 +1020,10 @@ test('public QR read context resolves token-first QR and batch from one source s
   const db = getDatabaseSnapshot();
   const qr = db.qr_codes.find((item) => item.qr_access_token) || db.qr_codes[0];
   assert.ok(qr);
-  const key = qr.qr_access_token || qr.id;
+  qr.qr_access_token = qr.qr_access_token || 'read-context-fixture-credential';
+  writeTestDbSnapshot(db);
+  const key = qr.qr_access_token;
+  assert.equal(findPublicQrReadContextByKey(qr.id).qr, null);
   const raw = fs.readFileSync(dbFile, 'utf8');
   const originalReadFileSync = fs.readFileSync;
   let databaseReads = 0;
@@ -1567,7 +1570,8 @@ test('H5 my records and detail pages should use Dawn-safe record data presentati
   assert.equal(meHtml.includes('id="switchPhoneBtn"'), true);
   assert.equal(meJs.includes("apiRequest('/api/user/records')"), true);
   assert.equal(meJs.includes("detailLink.href = `/me-detail.html?id=${encodeURIComponent(item.id || '')}`"), true);
-  assert.equal(meJs.includes("detailLink.href = `/record.html?t=${encodeURIComponent(item.id || '')}`"), true);
+  assert.equal(meJs.includes("detailLink.href = `/record.html?t=${encodeURIComponent(item.resume_key)}`"), true);
+  assert.equal(meJs.includes("detailLink.href = `/record.html?t=${encodeURIComponent(item.id || '')}`"), false);
   assert.equal(meJs.includes("idHint.textContent = '星贴 '"), true);
   assert.equal(meJs.includes('二维码编号：'), false);
   assert.equal(meJs.includes('保存时间：'), false);
@@ -2603,8 +2607,10 @@ test('first record writes reject QR ids and untrusted image references', async (
   assert.equal(coById.body.code, 'QR_NOT_FOUND');
 
   const publicRead = await getJson(`/api/qr/${directQr.id}`);
-  assert.equal(publicRead.status, 200);
-  assert.equal(publicRead.body.data.id, directQr.id);
+  assert.equal(publicRead.status, 404);
+  const tokenRead = await getJson(`/api/qr/${directQr.qr_access_token}`);
+  assert.equal(tokenRead.status, 200);
+  assert.equal(tokenRead.body.data.id, directQr.id);
 });
 
 test('production sample QR endpoint does not expose an unactivated token', async () => {
@@ -5765,12 +5771,19 @@ test('miniapp upload and record flow should require bound phone and reject dupli
   assert.equal(missingAccountRecordRes.status, 404);
 });
 
-test('miniapp record payload should use public cloud url for object-key-only images', async () => {
-  const oldStorageMode = process.env.STORAGE_MODE;
-  const oldCloudPublicBaseUrl = process.env.CLOUD_PUBLIC_BASE_URL;
+test('miniapp record media fails closed instead of using a public marketing CDN without signing config', async () => {
+  const previous = snapshotEnv([
+    'STORAGE_MODE', 'CLOUD_PUBLIC_BASE_URL', 'OSS_ACCESS_KEY_ID',
+    'OSS_ACCESS_KEY_SECRET', 'OSS_BUCKET', 'OSS_REGION', 'OSS_ENDPOINT'
+  ]);
   try {
     process.env.STORAGE_MODE = 'cloud';
     process.env.CLOUD_PUBLIC_BASE_URL = 'https://cdn.example.com/xingxing';
+    delete process.env.OSS_ACCESS_KEY_ID;
+    delete process.env.OSS_ACCESS_KEY_SECRET;
+    delete process.env.OSS_BUCKET;
+    delete process.env.OSS_REGION;
+    delete process.env.OSS_ENDPOINT;
 
     const adminLogin = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
     const adminToken = adminLogin.body.data.token;
@@ -5797,16 +5810,14 @@ test('miniapp record payload should use public cloud url for object-key-only ima
       upload_proof: artifact.uploadProof
     }, token);
     assert.equal(recordRes.status, 200);
-    assert.equal(recordRes.body.data.image_url, `https://cdn.example.com/xingxing/${objectKey}`);
+    assert.equal(recordRes.body.data.image_url, null);
+    assert.equal(JSON.stringify(recordRes.body.data).includes(objectKey), false);
 
     const statusRes = await getJson(`/api/miniapp/qr/${accessToken}`, token);
     assert.equal(statusRes.status, 200);
-    assert.equal(statusRes.body.data.image_url, `https://cdn.example.com/xingxing/${objectKey}`);
+    assert.equal(statusRes.body.data.image_url, null);
   } finally {
-    if (oldStorageMode === undefined) delete process.env.STORAGE_MODE;
-    else process.env.STORAGE_MODE = oldStorageMode;
-    if (oldCloudPublicBaseUrl === undefined) delete process.env.CLOUD_PUBLIC_BASE_URL;
-    else process.env.CLOUD_PUBLIC_BASE_URL = oldCloudPublicBaseUrl;
+    restoreEnv(previous);
   }
 });
 
@@ -6251,7 +6262,7 @@ test('createApp should fail fast in cloud mode without OSS config', async () => 
   else process.env.OSS_ENDPOINT = oldEndpoint;
 });
 
-test('GET /api/nft/:id/download should return download_url after activation', async () => {
+test('GET /api/nft/:key/download requires a credential after activation', async () => {
   const imageData = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
     'base64'
@@ -6295,10 +6306,15 @@ test('GET /api/nft/:id/download should return download_url after activation', as
   assert.equal(directRecord.account_id, recordOwner.account_id);
 
   const downloadRes = await getJson('/api/nft/STAR0002/download');
-  assert.equal(downloadRes.status, 200);
-  assert.ok(downloadRes.body.data.download_url);
-  assert.equal(Object.hasOwn(downloadRes.body.data, 'image_object_key'), false);
-  assert.equal(JSON.stringify(downloadRes.body.data).includes(issuedKey), false);
+  assert.equal(downloadRes.status, 404);
+  const authorized = await getJson(`/api/nft/${issuedKey}/download`);
+  assert.equal(authorized.status, 200);
+  assert.ok(authorized.body.data.download_url);
+  assert.equal(Object.hasOwn(authorized.body.data, 'image_object_key'), false);
+  assert.equal(JSON.stringify(authorized.body.data).includes(issuedKey), false);
+  const image = await fetch(new URL(authorized.body.data.download_url, baseUrl));
+  assert.equal(image.status, 200);
+  assert.ok((await image.arrayBuffer()).byteLength > 0);
 });
 
 test('legacy prefixed NFT media uses a canonical QR proxy without exposing access token', async () => {
@@ -6315,16 +6331,23 @@ test('legacy prefixed NFT media uses a canonical QR proxy without exposing acces
   const previousStorageMode = process.env.STORAGE_MODE;
   process.env.STORAGE_MODE = 'cloud';
   try {
-    const response = await getJson(`/api/nft/${encodeURIComponent(qr.id)}/download`);
+    const denied = await getJson(`/api/nft/${encodeURIComponent(qr.id)}/download`);
+    assert.equal(denied.status, 404);
+    const response = await getJson(`/api/nft/${accessToken}/download`);
     assert.equal(response.status, 200);
-    assert.equal(response.body.data.download_url, `/api/qr/media/${encodeURIComponent(qr.id)}`);
+    const mediaUrl = new URL(response.body.data.download_url, baseUrl);
+    assert.equal(mediaUrl.pathname, `/api/qr/media/${encodeURIComponent(qr.id)}`);
+    assert.match(mediaUrl.searchParams.get('signature'), /^[a-f0-9]{64}$/);
+    assert.ok(mediaUrl.searchParams.get('expires'));
     assert.equal(JSON.stringify(response.body.data).includes(accessToken), false);
     assert.equal(Object.hasOwn(response.body.data, 'image_object_key'), false);
 
-    const shareResponse = await getJson(`/api/nft/${encodeURIComponent(qr.id)}/share-meta`);
+    const shareDenied = await getJson(`/api/nft/${encodeURIComponent(qr.id)}/share-meta`);
+    assert.equal(shareDenied.status, 404);
+    const shareResponse = await getJson(`/api/nft/${accessToken}/share-meta`);
     assert.equal(shareResponse.status, 200);
-    assert.equal(JSON.stringify(shareResponse.body.data).includes(accessToken), false);
-    assert.match(shareResponse.body.data.url, /record\.html\?qr=/);
+    assert.equal(new URL(shareResponse.body.data.url).searchParams.get('t'), accessToken);
+    assert.equal(new URL(shareResponse.body.data.url).searchParams.has('qr'), false);
   } finally {
     if (previousStorageMode === undefined) delete process.env.STORAGE_MODE;
     else process.env.STORAGE_MODE = previousStorageMode;
@@ -6374,12 +6397,192 @@ test('GET /api/qr/:key should return QR by token and reject invalid token', asyn
   assert.equal(Object.hasOwn(resByToken.body.data, 'image_object_key'), false);
 
   const resById = await getJson(`/api/qr/${qrId}`);
-  assert.equal(resById.status, 200);
-  assert.equal(resById.body.data.id, qrId);
-  assert.equal(JSON.stringify(resById.body.data).includes(accessToken), false);
+  assert.equal(resById.status, 404);
+  assert.equal(JSON.stringify(resById.body).includes(accessToken), false);
 
   const resByBadToken = await getJson('/api/qr/nonexistenttoken1234567890123456');
   assert.equal(resByBadToken.status, 404);
+});
+
+test('SEC-001/003/004 IDs cannot authorize public reads, shares, media or QR images', async () => {
+  const ownerPhone = '13800138961';
+  const ownerCookie = await loginUserAndGetCookie(ownerPhone);
+  const otherCookie = await loginUserAndGetCookie('13800138962');
+  const ownerMiniapp = await loginMiniappBindPhoneAndGetToken({
+    code: 'security-owner-miniapp', phone: ownerPhone
+  });
+  const db = getTestDbSnapshot();
+  const ownerId = findTestUserByPhone(db, ownerPhone).account_id;
+  const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64');
+  const { getLocalObjectPath } = require('../src/server/services/storageService');
+  const { qrImagePath } = require('../src/server/services/qrImageService');
+  const fixtures = ['activated', 'co_creating', 'unactivated', 'activated'].map((state, index) => {
+    const credential = crypto.randomBytes(16).toString('hex');
+    return {
+      id: `SECENUM0000${index + 1}`, qr_access_token: credential,
+      issue_status: 'issued', activation_status: state, hidden: index === 3,
+      account_id: ownerId, phone: ownerPhone, content: `protected-memory-${index}`,
+      image_object_key: `stars/${credential}/fixture.png`, image_url: null,
+      co_creation_enabled: state === 'co_creating',
+      co_creation_owner_account_id: ownerId, co_creation_owner_phone: ownerPhone,
+      co_creation_comments: [], co_creation_started_at: '2026-09-29T00:00:00.000Z',
+      activated_at: state === 'activated' ? '2026-09-29T01:00:00.000Z' : null,
+      created_at: '2026-09-29T00:00:00.000Z'
+    };
+  });
+  db.qr_codes.push(...fixtures);
+  writeTestDbSnapshot(db);
+  for (const qr of fixtures) {
+    const imagePath = getLocalObjectPath(qr.image_object_key);
+    fs.mkdirSync(path.dirname(imagePath), { recursive: true });
+    fs.writeFileSync(imagePath, pixel);
+    fs.mkdirSync(path.dirname(qrImagePath(qr.id)), { recursive: true });
+    await require('qrcode').toFile(qrImagePath(qr.id), `${baseUrl}/record.html?t=${qr.qr_access_token}`);
+  }
+  const routes = (key) => [
+    `/api/qr/${key}`, `/api/miniapp/qr/${key}`,
+    `/api/nft/${key}/share-meta`, `/api/nft/${key}/download`,
+    `/api/qr/image/${key}`, `/api/qr/media/${key}`
+  ];
+  for (const key of [...fixtures.map(qr => qr.id), 'SECENUM00005', crypto.randomBytes(16).toString('hex')]) {
+    for (const route of routes(key)) {
+      for (const cookie of ['', ownerCookie, otherCookie]) {
+        const result = await getJsonWithCookie(route, cookie);
+        assert.equal(result.status, 404, route);
+        const serialized = JSON.stringify(result.body);
+        assert.equal(serialized.includes('protected-memory'), false);
+        for (const qr of fixtures) assert.equal(serialized.includes(qr.qr_access_token), false);
+      }
+    }
+  }
+  const [active, co, , hidden] = fixtures;
+  const mutatedKey = active.qr_access_token.slice(0, -1) + (active.qr_access_token.endsWith('0') ? '1' : '0');
+  assert.equal((await getJson(`/api/qr/${mutatedKey}?qr=${active.id}&id=${active.id}`)).status, 404);
+  assert.equal((await getJson(`/api/miniapp/qr/${active.id}`, ownerMiniapp)).status, 404);
+  assert.equal((await getJson(`/api/nft/${active.id}/share-meta?t=${active.id}`)).status, 404);
+  const publicRecord = await getJson(`/api/qr/${active.qr_access_token}`);
+  assert.equal(publicRecord.status, 200);
+  assert.equal(publicRecord.body.data.content, active.content);
+  assert.equal(publicRecord.headers['cache-control'], 'no-store');
+  assert.equal(JSON.stringify(publicRecord.body).includes(active.qr_access_token), false);
+  const miniappRecord = await getJson(`/api/miniapp/qr/${active.qr_access_token}`);
+  assert.equal(miniappRecord.status, 200);
+  assert.equal(miniappRecord.body.data.content, active.content);
+  const share = await getJson(`/api/nft/${active.qr_access_token}/share-meta`);
+  assert.equal(share.status, 200);
+  const sharedKey = new URL(share.body.data.url).searchParams.get('t');
+  assert.equal(sharedKey, active.qr_access_token);
+  assert.equal((await getJson(`/api/qr/${sharedKey}`)).body.data.content, active.content);
+  const codeImage = await fetch(`${baseUrl}/api/qr/image/${active.qr_access_token}`);
+  assert.equal(codeImage.status, 200);
+  assert.equal(codeImage.headers.get('content-type'), 'image/png');
+  assert.ok((await codeImage.arrayBuffer()).byteLength > 100);
+
+  const media = new URL(publicRecord.body.data.image_url, baseUrl);
+  const mediaResponse = await fetch(media);
+  assert.equal(mediaResponse.status, 200);
+  assert.deepEqual(Buffer.from(await mediaResponse.arrayBuffer()), pixel);
+  const oldReadConfig = snapshotEnv([
+    'PUBLIC_QR_POSTGRES_READ_ENABLED', 'PUBLIC_QR_POSTGRES_READ_SCOPE',
+    'PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256', 'PUBLIC_QR_POSTGRES_READ_ALLOWLIST'
+  ]);
+  try {
+    process.env.PUBLIC_QR_POSTGRES_READ_ENABLED = 'true';
+    process.env.PUBLIC_QR_POSTGRES_READ_SCOPE = 'all';
+    process.env.PUBLIC_QR_POSTGRES_READ_DOMAIN_SHA256 = 'a'.repeat(64);
+    delete process.env.PUBLIC_QR_POSTGRES_READ_ALLOWLIST;
+    assert.equal((await fetch(media)).status, 404, 'selected PG media must not fall back to JSON');
+  } finally {
+    restoreEnv(oldReadConfig);
+  }
+  const tampered = new URL(media);
+  tampered.pathname = tampered.pathname.replace(active.id, co.id);
+  assert.equal((await fetch(tampered)).status, 404);
+  tampered.pathname = media.pathname;
+  tampered.searchParams.set('expires', '1');
+  assert.equal((await fetch(tampered)).status, 404);
+  assert.equal((await getJson(`/api/nft/${media.searchParams.get('signature')}/share-meta`)).status, 404);
+  assert.equal((await getJson(`/api/qr/${media.searchParams.get('signature')}`)).status, 404);
+
+  const localFile = getLocalObjectPath(`${active.id}.png`);
+  fs.writeFileSync(localFile, pixel);
+  const cloudFile = path.join(process.env.STORAGE_ROOT, 'public', 'cloud', `${active.id}.png`);
+  fs.mkdirSync(path.dirname(cloudFile), { recursive: true });
+  fs.writeFileSync(cloudFile, pixel);
+  for (const resource of [
+    `/uploads/${active.id}.png`, `/cloud/${active.id}.png`,
+    `/uploads/${active.image_object_key}`, `/qrcodes/${active.id}.png`
+  ]) assert.equal((await fetch(`${baseUrl}${resource}`)).status, 404, resource);
+
+  for (const route of routes(hidden.qr_access_token).slice(2, 5)) {
+    assert.equal((await fetch(`${baseUrl}${route}`)).status, 404, route);
+  }
+  const anonymousCo = await getJson(`/api/qr/${co.qr_access_token}`);
+  assert.equal(anonymousCo.status, 200);
+  assert.equal(Object.hasOwn(anonymousCo.body.data, 'content'), false);
+  assert.equal(Object.hasOwn(anonymousCo.body.data, 'image_url'), false);
+  const ownerCo = await getJsonWithCookie(`/api/qr/${co.qr_access_token}`, ownerCookie);
+  assert.equal(ownerCo.status, 200);
+  assert.equal(ownerCo.body.data.is_co_creation_owner, true);
+  const ownerRecords = await getJsonWithCookie('/api/user/records', ownerCookie);
+  assert.equal(ownerRecords.body.data.records.find(item => item.id === co.id).resume_key, co.qr_access_token);
+  const miniappRecords = await getJson('/api/miniapp/user/records', ownerMiniapp);
+  assert.equal(miniappRecords.body.data.records.find(item => item.id === co.id).resume_key, co.qr_access_token);
+  const otherRecords = await getJsonWithCookie('/api/user/records', otherCookie);
+  assert.equal(otherRecords.body.data.records.some(item => item.id === co.id), false);
+  assert.equal((await getJsonWithCookie(`/api/user/records/${active.id}`, ownerCookie)).status, 200);
+  assert.equal((await getJsonWithCookie(`/api/user/records/${active.id}`, otherCookie)).status, 404);
+  assert.equal((await postJsonWithCookie(`/api/qr/${co.id}/comments`, { author_name: 'Owner', content: 'denied' }, ownerCookie)).status, 404);
+  const comment = await postJsonWithCookie(`/api/qr/${co.qr_access_token}/comments`, { author_name: 'Owner', content: 'still works' }, ownerCookie);
+  assert.equal(comment.status, 200);
+  const auditLog = fs.readFileSync(path.join(process.env.AUDIT_LOG_DIR, 'audit.log'), 'utf8');
+  assert.equal(auditLog.includes(co.qr_access_token), false);
+  assert.ok(auditLog.includes('/api/qr/[credential]/comments'));
+
+  const updated = getTestDbSnapshot();
+  updated.qr_codes.find(qr => qr.id === active.id).hidden = true;
+  writeTestDbSnapshot(updated);
+  assert.equal((await fetch(media)).status, 404);
+  for (const qr of fixtures) {
+    assert.equal(getTestDbSnapshot().qr_codes.find(item => item.id === qr.id).qr_access_token, qr.qr_access_token);
+  }
+});
+
+test('signed local storage keeps published product and storefront images usable without opening record files', async () => {
+  const before = getTestDbSnapshot();
+  const db = getTestDbSnapshot();
+  const { getLocalObjectPath } = require('../src/server/services/storageService');
+  const imagePath = getLocalObjectPath('marketing-fixture.png');
+  fs.writeFileSync(imagePath, Buffer.from('marketing-fixture-image'));
+  const oldUrl = '/uploads/marketing-fixture.png?expires=1&signature=expired';
+  db.miniapp_content.home_banner_image = oldUrl;
+  db.products.push({
+    id: 'PUBLICIMAGE', title: 'Fixture product', status: 'published',
+    cover_image: oldUrl, images: [oldUrl], price_cents: 1990
+  });
+  writeTestDbSnapshot(db);
+  try {
+    assert.equal((await fetch(`${baseUrl}/uploads/marketing-fixture.png`)).status, 404);
+    const content = await getJson('/api/miniapp/content');
+    const product = await getJson('/api/miniapp/products/PUBLICIMAGE');
+    assert.equal(content.status, 200);
+    assert.equal(product.status, 200);
+    for (const value of [content.body.data.home_banner_image, product.body.data.cover_image, product.body.data.images[0]]) {
+      const url = new URL(value, baseUrl);
+      assert.ok(Number(url.searchParams.get('expires')) > Date.now() / 1000);
+      const response = await fetch(url);
+      assert.equal(response.status, 200);
+      assert.equal(await response.text(), 'marketing-fixture-image');
+      url.pathname = '/uploads/another-record.png';
+      assert.equal((await fetch(url)).status, 404);
+    }
+    assert.equal(getTestDbSnapshot().miniapp_content.home_banner_image, oldUrl);
+  } finally {
+    const current = getTestDbSnapshot();
+    current.products = before.products;
+    current.miniapp_content = before.miniapp_content;
+    writeTestDbSnapshot(current);
+  }
 });
 
 test('POST /api/qr/:token/record should activate QR by access token', async () => {

@@ -1189,7 +1189,7 @@ shareBtn.addEventListener('click', async () => {
   }
 
   try {
-    const res = await apiRequest(`/api/nft/${encodeURIComponent(currentResult.qr_id)}/share-meta`);
+    const res = await apiRequest(`/api/nft/${encodeURIComponent(qrId)}/share-meta`);
     const payload = {
       title: res.data.title,
       text: res.data.text,

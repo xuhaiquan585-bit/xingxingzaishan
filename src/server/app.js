@@ -14,6 +14,8 @@ const paymentRoutes = require('./routes/payment');
 const { createRateLimiter } = require('./middlewares/rateLimit');
 const { auditLogger } = require('./middlewares/auditLogger');
 const { attachUserSession } = require('./middlewares/userSession');
+const { requireLocalAssetSignature } = require('./services/assetAccessService');
+const { getLocalObjectPath } = require('./services/storageService');
 const {
   createPostgresCutoverWriteFreeze,
   readPostgresCutoverWriteFreezeConfig
@@ -68,6 +70,11 @@ function createApp({
 
   const app = express();
 
+  app.use((_req, res, next) => {
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    next();
+  });
+
   initializeDB();
 
   app.use(postgresCutoverWriteFreeze);
@@ -113,13 +120,17 @@ function createApp({
     methods: ['POST', 'PUT', 'PATCH', 'DELETE']
   });
 
-  app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
-  app.use('/cloud', express.static(path.join(__dirname, 'public', 'cloud')));
+  app.use('/uploads', requireLocalAssetSignature('/uploads'), express.static(getLocalObjectPath(''), {
+    cacheControl: false
+  }));
+  app.use('/cloud', requireLocalAssetSignature('/cloud'), express.static(
+    path.join(process.env.STORAGE_ROOT || __dirname, 'public', 'cloud'), { cacheControl: false }
+  ));
   app.use('/admin/fonts', express.static(path.join(__dirname, 'assets', 'fonts'), {
     immutable: true,
     maxAge: '1y'
   }));
-  // /qrcodes 已关闭公开访问，改为通过 /api/qr-image/:token 认证访问
+  // /qrcodes stays private; /api/qr/image/:token validates the scan credential.
   app.use(express.static(path.join(__dirname, '..', 'frontend')));
   app.use('/admin', express.static(path.join(__dirname, '..', 'admin')));
   app.use('/qc', express.static(path.join(__dirname, '..', 'qc')));

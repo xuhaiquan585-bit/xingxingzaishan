@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { refreshLocalAssetUrls, signLocalAssetUrl } = require('./assetAccessService');
 const { hashPassword, verifyPassword, isPasswordHashed } = require('./passwordService');
 const {
   qrImagePath,
@@ -1134,14 +1135,13 @@ function writeDatabaseSnapshot(snapshot, { expectedSourceHash } = {}) {
 }
 
 function findQRByToken(token) {
+  if (typeof token !== 'string' || !token.trim()) return null;
   const db = readDB();
   return db.qr_codes.find((item) => item.qr_access_token === token) || null;
 }
 
 function findQRByKey(key) {
-  const byToken = findQRByToken(key);
-  if (byToken) return byToken;
-  return getQRCode(key);
+  return findQRByToken(key);
 }
 
 function findPublicQrReadContextByKey(key) {
@@ -1153,7 +1153,6 @@ function findPublicQrReadContextByKey(key) {
   }
 
   const qr = db.qr_codes.find((item) => item.qr_access_token === normalizedKey)
-    || db.qr_codes.find((item) => item.id === normalizedKey)
     || null;
   const batch = qr && qr.batch_id
     ? db.batches.find((item) => item.id === qr.batch_id) || null
@@ -1340,7 +1339,7 @@ function addCoCreationCommentByKey(key, { phone, account_id: accountIdValue, aut
   }
 
   const db = readDB();
-  const index = db.qr_codes.findIndex((item) => item.qr_access_token === key || item.id === key);
+  const index = db.qr_codes.findIndex((item) => key && item.qr_access_token === key);
   if (index === -1) {
     return { error: 'QR_NOT_FOUND' };
   }
@@ -1389,7 +1388,7 @@ function deleteCoCreationCommentByKey(key, { commentId, account_id: accountIdVal
   }
 
   const db = readDB();
-  const index = db.qr_codes.findIndex((item) => item.qr_access_token === key || item.id === key);
+  const index = db.qr_codes.findIndex((item) => key && item.qr_access_token === key);
   if (index === -1) {
     return { error: 'QR_NOT_FOUND' };
   }
@@ -1428,7 +1427,7 @@ function finalizeCoCreationByKey(key, { account_id: accountIdValue, blockchain_h
   }
 
   const db = readDB();
-  const index = db.qr_codes.findIndex((item) => item.qr_access_token === key || item.id === key);
+  const index = db.qr_codes.findIndex((item) => key && item.qr_access_token === key);
   if (index === -1) {
     return { error: 'QR_NOT_FOUND' };
   }
@@ -2063,6 +2062,8 @@ function listProducts({ publicOnly = false } = {}) {
   const db = readDB();
   let products = db.products.map((item) => ({
     ...item,
+    cover_image: signLocalAssetUrl(item.cover_image),
+    images: (item.images || []).map((url) => signLocalAssetUrl(url)),
     price_text: formatProductPriceText(item.price_cents)
   }));
   if (publicOnly) {
@@ -2108,6 +2109,10 @@ function orderPayload(order) {
   } = order;
   return {
     ...publicOrder,
+    product_snapshot: order.product_snapshot ? {
+      ...order.product_snapshot,
+      cover_image: signLocalAssetUrl(order.product_snapshot.cover_image)
+    } : order.product_snapshot,
     status_text: orderStatusText(order.status),
     amount_text: `¥${(Number(order.total_amount_cents || 0) / 100).toFixed(2)}`
   };
@@ -2669,7 +2674,7 @@ function validateMiniappContent(data) {
 
 function getMiniappContent({ publicOnly = false } = {}) {
   const db = readDB();
-  const content = normalizeMiniappContent(db.miniapp_content);
+  const content = refreshLocalAssetUrls(normalizeMiniappContent(db.miniapp_content));
   if (!publicOnly) {
     return content;
   }

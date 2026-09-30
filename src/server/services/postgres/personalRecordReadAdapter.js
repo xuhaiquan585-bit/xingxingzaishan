@@ -124,6 +124,8 @@ class PersonalRecordReadAdapter {
           record.sealed_at || record.co_creation_started_at || record.created_at
         ),
         activation_status: record.lifecycle_status,
+        ...(record.lifecycle_status === 'co_creating'
+          ? { resume_key: record.authority_access_token || null } : {}),
         image_url: await this.#resolveImage(record, snapshot.channel, assetResolver)
       })));
       return { total: records.length, records };
