@@ -500,7 +500,7 @@ test('default-off H5 route preserves the existing JSON write path without Postgr
   process.env.DB_FILE = databaseFile;
   process.env.STORAGE_ROOT = path.join(directory, 'storage');
   process.env.AUDIT_LOG_DIR = path.join(directory, 'logs');
-  process.env.AUTH_SECRET = 'qr-write-route-secret';
+  process.env.AUTH_SECRET = 'qr-write-route-secret-1234567890abc';
   process.env.UPLOAD_PROOF_SECRET = 'qr-write-route-upload-proof-secret';
   process.env.NODE_ENV = 'test';
   delete process.env.QR_LIFECYCLE_POSTGRES_WRITE_ENABLED;

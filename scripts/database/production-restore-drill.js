@@ -495,6 +495,11 @@ async function validateRestoredDatabase({ database, pool, resultPath }) {
 
     const objectKeyRows = await queryRows(context, `WITH object_keys AS (
       SELECT 'records.image_object_key' AS source, image_object_key AS object_key FROM app.records
+      UNION ALL
+      SELECT 'records.thumbnail_object_key',
+             regexp_replace(image_object_key, '-record-v2\\.jpg$', '-thumb-v2.jpg')
+      FROM app.records
+      WHERE image_object_key ~ '-record-v2\\.jpg$'
       UNION ALL SELECT 'products.cover_image_object_key', cover_image_object_key FROM app.products
       UNION ALL SELECT 'product_images.image_object_key', image_object_key FROM app.product_images
       UNION ALL SELECT 'record_proofs.manifest_object_key', manifest_object_key FROM app.record_proofs
@@ -502,6 +507,7 @@ async function validateRestoredDatabase({ database, pool, resultPath }) {
       UNION ALL SELECT 'record_archives.manifest_object_key', manifest_object_key FROM app.record_archives
       UNION ALL SELECT 'record_archives.legacy_manifest_object_key', legacy_manifest_object_key FROM app.record_archives
       UNION ALL SELECT 'record_archives.index_object_key', index_object_key FROM app.record_archives
+      UNION ALL SELECT 'print_batches.artifact_object_key', artifact_object_key FROM app.print_batches
     )
     SELECT source,
            count(*) FILTER (WHERE object_key IS NOT NULL)::integer AS reference_count,

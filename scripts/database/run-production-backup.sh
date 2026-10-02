@@ -11,6 +11,9 @@ EXPECTED_OSS_ENV="$REPO/.env"
 EXPECTED_PM2_DUMP=/root/.pm2/dump.pm2
 BACKUP_SCRIPT="$REPO/scripts/database/production-backup.js"
 LOCK_FILE=/run/lock/xingxingzaishan-production-backup.lock
+NODE=/usr/local/bin/node
+RUNTIME_CONFIG_CHECK="$REPO/scripts/acceptance/validate-running-production-config.js"
+RUNTIME_POSTGRES_CONFIG_READER="$REPO/scripts/acceptance/read-running-postgres-client-config.js"
 
 fail() {
   printf 'PRODUCTION_MANUAL_OFFSITE_BACKUP=FAIL\nERROR_CODE=%s\n' "$1" >&2
@@ -81,19 +84,23 @@ assert_authority_runtime() {
 
 [ "$(id -u)" = 0 ] || fail ROOT_REQUIRED
 cd "$REPO"
-git diff --quiet || fail TRACKED_WORKTREE_DIRTY
-git diff --cached --quiet || fail TRACKED_INDEX_DIRTY
+[ -z "$(git status --porcelain=v1 --untracked-files=normal)" ] || fail WORKTREE_NOT_CLEAN
 
 command -v flock >/dev/null 2>&1 || fail FLOCK_REQUIRED
 command -v pm2 >/dev/null 2>&1 || fail PM2_REQUIRED
 command -v /usr/local/bin/node >/dev/null 2>&1 || fail NODE_REQUIRED
 command -v /usr/pgsql-15/bin/pg_dump >/dev/null 2>&1 || fail PG_DUMP_REQUIRED
 command -v /usr/pgsql-15/bin/pg_restore >/dev/null 2>&1 || fail PG_RESTORE_REQUIRED
+[ -x "$NODE" ] || fail NODE_REQUIRED
 
 exec 9>"$LOCK_FILE"
 flock -n 9 || fail BACKUP_ALREADY_RUNNING
 
 [ -f "$BACKUP_SCRIPT" ] || fail BACKUP_SCRIPT_MISSING
+[ -f "$RUNTIME_CONFIG_CHECK" ] || fail RUNTIME_CONFIG_CHECK_MISSING
+[ ! -L "$RUNTIME_CONFIG_CHECK" ] || fail RUNTIME_CONFIG_CHECK_UNSAFE
+[ -f "$RUNTIME_POSTGRES_CONFIG_READER" ] || fail RUNTIME_POSTGRES_CONFIG_READER_MISSING
+[ ! -L "$RUNTIME_POSTGRES_CONFIG_READER" ] || fail RUNTIME_POSTGRES_CONFIG_READER_UNSAFE
 [ -f "$EXPECTED_JSON" ] || fail PRODUCTION_JSON_MISSING
 assert_root_private_regular_file "$EXPECTED_OSS_ENV" || fail OSS_ENV_FILE_UNSAFE
 assert_root_private_regular_file "$EXPECTED_PM2_DUMP" || fail PM2_DUMP_UNSAFE
@@ -103,13 +110,26 @@ APP_PID_BEFORE="$(pm2 pid "$APP_NAME" | tail -n 1)"
 [ "$APP_PID_BEFORE" != 0 ] || fail APP_NOT_ONLINE
 [ -r "/proc/$APP_PID_BEFORE/environ" ] || fail APP_RUNTIME_UNREADABLE
 
-APP_STATUS="$(pm2 jlist | /usr/local/bin/node -e '
+PM2_STATE="$(pm2 jlist | "$NODE" -e '
 const fs = require("node:fs");
 const rows = JSON.parse(fs.readFileSync(0, "utf8"));
-const app = rows.find(row => row.name === "xingxingzaishan");
-process.stdout.write(app?.pm2_env?.status || "ABSENT");
-')"
+const apps = rows.filter(row => row.name === "xingxingzaishan");
+if (apps.length !== 1) process.exit(2);
+const app = apps[0];
+process.stdout.write([
+  String(Number(app.pid || 0)),
+  String(app.pm2_env?.status || "ABSENT"),
+  String(Number(app.pm2_env?.pm_uptime || 0))
+].join("|"));
+')" || fail PM2_STATE_INVALID
+IFS='|' read -r PM2_PID APP_STATUS PM2_STARTED_AT_MS <<< "$PM2_STATE"
+[ "$PM2_PID" = "$APP_PID_BEFORE" ] || fail APP_PID_CHANGED
 [ "$APP_STATUS" = online ] || fail APP_NOT_ONLINE
+[[ "$PM2_STARTED_AT_MS" =~ ^[0-9]+$ ]] || fail PM2_STATE_INVALID
+[ "$PM2_STARTED_AT_MS" -gt 0 ] || fail PM2_STATE_INVALID
+"$NODE" "$RUNTIME_CONFIG_CHECK" \
+  "$APP_PID_BEFORE" "$REPO" "$EXPECTED_DATABASE" "$PM2_STARTED_AT_MS" \
+  || fail RUNTIME_CONFIG_INVALID
 
 HTTP_BEFORE="$(
   curl -sS -o /dev/null -w '%{http_code}' \
@@ -119,24 +139,19 @@ HTTP_BEFORE="$(
 [ "$HTTP_BEFORE" = 200 ] || fail APP_HTTP_INVALID
 assert_authority_runtime "$APP_PID_BEFORE" || fail POSTGRES_AUTHORITY_RUNTIME_INVALID
 
-PGHOST_VALUE="$(runtime_value "$APP_PID_BEFORE" PGHOST)"
-PGPORT_VALUE="$(runtime_value "$APP_PID_BEFORE" PGPORT)"
-PGUSER_VALUE="$(runtime_value "$APP_PID_BEFORE" PGUSER)"
-PGDATABASE_VALUE="$(runtime_value "$APP_PID_BEFORE" PGDATABASE)"
-PGSSL_VALUE="$(runtime_value "$APP_PID_BEFORE" PGSSL)"
-PASSWORD_FILE="$(runtime_value "$APP_PID_BEFORE" PGPASSWORD_FILE)"
-
-[ -n "$PGHOST_VALUE" ] || fail PGHOST_MISSING
-[ -n "$PGPORT_VALUE" ] || fail PGPORT_MISSING
+RUNTIME_POSTGRES_CONFIG="$(
+  "$NODE" "$RUNTIME_POSTGRES_CONFIG_READER" --backup \
+    "$APP_PID_BEFORE" "$REPO" "$EXPECTED_DATABASE" "$PM2_STARTED_AT_MS"
+)" || fail RUNTIME_POSTGRES_CONFIG_INVALID
+IFS='|' read -r PGHOST_VALUE PGPORT_VALUE PGUSER_VALUE PGDATABASE_VALUE \
+  PGSSL_MODE PASSWORD_FILE <<< "$RUNTIME_POSTGRES_CONFIG"
+[ "$PGHOST_VALUE" = 127.0.0.1 ] || fail POSTGRES_HOST_NOT_LOCAL
+[[ "$PGPORT_VALUE" =~ ^[0-9]+$ ]] || fail PGPORT_INVALID
 [ -n "$PGUSER_VALUE" ] || fail PGUSER_MISSING
 [ "$PGDATABASE_VALUE" = "$EXPECTED_DATABASE" ] || fail PRODUCTION_DATABASE_MISMATCH
 assert_root_private_regular_file "$PASSWORD_FILE" || fail POSTGRES_PASSWORD_FILE_UNSAFE
-
-case "$PGSSL_VALUE" in
-  true) PGSSL_MODE=require ;;
-  false|'') PGSSL_MODE=disable ;;
-  *) fail PGSSL_VALUE_INVALID ;;
-esac
+[ "$PGSSL_MODE" = require ] || [ "$PGSSL_MODE" = disable ] \
+  || fail PGSSL_VALUE_INVALID
 
 GIT_COMMIT="$(git rev-parse HEAD)"
 
@@ -167,6 +182,7 @@ echo "APP_HTTP_AFTER=$HTTP_AFTER"
 echo 'POSTGRES_AUTHORITY_REMAINS_ENABLED=YES'
 echo 'JSON_BUSINESS_PATH_CHANGED=NO'
 echo 'AVATA_ENABLED=YES'
+echo 'POSTGRES_CLIENT_CONFIG=PASS_RECONSTRUCTED_REDACTED'
 echo 'CRON_CONFIGURED=NO'
 echo 'PRODUCTION_MANUAL_OFFSITE_BACKUP=PASS'
 echo 'PRODUCTION_MANUAL_OFFSITE_BACKUP_ACCEPTANCE=PASS'

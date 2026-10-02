@@ -1,6 +1,11 @@
 const express = require('express');
 const { verifyToken } = require('../services/authService');
-const { runQualityCheck, getQualityCheckLogs, getQualityCheckStats } = require('../services/dbService');
+const {
+  getOperatorAuthState,
+  runQualityCheck,
+  getQualityCheckLogs,
+  getQualityCheckStats
+} = require('../services/dbService');
 const {
   administerQrs,
   qrIssuanceAuthorityHttpError
@@ -18,8 +23,12 @@ function getBearerToken(req) {
 
 function requireQC(req, res, next) {
   const token = getBearerToken(req);
-  const operator = verifyToken(token);
-  if (!operator) {
+  const tokenOperator = verifyToken(token);
+  const operator = tokenOperator && getOperatorAuthState(tokenOperator.id);
+  if (!operator || !operator.enabled
+      || operator.username !== tokenOperator.username
+      || operator.role !== tokenOperator.role
+      || operator.auth_version !== tokenOperator.auth_version) {
     return res.status(401).json({
       status: 'error',
       code: 'UNAUTHORIZED',

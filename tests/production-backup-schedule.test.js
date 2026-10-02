@@ -132,3 +132,20 @@ test('invalid state directories and absent success run IDs fail closed', () => {
       && error.code === 'SUCCESS_RUN_ID_MISSING'
   );
 });
+
+test('scheduled backup wrapper bounds private log retention', () => {
+  const source = fs.readFileSync(path.join(
+    __dirname,
+    '..',
+    'scripts',
+    'database',
+    'run-production-backup-scheduled.sh'
+  ), 'utf8');
+  assert.match(source, /^LOG_RETENTION_COUNT=168$/m);
+  assert.match(source, /prune_schedule_logs "\$LOG_FILE"/);
+  assert.match(source, /\[ ! -L "\$candidate" \]/);
+  assert.match(source, /stat -c '%U:%G'/);
+  assert.match(source, /stat -c '%a'/);
+  assert.match(source, /rm -f -- "\$candidate"/);
+  assert.match(source, /LOG_RETENTION_COUNT=\$LOG_RETENTION_COUNT/);
+});

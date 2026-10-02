@@ -60,6 +60,27 @@ function corsMiddleware() {
   };
 }
 
+function configureTrustedProxy(app) {
+  // Production Nginx connects locally; public peers must not be allowed to spoof forwarding headers.
+  app.set('trust proxy', 'loopback');
+}
+
+function createReadinessHandler(checkProductionReadiness) {
+  return async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    let ready = false;
+    try {
+      ready = await checkProductionReadiness();
+    } catch (_error) {
+      ready = false;
+    }
+    return res.status(ready ? 200 : 503).json({
+      status: ready ? 'success' : 'error',
+      code: ready ? 'READY' : 'NOT_READY'
+    });
+  };
+}
+
 function createApp({
   checkProductionReadiness = createProductionReadinessChecker()
 } = {}) {
@@ -69,6 +90,7 @@ function createApp({
   );
 
   const app = express();
+  configureTrustedProxy(app);
 
   app.use((_req, res, next) => {
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -89,14 +111,7 @@ function createApp({
   app.use(corsMiddleware());
   app.use(attachUserSession());
 
-  app.get('/api/health/ready', async (_req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    const ready = await checkProductionReadiness();
-    return res.status(ready ? 200 : 503).json({
-      status: ready ? 'success' : 'error',
-      code: ready ? 'READY' : 'NOT_READY'
-    });
-  });
+  app.get('/api/health/ready', createReadinessHandler(checkProductionReadiness));
 
 
   const loginRateLimiter = createRateLimiter({
@@ -173,6 +188,22 @@ function createApp({
   app.use('/api/payment', paymentRoutes);
 
   app.use((err, _req, res, _next) => {
+    if (err && err.type === 'entity.parse.failed') {
+      return res.status(400).json({
+        status: 'error',
+        code: 'INVALID_JSON',
+        message: '请求内容格式不正确，请检查后重试。'
+      });
+    }
+
+    if (err && err.type === 'entity.too.large') {
+      return res.status(413).json({
+        status: 'error',
+        code: 'REQUEST_BODY_TOO_LARGE',
+        message: '请求内容过大，请精简后重试。'
+      });
+    }
+
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(413).json({
         status: 'error',
@@ -200,5 +231,7 @@ function createApp({
 }
 
 module.exports = {
+  configureTrustedProxy,
+  createReadinessHandler,
   createApp
 };

@@ -1,5 +1,9 @@
 const crypto = require('crypto');
 const https = require('https');
+const { readBoundedNodeResponse } = require('../utils/boundedResponse');
+
+const SMS_REQUEST_TIMEOUT_MS = 10_000;
+const SMS_RESPONSE_MAX_BYTES = 1024 * 1024;
 
 function getSmsProvider() {
   return String(process.env.SMS_PROVIDER || 'mock').trim().toLowerCase();
@@ -50,11 +54,13 @@ function aliyunRpcRequest(params, accessKeySecret) {
   const url = `https://dysmsapi.aliyuncs.com/?${query}`;
 
   return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        const raw = Buffer.concat(chunks).toString('utf8');
+    const request = https.get(url, (res) => {
+      readBoundedNodeResponse(res, {
+        maxBytes: SMS_RESPONSE_MAX_BYTES,
+        errorCode: 'SMS_RESPONSE_TOO_LARGE',
+        errorMessage: '短信服务响应异常，请稍后重试。'
+      }).then((buffer) => {
+        const raw = buffer.toString('utf8');
         let body = null;
         try {
           body = raw ? JSON.parse(raw) : null;
@@ -66,8 +72,14 @@ function aliyunRpcRequest(params, accessKeySecret) {
           body,
           raw
         });
-      });
-    }).on('error', reject);
+      }).catch(reject);
+    });
+    request.setTimeout(SMS_REQUEST_TIMEOUT_MS, () => {
+      const error = new Error('短信服务请求超时，请稍后重试。');
+      error.code = 'SMS_REQUEST_TIMEOUT';
+      request.destroy(error);
+    });
+    request.on('error', reject);
   });
 }
 

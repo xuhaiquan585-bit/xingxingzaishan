@@ -132,7 +132,7 @@ function respondAccountContextRequired(res) {
   return res.status(401).json({
     status: 'error',
     code: 'UNAUTHORIZED',
-    message: '璇峰厛瀹屾垚鎵嬫満鍙风櫥褰曘€?'
+    message: '请先完成手机号登录。'
   });
 }
 

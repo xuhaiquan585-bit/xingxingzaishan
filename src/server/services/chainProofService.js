@@ -21,6 +21,10 @@ const {
   isAvataRecordConfigured,
   shouldUseRealAvata
 } = require('./avataService');
+const { readBoundedFetchResponse } = require('../utils/boundedResponse');
+
+const CERTIFICATE_DOWNLOAD_TIMEOUT_MS = 10_000;
+const CERTIFICATE_MAX_BYTES = 10 * 1024 * 1024;
 function getDbService() {
   // Lazy require keeps tests that swap DB_FILE and clear module cache isolated.
   // eslint-disable-next-line global-require
@@ -45,14 +49,40 @@ function certificateFileName(recordId, certificateUrl) {
   return 'chain_certificate.pdf';
 }
 
+async function fetchCertificate(certificateUrl, {
+  fetchImpl = fetch,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
+  timeoutMs = CERTIFICATE_DOWNLOAD_TIMEOUT_MS
+} = {}) {
+  const controller = new AbortController();
+  const timeout = setTimer(() => {
+    const error = new Error('存证证书下载超时。');
+    error.code = 'CERTIFICATE_DOWNLOAD_TIMEOUT';
+    controller.abort(error);
+  }, timeoutMs);
+  if (timeout && typeof timeout.unref === 'function') timeout.unref();
+  try {
+    const response = await fetchImpl(certificateUrl, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`certificate download failed: ${response.status}`);
+    }
+    const buffer = await readBoundedFetchResponse(response, {
+      maxBytes: CERTIFICATE_MAX_BYTES,
+      errorCode: 'CERTIFICATE_RESPONSE_TOO_LARGE',
+      errorMessage: '存证证书响应过大。',
+      controller
+    });
+    return { response, buffer };
+  } finally {
+    clearTimer(timeout);
+  }
+}
+
 async function saveCertificateSnapshot({ record, certificateUrl }) {
   if (!certificateUrl || !shouldUseRealAvata()) return {};
-  const response = await fetch(certificateUrl);
-  if (!response.ok) {
-    throw new Error(`certificate download failed: ${response.status}`);
-  }
+  const { response, buffer } = await fetchCertificate(certificateUrl);
   const contentType = response.headers.get('content-type') || 'application/pdf';
-  const buffer = Buffer.from(await response.arrayBuffer());
   const stored = await saveBinaryObject({
     qrId: record.id,
     fileName: certificateFileName(record.id, certificateUrl),
@@ -253,6 +283,7 @@ function getChainSystemStatus() {
 }
 
 module.exports = {
+  fetchCertificate,
   prepareRecordManifest,
   submitPreparedRecord,
   startRecordChainProof,

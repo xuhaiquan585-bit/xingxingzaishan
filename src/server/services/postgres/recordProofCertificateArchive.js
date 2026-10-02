@@ -208,7 +208,10 @@ function createRecordProofCertificateArchiveHandler({
   objectPrefix,
   transactionRunner,
   repositoryTypes,
-  clock = () => new Date()
+  clock = () => new Date(),
+  requestTimeoutMs = REQUEST_TIMEOUT_MS,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout
 } = {}) {
   if (!pool || typeof pool.connect !== 'function') {
     throw new RecordProofCertificateArchiveError('RECORD_PROOF_CERTIFICATE_POOL_REQUIRED');
@@ -237,10 +240,9 @@ function createRecordProofCertificateArchiveHandler({
 
   async function download(url) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    let response;
+    const timer = setTimer(() => controller.abort(), requestTimeoutMs);
     try {
-      response = await fetchImpl(url, {
+      const response = await fetchImpl(url, {
         method: 'GET',
         redirect: 'error',
         signal: controller.signal,
@@ -249,21 +251,22 @@ function createRecordProofCertificateArchiveHandler({
           'User-Agent': USER_AGENT
         }
       });
-    } catch (_error) {
+      const declaredLength = Number(response.headers && response.headers.get('content-length'));
+      if (
+        response.status !== 200
+        || (Number.isFinite(declaredLength) && declaredLength > MAX_CERTIFICATE_BYTES)
+      ) {
+        throw new RecordProofCertificateArchiveError('RECORD_PROOF_CERTIFICATE_RESPONSE_INVALID');
+      }
+      const buffer = await readBoundedBody(response.body, MAX_CERTIFICATE_BYTES);
+      validateCertificateBuffer(buffer, response.headers && response.headers.get('content-type'));
+      return buffer;
+    } catch (error) {
+      if (error instanceof RecordProofCertificateArchiveError) throw error;
       throw new RecordProofCertificateArchiveError('RECORD_PROOF_CERTIFICATE_DOWNLOAD_FAILED');
     } finally {
-      clearTimeout(timer);
+      clearTimer(timer);
     }
-    const declaredLength = Number(response.headers && response.headers.get('content-length'));
-    if (
-      response.status !== 200
-      || (Number.isFinite(declaredLength) && declaredLength > MAX_CERTIFICATE_BYTES)
-    ) {
-      throw new RecordProofCertificateArchiveError('RECORD_PROOF_CERTIFICATE_RESPONSE_INVALID');
-    }
-    const buffer = await readBoundedBody(response.body, MAX_CERTIFICATE_BYTES);
-    validateCertificateBuffer(buffer, response.headers && response.headers.get('content-type'));
-    return buffer;
   }
 
   return async function archiveCertificate(job) {

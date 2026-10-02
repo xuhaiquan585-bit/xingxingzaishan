@@ -1,7 +1,17 @@
 function createRateLimiter(options = {}) {
   const windowMs = Number(options.window_ms || 60_000);
   const maxRequests = Number(options.max_requests || 60);
-  const store = new Map();
+  const store = options.store instanceof Map ? options.store : new Map();
+  const clock = typeof options.clock === 'function' ? options.clock : Date.now;
+  let nextCleanupAt = 0;
+
+  function removeExpiredBuckets(currentTime) {
+    if (currentTime < nextCleanupAt) return;
+    for (const [key, bucket] of store.entries()) {
+      if (!bucket || currentTime >= bucket.resetAt) store.delete(key);
+    }
+    nextCleanupAt = currentTime + windowMs;
+  }
 
   return (req, res, next) => {
     const methods = Array.isArray(options.methods) ? options.methods : null;
@@ -11,7 +21,8 @@ function createRateLimiter(options = {}) {
     const keyBuilder = options.key_builder || ((r) => r.ip || 'unknown');
     const keyResult = keyBuilder(req);
     const keys = Array.isArray(keyResult) ? keyResult : [keyResult];
-    const now = Date.now();
+    const now = Number(clock());
+    removeExpiredBuckets(now);
     let smallestRemaining = maxRequests;
     let nearestResetAt = now + windowMs;
 
@@ -19,7 +30,7 @@ function createRateLimiter(options = {}) {
       const normalizedKey = String(key || 'unknown');
       const bucket = store.get(normalizedKey);
 
-      if (!bucket || now > bucket.resetAt) {
+      if (!bucket || now >= bucket.resetAt) {
         store.set(normalizedKey, { count: 1, resetAt: now + windowMs });
         smallestRemaining = Math.min(smallestRemaining, maxRequests - 1);
         nearestResetAt = Math.min(nearestResetAt, now + windowMs);

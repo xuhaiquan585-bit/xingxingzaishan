@@ -61,7 +61,7 @@ function response({
   };
 }
 
-function harness({ fetchImpl } = {}) {
+function harness({ fetchImpl, requestTimeoutMs } = {}) {
   const state = {
     proof: {
       id: PROOF_ID,
@@ -110,7 +110,8 @@ function harness({ fetchImpl } = {}) {
       state.transactions.push(options);
       return callback({ query() {} });
     },
-    clock: () => new Date('2026-08-25T00:00:00.000Z')
+    clock: () => new Date('2026-08-25T00:00:00.000Z'),
+    requestTimeoutMs
   });
   return { handler, state };
 }
@@ -204,6 +205,34 @@ test('certificate archive rejects an untrusted proof URL before network or stora
     (error) => error.code === 'RECORD_PROOF_CERTIFICATE_URL_REJECTED'
   );
   assert.equal(state.fetches.length, 0);
+  assert.equal(state.saves.length, 0);
+});
+
+test('certificate archive timeout covers a response body that never finishes', async () => {
+  const { handler, state } = harness({
+    requestTimeoutMs: 20,
+    fetchImpl: async (_url, options) => ({
+      status: 200,
+      headers: {
+        get(name) {
+          return String(name).toLowerCase() === 'content-type' ? 'application/pdf' : null;
+        }
+      },
+      body: {
+        async *[Symbol.asyncIterator]() {
+          yield Buffer.from('%PDF-', 'ascii');
+          await new Promise((resolve, reject) => {
+            options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+          });
+        }
+      }
+    })
+  });
+
+  await assert.rejects(
+    handler(archiveJob()),
+    (error) => error.code === 'RECORD_PROOF_CERTIFICATE_DOWNLOAD_FAILED'
+  );
   assert.equal(state.saves.length, 0);
 });
 

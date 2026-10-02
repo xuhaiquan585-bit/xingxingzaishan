@@ -15,6 +15,7 @@ const {
   createPostgresDump,
   createRunId,
   executeProductionBackup,
+  pruneLocalBackupDirectories,
   safeErrorCode,
   snapshotJsonFile,
   uploadAndVerify,
@@ -408,7 +409,7 @@ test('PM2 dump secret gate and public failure code do not expose secret values',
   );
 });
 
-test('full backup uploads dump, JSON, then manifest and retains local artifacts', async () => {
+test('full backup uploads dump, JSON, then manifest and retains current local artifacts', async () => {
   const fixture = makeBackupFixture();
   const uploads = [];
   const result = await executeProductionBackup({
@@ -450,6 +451,42 @@ test('full backup uploads dump, JSON, then manifest and retains local artifacts'
   const manifest = JSON.parse(fs.readFileSync(result.manifest.path, 'utf8'));
   assert.equal(manifest.status, 'COMPLETE');
   assert.equal(manifest.snapshots.postgresql.verified, true);
+  assert.equal(result.lines.includes('LOCAL_BACKUP_RETENTION_COUNT=48'), true);
+});
+
+test('local backup cache keeps only the newest bounded run directories', () => {
+  const root = makeTempDirectory();
+  try {
+    const names = Array.from({ length: 52 }, (_value, index) => (
+      `202610${String(Math.floor(index / 24) + 1).padStart(2, '0')}`
+        + `T${String(index % 24).padStart(2, '0')}0203Z-`
+        + index.toString(16).padStart(8, '0')
+    ));
+    for (const name of names) {
+      fs.mkdirSync(path.join(root, name), { mode: 0o700 });
+    }
+    fs.writeFileSync(path.join(root, 'operator-note.txt'), 'keep');
+
+    const currentDirectory = path.join(root, names[0]);
+    const result = pruneLocalBackupDirectories({ root, currentDirectory, retainCount: 48 });
+    const retained = fs.readdirSync(root)
+      .filter((name) => /^\d{8}T\d{6}Z-[a-f0-9]{8}$/.test(name));
+    assert.equal(result.deleted, 4);
+    assert.equal(result.retained, 48);
+    assert.equal(retained.length, 48);
+    assert.equal(fs.existsSync(currentDirectory), true);
+    assert.equal(fs.existsSync(path.join(root, 'operator-note.txt')), true);
+    assert.throws(
+      () => pruneLocalBackupDirectories({
+        root,
+        currentDirectory: path.join(root, '..', names[0]),
+        retainCount: 48
+      }),
+      { code: 'LOCAL_BACKUP_RETENTION_PATH_INVALID' }
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('failure on the second upload returns failure and never uploads a manifest', async () => {

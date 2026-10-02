@@ -13,6 +13,7 @@ const {
 const PRODUCTION_DATABASE = 'xingxing_clean_baseline_20260812_staging';
 const PRODUCTION_JSON = '/www/wwwroot/xingxingzaishan/src/server/data/db.json';
 const BACKUP_ROOT = '/root/xingxingzaishan-production-backup';
+const LOCAL_BACKUP_RETENTION_COUNT = 48;
 const OSS_ENV_FILE = '/www/wwwroot/xingxingzaishan/.env';
 const PM2_DUMP_FILE = '/root/.pm2/dump.pm2';
 const PG_DUMP_BIN = '/usr/pgsql-15/bin/pg_dump';
@@ -449,6 +450,59 @@ function createOutputDirectory(root, runId) {
   return outputDirectory;
 }
 
+function pruneLocalBackupDirectories({
+  root,
+  currentDirectory,
+  retainCount = LOCAL_BACKUP_RETENTION_COUNT
+}) {
+  if (!Number.isSafeInteger(retainCount) || retainCount < 1) {
+    throw backupError('LOCAL_BACKUP_RETENTION_INVALID');
+  }
+  const resolvedRoot = path.resolve(String(root || ''));
+  const resolvedCurrent = path.resolve(String(currentDirectory || ''));
+  if (path.dirname(resolvedCurrent) !== resolvedRoot
+      || !/^\d{8}T\d{6}Z-[a-f0-9]{8}$/.test(path.basename(resolvedCurrent))) {
+    throw backupError('LOCAL_BACKUP_RETENTION_PATH_INVALID');
+  }
+  let rootStat;
+  try {
+    rootStat = fs.lstatSync(resolvedRoot);
+  } catch (_error) {
+    throw backupError('LOCAL_BACKUP_RETENTION_PATH_INVALID');
+  }
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw backupError('LOCAL_BACKUP_RETENTION_PATH_INVALID');
+  }
+
+  const currentName = path.basename(resolvedCurrent);
+  const discoveredNames = fs.readdirSync(resolvedRoot)
+    .filter((name) => /^\d{8}T\d{6}Z-[a-f0-9]{8}$/.test(name))
+    .sort()
+    .reverse();
+  if (!discoveredNames.includes(currentName)) {
+    throw backupError('LOCAL_BACKUP_RETENTION_PATH_INVALID');
+  }
+  const names = [currentName, ...discoveredNames.filter((name) => name !== currentName)];
+
+  let kept = 0;
+  let deleted = 0;
+  for (const name of names) {
+    const candidate = path.join(resolvedRoot, name);
+    const stat = fs.lstatSync(candidate);
+    if (stat.isSymbolicLink() || !stat.isDirectory()
+        || (process.platform !== 'win32'
+          && (stat.uid !== rootStat.uid || stat.gid !== rootStat.gid))) {
+      throw backupError('LOCAL_BACKUP_RETENTION_PATH_INVALID');
+    }
+    kept += 1;
+    if (kept > retainCount) {
+      fs.rmSync(candidate, { recursive: true, force: false });
+      deleted += 1;
+    }
+  }
+  return Object.freeze({ deleted, retained: names.length - deleted });
+}
+
 function writeFailureSummary(outputDirectory, runId, code) {
   if (!outputDirectory || !fs.existsSync(outputDirectory)) return;
   const summaryPath = path.join(outputDirectory, 'failure-summary.txt');
@@ -491,6 +545,10 @@ async function executeProductionBackup({
     assertPm2DumpSecretSafe(pm2DumpPath);
     if (loadOssEnvironment) loadProtectedOssEnvironment(ossEnvPath);
     outputDirectory = createOutputDirectory(backupRoot, runId);
+    pruneLocalBackupDirectories({
+      root: backupRoot,
+      currentDirectory: outputDirectory
+    });
 
     const dumpPath = path.join(
       outputDirectory,
@@ -576,6 +634,7 @@ async function executeProductionBackup({
       `MANIFEST_SIZE=${uploadedManifest.size}`,
       `MANIFEST_ETAG=${uploadedManifest.etag}`,
       'MANIFEST_REMOTE_VERIFIED=YES',
+      `LOCAL_BACKUP_RETENTION_COUNT=${LOCAL_BACKUP_RETENTION_COUNT}`,
       `APP_PID=${appPid}`,
       `APP_HTTP=${appHttp}`,
       'SCHEDULE_READY=YES_NOT_CONFIGURED',
@@ -658,6 +717,7 @@ if (require.main === module) {
 
 module.exports = {
   BACKUP_ROOT,
+  LOCAL_BACKUP_RETENTION_COUNT,
   OBJECT_PREFIX,
   OSS_ENV_FILE,
   PM2_DUMP_FILE,
@@ -674,6 +734,7 @@ module.exports = {
   loadProtectedOssEnvironment,
   main,
   parseCliArguments,
+  pruneLocalBackupDirectories,
   safeErrorCode,
   snapshotJsonFile,
   uploadAndVerify,

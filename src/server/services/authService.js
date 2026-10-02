@@ -38,6 +38,13 @@ function safeJsonParse(value) {
   }
 }
 
+function safeEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ''));
+  const rightBuffer = Buffer.from(String(right || ''));
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
 function generateToken(admin, options = {}) {
   const ttlSeconds = Number(options.ttl_seconds || process.env.AUTH_TOKEN_TTL_SECONDS || DEFAULT_TOKEN_TTL_SECONDS);
   const now = Math.floor(Date.now() / 1000);
@@ -46,6 +53,7 @@ function generateToken(admin, options = {}) {
     username: admin.username,
     role: admin.role,
     name: admin.name,
+    auth_version: Number(admin.auth_version ?? 0),
     iat: now,
     exp: now + ttlSeconds
   };
@@ -63,20 +71,23 @@ function verifyToken(token) {
     return null;
   }
 
-  const [encodedHeader, encodedPayload, tokenSignature] = token.split('.');
+  const segments = token.split('.');
+  if (segments.length !== 3) return null;
+  const [encodedHeader, encodedPayload, tokenSignature] = segments;
   if (!encodedHeader || !encodedPayload || !tokenSignature) {
     return null;
   }
 
   const content = `${encodedHeader}.${encodedPayload}`;
   const expectedSignature = sign(content);
-  if (tokenSignature !== expectedSignature) {
+  if (!safeEqual(tokenSignature, expectedSignature)) {
     return null;
   }
 
   const header = safeJsonParse(decodeBase64url(encodedHeader));
   const payload = safeJsonParse(decodeBase64url(encodedPayload));
-  if (!header || !payload || header.alg !== 'HS256') {
+  if (!header || !payload || header.alg !== 'HS256'
+      || !Number.isSafeInteger(payload.auth_version) || payload.auth_version < 0) {
     return null;
   }
 
@@ -90,6 +101,7 @@ function verifyToken(token) {
     username: payload.username,
     role: payload.role,
     name: payload.name,
+    auth_version: payload.auth_version,
     issued_at: new Date(payload.iat * 1000).toISOString(),
     expires_at: new Date(payload.exp * 1000).toISOString()
   };

@@ -578,6 +578,19 @@ function assertRuntimeDatabaseSchema(db) {
     throw databaseError('DB_SCHEMA_MIGRATION_REQUIRED', 'Database contains an unhashed admin password.');
   }
 
+  if (db.admins.some((item) => {
+    if (item.auth_version === undefined) return false;
+    const authVersion = Number(item.auth_version);
+    return !Number.isSafeInteger(authVersion)
+      || authVersion < 0
+      || typeof item.auth_version !== 'number';
+  })) {
+    throw databaseError(
+      'DB_SCHEMA_MIGRATION_REQUIRED',
+      'Database contains an invalid admin authentication version.'
+    );
+  }
+
   if (process.env.NODE_ENV === 'production' && db.admins.length === 0) {
     throw databaseError(
       'CONFIG_VALIDATION_FAILED',
@@ -1468,6 +1481,22 @@ function findAdmin(username, password) {
   )) || null;
 }
 
+function getOperatorAuthState(id) {
+  const db = readDB();
+  const operator = db.admins.find((item) => String(item.id) === String(id));
+  if (!operator) return null;
+  const authVersion = Number(operator.auth_version ?? 0);
+  if (!Number.isSafeInteger(authVersion) || authVersion < 0) return null;
+  return {
+    id: operator.id,
+    username: operator.username,
+    role: operator.role,
+    name: operator.name,
+    enabled: operator.enabled !== false,
+    auth_version: authVersion
+  };
+}
+
 
 function listOperators(role) {
   const db = readDB();
@@ -1497,7 +1526,8 @@ function createOperator({ username, password, role, name }) {
     password: hashPassword(password),
     role,
     name,
-    enabled: true
+    enabled: true,
+    auth_version: 0
   };
   db.admins.push(operator);
   writeDB(db);
@@ -1522,7 +1552,8 @@ function setOperatorEnabled(id, enabled) {
 
   db.admins[index] = {
     ...db.admins[index],
-    enabled
+    enabled,
+    auth_version: Number(db.admins[index].auth_version ?? 0) + 1
   };
   writeDB(db);
 
@@ -1544,7 +1575,8 @@ function changeOperatorPassword(id, newPassword) {
 
   db.admins[index] = {
     ...db.admins[index],
-    password: hashPassword(newPassword)
+    password: hashPassword(newPassword),
+    auth_version: Number(db.admins[index].auth_version ?? 0) + 1
   };
   writeDB(db);
 
@@ -2347,6 +2379,42 @@ function payMiniappOrderMockByAccountId({ account_id: accountIdValue, orderId })
   return { data: orderPayload(db.orders[index]) };
 }
 
+function sanitizePaymentLogRaw(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+  if (input.mock === true) return { mock: true };
+
+  const output = {};
+  [
+    'appid',
+    'mchid',
+    'out_trade_no',
+    'transaction_id',
+    'trade_type',
+    'trade_state',
+    'bank_type',
+    'success_time'
+  ].forEach((field) => {
+    const value = String(input[field] || '').trim();
+    if (value) output[field] = value;
+  });
+
+  if (input.amount && typeof input.amount === 'object' && !Array.isArray(input.amount)) {
+    const total = Number(input.amount.total);
+    const payerTotal = Number(input.amount.payer_total);
+    const currency = String(input.amount.currency || '').trim();
+    const payerCurrency = String(input.amount.payer_currency || '').trim();
+    output.amount = {
+      ...(Number.isSafeInteger(total) && total >= 0 ? { total } : {}),
+      ...(Number.isSafeInteger(payerTotal) && payerTotal >= 0 ? { payer_total: payerTotal } : {}),
+      ...(currency ? { currency } : {}),
+      ...(payerCurrency ? { payer_currency: payerCurrency } : {})
+    };
+    if (Object.keys(output.amount).length === 0) delete output.amount;
+  }
+
+  return output;
+}
+
 function appendPaymentLog(input = {}) {
   const db = readDB();
   const createdAt = nowISO();
@@ -2358,7 +2426,7 @@ function appendPaymentLog(input = {}) {
     status: input.status || '',
     amount_cents: Number(input.amount_cents || 0),
     transaction_id: input.transaction_id || '',
-    raw: input.raw || {},
+    raw: sanitizePaymentLogRaw(input.raw),
     error: input.error || '',
     created_at: createdAt
   });
@@ -2403,7 +2471,7 @@ function markOrderPaidByOrderNo({ orderNo, transactionId, paidAt, raw }) {
     status: 'paid',
     amount_cents: expectedAmount,
     transaction_id: transactionId || '',
-    raw: raw || {},
+    raw: sanitizePaymentLogRaw(raw),
     created_at: confirmedAt
   });
   writeDB(db);
@@ -3076,6 +3144,7 @@ module.exports = {
   deleteCoCreationCommentByKey,
   finalizeCoCreationByKey,
   findAdmin,
+  getOperatorAuthState,
   listOperators,
   createOperator,
   setOperatorEnabled,

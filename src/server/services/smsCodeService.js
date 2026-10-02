@@ -2,13 +2,16 @@ const crypto = require('crypto');
 const { sendSmsCode } = require('./smsProviderService');
 
 const smsCodeStore = new Map();
+const MAX_CLEANUP_INTERVAL_MS = 60_000;
+let nextCleanupAt = 0;
 
 function codeTtlMs() {
   return Number(process.env.SMS_CODE_TTL_MS || 5 * 60 * 1000);
 }
 
 function cooldownMs() {
-  return Number(process.env.SMS_SEND_COOLDOWN_MS || 60 * 1000);
+  const raw = process.env.SMS_SEND_COOLDOWN_MS;
+  return raw === undefined || String(raw).trim() === '' ? 60 * 1000 : Number(raw);
 }
 
 function maxVerifyAttempts() {
@@ -17,6 +20,23 @@ function maxVerifyAttempts() {
 
 function nowMs() {
   return Date.now();
+}
+
+function cleanupIntervalMs() {
+  return Math.max(1_000, Math.min(codeTtlMs(), MAX_CLEANUP_INTERVAL_MS));
+}
+
+function pruneExpiredSmsCodes(currentTime = nowMs(), { force = false } = {}) {
+  if (!force && currentTime < nextCleanupAt) return 0;
+  let removed = 0;
+  for (const [phone, record] of smsCodeStore.entries()) {
+    if (!record || !Number.isFinite(record.expiresAt) || record.expiresAt <= currentTime) {
+      smsCodeStore.delete(phone);
+      removed += 1;
+    }
+  }
+  nextCleanupAt = currentTime + cleanupIntervalMs();
+  return removed;
 }
 
 function maskCodeForLogs(code) {
@@ -28,6 +48,7 @@ function generateCode() {
 }
 
 function getRecord(phone) {
+  pruneExpiredSmsCodes();
   const record = smsCodeStore.get(phone);
   if (!record) return null;
   if (record.expiresAt <= nowMs()) {
@@ -90,10 +111,12 @@ function verifyCode(phone, code) {
 
 function resetSmsCodeStore() {
   smsCodeStore.clear();
+  nextCleanupAt = 0;
 }
 
 module.exports = {
   sendCode,
   verifyCode,
+  pruneExpiredSmsCodes,
   resetSmsCodeStore
 };

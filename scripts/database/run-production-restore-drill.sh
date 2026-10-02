@@ -16,6 +16,9 @@ LOCK_FILE=/run/lock/xingxingzaishan-production-restore-drill.lock
 PG_RESTORE=/usr/pgsql-15/bin/pg_restore
 PSQL=/usr/pgsql-15/bin/psql
 CREATEDB=/usr/pgsql-15/bin/createdb
+NODE=/usr/local/bin/node
+RUNTIME_CONFIG_CHECK="$REPO/scripts/acceptance/validate-running-production-config.js"
+RUNTIME_POSTGRES_CONFIG_READER="$REPO/scripts/acceptance/read-running-postgres-client-config.js"
 
 AUDIT_DIR=
 RESTORE_DB=
@@ -71,21 +74,23 @@ assert_authority_runtime() {
   done
   [ "$(runtime_value "$app_pid" PGDATABASE)" = "$PRODUCTION_DB" ] || return 1
   [ "$(runtime_value "$app_pid" POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED)" = false ] || return 1
-  [ "$(runtime_value "$app_pid" RECORD_PROOF_RUNTIME_ENABLED)" = false ] || return 1
-  local chain_enabled
-  chain_enabled="$(runtime_value "$app_pid" CHAIN_ENABLED)"
-  [ -z "$chain_enabled" ] || [ "$chain_enabled" = false ] || return 1
-  for key in \
-    AVATA_API_KEY \
-    AVATA_API_SECRET \
-    AVATA_IDENTITY_NAME \
-    AVATA_IDENTITY_NUM \
-    AVATA_API_BASE \
-    AVATA_ENV \
-    CHAIN_CALLBACK_URL
-  do
-    [ -z "$(runtime_value "$app_pid" "$key")" ] || return 1
-  done
+  [ "$(runtime_value "$app_pid" RECORD_PROOF_RUNTIME_ENABLED)" = true ] || return 1
+  [ "$(runtime_value "$app_pid" RECORD_PROOF_RUNTIME_SCOPE)" = all ] || return 1
+  [ -z "$(runtime_value "$app_pid" RECORD_PROOF_RUNTIME_ALLOWLIST)" ] || return 1
+  [[ "$(runtime_value "$app_pid" RECORD_PROOF_RUNTIME_SOURCE_SHA256)" =~ ^[a-f0-9]{64}$ ]] \
+    || return 1
+  [[ "$(runtime_value "$app_pid" RECORD_PROOF_RUNTIME_DOMAIN_SHA256)" =~ ^[a-f0-9]{64}$ ]] \
+    || return 1
+  [ -n "$(runtime_value "$app_pid" RECORD_PROOF_WORKER_ID)" ] || return 1
+  [ "$(runtime_value "$app_pid" CHAIN_ENABLED)" = true ] || return 1
+  case "$(runtime_value "$app_pid" AVATA_ENV)" in
+    prod|production) ;;
+    *) return 1 ;;
+  esac
+  case "$(runtime_value "$app_pid" AVATA_API_BASE)" in
+    ''|https://apis.avata.bianjie.ai|https://apis.avata.bianjie.ai/) ;;
+    *) return 1 ;;
+  esac
   ! tr '\0' '\n' < "/proc/$app_pid/environ" |
     grep -Eq '^(DATABASE_URL|PGPASSWORD|OSS_ACCESS_KEY_ID|OSS_ACCESS_KEY_SECRET|AVATA_API_KEY|AVATA_API_SECRET)=.+$'
 }
@@ -106,7 +111,8 @@ write_summary() {
     echo "PRODUCTION_DATABASE_RESTORE_CONNECTIONS=0"
     echo "OSS_MUTATION=NONE"
     echo "PM2_RESTARTED=NO"
-    echo "AVATA_ENABLED=NO"
+    echo "AVATA_ENABLED=YES_UNCHANGED"
+    echo "BLOCKCHAIN_WRITE_BY_RUNNER=NONE"
   } > "$file"
   chmod 600 "$file"
 }
@@ -189,8 +195,7 @@ cleanup() {
 
 [ "$(id -u)" = 0 ] || fail ROOT_REQUIRED
 cd "$REPO"
-git diff --quiet || fail TRACKED_WORKTREE_DIRTY
-git diff --cached --quiet || fail TRACKED_INDEX_DIRTY
+[ -z "$(git status --porcelain=v1 --untracked-files=normal)" ] || fail WORKTREE_NOT_CLEAN
 
 for command in flock pm2 curl openssl runuser sha256sum; do
   command -v "$command" >/dev/null 2>&1 || fail "${command^^}_REQUIRED"
@@ -203,6 +208,10 @@ exec 9>"$LOCK_FILE"
 flock -n 9 || fail RESTORE_DRILL_ALREADY_RUNNING
 
 [ -f "$RESTORE_SCRIPT" ] || fail RESTORE_SCRIPT_MISSING
+[ -f "$RUNTIME_CONFIG_CHECK" ] || fail RUNTIME_CONFIG_CHECK_MISSING
+[ ! -L "$RUNTIME_CONFIG_CHECK" ] || fail RUNTIME_CONFIG_CHECK_UNSAFE
+[ -f "$RUNTIME_POSTGRES_CONFIG_READER" ] || fail RUNTIME_POSTGRES_CONFIG_READER_MISSING
+[ ! -L "$RUNTIME_POSTGRES_CONFIG_READER" ] || fail RUNTIME_POSTGRES_CONFIG_READER_UNSAFE
 [ -f "$PRODUCTION_JSON" ] || fail PRODUCTION_JSON_MISSING
 assert_root_private_regular_file "$OSS_ENV" || fail OSS_ENV_FILE_UNSAFE
 assert_root_private_regular_file "$PM2_DUMP" || fail PM2_DUMP_UNSAFE
@@ -212,13 +221,26 @@ APP_PID_BEFORE="$(pm2 pid "$APP_NAME" | tail -n 1)"
 [ "$APP_PID_BEFORE" != 0 ] || fail APP_NOT_ONLINE
 [ -r "/proc/$APP_PID_BEFORE/environ" ] || fail APP_RUNTIME_UNREADABLE
 
-APP_STATUS="$(pm2 jlist | /usr/local/bin/node -e '
+PM2_STATE="$(pm2 jlist | "$NODE" -e '
 const fs = require("node:fs");
 const rows = JSON.parse(fs.readFileSync(0, "utf8"));
-const app = rows.find(row => row.name === "xingxingzaishan");
-process.stdout.write(app?.pm2_env?.status || "ABSENT");
-')"
+const apps = rows.filter(row => row.name === "xingxingzaishan");
+if (apps.length !== 1) process.exit(2);
+const app = apps[0];
+process.stdout.write([
+  String(Number(app.pid || 0)),
+  String(app.pm2_env?.status || "ABSENT"),
+  String(Number(app.pm2_env?.pm_uptime || 0))
+].join("|"));
+')" || fail PM2_STATE_INVALID
+IFS='|' read -r PM2_PID APP_STATUS PM2_STARTED_AT_MS <<< "$PM2_STATE"
+[ "$PM2_PID" = "$APP_PID_BEFORE" ] || fail APP_PID_CHANGED
 [ "$APP_STATUS" = online ] || fail APP_NOT_ONLINE
+[[ "$PM2_STARTED_AT_MS" =~ ^[0-9]+$ ]] || fail PM2_STATE_INVALID
+[ "$PM2_STARTED_AT_MS" -gt 0 ] || fail PM2_STATE_INVALID
+"$NODE" "$RUNTIME_CONFIG_CHECK" \
+  "$APP_PID_BEFORE" "$REPO" "$PRODUCTION_DB" "$PM2_STARTED_AT_MS" \
+  || fail RUNTIME_CONFIG_INVALID
 
 HTTP_BEFORE="$(
   curl -sS -o /dev/null -w '%{http_code}' \
@@ -228,15 +250,14 @@ HTTP_BEFORE="$(
 [ "$HTTP_BEFORE" = 200 ] || fail APP_HTTP_INVALID
 assert_authority_runtime "$APP_PID_BEFORE" || fail POSTGRES_AUTHORITY_RUNTIME_INVALID
 
-PGHOST_VALUE="$(runtime_value "$APP_PID_BEFORE" PGHOST)"
-PGPORT_VALUE="$(runtime_value "$APP_PID_BEFORE" PGPORT)"
-PRODUCTION_USER="$(runtime_value "$APP_PID_BEFORE" PGUSER)"
-PRODUCTION_PASSWORD_FILE="$(runtime_value "$APP_PID_BEFORE" PGPASSWORD_FILE)"
-PGSSL_VALUE="$(runtime_value "$APP_PID_BEFORE" PGSSL)"
+RUNTIME_POSTGRES_CONFIG="$(
+  "$NODE" "$RUNTIME_POSTGRES_CONFIG_READER" \
+    "$APP_PID_BEFORE" "$REPO" "$PRODUCTION_DB" "$PM2_STARTED_AT_MS"
+)" || fail RUNTIME_POSTGRES_CONFIG_INVALID
+IFS='|' read -r PGHOST_VALUE PGPORT_VALUE PGSSL_VALUE \
+  PGSSL_REJECT_UNAUTHORIZED_VALUE <<< "$RUNTIME_POSTGRES_CONFIG"
 [ "$PGHOST_VALUE" = 127.0.0.1 ] || fail POSTGRES_HOST_NOT_LOCAL
 [ "$PGPORT_VALUE" = 5432 ] || fail POSTGRES_PORT_UNEXPECTED
-[ -n "$PRODUCTION_USER" ] || fail PRODUCTION_DATABASE_USER_MISSING
-assert_root_private_regular_file "$PRODUCTION_PASSWORD_FILE" || fail POSTGRES_PASSWORD_FILE_UNSAFE
 
 unset DATABASE_URL PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE PGPASSWORD_FILE
 unset PGSSL PGSSL_REJECT_UNAUTHORIZED PGOPTIONS PGAPPNAME PGPASSFILE
@@ -375,7 +396,7 @@ PGUSER="$RESTORE_ROLE" \
 PGDATABASE="$RESTORE_DB" \
 PGPASSWORD_FILE="$PASSWORD_FILE" \
 PGSSL="$PGSSL_VALUE" \
-PGSSL_REJECT_UNAUTHORIZED="$(runtime_value "$APP_PID_BEFORE" PGSSL_REJECT_UNAUTHORIZED)" \
+PGSSL_REJECT_UNAUTHORIZED="$PGSSL_REJECT_UNAUTHORIZED_VALUE" \
   /usr/local/bin/node "$RESTORE_SCRIPT" --validate
 
 unset PGPASSFILE PGAPPNAME PGSSLMODE ROLE_PASSWORD
@@ -458,7 +479,9 @@ echo 'PRODUCTION_DATABASE_RESTORE_CONNECTIONS=0'
 echo 'PRODUCTION_DATABASE_MODIFIED_BY_DRILL=NO'
 echo 'PM2_CONFIGURATION_CHANGED=NO'
 echo 'OSS_MUTATION=NONE'
-echo 'AVATA_ENABLED=NO'
+echo 'AVATA_ENABLED=YES_UNCHANGED'
+echo 'BLOCKCHAIN_WRITE_BY_RUNNER=NONE'
+echo 'POSTGRES_CLIENT_CONFIG=PASS_RECONSTRUCTED_REDACTED'
 echo 'TEMPORARY_DATABASE_RETAINED=YES'
 echo 'TEMPORARY_ROLE_LOGIN_ENABLED=NO'
 echo "TEMPORARY_DATABASE_CONNECTION_LIMIT=$FINAL_DATABASE_CONNECTION_LIMIT"

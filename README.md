@@ -10,7 +10,7 @@
 
 ```bash
 npm install
-ADMIN_INIT_ACCOUNTS_JSON='[{"username":"admin","password":"replace-admin-pass","role":"admin"},{"username":"qc","password":"replace-qc-pass","role":"qc"}]' AUTH_SECRET='replace-with-strong-secret' npm start
+ADMIN_INIT_ACCOUNTS_JSON='[{"username":"admin","password":"replace-admin-pass","role":"admin"},{"username":"qc","password":"replace-qc-pass","role":"qc"}]' AUTH_SECRET='replace-with-strong-secret-at-least-32-bytes' npm start
 ```
 
 启动后访问：`http://localhost:3000`
@@ -83,13 +83,13 @@ npm run check:conflicts
 
 ```bash
 # 默认本地存储
-ADMIN_INIT_ACCOUNTS_JSON='[{"username":"admin","password":"replace-admin-pass","role":"admin"},{"username":"qc","password":"replace-qc-pass","role":"qc"}]' AUTH_SECRET='replace-with-strong-secret' npm start
+ADMIN_INIT_ACCOUNTS_JSON='[{"username":"admin","password":"replace-admin-pass","role":"admin"},{"username":"qc","password":"replace-qc-pass","role":"qc"}]' AUTH_SECRET='replace-with-strong-secret-at-least-32-bytes' npm start
 
 # 开启 cloud 模式（OSS）
-ADMIN_INIT_ACCOUNTS_JSON='[{"username":"admin","password":"replace-admin-pass","role":"admin"},{"username":"qc","password":"replace-qc-pass","role":"qc"}]' AUTH_SECRET='replace-with-strong-secret' STORAGE_MODE=cloud OSS_ACCESS_KEY_ID=xxx OSS_ACCESS_KEY_SECRET=xxx OSS_BUCKET=your-bucket OSS_REGION=cn-chengdu OSS_ENDPOINT=oss-cn-chengdu.aliyuncs.com npm start
+ADMIN_INIT_ACCOUNTS_JSON='[{"username":"admin","password":"replace-admin-pass","role":"admin"},{"username":"qc","password":"replace-qc-pass","role":"qc"}]' AUTH_SECRET='replace-with-strong-secret-at-least-32-bytes' STORAGE_MODE=cloud OSS_ACCESS_KEY_ID=xxx OSS_ACCESS_KEY_SECRET=xxx OSS_BUCKET=your-bucket OSS_REGION=cn-chengdu OSS_ENDPOINT=oss-cn-chengdu.aliyuncs.com npm start
 
 # 控制签名有效期
-ADMIN_INIT_ACCOUNTS_JSON='[{"username":"admin","password":"replace-admin-pass","role":"admin"},{"username":"qc","password":"replace-qc-pass","role":"qc"}]' AUTH_SECRET='replace-with-strong-secret' STORAGE_MODE=cloud OSS_SIGNED_URL_EXPIRES=1800 OSS_DOWNLOAD_SIGN_EXPIRES=3600 npm start
+ADMIN_INIT_ACCOUNTS_JSON='[{"username":"admin","password":"replace-admin-pass","role":"admin"},{"username":"qc","password":"replace-qc-pass","role":"qc"}]' AUTH_SECRET='replace-with-strong-secret-at-least-32-bytes' STORAGE_MODE=cloud OSS_SIGNED_URL_EXPIRES=1800 OSS_DOWNLOAD_SIGN_EXPIRES=3600 npm start
 ```
 
 
@@ -134,7 +134,7 @@ ADMIN_INIT_ACCOUNTS_JSON='[{"username":"admin","password":"replace-admin-pass","
 ### 生产环境建议
 
 1. 私有 Bucket 场景仅持久化主图 `image_object_key`，展示时动态解析主图或缩略图。
-2. 上线前为记录图片建立与主 Bucket 隔离的备份目标；数据库备份不包含图片字节。
+2. 上线前使用 `scripts/database/run-production-object-mirror.sh`，把记录主图及缩略图、商品图、存证附件和打印成品镜像到不同账号、不同地域的私有 Bucket；数据库备份不包含这些对象字节。
 3. 历史缓冲和孤立对象只能在独立备份完成后按审计清单清理，不能依据文件年龄直接删除。
 
 ## API 错误码建议（当前实现）

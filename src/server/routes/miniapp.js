@@ -184,7 +184,7 @@ function respondMiniappAccountContextRequired(res) {
   return res.status(401).json({
     status: 'error',
     code: 'UNAUTHORIZED',
-    message: '璇峰厛鐧诲綍灏忕▼搴忋€?'
+    message: '请先登录小程序。'
   });
 }
 
@@ -394,6 +394,38 @@ function handleContentSafetyError(error, res) {
   return null;
 }
 
+const PUBLIC_WECHAT_PAY_ERROR_CODES = new Set([
+  'WECHAT_PAY_API_ERROR',
+  'WECHAT_PAY_PREPAY_FAILED',
+  'WECHAT_PAY_REQUEST_TIMEOUT',
+  'WECHAT_PAY_RESPONSE_TOO_LARGE'
+]);
+
+function publicWechatLoginError(error) {
+  if (error && error.code === 'INVALID_LOGIN_CODE') {
+    return { status: 400, code: 'INVALID_LOGIN_CODE', message: '缺少微信登录凭证。' };
+  }
+  if (error && error.code === 'WECHAT_CONFIG_ERROR') {
+    return {
+      status: 502,
+      code: 'MINIAPP_WECHAT_NOT_CONFIGURED',
+      message: '微信登录暂时不可用，请稍后重试。'
+    };
+  }
+  return { status: 502, code: 'WECHAT_LOGIN_FAILED', message: '微信登录失败，请稍后重试。' };
+}
+
+function publicWechatPayError(error) {
+  const providerCode = String(error && error.code || '');
+  return {
+    status: 502,
+    code: PUBLIC_WECHAT_PAY_ERROR_CODES.has(providerCode)
+      ? providerCode
+      : 'WECHAT_PAY_FAILED',
+    message: '微信支付下单失败，请稍后重试。'
+  };
+}
+
 function miniappBindPhoneError(errorCode) {
   const errors = {
     MINIAPP_USER_NOT_FOUND: {
@@ -502,7 +534,6 @@ router.post('/auth/login', async (req, res) => {
     if (error instanceof IdentityAuthorityError) {
       return respondIdentityAuthorityUnavailable(res);
     }
-    const isConfigError = error.code === 'WECHAT_CONFIG_ERROR';
     if (isAccountMappingError(error.code)) {
       return res.status(409).json({
         status: 'error',
@@ -510,10 +541,11 @@ router.post('/auth/login', async (req, res) => {
         message: '账号状态异常，暂时无法登录，请稍后处理。'
       });
     }
-    return res.status(error.code === 'INVALID_LOGIN_CODE' ? 400 : 502).json({
+    const response = publicWechatLoginError(error);
+    return res.status(response.status).json({
       status: 'error',
-      code: isConfigError ? 'MINIAPP_WECHAT_NOT_CONFIGURED' : error.code || 'WECHAT_LOGIN_FAILED',
-      message: isConfigError ? '微信登录暂时不可用，请稍后重试。' : error.message || '微信登录失败。'
+      code: response.code,
+      message: response.message
     });
   }
 });
@@ -810,10 +842,11 @@ router.post('/orders/:orderId/pay', requireMiniappAuth, requireMiniappPhone, asy
         }
       });
     } catch (error) {
-      return res.status(502).json({
+      const response = publicWechatPayError(error);
+      return res.status(response.status).json({
         status: 'error',
-        code: error.code || 'WECHAT_PAY_FAILED',
-        message: error.message || '微信支付下单失败，请稍后重试。'
+        code: response.code,
+        message: response.message
       });
     }
   }
@@ -1428,3 +1461,5 @@ router.use((err, _req, res, _next) => {
 });
 
 module.exports = router;
+module.exports.publicWechatLoginError = publicWechatLoginError;
+module.exports.publicWechatPayError = publicWechatPayError;

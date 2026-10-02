@@ -1,7 +1,9 @@
 const https = require('https');
 const { getMiniappAccessToken, hasMiniappConfig } = require('./miniappAuthService');
+const { readBoundedNodeResponse } = require('../utils/boundedResponse');
 
 const WECHAT_REQUEST_TIMEOUT_MS = 10_000;
+const WECHAT_RESPONSE_MAX_BYTES = 1024 * 1024;
 
 function isProduction() {
   return process.env.NODE_ENV === 'production';
@@ -29,16 +31,18 @@ function requestJson(url, body) {
         'Content-Length': payload.length
       }
     }, (res) => {
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        const raw = Buffer.concat(chunks).toString('utf8');
+      readBoundedNodeResponse(res, {
+        maxBytes: WECHAT_RESPONSE_MAX_BYTES,
+        errorCode: 'CONTENT_SAFETY_UNAVAILABLE',
+        errorMessage: '内容安全检测暂时不可用，请稍后重试。'
+      }).then((buffer) => {
+        const raw = buffer.toString('utf8');
         try {
           resolve(raw ? JSON.parse(raw) : {});
         } catch (error) {
           reject(error);
         }
-      });
+      }).catch(reject);
     });
     req.setTimeout(WECHAT_REQUEST_TIMEOUT_MS, () => {
       const error = new Error('内容安全检测暂时不可用，请稍后重试。');
@@ -68,16 +72,18 @@ function requestMultipart(url, { fieldName, filename, contentType, buffer }) {
         'Content-Length': payload.length
       }
     }, (res) => {
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        const raw = Buffer.concat(chunks).toString('utf8');
+      readBoundedNodeResponse(res, {
+        maxBytes: WECHAT_RESPONSE_MAX_BYTES,
+        errorCode: 'CONTENT_SAFETY_UNAVAILABLE',
+        errorMessage: '内容安全检测暂时不可用，请稍后重试。'
+      }).then((buffer) => {
+        const raw = buffer.toString('utf8');
         try {
           resolve(raw ? JSON.parse(raw) : {});
         } catch (error) {
           reject(error);
         }
-      });
+      }).catch(reject);
     });
     req.setTimeout(WECHAT_REQUEST_TIMEOUT_MS, () => {
       const error = new Error('内容安全检测暂时不可用，请稍后重试。');
@@ -112,8 +118,9 @@ function rejectFromWechatResponse(response, fallbackCode) {
     throw error;
   }
 
-  const error = new Error(response.errmsg || '内容安全检测暂时不可用，请稍后重试。');
+  const error = new Error('内容安全检测暂时不可用，请稍后重试。');
   error.code = 'CONTENT_SAFETY_UNAVAILABLE';
+  error.providerCode = response.errcode || null;
   throw error;
 }
 

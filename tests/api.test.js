@@ -691,6 +691,10 @@ function mockWechatPayHttps(responseBody, statusCode = 200) {
     req.write = (chunk) => {
       requestBody += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
     };
+    req.setTimeout = () => req;
+    req.destroy = (error) => {
+      if (error) req.emit('error', error);
+    };
     req.end = () => {
       calls.push({ url: String(url), options, body: requestBody });
       const res = new EventEmitter();
@@ -793,11 +797,43 @@ test('WeChat Pay readiness should reject invalid key material and notify should 
   }
 });
 
+test('WeChat Pay API requests fail with a bounded timeout', async () => {
+  const oldEnv = snapshotEnv(WECHAT_PAY_ENV_KEYS);
+  const keys = createWechatPayKeyFiles('wechat-timeout');
+  const originalRequest = https.request;
+  try {
+    clearWechatPayEnv();
+    applyWechatPayEnv(keys);
+    let timeoutHandler = null;
+    https.request = () => {
+      const req = new EventEmitter();
+      req.write = () => {};
+      req.setTimeout = (timeoutMs, handler) => {
+        assert.equal(timeoutMs, 10_000);
+        timeoutHandler = handler;
+        return req;
+      };
+      req.destroy = (error) => process.nextTick(() => req.emit('error', error));
+      req.end = () => process.nextTick(() => timeoutHandler());
+      return req;
+    };
+
+    const { requestWechatPayApi } = require('../src/server/services/wechatPayService');
+    await assert.rejects(
+      requestWechatPayApi({ method: 'POST', path: '/v3/pay/transactions/jsapi', body: {} }),
+      (error) => error && error.code === 'WECHAT_PAY_REQUEST_TIMEOUT'
+    );
+  } finally {
+    https.request = originalRequest;
+    restoreEnv(oldEnv);
+  }
+});
+
 test.before(async () => {
   clearWechatPayEnv();
   process.env.DB_FILE = path.join(tmpDir, 'db.json');
   process.env.STORAGE_ROOT = path.join(tmpDir, 'storage');
-  process.env.AUTH_SECRET = 'test-secret-123';
+  process.env.AUTH_SECRET = 'test-auth-secret-1234567890abcdef';
   process.env.UPLOAD_PROOF_SECRET = 'test-upload-proof-secret-1234567890';
   process.env.RATE_LIMIT_LOGIN_MAX = '1000';
   process.env.SMS_PROVIDER = 'mock';
@@ -1189,6 +1225,26 @@ test('database reads should reject legacy schema without rewriting it', () => {
   }
 });
 
+test('database reads should reject an invalid operator authentication version', () => {
+  const { getDatabaseSnapshot } = require('../src/server/services/dbService');
+  const dbFile = process.env.DB_FILE;
+  const originalRaw = fs.readFileSync(dbFile, 'utf8');
+  const malformed = JSON.parse(originalRaw);
+  malformed.admins[0].auth_version = 'not-an-integer';
+  const malformedRaw = JSON.stringify(malformed, null, 2);
+  fs.writeFileSync(dbFile, malformedRaw, 'utf8');
+
+  try {
+    assert.throws(
+      () => getDatabaseSnapshot(),
+      (error) => error && error.code === 'DB_SCHEMA_MIGRATION_REQUIRED'
+    );
+    assert.equal(fs.readFileSync(dbFile, 'utf8'), malformedRaw);
+  } finally {
+    fs.writeFileSync(dbFile, originalRaw, 'utf8');
+  }
+});
+
 test('database writes should reject a stale source snapshot', () => {
   const {
     getDatabaseSnapshotWithHash,
@@ -1414,9 +1470,33 @@ test('malformed Cookie header should not trigger 500', async () => {
   assert.equal(res.body.code, 'UNAUTHORIZED');
 });
 
+test('malformed and oversized JSON bodies return stable client errors', async () => {
+  const malformed = Buffer.from('{"username":', 'utf8');
+  const malformedRes = await requestRaw('POST', '/api/admin/login', {
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': malformed.length
+    },
+    body: malformed
+  });
+  assert.equal(malformedRes.status, 400);
+  assert.equal(malformedRes.body.code, 'INVALID_JSON');
+
+  const oversized = Buffer.from(JSON.stringify({ padding: 'x'.repeat(110 * 1024) }), 'utf8');
+  const oversizedRes = await requestRaw('POST', '/api/admin/login', {
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': oversized.length
+    },
+    body: oversized
+  });
+  assert.equal(oversizedRes.status, 413);
+  assert.equal(oversizedRes.body.code, 'REQUEST_BODY_TOO_LARGE');
+});
+
 test('GET /api/user/records should return only current user activated records', async () => {
   const imageData = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=',
     'base64'
   );
 
@@ -2532,7 +2612,7 @@ test('POST /api/upload should reject unauthenticated request', async () => {
         fieldName: 'image',
         filename: 'unauth.png',
         contentType: 'image/png',
-        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
+        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=', 'base64')
       }
     ]
   });
@@ -2834,7 +2914,7 @@ test('admin miniapp content should update public miniapp content', async () => {
   assert.equal(legacyCopyRes.body.data.share_description, '把照片和想说的话，留在值得记住的物品上。');
 
   const imageData = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=',
     'base64'
   );
   const uploadRes = await postMultipart('/api/admin/upload-image', {
@@ -2891,7 +2971,14 @@ test('admin miniapp content should update public miniapp content', async () => {
   const publicRes = await getJson('/api/miniapp/content');
   assert.equal(publicRes.status, 200);
   assert.equal(publicRes.body.data.home_title, '记在星上测试');
-  assert.equal(publicRes.body.data.logo_image, uploadRes.body.data.url);
+  const uploadedLogoUrl = new URL(uploadRes.body.data.url, baseUrl);
+  const publicLogoUrl = new URL(publicRes.body.data.logo_image, baseUrl);
+  assert.equal(publicLogoUrl.pathname, uploadedLogoUrl.pathname);
+  assert.ok(publicLogoUrl.searchParams.get('expires'));
+  assert.ok(publicLogoUrl.searchParams.get('signature'));
+  const publicLogoRes = await requestRaw('GET', `${publicLogoUrl.pathname}${publicLogoUrl.search}`);
+  assert.equal(publicLogoRes.status, 200);
+  assert.ok(publicLogoRes.rawBuffer.length > 0);
   assert.equal(publicRes.body.data.home_slides[0].scene_key, 'lover');
   assert.equal(publicRes.body.data.scene_cards[0].key, 'elder');
   assert.equal(publicRes.body.data.consult_url, 'https://ktt.example.com/shop');
@@ -2951,7 +3038,7 @@ test('admin miniapp image upload should reject invalid files and missing cloud p
     process.env.STORAGE_MODE = 'cloud';
     delete process.env.CLOUD_PUBLIC_BASE_URL;
     const imageData = Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+      'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=',
       'base64'
     );
     const cloudConfigRes = await postMultipart('/api/admin/upload-image', {
@@ -3076,7 +3163,7 @@ test('POST /api/qr/:id/record should persist batch disclosure snapshot when enab
         fieldName: 'image',
         filename: 'd3.png',
         contentType: 'image/png',
-        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
+        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=', 'base64')
       }
     ]
   }, userCookie);
@@ -3123,7 +3210,7 @@ test('POST /api/qr/:id/record should NOT fallback to note when brand_disclosure_
         fieldName: 'image',
         filename: 'd3y.png',
         contentType: 'image/png',
-        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
+        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=', 'base64')
       }
     ]
   }, userCookie);
@@ -3173,6 +3260,57 @@ test('GET /api/admin/dashboard should reject qc role token', async () => {
   const res = await getJson('/api/admin/dashboard', qcToken);
   assert.equal(res.status, 403);
   assert.equal(res.body.code, 'FORBIDDEN');
+});
+
+test('operator disable, re-enable, and password changes revoke previously issued tokens', async () => {
+  const adminLogin = await postJson('/api/admin/login', {
+    username: 'admin',
+    password: 'test-admin-pass'
+  });
+  const adminToken = adminLogin.body.data.token;
+  const qcLogin = await postJson('/api/admin/login', {
+    username: 'qc',
+    password: 'test-qc-pass'
+  });
+  const oldQcToken = qcLogin.body.data.token;
+
+  const selfDisable = await postJson('/api/admin/operators/1/disable', {}, adminToken);
+  assert.equal(selfDisable.status, 409);
+  assert.equal(selfDisable.body.code, 'CANNOT_DISABLE_SELF');
+
+  const disable = await postJson('/api/admin/operators/2/disable', {}, adminToken);
+  assert.equal(disable.status, 200);
+  const disabledRequest = await getJson('/api/qc/logs', oldQcToken);
+  assert.equal(disabledRequest.status, 401);
+
+  const enable = await postJson('/api/admin/operators/2/enable', {}, adminToken);
+  assert.equal(enable.status, 200);
+  const revivedOldToken = await getJson('/api/qc/logs', oldQcToken);
+  assert.equal(revivedOldToken.status, 401);
+
+  const freshQcLogin = await postJson('/api/admin/login', {
+    username: 'qc',
+    password: 'test-qc-pass'
+  });
+  assert.equal(freshQcLogin.status, 200);
+  const freshQcToken = freshQcLogin.body.data.token;
+  assert.equal((await getJson('/api/qc/logs', freshQcToken)).status, 200);
+
+  const changedPassword = 'test-qc-pass-rotated';
+  const change = await postJson('/api/admin/operators/2/change-password', {
+    password: changedPassword
+  }, adminToken);
+  assert.equal(change.status, 200);
+  assert.equal((await getJson('/api/qc/logs', freshQcToken)).status, 401);
+  assert.equal((await postJson('/api/admin/login', {
+    username: 'qc',
+    password: changedPassword
+  })).status, 200);
+
+  const restore = await postJson('/api/admin/operators/2/change-password', {
+    password: 'test-qc-pass'
+  }, adminToken);
+  assert.equal(restore.status, 200);
 });
 
 test('GET /api/qc/logs should reject missing token', async () => {
@@ -4792,7 +4930,7 @@ test('admin product media upload should use the shared secure image pipeline', a
   const login = await postJson('/api/admin/login', { username: 'admin', password: 'test-admin-pass' });
   const token = login.body.data.token;
   const imageData = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=',
     'base64'
   );
   const uploadRes = await postMultipart('/api/admin/upload-image', {
@@ -5227,7 +5365,11 @@ test('WeChat Pay order query sends required client identity without GET entity h
 
     await assert.rejects(
       () => queryOrderByOutTradeNo('JS_TEST_QUERY_001'),
-      (error) => error && error.code === 'ORDER_NOTEXIST' && error.statusCode === 404
+      (error) => error
+        && error.code === 'WECHAT_PAY_API_ERROR'
+        && error.providerCode === 'ORDER_NOTEXIST'
+        && error.statusCode === 404
+        && error.message === '微信支付请求失败，请稍后重试。'
     );
 
     assert.equal(httpsMock.calls.length, 1);
@@ -5300,7 +5442,9 @@ test('WeChat Pay public key mode should add serial header and verify notify', as
         payer_total: orderRes.body.data.total_amount_cents,
         currency: 'CNY',
         payer_currency: 'CNY'
-      }
+      },
+      payer: { openid: 'payment-log-must-not-persist-this-openid' },
+      scene_info: { payer_client_ip: '192.0.2.10', device_id: 'private-device-id' }
     };
     const rawBody = JSON.stringify({
       id: 'notify-public-key',
@@ -5408,7 +5552,9 @@ test('WeChat payment notify should verify, decrypt, and mark order paid', async 
         payer_total: orderRes.body.data.total_amount_cents,
         currency: 'CNY',
         payer_currency: 'CNY'
-      }
+      },
+      payer: { openid: 'payment-log-must-not-persist-this-openid' },
+      scene_info: { payer_client_ip: '192.0.2.10', device_id: 'private-device-id' }
     };
     const notifyBody = {
       id: 'notify-test-1',
@@ -5447,6 +5593,15 @@ test('WeChat payment notify should verify, decrypt, and mark order paid', async 
     assert.equal(detailRes.body.data.payment_status, 'paid');
     assert.equal(detailRes.body.data.payment_method, 'wechat');
     assert.equal(detailRes.body.data.wechat_transaction_id, transaction.transaction_id);
+
+    const paidLog = getTestDbSnapshot().payment_logs.find((item) => (
+      item.order_no === orderRes.body.data.order_no && item.status === 'paid'
+    ));
+    assert.ok(paidLog);
+    assert.equal(paidLog.raw.out_trade_no, orderRes.body.data.order_no);
+    assert.equal(paidLog.raw.amount.total, orderRes.body.data.total_amount_cents);
+    assert.equal(JSON.stringify(paidLog.raw).includes('payment-log-must-not-persist-this-openid'), false);
+    assert.equal(JSON.stringify(paidLog.raw).includes('private-device-id'), false);
 
     const paidLogsBeforeRepeat = getTestDbSnapshot().payment_logs.filter((item) => (
       item.order_no === orderRes.body.data.order_no && item.status === 'paid'
@@ -5594,7 +5749,7 @@ test('miniapp upload and record flow should require bound phone and reject dupli
     phone: '13877770001'
   });
   const imageData = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=',
     'base64'
   );
   const uploadRes = await postMultipart('/api/miniapp/upload', {
@@ -5850,7 +6005,7 @@ test('miniapp content safety mock should reject unsafe text and image', async ()
         filename: 'mock-reject.png',
         contentType: 'image/png',
         content: Buffer.from(
-          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+          'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=',
           'base64'
         )
       }
@@ -6066,6 +6221,7 @@ test('business writes should fail closed when authenticated account mapping is m
     image_object_key: 'missing-account-h5.jpg'
   }, h5Cookie);
   assert.equal(h5Write.status, 401);
+  assert.equal(h5Write.body.message, '请先完成手机号登录。');
   assert.equal(JSON.stringify(getTestDbSnapshot()), beforeH5Write);
 
   const h5MissingOwnerCookie = await loginUserAndGetCookie('13870001005');
@@ -6141,6 +6297,7 @@ test('business writes should fail closed when authenticated account mapping is m
     address: '测试地址'
   }, miniToken);
   assert.equal(orderWrite.status, 401);
+  assert.equal(orderWrite.body.message, '请先登录小程序。');
   assert.equal(JSON.stringify(getTestDbSnapshot()), beforeMiniWrites);
 
   const miniRecordWrite = await postJson(`/api/miniapp/qr/${miniRecordKey}/record`, {
@@ -6264,7 +6421,7 @@ test('createApp should fail fast in cloud mode without OSS config', async () => 
 
 test('GET /api/nft/:key/download requires a credential after activation', async () => {
   const imageData = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=',
     'base64'
   );
 
@@ -6413,7 +6570,7 @@ test('SEC-001/003/004 IDs cannot authorize public reads, shares, media or QR ima
   });
   const db = getTestDbSnapshot();
   const ownerId = findTestUserByPhone(db, ownerPhone).account_id;
-  const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64');
+  const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=', 'base64');
   const { getLocalObjectPath } = require('../src/server/services/storageService');
   const { qrImagePath } = require('../src/server/services/qrImageService');
   const fixtures = ['activated', 'co_creating', 'unactivated', 'activated'].map((state, index) => {
@@ -6605,7 +6762,7 @@ test('POST /api/qr/:token/record should activate QR by access token', async () =
         fieldName: 'image',
         filename: 'tqr.png',
         contentType: 'image/png',
-        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
+        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=', 'base64')
       }
     ]
   }, userCookie);
@@ -6655,7 +6812,7 @@ test('co-creation flow should collect comments and owner finalize record', async
         fieldName: 'image',
         filename: 'co-create.png',
         contentType: 'image/png',
-        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
+        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=', 'base64')
       }
     ]
   }, ownerCookie);
@@ -7125,7 +7282,7 @@ test('co-creation comments should be limited to 12 active comments', async () =>
         fieldName: 'image',
         filename: 'limit.png',
         contentType: 'image/png',
-        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=', 'base64')
+        content: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=', 'base64')
       }
     ]
   }, ownerCookie);
@@ -7271,7 +7428,7 @@ test('concurrent QR consumption rejects final save after a successful upload', a
   const secondPhone = '13700000991';
   const secondCookie = await loginUserAndGetCookie(secondPhone);
   const png = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ1EAAAAASUVORK5CYII=',
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwH4QZYAwAR8oH+Xm0fdIAAAAASUVORK5CYII=',
     'base64'
   );
   const uploaded = await postMultipartWithCookie('/api/upload', {

@@ -1,8 +1,10 @@
 const crypto = require('crypto');
 const https = require('https');
+const { readBoundedNodeResponse } = require('../utils/boundedResponse');
 
 const DEFAULT_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 const WECHAT_REQUEST_TIMEOUT_MS = 10_000;
+const WECHAT_RESPONSE_MAX_BYTES = 1024 * 1024;
 let cachedAccessToken = null;
 
 function getMiniappConfig() {
@@ -94,16 +96,18 @@ function requestJson(url, { method = 'GET', body = null } = {}) {
         'Content-Length': payload.length
       } : undefined
     }, (res) => {
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        const raw = Buffer.concat(chunks).toString('utf8');
+      readBoundedNodeResponse(res, {
+        maxBytes: WECHAT_RESPONSE_MAX_BYTES,
+        errorCode: 'WECHAT_RESPONSE_TOO_LARGE',
+        errorMessage: '微信接口响应异常，请稍后重试。'
+      }).then((buffer) => {
+        const raw = buffer.toString('utf8');
         try {
           resolve(raw ? JSON.parse(raw) : {});
         } catch (error) {
           reject(error);
         }
-      });
+      }).catch(reject);
     });
     req.setTimeout(WECHAT_REQUEST_TIMEOUT_MS, () => {
       const error = new Error('微信接口请求超时，请稍后重试。');
@@ -149,8 +153,9 @@ async function codeToSession(code) {
   const url = `https://api.weixin.qq.com/sns/jscode2session?appid=${encodeURIComponent(config.appid)}&secret=${encodeURIComponent(config.secret)}&js_code=${encodeURIComponent(value)}&grant_type=authorization_code`;
   const response = await requestJson(url);
   if (!response.openid || response.errcode) {
-    const error = new Error(response.errmsg || '微信登录失败。');
+    const error = new Error('微信登录失败，请稍后重试。');
     error.code = 'WECHAT_LOGIN_FAILED';
+    error.providerCode = response.errcode || null;
     throw error;
   }
   return response;
@@ -172,8 +177,9 @@ async function getMiniappAccessToken() {
   const url = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${encodeURIComponent(config.appid)}&secret=${encodeURIComponent(config.secret)}`;
   const response = await requestJson(url);
   if (!response.access_token || response.errcode) {
-    const error = new Error(response.errmsg || '获取微信 access_token 失败。');
+    const error = new Error('微信服务暂时不可用，请稍后重试。');
     error.code = 'WECHAT_ACCESS_TOKEN_FAILED';
+    error.providerCode = response.errcode || null;
     throw error;
   }
 
@@ -211,8 +217,9 @@ async function getPhoneNumberByCode(code) {
     body: { code: value }
   });
   if (response.errcode || !response.phone_info || !response.phone_info.phoneNumber) {
-    const error = new Error(response.errmsg || '手机号授权失败。');
+    const error = new Error('手机号授权失败，请稍后重试。');
     error.code = 'PHONE_BIND_FAILED';
+    error.providerCode = response.errcode || null;
     throw error;
   }
   return response.phone_info.phoneNumber;
@@ -243,7 +250,9 @@ function generateMiniappToken(user, options = {}) {
 
 function verifyMiniappToken(token) {
   if (!token || typeof token !== 'string') return null;
-  const [encodedHeader, encodedPayload, tokenSignature] = token.split('.');
+  const segments = token.split('.');
+  if (segments.length !== 3) return null;
+  const [encodedHeader, encodedPayload, tokenSignature] = segments;
   if (!encodedHeader || !encodedPayload || !tokenSignature) return null;
 
   const content = `${encodedHeader}.${encodedPayload}`;

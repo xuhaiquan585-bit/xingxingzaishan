@@ -296,17 +296,25 @@ test('production runtime config fails closed for environment, legacy login, SMS,
   try {
     for (const key of Object.keys(process.env)) delete process.env[key];
     process.env.NODE_ENV = 'production';
+    process.env.BASE_URL = 'http://attacker.example/path?x=1';
     process.env.AUTH_SECRET = 'production-auth-secret-value-123456';
     process.env.UPLOAD_PROOF_SECRET = 'production-upload-proof-secret-value';
     process.env.SMS_PROVIDER = 'mock';
+    process.env.STORAGE_MODE = 'local';
+    process.env.CLOUD_FALLBACK_TO_LOCAL = 'true';
     process.env.USER_LEGACY_LOGIN_ENABLED = 'true';
     process.env.USER_SESSION_SECURE = 'false';
+    process.env.USER_SESSION_SAMESITE = 'None';
     process.env.WECHAT_MINIAPP_APPID = 'present';
     process.env.WECHAT_MINIAPP_SECRET = 'present';
     const result = validateRuntimeConfig();
     assert.equal(result.errors.some((item) => item.includes('SMS_PROVIDER must be aliyun')), true);
+    assert.equal(result.errors.some((item) => item.includes('BASE_URL must be an HTTPS origin')), true);
+    assert.equal(result.errors.some((item) => item.includes('STORAGE_MODE must be cloud')), true);
+    assert.equal(result.errors.some((item) => item.includes('CLOUD_FALLBACK_TO_LOCAL')), true);
     assert.equal(result.errors.some((item) => item.includes('USER_LEGACY_LOGIN_ENABLED')), true);
     assert.equal(result.errors.some((item) => item.includes('USER_SESSION_SECURE')), true);
+    assert.equal(result.errors.some((item) => item.includes('USER_SESSION_SAMESITE')), true);
     assert.match(buildCookieHeader('value', 60), /; Secure(?:;|$)/);
 
     process.env.NODE_ENV = '';
@@ -315,11 +323,64 @@ test('production runtime config fails closed for environment, legacy login, SMS,
       true
     );
     process.env.NODE_ENV = 'test';
+    process.env.AUTH_SECRET = 'short-secret';
+    assert.equal(
+      validateRuntimeConfig().errors.some((item) => item.includes('AUTH_SECRET must contain at least 32')),
+      true
+    );
+    process.env.AUTH_SECRET = 'production-auth-secret-value-123456';
     process.env.UPLOAD_PROOF_SECRET = process.env.AUTH_SECRET;
     assert.equal(
       validateRuntimeConfig().errors.some((item) => item.includes('must not reuse AUTH_SECRET')),
       true
     );
+    process.env.STORAGE_MODE = 'clodu';
+    assert.equal(
+      validateRuntimeConfig().errors.some((item) => item.includes('STORAGE_MODE must be local or cloud')),
+      true
+    );
+    process.env.BASE_URL = 'https://xingxingzaishan.top/';
+    assert.equal(
+      validateRuntimeConfig().errors.some((item) => item.includes('BASE_URL must be an HTTPS origin')),
+      false
+    );
+  } finally {
+    for (const key of Object.keys(process.env)) delete process.env[key];
+    Object.assign(process.env, original);
+  }
+});
+
+test('runtime config rejects malformed numeric controls before the app starts', () => {
+  const original = { ...process.env };
+  try {
+    for (const key of Object.keys(process.env)) delete process.env[key];
+    process.env.NODE_ENV = 'test';
+    process.env.AUTH_SECRET = 'test-auth-secret-value-1234567890';
+    process.env.UPLOAD_PROOF_SECRET = 'test-upload-proof-secret-value-1234';
+    process.env.PORT = '70000';
+    process.env.USER_SESSION_TTL_SECONDS = '0';
+    process.env.SMS_SEND_COOLDOWN_MS = '-1';
+    process.env.RATE_LIMIT_LOGIN_MAX = 'not-a-number';
+    process.env.OSS_SIGNED_URL_EXPIRES = '1.5';
+
+    const errors = validateRuntimeConfig().errors;
+    for (const name of [
+      'PORT',
+      'USER_SESSION_TTL_SECONDS',
+      'SMS_SEND_COOLDOWN_MS',
+      'RATE_LIMIT_LOGIN_MAX',
+      'OSS_SIGNED_URL_EXPIRES'
+    ]) {
+      assert.equal(errors.some((item) => item.startsWith(`${name} must be an integer`)), true);
+    }
+
+    process.env.PORT = '3000';
+    process.env.USER_SESSION_TTL_SECONDS = '604800';
+    process.env.SMS_SEND_COOLDOWN_MS = '0';
+    process.env.RATE_LIMIT_LOGIN_MAX = '20';
+    process.env.OSS_SIGNED_URL_EXPIRES = '3600';
+    const validErrors = validateRuntimeConfig().errors;
+    assert.equal(validErrors.some((item) => item.includes('must be an integer')), false);
   } finally {
     for (const key of Object.keys(process.env)) delete process.env[key];
     Object.assign(process.env, original);

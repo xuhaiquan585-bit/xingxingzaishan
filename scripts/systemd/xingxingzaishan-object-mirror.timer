@@ -1,0 +1,13 @@
+# Managed-By: xingxingzaishan-object-mirror
+[Unit]
+Description=Run Xingxingzaishan independent object mirror daily
+
+[Timer]
+OnCalendar=*-*-* 03:20:00 Asia/Shanghai
+Persistent=true
+AccuracySec=5min
+RandomizedDelaySec=15min
+Unit=xingxingzaishan-object-mirror.service
+
+[Install]
+WantedBy=timers.target

@@ -38,7 +38,7 @@ function parseCookies(rawCookie = '') {
 }
 
 function buildCookieHeader(value, maxAgeSeconds) {
-  const sameSite = process.env.USER_SESSION_SAMESITE || 'Lax';
+  const sameSite = sessionSameSite();
   const attrs = [
     `${getCookieName()}=${encodeURIComponent(value)}`,
     'Path=/',
@@ -53,7 +53,7 @@ function buildCookieHeader(value, maxAgeSeconds) {
 }
 
 function clearCookieHeader() {
-  const sameSite = process.env.USER_SESSION_SAMESITE || 'Lax';
+  const sameSite = sessionSameSite();
   const attrs = [
     `${getCookieName()}=`,
     'Path=/',
@@ -65,6 +65,11 @@ function clearCookieHeader() {
     attrs.push('Secure');
   }
   return attrs.join('; ');
+}
+
+function sessionSameSite() {
+  const values = { lax: 'Lax', strict: 'Strict', none: 'None' };
+  return values[String(process.env.USER_SESSION_SAMESITE || 'Lax').trim().toLowerCase()] || 'Lax';
 }
 
 function isH5IdentityShadowRequest(req) {

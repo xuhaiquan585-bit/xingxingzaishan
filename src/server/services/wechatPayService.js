@@ -1,9 +1,12 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const https = require('https');
+const { readBoundedNodeResponse } = require('../utils/boundedResponse');
 
 const WECHAT_PAY_API_BASE = 'https://api.mch.weixin.qq.com';
 const WECHAT_PAY_USER_AGENT = 'xingxingzaishan/1.0';
+const WECHAT_PAY_REQUEST_TIMEOUT_MS = 10_000;
+const WECHAT_PAY_RESPONSE_MAX_BYTES = 1024 * 1024;
 
 function getConfig() {
   return {
@@ -105,10 +108,12 @@ function requestWechatPayApi({ method, path, body }) {
       method,
       headers
     }, (res) => {
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        const raw = Buffer.concat(chunks).toString('utf8');
+      readBoundedNodeResponse(res, {
+        maxBytes: WECHAT_PAY_RESPONSE_MAX_BYTES,
+        errorCode: 'WECHAT_PAY_RESPONSE_TOO_LARGE',
+        errorMessage: '微信支付响应异常，请稍后重试。'
+      }).then((buffer) => {
+        const raw = buffer.toString('utf8');
         let parsed = {};
         try {
           parsed = raw ? JSON.parse(raw) : {};
@@ -119,12 +124,18 @@ function requestWechatPayApi({ method, path, body }) {
           resolve(parsed);
           return;
         }
-        const error = new Error(parsed.message || parsed.code || '微信支付请求失败。');
-        error.code = parsed.code || 'WECHAT_PAY_API_ERROR';
+        const error = new Error('微信支付请求失败，请稍后重试。');
+        error.code = 'WECHAT_PAY_API_ERROR';
+        error.providerCode = parsed.code || null;
         error.statusCode = res.statusCode;
         error.response = parsed;
         reject(error);
-      });
+      }).catch(reject);
+    });
+    req.setTimeout(WECHAT_PAY_REQUEST_TIMEOUT_MS, () => {
+      const error = new Error('微信支付请求超时，请稍后重试。');
+      error.code = 'WECHAT_PAY_REQUEST_TIMEOUT';
+      req.destroy(error);
     });
     req.on('error', reject);
     if (payload) req.write(payload);

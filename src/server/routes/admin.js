@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('node:crypto');
 const {
   findAdmin,
+  getOperatorAuthState,
   getDashboardStats,
   listQRRecords,
   generateQRCodes,
@@ -126,8 +127,12 @@ function getBearerToken(req) {
 
 function requireAdmin(req, res, next) {
   const token = getBearerToken(req);
-  const operator = verifyToken(token);
-  if (!operator) {
+  const tokenOperator = verifyToken(token);
+  const operator = tokenOperator && getOperatorAuthState(tokenOperator.id);
+  if (!operator || !operator.enabled
+      || operator.username !== tokenOperator.username
+      || operator.role !== tokenOperator.role
+      || operator.auth_version !== tokenOperator.auth_version) {
     return res.status(401).json({
       status: 'error',
       code: 'UNAUTHORIZED',
@@ -255,6 +260,13 @@ router.post('/operators', requireAdmin, (req, res) => {
 });
 
 router.post('/operators/:id/disable', requireAdmin, (req, res) => {
+  if (String(req.operator.id) === String(req.params.id)) {
+    return res.status(409).json({
+      status: 'error',
+      code: 'CANNOT_DISABLE_SELF',
+      message: '当前登录账号不能停用自己。'
+    });
+  }
   const updated = setOperatorEnabled(req.params.id, false);
   if (!updated) {
     return res.status(404).json({

@@ -1,0 +1,21 @@
+# Managed-By: xingxingzaishan-object-mirror
+[Unit]
+Description=Xingxingzaishan independent object mirror and restore audit
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+WorkingDirectory=/www/wwwroot/xingxingzaishan
+Environment=HOME=/root
+Environment=PATH=/usr/local/bin:/usr/pgsql-15/bin:/usr/bin:/bin
+ExecStart=/usr/bin/bash /www/wwwroot/xingxingzaishan/scripts/database/run-production-object-mirror.sh --authorize-mirror=YES
+TimeoutStartSec=2h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+StandardOutput=journal
+StandardError=journal

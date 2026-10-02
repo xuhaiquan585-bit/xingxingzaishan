@@ -963,7 +963,7 @@ test('manual PostgreSQL public QR adapter integration', {
 
   process.env.NODE_ENV = 'test';
   process.env.DB_FILE = analysis.snapshot.sourcePath;
-  process.env.AUTH_SECRET = 'public-qr-integration-secret';
+  process.env.AUTH_SECRET = 'public-qr-integration-secret-12345678';
   process.env.UPLOAD_PROOF_SECRET = 'public-qr-integration-upload-secret';
   process.env.STORAGE_MODE = 'local';
 

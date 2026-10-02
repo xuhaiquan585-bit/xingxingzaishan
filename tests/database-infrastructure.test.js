@@ -3662,8 +3662,9 @@ test('manual production backup is non-destructive, secret-safe, and manually inv
     'bash scripts/database/run-production-backup.sh'
   );
   assert.match(runner, /EXPECTED_DATABASE=xingxing_clean_baseline_20260812_staging/);
-  assert.match(runner, /git diff --quiet/);
-  assert.match(runner, /git diff --cached --quiet/);
+  assert.match(runner, /git status --porcelain=v1 --untracked-files=normal/);
+  assert.match(runner, /WORKTREE_NOT_CLEAN/);
+  assert.doesNotMatch(runner, /--untracked-files=no(?!rmal)/);
   assert.match(runner, /assert_authority_runtime/);
   assert.match(runner, /POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED/);
   assert.match(runner, /RECORD_PROOF_RUNTIME_ENABLED/);
@@ -3674,6 +3675,9 @@ test('manual production backup is non-destructive, secret-safe, and manually inv
   assert.match(runner, /https:\/\/apis\.avata\.bianjie\.ai/);
   assert.match(runner, /AVATA_ENABLED=YES/);
   assert.doesNotMatch(runner, /AVATA_ENABLED=NO/);
+  assert.match(runner, /RUNTIME_CONFIG_CHECK/);
+  assert.match(runner, /RUNTIME_POSTGRES_CONFIG_READER/);
+  assert.match(runner, /POSTGRES_CLIENT_CONFIG=PASS_RECONSTRUCTED_REDACTED/);
   assert.match(runner, /OSS_ACCESS_KEY_ID\|OSS_ACCESS_KEY_SECRET/);
   assert.match(runner, /APP_PID_CHANGED/);
   assert.match(runner, /CRON_CONFIGURED=NO/);
@@ -3984,6 +3988,9 @@ test('production restore drill is fixed-source, isolated, retained, and non-dest
     'bash scripts/database/run-production-restore-drill.sh'
   );
   assert.match(runner, /\[ "\$#" = 0 \] \|\| fail RESTORE_ARGUMENT_INVALID/);
+  assert.match(runner, /git status --porcelain=v1 --untracked-files=normal/);
+  assert.match(runner, /WORKTREE_NOT_CLEAN/);
+  assert.doesNotMatch(runner, /--untracked-files=no(?!rmal)/);
   assert.match(runner, /PRODUCTION_DB=xingxing_clean_baseline_20260812_staging/);
   assert.match(runner, /EXPECTED_PRODUCTION_JSON_SHA=f263df13b5c19f91b0f86d93960f6b26896f3ed605318c73dd8546d110b06cfd/);
   assert.match(runner, /PRODUCTION_JSON_BASELINE_MISMATCH/);
@@ -4020,6 +4027,11 @@ test('production restore drill is fixed-source, isolated, retained, and non-dest
   assert.match(runner, /TEMPORARY_DATABASE_RETAINED=YES/);
   assert.match(runner, /trap cleanup EXIT/);
   assert.match(runner, /assert_authority_runtime/);
+  assert.match(runner, /RUNTIME_CONFIG_CHECK/);
+  assert.match(runner, /RUNTIME_POSTGRES_CONFIG_READER/);
+  assert.match(runner, /AVATA_ENABLED=YES_UNCHANGED/);
+  assert.match(runner, /BLOCKCHAIN_WRITE_BY_RUNNER=NONE/);
+  assert.match(runner, /POSTGRES_CLIENT_CONFIG=PASS_RECONSTRUCTED_REDACTED/);
   assert.match(runner, /PM2_DUMP_SHA_BEFORE/);
   assert.match(runner, /JSON_SHA_BEFORE/);
   assert.match(runner, /unset DATABASE_URL PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE/);

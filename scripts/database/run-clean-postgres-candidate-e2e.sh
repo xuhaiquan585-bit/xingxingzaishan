@@ -340,7 +340,7 @@ set +a
 export NODE_ENV=test
 export RUN_CLEAN_POSTGRES_CANDIDATE_E2E=true
 export DB_FILE="$JSON_BASELINE"
-export AUTH_SECRET=clean-candidate-e2e-secret
+export AUTH_SECRET=clean-candidate-e2e-secret-1234567890
 export STORAGE_MODE=local
 export BASE_URL=https://clean-candidate.invalid
 export PUBLIC_QR_SHADOW_READ_ENABLED=false
