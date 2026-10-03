@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { PassThrough } = require('node:stream');
 const test = require('node:test');
 const sharp = require('sharp');
 
@@ -21,8 +22,32 @@ const {
   createRecordImageThumbnail,
   hasAllowedImageSignature,
   normalizeUploadedImage,
-  normalizeRecordImageUpload
+  normalizeRecordImageUpload,
+  receiveSingleImage
 } = require('../src/server/services/imageUploadSecurityService');
+
+function runImageParser(request) {
+  return new Promise((resolve, reject) => {
+    const response = {
+      statusCode: 200,
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(body) {
+        resolve({ status: this.statusCode, body });
+      }
+    };
+
+    receiveSingleImage('image')(request, response, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve({ status: response.statusCode, body: null });
+    });
+  });
+}
 
 async function fixture(format, options = {}) {
   const pipeline = sharp({
@@ -128,6 +153,49 @@ test('signature gate recognizes only JPEG and PNG containers', async () => {
   assert.equal(hasAllowedImageSignature(await fixture('png')), true);
   assert.equal(hasAllowedImageSignature(Buffer.from('GIF89a')), false);
   assert.equal(hasAllowedImageSignature(Buffer.from('<svg>')), false);
+});
+
+test('multipart parser rejects a missing boundary and releases an aborted request', async () => {
+  const missingBoundary = new PassThrough();
+  missingBoundary.headers = {
+    'content-type': 'multipart/form-data',
+    'content-length': '0'
+  };
+  missingBoundary.method = 'POST';
+  const missingBoundaryResult = runImageParser(missingBoundary);
+  missingBoundary.end();
+  assert.deepEqual(await missingBoundaryResult, {
+    status: 400,
+    body: {
+      status: 'error',
+      code: 'UPLOAD_FAILED',
+      message: '上传失败，请重新选择图片。'
+    }
+  });
+
+  const boundary = '----aborted-upload-boundary';
+  const aborted = new PassThrough();
+  aborted.headers = {
+    'content-type': `multipart/form-data; boundary=${boundary}`,
+    'content-length': String(MAX_UPLOAD_BYTES)
+  };
+  aborted.method = 'POST';
+  const abortedResult = runImageParser(aborted);
+  aborted.write(Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="partial.jpg"\r\n`
+      + 'Content-Type: image/jpeg\r\n\r\n'
+  ));
+  aborted.emit('aborted');
+  aborted.destroy();
+
+  assert.deepEqual(await abortedResult, {
+    status: 400,
+    body: {
+      status: 'error',
+      code: 'UPLOAD_FAILED',
+      message: '上传失败，请重新选择图片。'
+    }
+  });
 });
 
 test('record images preserve useful detail while remaining inside the storage budget', async () => {
