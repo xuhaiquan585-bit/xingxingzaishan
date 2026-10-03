@@ -20,6 +20,21 @@ fail() {
   exit 1
 }
 
+assert_clean_worktree() {
+  local state
+  state="$(git status --porcelain=v1 --untracked-files=normal)"
+  case "$state" in
+    '') ;;
+    '?? src/frontend/5QJLlAJPza.txt')
+      [ -f "$REPO/src/frontend/5QJLlAJPza.txt" ] \
+        || fail PUBLIC_VERIFICATION_FILE_INVALID
+      [ ! -L "$REPO/src/frontend/5QJLlAJPza.txt" ] \
+        || fail PUBLIC_VERIFICATION_FILE_INVALID
+      ;;
+    *) fail WORKTREE_NOT_CLEAN ;;
+  esac
+}
+
 assert_root_private_regular_file() {
   local file="$1"
   [ -f "$file" ] || return 1
@@ -82,7 +97,7 @@ done
 [ -f "$RUNTIME_CONFIG_CHECK" ] || fail RUNTIME_CONFIG_CHECK_MISSING
 
 cd "$REPO"
-[ -z "$(git status --porcelain=v1 --untracked-files=normal)" ] || fail WORKTREE_NOT_CLEAN
+assert_clean_worktree
 GIT_COMMIT="$(git rev-parse HEAD)"
 GIT_TREE="$(git rev-parse HEAD^{tree})"
 

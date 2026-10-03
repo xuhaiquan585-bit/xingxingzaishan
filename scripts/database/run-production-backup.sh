@@ -20,6 +20,21 @@ fail() {
   exit 1
 }
 
+assert_clean_worktree() {
+  local state
+  state="$(git status --porcelain=v1 --untracked-files=normal)"
+  case "$state" in
+    '') ;;
+    '?? src/frontend/5QJLlAJPza.txt')
+      [ -f "$REPO/src/frontend/5QJLlAJPza.txt" ] \
+        || fail PUBLIC_VERIFICATION_FILE_INVALID
+      [ ! -L "$REPO/src/frontend/5QJLlAJPza.txt" ] \
+        || fail PUBLIC_VERIFICATION_FILE_INVALID
+      ;;
+    *) fail WORKTREE_NOT_CLEAN ;;
+  esac
+}
+
 runtime_value() {
   local app_pid="$1"
   local key="$2"
@@ -84,7 +99,7 @@ assert_authority_runtime() {
 
 [ "$(id -u)" = 0 ] || fail ROOT_REQUIRED
 cd "$REPO"
-[ -z "$(git status --porcelain=v1 --untracked-files=normal)" ] || fail WORKTREE_NOT_CLEAN
+assert_clean_worktree
 
 command -v flock >/dev/null 2>&1 || fail FLOCK_REQUIRED
 command -v pm2 >/dev/null 2>&1 || fail PM2_REQUIRED

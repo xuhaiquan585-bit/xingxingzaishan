@@ -33,6 +33,21 @@ fail() {
   exit 1
 }
 
+assert_clean_worktree() {
+  local state
+  state="$(git status --porcelain=v1 --untracked-files=normal)"
+  case "$state" in
+    '') ;;
+    '?? src/frontend/5QJLlAJPza.txt')
+      [ -f "$REPO/src/frontend/5QJLlAJPza.txt" ] \
+        || fail PUBLIC_VERIFICATION_FILE_INVALID
+      [ ! -L "$REPO/src/frontend/5QJLlAJPza.txt" ] \
+        || fail PUBLIC_VERIFICATION_FILE_INVALID
+      ;;
+    *) fail WORKTREE_NOT_CLEAN ;;
+  esac
+}
+
 [ "$#" = 0 ] || fail RESTORE_ARGUMENT_INVALID
 
 runtime_value() {
@@ -195,7 +210,7 @@ cleanup() {
 
 [ "$(id -u)" = 0 ] || fail ROOT_REQUIRED
 cd "$REPO"
-[ -z "$(git status --porcelain=v1 --untracked-files=normal)" ] || fail WORKTREE_NOT_CLEAN
+assert_clean_worktree
 
 for command in flock pm2 curl openssl runuser sha256sum; do
   command -v "$command" >/dev/null 2>&1 || fail "${command^^}_REQUIRED"

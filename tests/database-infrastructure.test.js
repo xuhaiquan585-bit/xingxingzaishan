@@ -3664,6 +3664,8 @@ test('manual production backup is non-destructive, secret-safe, and manually inv
   assert.match(runner, /EXPECTED_DATABASE=xingxing_clean_baseline_20260812_staging/);
   assert.match(runner, /git status --porcelain=v1 --untracked-files=normal/);
   assert.match(runner, /WORKTREE_NOT_CLEAN/);
+  assert.match(runner, /\?\? src\/frontend\/5QJLlAJPza\.txt/);
+  assert.match(runner, /PUBLIC_VERIFICATION_FILE_INVALID/);
   assert.doesNotMatch(runner, /--untracked-files=no(?!rmal)/);
   assert.match(runner, /assert_authority_runtime/);
   assert.match(runner, /POSTGRES_CUTOVER_WRITE_FREEZE_ENABLED/);
@@ -3990,6 +3992,8 @@ test('production restore drill is fixed-source, isolated, retained, and non-dest
   assert.match(runner, /\[ "\$#" = 0 \] \|\| fail RESTORE_ARGUMENT_INVALID/);
   assert.match(runner, /git status --porcelain=v1 --untracked-files=normal/);
   assert.match(runner, /WORKTREE_NOT_CLEAN/);
+  assert.match(runner, /\?\? src\/frontend\/5QJLlAJPza\.txt/);
+  assert.match(runner, /PUBLIC_VERIFICATION_FILE_INVALID/);
   assert.doesNotMatch(runner, /--untracked-files=no(?!rmal)/);
   assert.match(runner, /PRODUCTION_DB=xingxing_clean_baseline_20260812_staging/);
   assert.match(runner, /EXPECTED_PRODUCTION_JSON_SHA=f263df13b5c19f91b0f86d93960f6b26896f3ed605318c73dd8546d110b06cfd/);

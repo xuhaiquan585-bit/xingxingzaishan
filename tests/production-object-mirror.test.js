@@ -294,6 +294,8 @@ test('production object mirror runner gates mutations and leaves the application
   assert.match(source, /--authorize-mirror=YES/);
   assert.match(source, /git status --porcelain=v1 --untracked-files=normal/);
   assert.match(source, /WORKTREE_NOT_CLEAN/);
+  assert.match(source, /\?\? src\/frontend\/5QJLlAJPza\.txt/);
+  assert.match(source, /PUBLIC_VERIFICATION_FILE_INVALID/);
   assert.doesNotMatch(source, /--untracked-files=no(?!rmal)/);
   assert.match(source, /assert_root_private_regular_file "\$SOURCE_OSS_ENV"/);
   assert.match(source, /assert_root_private_regular_file "\$DESTINATION_OSS_ENV"/);

@@ -24,6 +24,21 @@ fail() {
   exit 1
 }
 
+assert_clean_worktree() {
+  local state
+  state="$(git status --porcelain=v1 --untracked-files=normal)"
+  case "$state" in
+    '') ;;
+    '?? src/frontend/5QJLlAJPza.txt')
+      [ -f "$REPO/src/frontend/5QJLlAJPza.txt" ] \
+        || fail PUBLIC_VERIFICATION_FILE_INVALID
+      [ ! -L "$REPO/src/frontend/5QJLlAJPza.txt" ] \
+        || fail PUBLIC_VERIFICATION_FILE_INVALID
+      ;;
+    *) fail WORKTREE_NOT_CLEAN ;;
+  esac
+}
+
 admin_psql() {
   runuser -u postgres -- env \
     -u DATABASE_URL -u PGHOST -u PGPORT -u PGUSER -u PGPASSWORD \
@@ -89,7 +104,7 @@ done
 [ "$(id -u)" -eq 0 ] || fail ROOT_REQUIRED
 [ -d "$REPO/.git" ] || fail REPOSITORY_REQUIRED
 cd "$REPO"
-[ -z "$(git status --porcelain=v1 --untracked-files=normal)" ] || fail WORKTREE_NOT_CLEAN
+assert_clean_worktree
 
 HEAD="$(git rev-parse HEAD)"
 TREE="$(git rev-parse 'HEAD^{tree}')"
