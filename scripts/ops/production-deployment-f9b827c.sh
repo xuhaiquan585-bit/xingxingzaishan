@@ -535,7 +535,7 @@ NODE
     return 1
   }
   rm -f "$config_file"
-  printf '%s' "$result"
+  printf '%s\n' "$result"
 }
 
 assert_http_matches_target_file() {

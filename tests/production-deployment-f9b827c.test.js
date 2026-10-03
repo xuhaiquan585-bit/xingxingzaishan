@@ -117,6 +117,10 @@ test('post-deploy probes cover config, dependencies, public credentials, and par
   assert.match(runner, /response\.status !== 200/);
 });
 
+test('nginx contract emits a standalone machine-readable marker', () => {
+  assert.match(runner, /printf '%s\\n' "\$result"/);
+});
+
 test('runner contains no known rich-text shell corruption', () => {
   for (const artifact of ['\\_', '\\:', '\\*', '\\--']) {
     assert.equal(runner.includes(artifact), false, `unexpected artifact ${artifact}`);
