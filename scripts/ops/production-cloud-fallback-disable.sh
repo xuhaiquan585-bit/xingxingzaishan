@@ -96,17 +96,103 @@ NODE
 
 assert_env_value() {
   local expected="$1"
-  "$NODE" - "$ENV_FILE" "$expected" <<'NODE'
+  local expected_count="$2"
+  "$NODE" - "$ENV_FILE" "$expected" "$expected_count" <<'NODE'
 const fs = require('node:fs');
-const [file, expected] = process.argv.slice(2);
+const [file, expected, expectedCountRaw] = process.argv.slice(2);
+const expectedCount = Number(expectedCountRaw);
 const raw = fs.readFileSync(file);
 const text = raw.toString('utf8');
 if (!Buffer.from(text, 'utf8').equals(raw)) process.exit(1);
 const assignments = text.split(/\n/)
   .map((line) => line.endsWith('\r') ? line.slice(0, -1) : line)
   .filter((line) => line.startsWith('CLOUD_FALLBACK_TO_LOCAL='));
-if (assignments.length !== 1) process.exit(2);
-if (assignments[0] !== `CLOUD_FALLBACK_TO_LOCAL=${expected}`) process.exit(3);
+if (!Number.isSafeInteger(expectedCount) || expectedCount < 1) process.exit(2);
+if (assignments.length !== expectedCount) process.exit(3);
+if (!assignments.every((line) => line === `CLOUD_FALLBACK_TO_LOCAL=${expected}`)) process.exit(4);
+NODE
+}
+
+assert_post_remediation_environment_contract() {
+  local app_pid="$1"
+  "$NODE" - "$ENV_FILE" "$app_pid" <<'NODE'
+const fs = require('node:fs');
+const dotenv = require('dotenv');
+const [envFile, pid] = process.argv.slice(2);
+const fileValues = dotenv.parse(fs.readFileSync(envFile));
+const processValues = Object.create(null);
+for (const entry of fs.readFileSync(`/proc/${pid}/environ`).toString('utf8').split('\0')) {
+  if (!entry) continue;
+  const separator = entry.indexOf('=');
+  if (separator > 0) processValues[entry.slice(0, separator)] = entry.slice(separator + 1);
+}
+const values = { ...fileValues, ...processValues, CLOUD_FALLBACK_TO_LOCAL: 'false' };
+const errors = [];
+const reject = (code) => errors.push(code);
+function requirePositiveInteger(name, { minimum = 1, maximum = Number.MAX_SAFE_INTEGER } = {}) {
+  const raw = values[name];
+  if (raw === undefined || String(raw).trim() === '') return;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) reject(`${name}_INVALID`);
+}
+function safeBaseUrl(value) {
+  try {
+    const parsed = new URL(String(value || ''));
+    return parsed.protocol === 'https:' && Boolean(parsed.hostname)
+      && !parsed.username && !parsed.password && parsed.pathname === '/'
+      && !parsed.search && !parsed.hash;
+  } catch (_error) {
+    return false;
+  }
+}
+if (values.NODE_ENV !== 'production') reject('NODE_ENV_NOT_PRODUCTION');
+if (!['prod', 'production'].includes(values.AVATA_ENV)) reject('AVATA_ENV_NOT_PRODUCTION');
+const avataBase = String(values.AVATA_API_BASE || '').replace(/\/$/, '');
+if (avataBase && avataBase !== 'https://apis.avata.bianjie.ai') reject('AVATA_API_BASE_INVALID');
+for (const key of ['AVATA_API_KEY', 'AVATA_API_SECRET']) {
+  if (!String(values[key] || '').trim()) reject(`${key}_MISSING`);
+}
+if (values.STORAGE_MODE !== 'cloud') reject('STORAGE_MODE_NOT_CLOUD');
+for (const key of ['OSS_ACCESS_KEY_ID', 'OSS_ACCESS_KEY_SECRET', 'OSS_BUCKET',
+  'OSS_REGION', 'OSS_ENDPOINT']) {
+  if (!String(values[key] || '').trim()) reject(`${key}_MISSING`);
+}
+if (!/^[a-f0-9]{64}$/.test(String(values.AUTH_SECRET || ''))) reject('AUTH_SECRET_NOT_HEX64');
+if (String(values.UPLOAD_PROOF_SECRET || '').length < 32) reject('UPLOAD_PROOF_SECRET_TOO_SHORT');
+if (values.AUTH_SECRET === values.UPLOAD_PROOF_SECRET) reject('SECURITY_SECRETS_MUST_DIFFER');
+if (!safeBaseUrl(values.BASE_URL)) reject('BASE_URL_INVALID');
+if (String(values.USER_LEGACY_LOGIN_ENABLED || '').trim().toLowerCase() !== 'false') {
+  reject('USER_LEGACY_LOGIN_ENABLED');
+}
+if (String(values.USER_SESSION_SECURE || '').trim().toLowerCase() !== 'true') {
+  reject('USER_SESSION_SECURE_DISABLED');
+}
+if (!['lax', 'strict'].includes(String(values.USER_SESSION_SAMESITE || 'Lax').trim().toLowerCase())) {
+  reject('USER_SESSION_SAMESITE_INVALID');
+}
+if (String(values.SMS_PROVIDER || '').trim().toLowerCase() !== 'aliyun') reject('SMS_PROVIDER_INVALID');
+for (const key of [
+  'SMS_ACCESS_KEY_ID', 'SMS_ACCESS_KEY_SECRET', 'SMS_SIGN_NAME', 'SMS_TEMPLATE_CODE',
+  'WECHAT_MINIAPP_APPID', 'WECHAT_MINIAPP_SECRET'
+]) {
+  if (!String(values[key] || '').trim()) reject(`${key}_MISSING`);
+}
+requirePositiveInteger('PORT', { maximum: 65535 });
+for (const key of [
+  'AUTH_TOKEN_TTL_SECONDS', 'MINIAPP_TOKEN_TTL_SECONDS', 'USER_SESSION_TTL_SECONDS',
+  'SMS_CODE_TTL_MS', 'SMS_CODE_MAX_VERIFY_ATTEMPTS', 'RATE_LIMIT_LOGIN_WINDOW_MS',
+  'RATE_LIMIT_LOGIN_MAX', 'RATE_LIMIT_WRITE_WINDOW_MS', 'RATE_LIMIT_WRITE_MAX',
+  'OSS_SIGNED_URL_EXPIRES'
+]) requirePositiveInteger(key);
+requirePositiveInteger('SMS_SEND_COOLDOWN_MS', { minimum: 0 });
+if (String(values.PGDATABASE || '') !== 'xingxing_clean_baseline_20260812_staging') {
+  reject('PGDATABASE_UNEXPECTED');
+}
+if (errors.length > 0) {
+  for (const code of errors) process.stderr.write(`POST_REMEDIATION_ERROR_CODE=${code}\n`);
+  process.exit(1);
+}
+process.stdout.write('POST_REMEDIATION_ENVIRONMENT_CONTRACT=PASS\n');
 NODE
 }
 
@@ -177,9 +263,11 @@ assert_clean_worktree
 APP_PID_BEFORE="$(application_pid)" || fail APP_RUNTIME_INVALID
 [ -r "/proc/$APP_PID_BEFORE/environ" ] || fail APP_ENVIRONMENT_UNREADABLE
 http_ready || fail CURRENT_READINESS_FAILED
-assert_env_value true || fail ENV_FILE_SOURCE_CONTRACT_MISMATCH
+assert_env_value true 2 || fail ENV_FILE_SOURCE_CONTRACT_MISMATCH
 assert_no_runtime_or_pm2_override "$APP_PID_BEFORE" \
   || fail CLOUD_FALLBACK_OVERRIDE_PRESENT
+assert_post_remediation_environment_contract "$APP_PID_BEFORE" \
+  || fail POST_REMEDIATION_ENVIRONMENT_GATE_FAILED
 
 ENV_SHA256_BEFORE="$(sha256sum "$ENV_FILE" | awk '{print $1}')"
 PM2_DUMP_SHA256_BEFORE="$(sha256sum "$PM2_DUMP" | awk '{print $1}')"
@@ -189,7 +277,7 @@ printf 'ACTIVE_TREE=%s\n' "$EXPECTED_ACTIVE_TREE"
 printf 'APP_PID_BEFORE=%s\n' "$APP_PID_BEFORE"
 printf 'CURRENT_READINESS=PASS_200_READY\n'
 printf 'CLOUD_FALLBACK_SOURCE=ENV_FILE_ONLY_TRUE\n'
-printf 'ENV_REPLACEMENT_CONTRACT=PASS_EXACT_ONE_SETTING\n'
+printf 'ENV_REPLACEMENT_CONTRACT=PASS_EXACT_TWO_DUPLICATE_SETTINGS\n'
 printf 'SECRET_VALUES_PRINTED=NO\n'
 
 if [ "$MODE" = preflight ]; then
@@ -225,11 +313,16 @@ const source = fs.readFileSync(backup);
 const needle = Buffer.from('CLOUD_FALLBACK_TO_LOCAL=true');
 const replacement = Buffer.from('CLOUD_FALLBACK_TO_LOCAL=false');
 const first = source.indexOf(needle);
-if (first < 0 || source.indexOf(needle, first + 1) >= 0) process.exit(1);
+const second = first < 0 ? -1 : source.indexOf(needle, first + needle.length);
+if (first < 0 || second < 0 || source.indexOf(needle, second + needle.length) >= 0) process.exit(1);
+let secondEnd = second + needle.length;
+if (source[secondEnd] === 0x0d && source[secondEnd + 1] === 0x0a) secondEnd += 2;
+else if (source[secondEnd] === 0x0a) secondEnd += 1;
 const output = Buffer.concat([
   source.subarray(0, first),
   replacement,
-  source.subarray(first + needle.length)
+  source.subarray(first + needle.length, second),
+  source.subarray(secondEnd)
 ]);
 const descriptor = fs.openSync(temporary, 'wx', 0o600);
 try {
@@ -243,7 +336,7 @@ fs.chmodSync(target, 0o600);
 fs.chownSync(target, 0, 0);
 NODE
 assert_root_private_regular_file "$ENV_FILE" || fail UPDATED_ENV_FILE_UNSAFE
-assert_env_value false || fail UPDATED_ENV_VALUE_INVALID
+assert_env_value false 1 || fail UPDATED_ENV_VALUE_INVALID
 "$NODE" - "$ENV_BACKUP" "$ENV_FILE" <<'NODE'
 const fs = require('node:fs');
 const [beforePath, afterPath] = process.argv.slice(2);
@@ -252,9 +345,16 @@ const after = fs.readFileSync(afterPath);
 const needle = Buffer.from('CLOUD_FALLBACK_TO_LOCAL=true');
 const replacement = Buffer.from('CLOUD_FALLBACK_TO_LOCAL=false');
 const first = before.indexOf(needle);
-if (first < 0 || before.indexOf(needle, first + 1) >= 0) process.exit(1);
+const second = first < 0 ? -1 : before.indexOf(needle, first + needle.length);
+if (first < 0 || second < 0 || before.indexOf(needle, second + needle.length) >= 0) process.exit(1);
+let secondEnd = second + needle.length;
+if (before[secondEnd] === 0x0d && before[secondEnd + 1] === 0x0a) secondEnd += 2;
+else if (before[secondEnd] === 0x0a) secondEnd += 1;
 const expected = Buffer.concat([
-  before.subarray(0, first), replacement, before.subarray(first + needle.length)
+  before.subarray(0, first),
+  replacement,
+  before.subarray(first + needle.length, second),
+  before.subarray(secondEnd)
 ]);
 if (!expected.equals(after)) process.exit(2);
 NODE
@@ -265,7 +365,7 @@ APP_PID_AFTER="$(application_pid)" || fail APP_RUNTIME_AFTER_INVALID
 [ "$APP_PID_AFTER" != "$APP_PID_BEFORE" ] || fail APP_PID_NOT_REPLACED
 assert_no_runtime_or_pm2_override "$APP_PID_AFTER" \
   || fail CLOUD_FALLBACK_OVERRIDE_AFTER_RESTART
-assert_env_value false || fail FINAL_ENV_VALUE_INVALID
+assert_env_value false 1 || fail FINAL_ENV_VALUE_INVALID
 [ "$(sha256sum "$PM2_DUMP" | awk '{print $1}')" = "$PM2_DUMP_SHA256_BEFORE" ] \
   || fail PM2_DUMP_CHANGED
 [ "$(git rev-parse HEAD)" = "$EXPECTED_ACTIVE_COMMIT" ] || fail FINAL_COMMIT_MISMATCH

@@ -41,13 +41,25 @@ test('preflight is read-only and reports the exact source contract', () => {
   assert.doesNotMatch(body, /pm2 restart|install -d|renameSync/);
 });
 
-test('only one exact dotenv assignment can be replaced', () => {
-  assert.match(runner, /assert_env_value true/);
+test('exact duplicate dotenv assignments collapse to one disabled setting', () => {
+  assert.match(runner, /assert_env_value true 2/);
+  assert.match(runner, /assert_env_value false 1/);
   assert.match(runner, /CLOUD_FALLBACK_SOURCE=ENV_FILE_ONLY_TRUE/);
+  assert.match(runner, /ENV_REPLACEMENT_CONTRACT=PASS_EXACT_TWO_DUPLICATE_SETTINGS/);
   assert.match(runner, /Buffer\.from\('CLOUD_FALLBACK_TO_LOCAL=true'\)/);
   assert.match(runner, /Buffer\.from\('CLOUD_FALLBACK_TO_LOCAL=false'\)/);
-  assert.match(runner, /source\.indexOf\(needle, first \+ 1\) >= 0/);
+  assert.match(runner, /source\.indexOf\(needle, second \+ needle\.length\) >= 0/);
+  assert.match(runner, /source\.subarray\(first \+ needle\.length, second\)/);
+  assert.match(runner, /source\.subarray\(secondEnd\)/);
   assert.match(runner, /if \(!expected\.equals\(after\)\) process\.exit\(2\)/);
+});
+
+test('preflight sweeps every candidate production environment gate after normalization', () => {
+  assert.match(runner, /assert_post_remediation_environment_contract\(\) \{/);
+  assert.match(runner, /CLOUD_FALLBACK_TO_LOCAL: 'false'/);
+  assert.match(runner, /POST_REMEDIATION_ERROR_CODE=/);
+  assert.match(runner, /POST_REMEDIATION_ENVIRONMENT_CONTRACT=PASS/);
+  assert.match(runner, /POST_REMEDIATION_ENVIRONMENT_GATE_FAILED/);
 });
 
 test('runner rejects process and PM2 overrides without printing unrelated environment', () => {
