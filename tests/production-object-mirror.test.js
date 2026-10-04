@@ -369,6 +369,34 @@ test('production object mirror runner gates mutations and leaves the application
   assert.match(source, /MIRROR_LOCAL_RUN_RETENTION_COUNT/);
 });
 
+test('production object mirror destination config uses hidden input and rolls back failed preflight', () => {
+  const source = fs.readFileSync(path.join(
+    __dirname,
+    '..',
+    'scripts',
+    'database',
+    'configure-production-object-mirror-destination.sh'
+  ), 'utf8');
+  assert.match(source, /--preflight/);
+  assert.match(source, /--authorize-configure=YES/);
+  assert.match(source, /IFS= read -r ACCESS_KEY_ID/);
+  assert.match(source, /IFS= read -r -s ACCESS_KEY_SECRET/);
+  assert.match(source, /^EXPECTED_ENDPOINT=oss-cn-shanghai\.aliyuncs\.com$/m);
+  assert.match(source, /^EXPECTED_REGION=oss-cn-shanghai$/m);
+  assert.match(source, /^EXPECTED_BUCKET=xingxingzaishan-mirror-01beifen$/m);
+  assert.match(source, /chmod 0600 "\$TEMPORARY_FILE"/);
+  assert.match(source, /chown root:root "\$TEMPORARY_FILE"/);
+  assert.match(source, /"\$MIRROR_RUNNER" --preflight/);
+  assert.match(source, /DESTINATION_CONFIG_ROLLED_BACK=YES/);
+  assert.match(source, /rm -f -- "\$CONFIG_FILE"/);
+  assert.match(source, /PRODUCTION_OBJECT_MIRROR_DESTINATION_CONFIG_PREFLIGHT=PASS/);
+  assert.match(source, /PRODUCTION_OBJECT_MIRROR_DESTINATION_CONFIG=PASS/);
+  assert.match(source, /SECRET_VALUES_PRINTED=NO/);
+  assert.doesNotMatch(source, /pm2 (?:restart|reload|start|delete)/);
+  assert.doesNotMatch(source, /systemctl (?:start|restart|enable)/);
+  assert.doesNotMatch(source, /MIRROR_OSS_ACCESS_KEY_(?:ID|SECRET)=\$\{?[12]/);
+});
+
 test('object mirror systemd schedule is daily, persistent, and managed safely', () => {
   const scriptsRoot = path.join(__dirname, '..', 'scripts');
   const service = fs.readFileSync(path.join(
