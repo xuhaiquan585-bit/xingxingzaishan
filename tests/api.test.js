@@ -1980,6 +1980,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   const homeWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'home', 'home.wxml'), 'utf8');
   const homeWxss = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'home', 'home.wxss'), 'utf8');
   const homeJson = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'home', 'home.json'), 'utf8');
+  const homeLogoAsset = path.join(__dirname, '..', 'src', 'miniprogram', 'assets', 'brand', 'star-logo.png');
   const homeHeroAsset = path.join(__dirname, '..', 'src', 'miniprogram', 'assets', 'home', 'memory-hero-v2.jpg');
   const productsJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'products', 'products.js'), 'utf8');
   const productsWxml = fs.readFileSync(path.join(__dirname, '..', 'src', 'miniprogram', 'pages', 'products', 'products.wxml'), 'utf8');
@@ -2378,6 +2379,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(homeWxml.includes('bindtap="goSceneProducts"'), true);
   assert.equal(homeWxml.includes('bindtap="handleSlideAction"'), true);
   assert.equal(homeWxml.includes('class="home-logo"'), true);
+  assert.equal(homeWxml.includes('class="home-logo" mode="aspectFill"'), true);
   assert.equal(homeWxml.includes('class="home-slide-image home-memory-image"'), true);
   assert.equal(homeWxml.includes('class="home-scene-image"'), true);
   assert.equal(homeWxml.includes('class="home-brand-mark"'), true);
@@ -2425,6 +2427,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(homeJs.includes('extractQrKey({ path: res.path })'), true);
   assert.equal(homeJs.includes('this.goProducts();'), true);
   assert.equal(homeJs.includes('normalizeSceneCards'), true);
+  assert.equal(homeJs.includes("const LOCAL_LOGO_IMAGE = '/assets/brand/star-logo.png'"), true);
   assert.equal(homeJs.includes("const LOCAL_HERO_IMAGE = '/assets/home/memory-hero-v2.jpg'"), true);
   assert.equal(homeJs.includes("const DEFAULT_HOME_TITLE = '这一刻\\n值得记住'"), true);
   assert.equal(homeJs.includes("const DEFAULT_HOME_SUBTITLE = '选一张照片，写一句话。\\n以后重新扫码，还能看见。'"), true);
@@ -2432,6 +2435,11 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(homeWxss.includes('white-space: pre-line'), true);
   assert.equal(homeWxss.includes('word-break: keep-all'), true);
   assert.equal(homeJs.includes('bannerImage: bannerImage || LOCAL_HERO_IMAGE'), true);
+  assert.equal(homeJs.includes('resolveAssetUrl(data.logo_image) || LOCAL_LOGO_IMAGE'), true);
+  assert.equal(homeJs.includes('logoImage: LOCAL_LOGO_IMAGE'), true);
+  assert.equal(fs.existsSync(homeLogoAsset), true);
+  assert.equal(fs.statSync(homeLogoAsset).size <= 80 * 1024, true);
+  assert.deepEqual([...fs.readFileSync(homeLogoAsset).subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   assert.equal(homeJs.includes('onBannerError()'), true);
   assert.equal(homeJs.includes('normalizeSlides(data.home_slides)'), true);
   assert.equal(homeJs.includes('normalizeSlides(data.home_slides, bannerImage)'), false);
@@ -2441,6 +2449,7 @@ test('user login pages should keep copy and expose miniapp-first login cues', ()
   assert.equal(homeJs.includes('hasConsultUrl'), false);
   assert.equal(homeWxml.includes('class="btn home-primary-cta"'), true);
   assert.equal(homeWxss.includes('.home-brand-star'), true);
+  assert.equal(homeWxss.includes('flex: 0 0 76rpx'), true);
   assert.equal(homeWxss.includes('.home-hero-image'), true);
   assert.equal(homeWxss.includes('.home-memory-scene'), false);
   assert.equal(homeWxss.includes('.home-steps'), true);

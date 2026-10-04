@@ -13,7 +13,7 @@
     <view class="home-hero-content">
       <view class="home-brand-row">
         <view class="home-brand-wrap">
-          <image wx:if="{{hasLogo}}" class="home-logo" mode="aspectFit" src="{{logoImage}}" binderror="onLogoError" />
+          <image wx:if="{{hasLogo}}" class="home-logo" mode="aspectFill" src="{{logoImage}}" binderror="onLogoError" />
           <view wx:else class="home-brand-mark">
             <view class="home-brand-star">✦</view>
           </view>

@@ -1,6 +1,7 @@
 const { extractQrKey, parseTokenFromUrl } = require('../../utils/qr');
 const { request, resolveAssetUrl } = require('../../utils/request');
 
+const LOCAL_LOGO_IMAGE = '/assets/brand/star-logo.png';
 const LOCAL_HERO_IMAGE = '/assets/home/memory-hero-v2.jpg';
 const DEFAULT_HOME_TITLE = '这一刻\n值得记住';
 const DEFAULT_HOME_SUBTITLE = '选一张照片，写一句话。\n以后重新扫码，还能看见。';
@@ -63,8 +64,8 @@ Page({
       share_title: '记在星上，闪到永远',
       share_description: '把照片和想说的话，留在值得记住的物品上。'
     },
-    logoImage: '',
-    hasLogo: false,
+    logoImage: LOCAL_LOGO_IMAGE,
+    hasLogo: true,
     bannerImage: LOCAL_HERO_IMAGE,
     hasBanner: true,
     slides: DEFAULT_SLIDES,
@@ -99,7 +100,7 @@ Page({
       auth: false
     }).then((data) => {
       const bannerImage = resolveAssetUrl(data.home_banner_image);
-      const logoImage = resolveAssetUrl(data.logo_image);
+      const logoImage = resolveAssetUrl(data.logo_image) || LOCAL_LOGO_IMAGE;
       const slides = this.normalizeSlides(data.home_slides);
       const sceneCards = this.normalizeSceneCards(data.scene_cards);
       this.setData({
@@ -115,6 +116,13 @@ Page({
   },
 
   onLogoError() {
+    if (this.data.logoImage !== LOCAL_LOGO_IMAGE) {
+      this.setData({
+        logoImage: LOCAL_LOGO_IMAGE,
+        hasLogo: true
+      });
+      return;
+    }
     this.setData({
       logoImage: '',
       hasLogo: false

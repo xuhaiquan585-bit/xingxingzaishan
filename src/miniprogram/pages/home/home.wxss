@@ -62,25 +62,28 @@
 .home-brand-row {
   display: flex;
   align-items: center;
-  gap: 14rpx;
+  gap: 16rpx;
 }
 
 .home-brand-wrap {
-  flex: 0 0 54rpx;
-  width: 54rpx;
-  height: 54rpx;
+  flex: 0 0 76rpx;
+  width: 76rpx;
+  height: 76rpx;
 }
 
 .home-logo,
 .home-brand-mark {
-  width: 54rpx;
-  height: 54rpx;
+  width: 76rpx;
+  height: 76rpx;
   border-radius: 50%;
 }
 
 .home-logo {
   display: block;
-  background: rgba(255, 255, 255, .76);
+  border: 1rpx solid rgba(214, 166, 73, .28);
+  background: #07132d;
+  box-shadow: 0 4rpx 14rpx rgba(20, 40, 68, .18);
+  box-sizing: border-box;
 }
 
 .home-brand-mark {
@@ -94,7 +97,7 @@
 }
 
 .home-brand-star {
-  font-size: 38rpx;
+  font-size: 50rpx;
   line-height: 1;
 }
 
@@ -104,7 +107,7 @@
 
 .home-brand-name {
   color: #142844;
-  font-size: 27rpx;
+  font-size: 29rpx;
   font-weight: 700;
   line-height: 1.2;
 }
@@ -112,7 +115,7 @@
 .home-brand-subtitle {
   margin-top: 3rpx;
   color: #68788c;
-  font-size: 19rpx;
+  font-size: 20rpx;
   line-height: 1.2;
 }
 
