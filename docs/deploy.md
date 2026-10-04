@@ -96,14 +96,16 @@ MIRROR_OSS_ACCESS_KEY_SECRET=replace-with-dedicated-key-secret
 MIRROR_OSS_SECURE=true
 ```
 
-镜像覆盖数据库引用的记录主图及缩略图、商品图、存证清单及证书、归档文件和打印成品。完成清单最后写入目标 Bucket，随后从目标 Bucket 全量下载并核对 SHA-256；只检查对象元数据不算恢复验收。
+镜像覆盖数据库引用的记录主图及缩略图、商品图、存证清单及证书、归档文件和打印成品。首次运行下载全部源对象并建立 SHA-256 清单；后续运行只有在上一份可信清单、源对象 ETag/大小和目标对象 SHA-256/大小同时一致时才跳过源字节下载，否则重新下载并核验。完成清单最后写入目标 Bucket，并重新下载清单正文核对 SHA-256。
 
 ```bash
 sudo /usr/bin/bash scripts/database/run-production-object-mirror.sh --preflight
-sudo /usr/bin/bash scripts/database/run-production-object-mirror.sh --authorize-mirror=YES
+sudo /usr/bin/bash scripts/database/run-production-object-mirror.sh --authorize-mirror=YES --restore-audit=all
 sudo /usr/bin/bash scripts/database/install-production-object-mirror-systemd.sh
 ```
 
-预检和正式运行会按应用相同的 dotenv 优先级重建当前 PM2 运行配置，并绑定 PID、启动时间和工作目录；配置文件在进程启动后变更会直接失败，避免镜像任务连接到与应用不同的数据库或 OSS。预检成功标记为 `PRODUCTION_OBJECT_MIRROR_RUNNER_PREFLIGHT=PASS`。正式镜像必须同时出现 `MIRROR_MANIFEST_REMOTE_VERIFIED=YES`、`MIRROR_MANIFEST_REMOTE_BYTES_VERIFIED=YES`、`MIRROR_FULL_RESTORE_AUDIT=PASS` 和 `PRODUCTION_OBJECT_MIRROR_RUNNER=PASS`。其中远端清单正文会重新下载并核对 SHA-256，完整对象恢复校验使用该远端清单。安装后还需核对 timer 已启用、最近一次 service 退出码为 0，并建立失败告警。
+预检和正式运行会按应用相同的 dotenv 优先级重建当前 PM2 运行配置，并绑定 PID、启动时间和工作目录；配置文件在进程启动后变更会直接失败，避免镜像任务连接到与应用不同的数据库或 OSS。预检成功标记为 `PRODUCTION_OBJECT_MIRROR_RUNNER_PREFLIGHT=PASS`。首次正式运行必须使用 `--restore-audit=all`，并同时出现 `MIRROR_MANIFEST_REMOTE_VERIFIED=YES`、`MIRROR_MANIFEST_REMOTE_BYTES_VERIFIED=YES`、`MIRROR_FULL_RESTORE_AUDIT=PASS` 和 `PRODUCTION_OBJECT_MIRROR_RUNNER=PASS`。
 
-全量恢复校验下载的对象字节只存放在当次运行的临时目录中；无论成功、校验不一致或下载中断，临时字节都会删除。服务器本地只保留最近 31 次运行的清单和恢复审计 JSON，超出部分在下一次成功运行后清理；目标 Bucket 中的完成清单不受本地保留策略影响。
+安装后有两套受同一文件锁保护的调度：每日 03:20 执行增量镜像和确定性抽样恢复，必须产生 `MIRROR_SAMPLE_RESTORE_AUDIT=PASS`；每月 1 日 04:20 执行增量镜像和全量恢复，必须产生 `MIRROR_FULL_RESTORE_AUDIT=PASS`。生产观察门禁同时要求最近一次每日镜像不超过 36 小时、最近一次全量恢复不超过 35 天，且两个 timer 均启用、最近 service 退出码均为 0。两套任务都应建立失败告警。
+
+恢复校验下载的对象字节只存放在当次运行的临时目录中；无论成功、校验不一致或下载中断，临时字节都会删除。服务器本地只保留最近 45 次运行的清单和恢复审计 JSON，以覆盖每日记录和上一个月度全量证据；超出部分在下一次成功运行后清理。目标 Bucket 中的完成清单不受本地保留策略影响。

@@ -16,7 +16,8 @@ const {
   executeObjectRestoreAudit,
   inspectBucket,
   listReferencedObjectKeys,
-  safeErrorCode
+  safeErrorCode,
+  validateMirrorManifest
 } = require('./production-object-mirror');
 const {
   parseProcessEnvironment,
@@ -65,6 +66,51 @@ function readProtectedEnvironment(filePath, options) {
   return readProtectedEnvironmentSnapshot(filePath, options).environment;
 }
 
+function readLatestPreviousMirrorManifest(outputDirectory) {
+  const rootDirectory = path.dirname(outputDirectory);
+  const currentRunId = path.basename(outputDirectory);
+  let entries;
+  try {
+    entries = fs.readdirSync(rootDirectory, { withFileTypes: true });
+  } catch (_error) {
+    throw cliError('MIRROR_HISTORY_ROOT_INVALID');
+  }
+  const runIds = entries
+    .filter((entry) => entry.isDirectory()
+      && entry.name !== currentRunId
+      && /^\d{8}T\d{6}Z-[a-f0-9]{8}$/.test(entry.name))
+    .map((entry) => entry.name)
+    .sort((left, right) => right.localeCompare(left));
+  for (const runId of runIds) {
+    const manifestPath = path.join(
+      rootDirectory,
+      runId,
+      `${runId}-object-mirror-manifest.json`
+    );
+    if (!fs.existsSync(manifestPath)) continue;
+    let descriptor;
+    try {
+      descriptor = fs.openSync(
+        manifestPath,
+        fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0)
+      );
+      const stat = fs.fstatSync(descriptor);
+      if (!stat.isFile() || stat.size < 2 || stat.size > 64 * 1024 * 1024
+          || (process.platform !== 'win32'
+            && (stat.uid !== 0 || stat.gid !== 0 || (stat.mode & 0o077) !== 0))) {
+        throw cliError('MIRROR_PREVIOUS_MANIFEST_INVALID');
+      }
+      return validateMirrorManifest(JSON.parse(fs.readFileSync(descriptor, 'utf8')));
+    } catch (error) {
+      if (error && String(error.code || '').startsWith('MIRROR_')) throw error;
+      throw cliError('MIRROR_PREVIOUS_MANIFEST_INVALID');
+    } finally {
+      if (descriptor !== undefined) fs.closeSync(descriptor);
+    }
+  }
+  return null;
+}
+
 function assertProductionMirrorEnvironment(environment) {
   if (String(environment.NODE_ENV || '').trim().toLowerCase() !== 'production'
       || String(environment.PUBLIC_QR_POSTGRES_READ_ENABLED || '') !== 'true'
@@ -103,6 +149,7 @@ function parseArguments(argv) {
     destinationOssEnv: DESTINATION_OSS_ENV,
     preflight: false,
     authorized: false,
+    restoreAuditMode: '',
     runId: '',
     outputDirectory: '',
     appPid: '',
@@ -126,6 +173,7 @@ function parseArguments(argv) {
     else if (name === 'output-directory') options.outputDirectory = value;
     else if (name === 'app-pid') options.appPid = value;
     else if (name === 'process-started-at-ms') options.processStartedAtMs = Number(value);
+    else if (name === 'restore-audit') options.restoreAuditMode = value;
     else throw cliError('MIRROR_ARGUMENT_INVALID');
   }
   if (options.preflight === options.authorized) {
@@ -133,8 +181,12 @@ function parseArguments(argv) {
   }
   if (options.authorized
       && (!/^\d{8}T\d{6}Z-[a-f0-9]{8}$/.test(options.runId)
-        || !path.isAbsolute(options.outputDirectory))) {
+        || !path.isAbsolute(options.outputDirectory)
+        || !['sample', 'all'].includes(options.restoreAuditMode))) {
     throw cliError('MIRROR_AUTHORIZED_ARGUMENT_INVALID');
+  }
+  if (options.preflight && options.restoreAuditMode) {
+    throw cliError('MIRROR_ARGUMENT_INVALID');
   }
   if ((options.appPid || options.processStartedAtMs)
       && (!/^[1-9][0-9]*$/.test(options.appPid)
@@ -238,6 +290,7 @@ async function runObjectMirrorCli({
       return Object.freeze({ objectKeys, sourceIdentity, destinationIdentity });
     }
 
+    const previousManifest = readLatestPreviousMirrorManifest(options.outputDirectory);
     const mirror = await executeObjectMirror({
       objectKeys,
       sourceClient,
@@ -245,24 +298,31 @@ async function runObjectMirrorCli({
       sourceBucket: sourceConfig.bucket,
       destinationBucket: destinationConfig.bucket,
       runId: options.runId,
-      outputDirectory: options.outputDirectory
+      outputDirectory: options.outputDirectory,
+      previousManifest
     });
     const restore = await executeObjectRestoreAudit({
       manifest: mirror.remoteManifest.manifest,
       destinationClient,
       destinationBucket: destinationConfig.bucket,
       outputDirectory: options.outputDirectory,
-      mode: 'all'
+      mode: options.restoreAuditMode
     });
     writeLine(`MIRROR_RUN_ID=${mirror.manifest.run_id}`);
     writeLine(`MIRROR_OBJECT_COUNT=${mirror.manifest.object_count}`);
     writeLine(`MIRROR_OBJECTS_COPIED=${mirror.manifest.copied_count}`);
     writeLine(`MIRROR_OBJECTS_ALREADY_VERIFIED=${mirror.manifest.verified_existing_count}`);
+    writeLine(`MIRROR_SOURCE_OBJECTS_DOWNLOADED=${mirror.manifest.source_downloaded_count}`);
+    writeLine(`MIRROR_OBJECTS_METADATA_VERIFIED=${mirror.manifest.metadata_verified_count}`);
+    writeLine(`MIRROR_INCREMENTAL_BASE_RUN_ID=${mirror.manifest.incremental_base_run_id || 'NONE'}`);
     writeLine(`MIRROR_MANIFEST_OBJECT_KEY=${mirror.manifest.manifest_object_key}`);
     writeLine('MIRROR_MANIFEST_REMOTE_BYTES_VERIFIED=YES');
     writeLine(`MIRROR_RESTORE_VERIFIED_COUNT=${restore.audit.verified_object_count}`);
+    writeLine(`MIRROR_RESTORE_AUDIT_MODE=${restore.audit.mode.toUpperCase()}`);
     writeLine('MIRROR_MANIFEST_REMOTE_VERIFIED=YES');
-    writeLine('MIRROR_FULL_RESTORE_AUDIT=PASS');
+    writeLine(restore.audit.mode === 'all'
+      ? 'MIRROR_FULL_RESTORE_AUDIT=PASS'
+      : 'MIRROR_SAMPLE_RESTORE_AUDIT=PASS');
     writeLine('PRODUCTION_OBJECT_MIRROR=PASS');
     return Object.freeze({ mirror, restore });
   } finally {
@@ -284,6 +344,7 @@ module.exports = {
   assertProductionMirrorEnvironment,
   loadEffectiveSourceEnvironment,
   parseArguments,
+  readLatestPreviousMirrorManifest,
   readOssConfig,
   readProtectedEnvironment,
   readProtectedEnvironmentSnapshot,

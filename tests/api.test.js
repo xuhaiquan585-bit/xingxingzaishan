@@ -7625,6 +7625,9 @@ test('cloud saveImage should return stable public image urls and keep object key
     });
 
     assert.equal(putCalls.length, 1);
+    assert.equal(putCalls[0].options.headers['x-oss-forbid-overwrite'], 'true');
+    assert.match(putCalls[0].options.meta.sha256, /^[a-f0-9]{64}$/);
+    assert.equal(putCalls[0].options.meta.size, String(Buffer.byteLength('cloud-public-image')));
     assert.equal(saved.object_key.startsWith('stars/MIMG00001/'), true);
     assert.equal(saved.url, `https://oss-public.example.com/base/${saved.object_key}`);
     assert.equal(saved.preview_url, saved.url);

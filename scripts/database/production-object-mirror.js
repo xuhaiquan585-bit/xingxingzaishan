@@ -7,7 +7,6 @@ const path = require('node:path');
 const { withTransaction } = require('../../src/server/database/transaction');
 const {
   downloadProtectedObjectFromOss,
-  getProtectedObjectMetadata,
   uploadProtectedFileToOss
 } = require('../../src/server/services/storageService');
 
@@ -132,6 +131,32 @@ function isNotFound(error) {
   );
 }
 
+function responseHeaders(result) {
+  const source = result?.res?.headers || result?.headers || {};
+  return Object.fromEntries(
+    Object.entries(source).map(([key, value]) => [String(key).toLowerCase(), value])
+  );
+}
+
+async function getMirrorObjectMetadata({ objectKey, client }) {
+  const safeKey = assertObjectKey(objectKey);
+  if (!client || typeof client.head !== 'function') {
+    throw mirrorError('MIRROR_METADATA_READER_UNAVAILABLE');
+  }
+  const result = await client.head(safeKey);
+  const headers = responseHeaders(result);
+  const userMetadata = result?.meta || {};
+  const status = Number(result?.status || result?.res?.status || 0);
+  return Object.freeze({
+    status,
+    metadata_status: status,
+    size: Number(headers['content-length']),
+    sha256: String(userMetadata.sha256 || headers['x-oss-meta-sha256'] || ''),
+    declared_size: String(userMetadata.size || headers['x-oss-meta-size'] || ''),
+    etag: String(headers.etag || '').replace(/^"|"$/g, '')
+  });
+}
+
 async function readDestinationMetadata({ objectKey, client, metadataReader }) {
   try {
     return await metadataReader({ objectKey, client });
@@ -152,6 +177,30 @@ function verifyDestinationMetadata(source, destination) {
     throw mirrorError('MIRROR_DESTINATION_INTEGRITY_MISMATCH');
   }
   return destination;
+}
+
+function verifySourceMetadata(metadata) {
+  if (!metadata
+      || Number(metadata.status) !== 200
+      || Number(metadata.metadata_status ?? metadata.status) !== 200
+      || !Number.isSafeInteger(Number(metadata.size))
+      || Number(metadata.size) <= 0
+      || !normalizeText(metadata.etag)) {
+    throw mirrorError('MIRROR_SOURCE_METADATA_INVALID');
+  }
+  return metadata;
+}
+
+function buildPreviousEntryMap(previousManifest, sourceIdentity, destinationIdentity) {
+  if (!previousManifest) return new Map();
+  validateMirrorManifest(previousManifest);
+  if (!sameBucketIdentity(previousManifest.source, sourceIdentity)
+      || !sameBucketIdentity(previousManifest.destination, destinationIdentity)) {
+    return new Map();
+  }
+  return new Map(previousManifest.objects
+    .filter((entry) => normalizeText(entry.source_etag))
+    .map((entry) => [entry.object_key, entry]));
 }
 
 function writeJsonExclusive(filePath, value) {
@@ -290,11 +339,46 @@ async function mirrorOneObject({
   sourceClient,
   destinationClient,
   temporaryPath,
+  previousEntry = null,
   downloader = downloadProtectedObjectFromOss,
   uploader = uploadProtectedFileToOss,
-  metadataReader = getProtectedObjectMetadata
+  sourceMetadataReader = getMirrorObjectMetadata,
+  metadataReader = getMirrorObjectMetadata
 }) {
   const safeKey = assertObjectKey(objectKey);
+  let sourceMetadata;
+  try {
+    sourceMetadata = verifySourceMetadata(await sourceMetadataReader({
+      objectKey: safeKey,
+      client: sourceClient
+    }));
+  } catch (error) {
+    if (error instanceof ProductionObjectMirrorError) throw error;
+    throw mirrorError('MIRROR_SOURCE_METADATA_FAILED');
+  }
+
+  let destination = await readDestinationMetadata({
+    objectKey: safeKey,
+    client: destinationClient,
+    metadataReader
+  });
+  if (previousEntry
+      && destination
+      && previousEntry.object_key === safeKey
+      && Number(previousEntry.size) === Number(sourceMetadata.size)
+      && normalizeText(previousEntry.source_etag) === normalizeText(sourceMetadata.etag)) {
+    verifyDestinationMetadata(previousEntry, destination);
+    return Object.freeze({
+      object_key: safeKey,
+      sha256: previousEntry.sha256,
+      size: Number(previousEntry.size),
+      source_etag: normalizeText(sourceMetadata.etag),
+      destination_etag: normalizeText(destination.etag),
+      copied: false,
+      source_downloaded: false
+    });
+  }
+
   let source;
   try {
     source = await downloader({
@@ -309,12 +393,13 @@ async function mirrorOneObject({
     || !Number.isSafeInteger(Number(source.size)) || Number(source.size) <= 0) {
     throw mirrorError('MIRROR_SOURCE_INTEGRITY_INVALID');
   }
-
-  let destination = await readDestinationMetadata({
-    objectKey: safeKey,
-    client: destinationClient,
-    metadataReader
-  });
+  if (Number(source.size) !== Number(sourceMetadata.size)
+      || (normalizeText(source.etag)
+        && normalizeText(source.etag) !== normalizeText(sourceMetadata.etag))
+      || (normalizeText(sourceMetadata.sha256)
+        && normalizeText(source.sha256) !== normalizeText(sourceMetadata.sha256))) {
+    throw mirrorError('MIRROR_SOURCE_CHANGED_DURING_COPY');
+  }
   let copied = false;
   if (!destination) {
     try {
@@ -346,7 +431,8 @@ async function mirrorOneObject({
     size: Number(source.size),
     source_etag: normalizeText(source.etag),
     destination_etag: normalizeText(destination.etag),
-    copied
+    copied,
+    source_downloaded: true
   });
 }
 
@@ -358,8 +444,11 @@ async function executeObjectMirror({
   destinationBucket,
   runId,
   outputDirectory,
+  previousManifest = null,
+  concurrency = 8,
   downloader,
   uploader,
+  sourceMetadataReader,
   metadataReader,
   now = new Date()
 }) {
@@ -381,32 +470,56 @@ async function executeObjectMirror({
   const sourceIdentity = await inspectBucket(sourceClient, sourceBucket);
   const destinationIdentity = await inspectBucket(destinationClient, destinationBucket);
   assertIndependentBuckets(sourceIdentity, destinationIdentity);
+  const previousEntries = buildPreviousEntryMap(
+    previousManifest,
+    sourceIdentity,
+    destinationIdentity
+  );
 
   const keys = objectKeys.map(assertObjectKey);
   if (new Set(keys).size !== keys.length) throw mirrorError('MIRROR_OBJECT_KEY_DUPLICATE');
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 32) {
+    throw mirrorError('MIRROR_CONCURRENCY_INVALID');
+  }
   const temporaryDirectory = path.join(outputDirectory, 'objects');
   fs.mkdirSync(temporaryDirectory, { mode: 0o700 });
-  const entries = [];
+  const entries = new Array(keys.length);
+  let nextIndex = 0;
+  let firstError = null;
   try {
-    for (let index = 0; index < keys.length; index += 1) {
-      const temporaryPath = path.join(
-        temporaryDirectory,
-        `${String(index).padStart(8, '0')}-${crypto.createHash('sha256').update(keys[index]).digest('hex')}.object`
-      );
-      try {
-        entries.push(await mirrorOneObject({
-          objectKey: keys[index],
-          sourceClient,
-          destinationClient,
-          temporaryPath,
-          downloader,
-          uploader,
-          metadataReader
-        }));
-      } finally {
-        fs.rmSync(temporaryPath, { force: true });
+    async function worker() {
+      while (!firstError) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= keys.length) return;
+        const temporaryPath = path.join(
+          temporaryDirectory,
+          `${String(index).padStart(8, '0')}-${crypto.createHash('sha256').update(keys[index]).digest('hex')}.object`
+        );
+        try {
+          entries[index] = await mirrorOneObject({
+            objectKey: keys[index],
+            sourceClient,
+            destinationClient,
+            temporaryPath,
+            previousEntry: previousEntries.get(keys[index]) || null,
+            downloader,
+            uploader,
+            sourceMetadataReader,
+            metadataReader
+          });
+        } catch (error) {
+          firstError = firstError || error;
+        } finally {
+          fs.rmSync(temporaryPath, { force: true });
+        }
       }
     }
+    await Promise.all(Array.from(
+      { length: Math.min(concurrency, Math.max(1, keys.length)) },
+      () => worker()
+    ));
+    if (firstError) throw firstError;
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }
@@ -422,6 +535,11 @@ async function executeObjectMirror({
     object_count: entries.length,
     copied_count: entries.filter((entry) => entry.copied).length,
     verified_existing_count: entries.filter((entry) => !entry.copied).length,
+    source_downloaded_count: entries.filter((entry) => entry.source_downloaded).length,
+    metadata_verified_count: entries.filter((entry) => !entry.source_downloaded).length,
+    incremental_base_run_id: entries.some((entry) => !entry.source_downloaded)
+      ? previousManifest.run_id
+      : null,
     manifest_object_key: buildMirrorManifestObjectKey(runId),
     objects: entries
   };
@@ -431,7 +549,7 @@ async function executeObjectMirror({
   let uploadedManifest = await readDestinationMetadata({
     objectKey: manifest.manifest_object_key,
     client: destinationClient,
-    metadataReader: metadataReader || getProtectedObjectMetadata
+    metadataReader: metadataReader || getMirrorObjectMetadata
   });
   if (!uploadedManifest) {
     try {
@@ -451,7 +569,7 @@ async function executeObjectMirror({
       uploadedManifest = await readDestinationMetadata({
         objectKey: manifest.manifest_object_key,
         client: destinationClient,
-        metadataReader: metadataReader || getProtectedObjectMetadata
+        metadataReader: metadataReader || getMirrorObjectMetadata
       });
     }
   }
@@ -572,15 +690,18 @@ module.exports = {
   assertIndependentBuckets,
   assertObjectKey,
   buildMirrorManifestObjectKey,
+  buildPreviousEntryMap,
   bucketIdentity,
   executeObjectMirror,
   executeObjectRestoreAudit,
   inspectBucket,
+  getMirrorObjectMetadata,
   listReferencedObjectKeys,
   mirrorOneObject,
   safeErrorCode,
   selectRestoreAuditEntries,
   validateMirrorManifest,
   verifyRemoteMirrorManifest,
-  verifyDestinationMetadata
+  verifyDestinationMetadata,
+  verifySourceMetadata
 };

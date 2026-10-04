@@ -259,9 +259,15 @@ function sanitizeObjectKey(value) {
 
 async function putObjectToOss({ objectKey, localPath }) {
   const client = getOssClient();
+  const integrity = await sha256File(localPath);
   await client.put(objectKey, localPath, {
     headers: {
-      'Cache-Control': 'public, max-age=31536000'
+      'Cache-Control': 'public, max-age=31536000',
+      'x-oss-forbid-overwrite': 'true'
+    },
+    meta: {
+      sha256: integrity.sha256,
+      size: String(integrity.size)
     }
   });
 }

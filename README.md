@@ -134,7 +134,7 @@ ADMIN_INIT_ACCOUNTS_JSON='[{"username":"admin","password":"replace-admin-pass","
 ### 生产环境建议
 
 1. 私有 Bucket 场景仅持久化主图 `image_object_key`，展示时动态解析主图或缩略图。
-2. 上线前使用 `scripts/database/run-production-object-mirror.sh`，把记录主图及缩略图、商品图、存证附件和打印成品镜像到不同账号、不同地域的私有 Bucket；数据库备份不包含这些对象字节。
+2. 上线前使用 `scripts/database/run-production-object-mirror.sh` 完成首次全量镜像和恢复校验，再安装每日增量镜像/抽样恢复及月度全量恢复 timer；目标必须是不同账号、不同地域的私有 Bucket。数据库备份不包含这些对象字节。
 3. 历史缓冲和孤立对象只能在独立备份完成后按审计清单清理，不能依据文件年龄直接删除。
 
 ## API 错误码建议（当前实现）

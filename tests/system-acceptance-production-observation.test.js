@@ -61,58 +61,79 @@ test('production observation runner is read-only and covers operational gates', 
   assert.doesNotMatch(source, /cat .*\.env/);
 });
 
-test('object mirror state requires a fresh complete full restore audit', () => {
+test('object mirror state requires a fresh daily run and a recent full restore audit', () => {
   const rootDirectory = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'mirror-state-'));
-  const runId = '20261002T010203Z-abcdef12';
-  const runDirectory = path.join(rootDirectory, runId);
   const destination = {
     name: 'secondary', location: 'oss-cn-shanghai', ownerId: 'owner-b', acl: 'private'
   };
   const objects = [{ object_key: 'stars/a.jpg', sha256: 'a'.repeat(64), size: 123 }];
-  fs.mkdirSync(runDirectory, { mode: 0o700 });
-  fs.writeFileSync(path.join(runDirectory, `${runId}-object-mirror-manifest.json`), JSON.stringify({
-    schema_version: 1,
-    status: 'COMPLETE',
-    run_id: runId,
-    completed_at_utc: '2026-10-02T01:02:03.000Z',
-    destination,
-    object_count: 1,
-    objects
-  }), { mode: 0o600 });
-  const auditPath = path.join(runDirectory, `${runId}-object-mirror-restore-audit.json`);
-  fs.writeFileSync(auditPath, JSON.stringify({
-    schema_version: 1,
-    status: 'PASS',
-    mirror_run_id: runId,
-    completed_at_utc: '2026-10-02T01:03:03.000Z',
-    mode: 'all',
-    manifest_object_count: 1,
-    verified_object_count: 1,
-    destination,
-    objects
-  }), { mode: 0o600 });
+  function writeRun(runId, completedAt, mode) {
+    const runDirectory = path.join(rootDirectory, runId);
+    fs.mkdirSync(runDirectory, { mode: 0o700 });
+    fs.writeFileSync(
+      path.join(runDirectory, `${runId}-object-mirror-manifest.json`),
+      JSON.stringify({
+        schema_version: 1,
+        status: 'COMPLETE',
+        run_id: runId,
+        completed_at_utc: completedAt,
+        destination,
+        object_count: 1,
+        objects
+      }),
+      { mode: 0o600 }
+    );
+    const auditPath = path.join(runDirectory, `${runId}-object-mirror-restore-audit.json`);
+    fs.writeFileSync(auditPath, JSON.stringify({
+      schema_version: 1,
+      status: 'PASS',
+      mirror_run_id: runId,
+      completed_at_utc: completedAt,
+      mode,
+      manifest_object_count: 1,
+      verified_object_count: 1,
+      destination,
+      objects
+    }), { mode: 0o600 });
+    return auditPath;
+  }
+  const fullRunId = '20261001T010203Z-1234abcd';
+  writeRun(fullRunId, '2026-10-01T01:03:03.000Z', 'all');
+  const runId = '20261002T010203Z-abcdef12';
+  const auditPath = writeRun(runId, '2026-10-02T01:03:03.000Z', 'sample');
   try {
     const valid = validateObjectMirrorState({
       rootDirectory,
-      maxAgeSeconds: 129600,
+      maxMirrorAgeSeconds: 129600,
+      maxFullAuditAgeSeconds: 3024000,
       nowMs: Date.parse('2026-10-02T02:03:03.000Z')
     });
     assert.equal(valid.runId, runId);
     assert.equal(valid.objectCount, 1);
+    assert.equal(valid.auditMode, 'sample');
     assert.equal(valid.ageSeconds, 3600);
+    assert.equal(valid.fullAuditRunId, fullRunId);
 
     assert.throws(() => validateObjectMirrorState({
       rootDirectory,
-      maxAgeSeconds: 60,
+      maxMirrorAgeSeconds: 60,
+      maxFullAuditAgeSeconds: 3024000,
       nowMs: Date.parse('2026-10-02T02:03:03.000Z')
     }), { code: 'MIRROR_STATE_STALE' });
+    assert.throws(() => validateObjectMirrorState({
+      rootDirectory,
+      maxMirrorAgeSeconds: 129600,
+      maxFullAuditAgeSeconds: 60,
+      nowMs: Date.parse('2026-10-02T02:03:03.000Z')
+    }), { code: 'MIRROR_STATE_FULL_AUDIT_STALE' });
 
     const tampered = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
     tampered.objects[0].sha256 = 'b'.repeat(64);
     fs.writeFileSync(auditPath, JSON.stringify(tampered));
     assert.throws(() => validateObjectMirrorState({
       rootDirectory,
-      maxAgeSeconds: 129600,
+      maxMirrorAgeSeconds: 129600,
+      maxFullAuditAgeSeconds: 3024000,
       nowMs: Date.parse('2026-10-02T02:03:03.000Z')
     }), { code: 'MIRROR_STATE_INTEGRITY_INVALID' });
   } finally {

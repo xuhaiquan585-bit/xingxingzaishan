@@ -11,6 +11,8 @@ BACKUP_ATTEMPT_STATE=/var/lib/xingxingzaishan-production-backup/last-attempt.env
 BACKUP_SUCCESS_STATE=/var/lib/xingxingzaishan-production-backup/last-success.env
 OBJECT_MIRROR_SERVICE=xingxingzaishan-object-mirror.service
 OBJECT_MIRROR_TIMER=xingxingzaishan-object-mirror.timer
+OBJECT_MIRROR_FULL_AUDIT_SERVICE=xingxingzaishan-object-mirror-full-audit.service
+OBJECT_MIRROR_FULL_AUDIT_TIMER=xingxingzaishan-object-mirror-full-audit.timer
 BACKUP_ROOT=/root/xingxingzaishan-production-backup
 MIRROR_ROOT=/root/xingxingzaishan-object-mirror
 RUNTIME_CONFIG_CHECK="$REPO/scripts/acceptance/validate-running-production-config.js"
@@ -20,6 +22,7 @@ MAX_ROOT_DISK_USED_PERCENT=90
 OBSERVATION_CYCLES=3
 OBSERVATION_INTERVAL_SECONDS=10
 MAX_OBJECT_MIRROR_AGE_SECONDS=129600
+MAX_OBJECT_MIRROR_FULL_AUDIT_AGE_SECONDS=3024000
 APP_PID_INITIAL=''
 
 fail() {
@@ -209,14 +212,30 @@ BACKUP_AGE_SECONDS=$((NOW_EPOCH - BACKUP_FINISHED_EPOCH))
 if unit_exists "$OBJECT_MIRROR_TIMER"; then
   if systemctl is-enabled --quiet "$OBJECT_MIRROR_TIMER" \
       && systemctl is-active --quiet "$OBJECT_MIRROR_TIMER" \
-      && unit_exists "$OBJECT_MIRROR_SERVICE"; then
+      && unit_exists "$OBJECT_MIRROR_SERVICE" \
+      && unit_exists "$OBJECT_MIRROR_FULL_AUDIT_TIMER" \
+      && systemctl is-enabled --quiet "$OBJECT_MIRROR_FULL_AUDIT_TIMER" \
+      && systemctl is-active --quiet "$OBJECT_MIRROR_FULL_AUDIT_TIMER" \
+      && unit_exists "$OBJECT_MIRROR_FULL_AUDIT_SERVICE"; then
     OBJECT_MIRROR_SCHEDULE=ACTIVE
     OBJECT_MIRROR_SERVICE_RESULT="$(systemctl show "$OBJECT_MIRROR_SERVICE" -p Result --value)"
     OBJECT_MIRROR_SERVICE_EXIT="$(systemctl show "$OBJECT_MIRROR_SERVICE" -p ExecMainStatus --value)"
     [ "$OBJECT_MIRROR_SERVICE_RESULT" = success ] \
       || fail OBJECT_MIRROR_SERVICE_RESULT_INVALID
     [ "$OBJECT_MIRROR_SERVICE_EXIT" = 0 ] || fail OBJECT_MIRROR_SERVICE_EXIT_INVALID
-    "/usr/local/bin/node" "$OBJECT_MIRROR_STATE_CHECK" "$MAX_OBJECT_MIRROR_AGE_SECONDS" \
+    OBJECT_MIRROR_FULL_AUDIT_SERVICE_RESULT="$(
+      systemctl show "$OBJECT_MIRROR_FULL_AUDIT_SERVICE" -p Result --value
+    )"
+    OBJECT_MIRROR_FULL_AUDIT_SERVICE_EXIT="$(
+      systemctl show "$OBJECT_MIRROR_FULL_AUDIT_SERVICE" -p ExecMainStatus --value
+    )"
+    [ "$OBJECT_MIRROR_FULL_AUDIT_SERVICE_RESULT" = success ] \
+      || fail OBJECT_MIRROR_FULL_AUDIT_SERVICE_RESULT_INVALID
+    [ "$OBJECT_MIRROR_FULL_AUDIT_SERVICE_EXIT" = 0 ] \
+      || fail OBJECT_MIRROR_FULL_AUDIT_SERVICE_EXIT_INVALID
+    "/usr/local/bin/node" "$OBJECT_MIRROR_STATE_CHECK" \
+      "$MAX_OBJECT_MIRROR_AGE_SECONDS" \
+      "$MAX_OBJECT_MIRROR_FULL_AUDIT_AGE_SECONDS" \
       || fail OBJECT_MIRROR_STATE_INVALID
     OBJECT_MIRROR_P0_GATE=CLOSED
   else
@@ -244,6 +263,7 @@ printf 'BACKUP_LAST_SUCCESS_AGE_SECONDS=%s\n' "$BACKUP_AGE_SECONDS"
 printf 'LOCAL_BACKUP_RUN_COUNT=%s\n' "$(directory_run_count "$BACKUP_ROOT")"
 printf 'LOCAL_BACKUP_SIZE_KIB=%s\n' "$(directory_kib "$BACKUP_ROOT")"
 printf 'OBJECT_MIRROR_TIMER=%s\n' "$OBJECT_MIRROR_SCHEDULE"
+printf 'OBJECT_MIRROR_FULL_AUDIT_TIMER=%s\n' "$OBJECT_MIRROR_SCHEDULE"
 printf 'OBJECT_MIRROR_P0_GATE=%s\n' "$OBJECT_MIRROR_P0_GATE"
 printf 'LOCAL_MIRROR_RUN_COUNT=%s\n' "$(directory_run_count "$MIRROR_ROOT")"
 printf 'LOCAL_MIRROR_SIZE_KIB=%s\n' "$(directory_kib "$MIRROR_ROOT")"

@@ -9,10 +9,11 @@ RUNTIME_CONFIG_CHECK="$REPO/scripts/acceptance/validate-running-production-confi
 SOURCE_OSS_ENV="$REPO/.env"
 DESTINATION_OSS_ENV=/etc/xingxingzaishan/object-mirror.env
 OUTPUT_ROOT=/root/xingxingzaishan-object-mirror
-LOCAL_RUN_RETENTION_COUNT=31
+LOCAL_RUN_RETENTION_COUNT=45
 LOCK_FILE=/run/lock/xingxingzaishan-object-mirror.lock
 EXPECTED_DATABASE=xingxing_clean_baseline_20260812_staging
 MODE=
+RESTORE_AUDIT_MODE=
 APP_PID_BEFORE=
 
 fail() {
@@ -82,11 +83,21 @@ prune_local_run_directories() {
 }
 
 case "${1:-}" in
-  --preflight) MODE=preflight ;;
-  --authorize-mirror=YES) MODE=authorized ;;
+  --preflight)
+    [ "$#" = 1 ] || fail MIRROR_ARGUMENT_INVALID
+    MODE=preflight
+    ;;
+  --authorize-mirror=YES)
+    [ "$#" = 2 ] || fail MIRROR_ARGUMENT_INVALID
+    case "${2:-}" in
+      --restore-audit=sample) RESTORE_AUDIT_MODE=sample ;;
+      --restore-audit=all) RESTORE_AUDIT_MODE=all ;;
+      *) fail MIRROR_RESTORE_AUDIT_MODE_REQUIRED ;;
+    esac
+    MODE=authorized
+    ;;
   *) fail MIRROR_MODE_REQUIRED ;;
 esac
-[ "$#" = 1 ] || fail MIRROR_ARGUMENT_INVALID
 [ "$(id -u)" = 0 ] || fail ROOT_REQUIRED
 
 for command in basename flock pm2 curl openssl git stat awk tr find sort rm; do
@@ -174,6 +185,7 @@ mkdir -m 700 "$OUTPUT_DIRECTORY"
   --process-started-at-ms="$PM2_STARTED_AT_MS" \
   --run-id="$RUN_ID" \
   --output-directory="$OUTPUT_DIRECTORY" \
+  --restore-audit="$RESTORE_AUDIT_MODE" \
   --source-oss-env="$SOURCE_OSS_ENV" \
   --destination-oss-env="$DESTINATION_OSS_ENV"
 
@@ -196,7 +208,12 @@ printf 'MIRROR_LOCAL_RUN_RETENTION_COUNT=%s\n' "$LOCAL_RUN_RETENTION_COUNT"
 printf 'APP_PID_AFTER=%s\n' "$APP_PID_AFTER"
 printf 'APP_HTTP_AFTER=200\n'
 printf 'DATABASE_WRITE=NONE\n'
-printf 'OSS_REQUESTS=INDEPENDENT_OBJECT_MIRROR_AND_FULL_RESTORE_AUDIT\n'
+printf 'MIRROR_RESTORE_AUDIT_MODE=%s\n' "${RESTORE_AUDIT_MODE^^}"
+if [ "$RESTORE_AUDIT_MODE" = all ]; then
+  printf 'OSS_REQUESTS=INDEPENDENT_OBJECT_MIRROR_AND_FULL_RESTORE_AUDIT\n'
+else
+  printf 'OSS_REQUESTS=INDEPENDENT_OBJECT_MIRROR_AND_SAMPLE_RESTORE_AUDIT\n'
+fi
 printf 'BLOCKCHAIN_WRITE=NONE\n'
 printf 'APPLICATION_RESTART=NO\n'
 printf 'SECRET_VALUES_PRINTED=NO\n'
