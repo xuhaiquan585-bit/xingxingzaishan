@@ -21,6 +21,13 @@ const {
   parseArguments,
   runObjectMirrorCli
 } = require('../scripts/database/production-object-mirror-cli');
+const {
+  analyzeSnapshot,
+  classifyRecordReference,
+  classifyUrlReference,
+  readPostgresSnapshot,
+  runAudit
+} = require('../scripts/database/audit-production-source-oss-public-dependencies');
 
 function tempDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'xingxing-object-mirror-'));
@@ -398,6 +405,216 @@ test('production object mirror destination config uses hidden input and rolls ba
   assert.doesNotMatch(source, /pm2 (?:restart|reload|start|delete)/);
   assert.doesNotMatch(source, /systemctl (?:start|restart|enable)/);
   assert.doesNotMatch(source, /MIRROR_OSS_ACCESS_KEY_(?:ID|SECRET)=\$\{?[12]/);
+});
+
+test('source OSS dependency audit separates signed records from public URL blockers', () => {
+  const matchers = [{
+    origin: 'https://primary.example.invalid',
+    pathname: '/assets',
+    prefixBounded: true
+  }];
+  const context = { objectPrefix: 'stars', matchers };
+  assert.equal(classifyUrlReference(
+    'https://primary.example.invalid/assets/products/one.jpg', matchers
+  ), 'source_public_direct');
+  assert.equal(classifyUrlReference(
+    'https://primary.example.invalid/other/one.jpg', matchers
+  ), 'external_absolute');
+  assert.equal(classifyUrlReference('/uploads/one.jpg', matchers), 'relative_local');
+  const qrId = 'S2609A00001';
+  const qrHash = crypto.createHash('sha256').update(qrId).digest('hex');
+  assert.equal(classifyRecordReference({
+    qr_id: qrId,
+    image_object_key: `stars/record-images/${qrHash}/one-record-v2.jpg`
+  }, context), 'current_object_signed');
+  assert.equal(classifyRecordReference({
+    access_token: 'b'.repeat(32),
+    image_object_key: `stars/${'b'.repeat(32)}/legacy.jpg`
+  }, context), 'legacy_object_proxy');
+
+  const result = analyzeSnapshot({
+    objectPrefix: 'stars',
+    matchers,
+    postgres: {
+      records: [
+        { qr_id: qrId, image_object_key: `stars/record-images/${qrHash}/one.jpg` },
+        { image_url_snapshot: 'https://primary.example.invalid/assets/records/two.jpg' }
+      ],
+      products: [{ cover_image_url: 'https://primary.example.invalid/assets/shadow.jpg' }],
+      productImages: [],
+      miniapp: []
+    },
+    json: {
+      qr_codes: [],
+      products: [{
+        cover_image: 'https://primary.example.invalid/assets/product.jpg',
+        images: ['https://external.example.invalid/detail.jpg']
+      }],
+      miniapp_content: {
+        logo_image: '/uploads/logo.jpg',
+        home_banner_image: 'https://primary.example.invalid/assets/banner.jpg',
+        home_slides: [],
+        scene_cards: []
+      },
+      orders: [{
+        product_snapshot: {
+          cover_image: 'https://primary.example.invalid/assets/order.jpg'
+        }
+      }]
+    }
+  });
+  assert.equal(result.postgresRecords.current_object_signed, 1);
+  assert.equal(result.postgresRecords.source_public_direct, 1);
+  assert.equal(result.jsonProducts.source_public_direct, 1);
+  assert.equal(result.jsonProducts.external_absolute, 1);
+  assert.equal(result.jsonMiniapp.source_public_direct, 1);
+  assert.equal(result.jsonOrderSnapshots.source_public_direct, 1);
+  assert.equal(result.postgresProducts.source_public_direct, 1);
+  assert.equal(result.blockers, 4);
+  assert.equal(result.ready, false);
+});
+
+test('source OSS dependency audit emits aggregate classifications without source values', async () => {
+  const directory = tempDirectory();
+  const jsonFile = path.join(directory, 'db.json');
+  const secret = 'must-not-be-printed-source-secret';
+  const sourceUrl = 'https://primary.example.invalid/assets/private-name.jpg';
+  fs.writeFileSync(jsonFile, JSON.stringify({
+    qr_codes: [],
+    products: [{ cover_image: sourceUrl, images: [] }],
+    miniapp_content: { home_slides: [], scene_cards: [] },
+    orders: []
+  }));
+  const queryRows = {
+    records: [{ qr_id: 'S1', image_url_snapshot: sourceUrl, image_object_key: null }],
+    products: [],
+    'product-images': [],
+    miniapp: []
+  };
+  const calls = [];
+  const pool = {
+    async connect() {
+      return {
+        async query(sql) {
+          calls.push(sql);
+          const marker = /source-oss-audit:([a-z-]+)/.exec(String(sql));
+          return { rows: marker ? queryRows[marker[1]] : [] };
+        },
+        release() {}
+      };
+    }
+  };
+  const lines = [];
+  try {
+    await runAudit({
+      argv: [
+        '--check',
+        `--repository=${path.resolve('.')}`,
+        '--app-pid=123',
+        '--process-started-at-ms=1000'
+      ],
+      dependencies: {
+        OSS: class {},
+        mirrorCli: {
+          readProtectedEnvironmentSnapshot() {
+            return { environment: {}, modifiedAtMs: 1 };
+          },
+          loadEffectiveSourceEnvironment() {
+            return {
+              NODE_ENV: 'production',
+              PGDATABASE: 'xingxing_clean_baseline_20260812_staging',
+              DB_FILE: jsonFile,
+              CLOUD_PUBLIC_BASE_URL: 'https://primary.example.invalid/assets',
+              OSS_ENDPOINT: 'oss-cn-beijing.aliyuncs.com',
+              OSS_REGION: 'oss-cn-beijing',
+              OSS_BUCKET: 'primary',
+              OSS_ACCESS_KEY_ID: 'source-key-id',
+              OSS_ACCESS_KEY_SECRET: secret
+            };
+          },
+          assertProductionMirrorEnvironment() {},
+          readOssConfig(environment) {
+            return {
+              endpoint: environment.OSS_ENDPOINT,
+              region: environment.OSS_REGION,
+              bucket: environment.OSS_BUCKET,
+              accessKeyId: environment.OSS_ACCESS_KEY_ID,
+              accessKeySecret: environment.OSS_ACCESS_KEY_SECRET,
+              secure: true
+            };
+          }
+        },
+        mirror: {
+          async inspectBucket() {
+            return { acl: 'public-read' };
+          }
+        },
+        databaseConfig: { readPostgresConfig: () => ({}) },
+        databaseConnection: {
+          createPostgresPool: () => pool,
+          closePostgresPool: async () => {}
+        },
+        transaction: {
+          withTransaction: require('../src/server/database/transaction').withTransaction
+        }
+      },
+      writeLine(line) {
+        lines.push(line);
+      }
+    });
+    const output = lines.join('\n');
+    assert.match(output, /SOURCE_OSS_CURRENT_ACL=PUBLIC_READ/);
+    assert.match(output, /SOURCE_PRIVATE_SWITCH_BLOCKERS=2/);
+    assert.match(output, /SOURCE_PRIVATE_SWITCH_READY=NO/);
+    assert.match(output, /PRODUCTION_SOURCE_OSS_PUBLIC_DEPENDENCY_AUDIT=COLLECTED/);
+    assert.equal(output.includes(sourceUrl), false);
+    assert.equal(output.includes('private-name.jpg'), false);
+    assert.equal(output.includes(secret), false);
+    assert.equal(calls.includes('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'), true);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('source OSS dependency audit reads PostgreSQL in one repeatable-read transaction', async () => {
+  const pool = fakePool([]);
+  const snapshot = await readPostgresSnapshot({
+    pool,
+    withTransaction: require('../src/server/database/transaction').withTransaction
+  });
+  assert.deepEqual(snapshot, {
+    records: [], products: [], productImages: [], miniapp: []
+  });
+  assert.equal(pool.calls.includes('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'), true);
+  for (const marker of ['records', 'products', 'product-images', 'miniapp']) {
+    assert.equal(pool.calls.some((sql) => String(sql).includes(`source-oss-audit:${marker}`)), true);
+  }
+});
+
+test('source OSS public dependency audit runner is read-only and emits no sensitive values', () => {
+  const scriptsRoot = path.join(__dirname, '..', 'scripts', 'database');
+  const runner = fs.readFileSync(path.join(
+    scriptsRoot, 'run-production-source-oss-public-dependency-audit.sh'
+  ), 'utf8');
+  const cli = fs.readFileSync(path.join(
+    scriptsRoot, 'audit-production-source-oss-public-dependencies.js'
+  ), 'utf8');
+  assert.match(runner, /^EXPECTED_COMMIT=5970420f7b61c7551ceb07099f0aa93e613e05d3$/m);
+  assert.match(runner, /^EXPECTED_TREE=dd5a574b4c78af7c162a3c5feb817b8f9b5703a6$/m);
+  assert.match(runner, /--check/);
+  assert.match(runner, /RUNTIME_CONFIG_CHECK/);
+  assert.match(runner, /PRODUCTION_SOURCE_OSS_PUBLIC_DEPENDENCY_AUDIT_RUNNER=PASS/);
+  assert.match(cli, /SOURCE_PRIVATE_SWITCH_BLOCKERS/);
+  assert.match(cli, /OSS_REQUESTS=SOURCE_GET_BUCKET_INFO_ONLY/);
+  assert.match(cli, /POSTGRES_ACCESS=READ_ONLY_REPEATABLE_READ/);
+  assert.match(cli, /OBJECT_KEYS_PRINTED=NO/);
+  assert.match(cli, /URLS_PRINTED=NO/);
+  for (const source of [runner, cli]) {
+    assert.doesNotMatch(source, /pm2 (?:restart|reload|start|delete)/);
+    assert.doesNotMatch(source, /systemctl (?:start|restart|enable)/);
+    assert.doesNotMatch(source, /\.(?:put|delete|copy)\s*\(/);
+  }
+  assert.doesNotMatch(runner, /object-mirror\.env/);
 });
 
 test('object mirror systemd schedule is daily, persistent, and managed safely', () => {
