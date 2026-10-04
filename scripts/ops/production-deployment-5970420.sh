@@ -362,9 +362,12 @@ for (const unit of [
   'xingxingzaishan-object-mirror-full-audit.timer'
 ]) must(installer.includes(unit), `${unit}_INSTALL_MISSING`);
 const mirrorTest = read('tests/production-object-mirror.test.js');
-must(mirrorTest.includes('skips source byte download when three-way fingerprints agree'),
+must(mirrorTest.includes(
+  'incremental mirror reuses a prior digest only when source and destination metadata agree'
+),
   'INCREMENTAL_SKIP_REGRESSION_MISSING');
-must(mirrorTest.includes('source ETag changes'), 'SOURCE_CHANGE_REGRESSION_MISSING');
+must(mirrorTest.includes('assert.equal(downloads, 0);'), 'UNCHANGED_SOURCE_SKIP_ASSERTION_MISSING');
+must(mirrorTest.includes('assert.equal(downloads, 1);'), 'CHANGED_SOURCE_DOWNLOAD_ASSERTION_MISSING');
 const observationTest = read('tests/system-acceptance-production-observation.test.js');
 must(observationTest.includes('fresh daily run and a recent full restore audit'),
   'DUAL_FRESHNESS_REGRESSION_MISSING');
