@@ -51,7 +51,8 @@ for command in git install mktemp mv rm stat; do
   command -v "$command" >/dev/null 2>&1 || fail "${command^^}_REQUIRED"
 done
 [ -d "$REPO/.git" ] || fail REPOSITORY_INVALID
-[ -x "$MIRROR_RUNNER" ] || fail MIRROR_RUNNER_MISSING
+[ -f "$MIRROR_RUNNER" ] || fail MIRROR_RUNNER_MISSING
+[ ! -L "$MIRROR_RUNNER" ] || fail MIRROR_RUNNER_UNSAFE
 cd "$REPO"
 [ "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT" ] || fail ACTIVE_COMMIT_MISMATCH
 [ "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE" ] || fail ACTIVE_TREE_MISMATCH

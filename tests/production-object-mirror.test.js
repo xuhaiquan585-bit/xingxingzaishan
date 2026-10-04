@@ -384,6 +384,9 @@ test('production object mirror destination config uses hidden input and rolls ba
   assert.match(source, /^EXPECTED_ENDPOINT=oss-cn-shanghai\.aliyuncs\.com$/m);
   assert.match(source, /^EXPECTED_REGION=oss-cn-shanghai$/m);
   assert.match(source, /^EXPECTED_BUCKET=xingxingzaishan-mirror-01beifen$/m);
+  assert.match(source, /\[ -f "\$MIRROR_RUNNER" \]/);
+  assert.match(source, /\[ ! -L "\$MIRROR_RUNNER" \]/);
+  assert.doesNotMatch(source, /\[ -x "\$MIRROR_RUNNER" \]/);
   assert.match(source, /chmod 0600 "\$TEMPORARY_FILE"/);
   assert.match(source, /chown root:root "\$TEMPORARY_FILE"/);
   assert.match(source, /"\$MIRROR_RUNNER" --preflight/);
