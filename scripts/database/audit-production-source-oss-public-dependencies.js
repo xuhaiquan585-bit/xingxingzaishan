@@ -295,6 +295,16 @@ function readJsonDatabase(filePath, { openSync = fs.openSync, fstatSync = fs.fst
   }
 }
 
+function resolveJsonDatabasePath(repository, environment) {
+  const configured = normalizeText(environment && environment.DB_FILE);
+  return Object.freeze({
+    filePath: configured
+      ? (path.isAbsolute(configured) ? configured : path.resolve(repository, configured))
+      : path.join(repository, 'src', 'server', 'data', 'db.json'),
+    source: configured ? 'EXPLICIT_DB_FILE' : 'RUNTIME_DEFAULT'
+  });
+}
+
 async function readPostgresSnapshot({ pool, withTransaction }) {
   return withTransaction(pool, async (context) => {
     const records = await context.query(`/* source-oss-audit:records */
@@ -387,12 +397,8 @@ async function runAudit({
     await deps.databaseConnection.closePostgresPool(pool);
   }
 
-  const configuredJsonPath = normalizeText(sourceEnvironment.DB_FILE);
-  if (!configuredJsonPath) throw auditError('SOURCE_OSS_AUDIT_JSON_PATH_MISSING');
-  const jsonPath = path.isAbsolute(configuredJsonPath)
-    ? configuredJsonPath
-    : path.resolve(repository, configuredJsonPath);
-  const json = readJsonDatabase(jsonPath);
+  const jsonDatabase = resolveJsonDatabasePath(repository, sourceEnvironment);
+  const json = readJsonDatabase(jsonDatabase.filePath);
   const objectPrefix = normalizeText(sourceEnvironment.OSS_OBJECT_PREFIX) || 'stars';
   if (!/^[a-zA-Z0-9_-]{1,120}$/.test(objectPrefix)) {
     throw auditError('SOURCE_OSS_AUDIT_OBJECT_PREFIX_INVALID');
@@ -402,6 +408,7 @@ async function runAudit({
   writeLine(`SOURCE_OSS_CURRENT_ACL=${sourceAcl}`);
   writeLine('RECORD_AUTHORITY=POSTGRES');
   writeLine('CATALOG_CONTENT_AUTHORITY=JSON_RUNTIME');
+  writeLine(`JSON_DATABASE_SOURCE=${jsonDatabase.source}`);
   printCounts('POSTGRES_RECORD_REFERENCES', result.postgresRecords, writeLine);
   printCounts('JSON_RECORD_SHADOW_REFERENCES', result.jsonRecords, writeLine);
   printCounts('JSON_PRODUCT_IMAGE_REFERENCES', result.jsonProducts, writeLine);
@@ -443,6 +450,7 @@ module.exports = {
   parseArguments,
   readJsonDatabase,
   readPostgresSnapshot,
+  resolveJsonDatabasePath,
   runAudit,
   safeErrorCode,
   sourceUrlMatchers

@@ -26,6 +26,7 @@ const {
   classifyRecordReference,
   classifyUrlReference,
   readPostgresSnapshot,
+  resolveJsonDatabasePath,
   runAudit
 } = require('../scripts/database/audit-production-source-oss-public-dependencies');
 
@@ -472,6 +473,18 @@ test('source OSS dependency audit separates signed records from public URL block
   assert.equal(result.postgresProducts.source_public_direct, 1);
   assert.equal(result.blockers, 4);
   assert.equal(result.ready, false);
+});
+
+test('source OSS dependency audit follows the application JSON database default', () => {
+  const repository = path.resolve('fixture-repository');
+  assert.deepEqual(resolveJsonDatabasePath(repository, {}), {
+    filePath: path.join(repository, 'src', 'server', 'data', 'db.json'),
+    source: 'RUNTIME_DEFAULT'
+  });
+  assert.deepEqual(resolveJsonDatabasePath(repository, { DB_FILE: 'runtime/db.json' }), {
+    filePath: path.resolve(repository, 'runtime/db.json'),
+    source: 'EXPLICIT_DB_FILE'
+  });
 });
 
 test('source OSS dependency audit emits aggregate classifications without source values', async () => {
