@@ -219,6 +219,32 @@ function miniappImageValues(content) {
   ];
 }
 
+function countMiniappImageGroups(rows, matchers) {
+  const contentRows = Array.isArray(rows) ? rows : [];
+  return Object.freeze({
+    logoImage: countUrlReferences(
+      contentRows.map((content) => content && content.logo_image),
+      matchers
+    ),
+    homeBannerImage: countUrlReferences(
+      contentRows.map((content) => content && content.home_banner_image),
+      matchers
+    ),
+    homeSlideImages: countUrlReferences(
+      contentRows.flatMap((content) => Array.isArray(content && content.home_slides)
+        ? content.home_slides.map((item) => item && item.image)
+        : []),
+      matchers
+    ),
+    sceneCardImages: countUrlReferences(
+      contentRows.flatMap((content) => Array.isArray(content && content.scene_cards)
+        ? content.scene_cards.map((item) => item && item.image)
+        : []),
+      matchers
+    )
+  });
+}
+
 function productImageValues(products) {
   const values = [];
   for (const product of Array.isArray(products) ? products : []) {
@@ -244,9 +270,11 @@ function analyzeSnapshot({ postgres, json, objectPrefix, matchers }) {
     (postgres.miniapp || []).flatMap(miniappImageValues),
     matchers
   );
+  const postgresMiniappGroups = countMiniappImageGroups(postgres.miniapp, matchers);
   const jsonRecords = countRecordReferences(json.qr_codes, context);
   const jsonProducts = countUrlReferences(productImageValues(json.products), matchers);
   const jsonMiniapp = countUrlReferences(miniappImageValues(json.miniapp_content), matchers);
+  const jsonMiniappGroups = countMiniappImageGroups([json.miniapp_content], matchers);
   const jsonOrderSnapshots = countUrlReferences(orderSnapshotImageValues(json.orders), matchers);
 
   const blockers = postgresRecords.source_public_direct
@@ -262,9 +290,11 @@ function analyzeSnapshot({ postgres, json, objectPrefix, matchers }) {
     postgresRecords,
     postgresProducts,
     postgresMiniapp,
+    postgresMiniappGroups,
     jsonRecords,
     jsonProducts,
     jsonMiniapp,
+    jsonMiniappGroups,
     jsonOrderSnapshots,
     blockers,
     review,
@@ -332,6 +362,13 @@ function printCounts(prefix, counts, writeLine) {
   for (const key of Object.keys(counts).filter((key) => key !== 'total')) {
     writeLine(`${prefix}_${key.toUpperCase()}=${counts[key]}`);
   }
+}
+
+function printMiniappGroupCounts(prefix, groups, writeLine) {
+  printCounts(`${prefix}_LOGO_IMAGE_REFERENCES`, groups.logoImage, writeLine);
+  printCounts(`${prefix}_HOME_BANNER_IMAGE_REFERENCES`, groups.homeBannerImage, writeLine);
+  printCounts(`${prefix}_HOME_SLIDE_IMAGE_REFERENCES`, groups.homeSlideImages, writeLine);
+  printCounts(`${prefix}_SCENE_CARD_IMAGE_REFERENCES`, groups.sceneCardImages, writeLine);
 }
 
 function aclClass(value) {
@@ -413,9 +450,13 @@ async function runAudit({
   printCounts('JSON_RECORD_SHADOW_REFERENCES', result.jsonRecords, writeLine);
   printCounts('JSON_PRODUCT_IMAGE_REFERENCES', result.jsonProducts, writeLine);
   printCounts('JSON_MINIAPP_IMAGE_REFERENCES', result.jsonMiniapp, writeLine);
+  printMiniappGroupCounts('JSON_MINIAPP', result.jsonMiniappGroups, writeLine);
   printCounts('JSON_ORDER_SNAPSHOT_IMAGE_REFERENCES', result.jsonOrderSnapshots, writeLine);
   printCounts('POSTGRES_PRODUCT_IMAGE_SHADOW_REFERENCES', result.postgresProducts, writeLine);
   printCounts('POSTGRES_MINIAPP_IMAGE_SHADOW_REFERENCES', result.postgresMiniapp, writeLine);
+  printMiniappGroupCounts(
+    'POSTGRES_MINIAPP_SHADOW', result.postgresMiniappGroups, writeLine
+  );
   writeLine(`SOURCE_PRIVATE_SWITCH_BLOCKERS=${result.blockers}`);
   writeLine(`SOURCE_PRIVATE_SWITCH_REVIEW_REQUIRED=${result.review}`);
   writeLine(`SOURCE_PRIVATE_SWITCH_READY=${result.ready ? 'YES' : 'NO'}`);

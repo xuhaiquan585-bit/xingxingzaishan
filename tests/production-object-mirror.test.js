@@ -469,6 +469,10 @@ test('source OSS dependency audit separates signed records from public URL block
   assert.equal(result.jsonProducts.source_public_direct, 1);
   assert.equal(result.jsonProducts.external_absolute, 1);
   assert.equal(result.jsonMiniapp.source_public_direct, 1);
+  assert.equal(result.jsonMiniappGroups.logoImage.relative_local, 1);
+  assert.equal(result.jsonMiniappGroups.homeBannerImage.source_public_direct, 1);
+  assert.equal(result.jsonMiniappGroups.homeSlideImages.total, 0);
+  assert.equal(result.jsonMiniappGroups.sceneCardImages.total, 0);
   assert.equal(result.jsonOrderSnapshots.source_public_direct, 1);
   assert.equal(result.postgresProducts.source_public_direct, 1);
   assert.equal(result.blockers, 4);
@@ -579,6 +583,7 @@ test('source OSS dependency audit emits aggregate classifications without source
     assert.match(output, /SOURCE_OSS_CURRENT_ACL=PUBLIC_READ/);
     assert.match(output, /SOURCE_PRIVATE_SWITCH_BLOCKERS=2/);
     assert.match(output, /SOURCE_PRIVATE_SWITCH_READY=NO/);
+    assert.match(output, /JSON_MINIAPP_HOME_BANNER_IMAGE_REFERENCES_EMPTY=1/);
     assert.match(output, /PRODUCTION_SOURCE_OSS_PUBLIC_DEPENDENCY_AUDIT=COLLECTED/);
     assert.equal(output.includes(sourceUrl), false);
     assert.equal(output.includes('private-name.jpg'), false);
