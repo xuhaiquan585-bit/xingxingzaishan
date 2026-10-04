@@ -29,6 +29,12 @@ const {
   resolveJsonDatabasePath,
   runAudit
 } = require('../scripts/database/audit-production-source-oss-public-dependencies');
+const {
+  applyRemediation,
+  parseArguments: parseLogoRemediationArguments,
+  readJsonSnapshot: readLogoRemediationJsonSnapshot,
+  validateLogoReferences
+} = require('../scripts/database/remediate-production-source-oss-logo-reference');
 
 function tempDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'xingxing-object-mirror-'));
@@ -633,6 +639,150 @@ test('source OSS public dependency audit runner is read-only and emits no sensit
     assert.doesNotMatch(source, /\.(?:put|delete|copy)\s*\(/);
   }
   assert.doesNotMatch(runner, /object-mirror\.env/);
+});
+
+test('source OSS logo remediation accepts only one matching source-public reference', () => {
+  const sourceUrl = 'https://primary.example.invalid/assets/logo.jpg';
+  const matchers = [{
+    origin: 'https://primary.example.invalid',
+    pathname: '/assets',
+    prefixBounded: true
+  }];
+  assert.equal(validateLogoReferences({
+    jsonLogo: sourceUrl,
+    postgresLogo: sourceUrl,
+    matchers
+  }), sourceUrl);
+  assert.throws(() => validateLogoReferences({
+    jsonLogo: sourceUrl,
+    postgresLogo: 'https://primary.example.invalid/assets/other.jpg',
+    matchers
+  }), /SOURCE_OSS_LOGO_REMEDIATION_REFERENCE_MISMATCH/);
+  assert.throws(() => validateLogoReferences({
+    jsonLogo: 'https://external.example.invalid/logo.jpg',
+    postgresLogo: 'https://external.example.invalid/logo.jpg',
+    matchers
+  }), /SOURCE_OSS_LOGO_REMEDIATION_REFERENCE_NOT_SOURCE_PUBLIC/);
+  assert.deepEqual(parseLogoRemediationArguments([
+    '--preflight',
+    `--repository=${path.resolve('.')}`,
+    '--app-pid=123',
+    '--process-started-at-ms=1000'
+  ]), {
+    mode: 'preflight',
+    repository: path.resolve('.'),
+    appPid: '123',
+    processStartedAtMs: 1000,
+    backupDirectory: ''
+  });
+});
+
+test('source OSS logo remediation clears JSON and PostgreSQL together', async () => {
+  const directory = tempDirectory();
+  const jsonFile = path.join(directory, 'db.json');
+  const sourceUrl = 'https://primary.example.invalid/assets/logo.jpg';
+  fs.writeFileSync(jsonFile, JSON.stringify({
+    miniapp_content: { logo_image: sourceUrl },
+    untouched: { value: 'preserve-me' }
+  }, null, 2));
+  let postgresLogo = sourceUrl;
+  const withTransaction = async (_pool, callback) => {
+    const original = postgresLogo;
+    try {
+      return await callback({
+        async query(sql, values) {
+          if (String(sql).includes(':lock')) {
+            return { rows: [{ logo_image: postgresLogo }] };
+          }
+          if (String(sql).includes(':update')) {
+            if (values[0] !== postgresLogo) return { rowCount: 0, rows: [] };
+            postgresLogo = '';
+            return { rowCount: 1, rows: [{ id: 1 }] };
+          }
+          throw new Error('unexpected query');
+        }
+      });
+    } catch (error) {
+      postgresLogo = original;
+      throw error;
+    }
+  };
+  try {
+    const snapshot = readLogoRemediationJsonSnapshot(jsonFile);
+    await applyRemediation({
+      pool: {},
+      withTransaction,
+      jsonFile,
+      jsonSnapshot: snapshot,
+      expectedLogo: sourceUrl
+    });
+    const after = JSON.parse(fs.readFileSync(jsonFile, 'utf8'));
+    assert.equal(after.miniapp_content.logo_image, '');
+    assert.equal(after.untouched.value, 'preserve-me');
+    assert.equal(postgresLogo, '');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('source OSS logo remediation restores JSON if the database commit fails', async () => {
+  const directory = tempDirectory();
+  const jsonFile = path.join(directory, 'db.json');
+  const sourceUrl = 'https://primary.example.invalid/assets/logo.jpg';
+  const original = JSON.stringify({
+    miniapp_content: { logo_image: sourceUrl },
+    untouched: true
+  }, null, 2);
+  fs.writeFileSync(jsonFile, original);
+  const withTransaction = async (_pool, callback) => {
+    await callback({
+      async query(sql) {
+        if (String(sql).includes(':lock')) return { rows: [{ logo_image: sourceUrl }] };
+        if (String(sql).includes(':update')) return { rowCount: 1, rows: [{ id: 1 }] };
+        throw new Error('unexpected query');
+      }
+    });
+    const error = new Error('commit failed');
+    error.code = 'POSTGRES_TRANSACTION_COMMIT_FAILED';
+    throw error;
+  };
+  try {
+    const snapshot = readLogoRemediationJsonSnapshot(jsonFile);
+    await assert.rejects(applyRemediation({
+      pool: {},
+      withTransaction,
+      jsonFile,
+      jsonSnapshot: snapshot,
+      expectedLogo: sourceUrl
+    }), /commit failed/);
+    assert.equal(fs.readFileSync(jsonFile, 'utf8'), original);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('source OSS logo remediation runner is pinned, bounded, and does not change ACL', () => {
+  const scriptsRoot = path.join(__dirname, '..', 'scripts', 'database');
+  const runner = fs.readFileSync(path.join(
+    scriptsRoot, 'run-production-source-oss-logo-remediation.sh'
+  ), 'utf8');
+  const cli = fs.readFileSync(path.join(
+    scriptsRoot, 'remediate-production-source-oss-logo-reference.js'
+  ), 'utf8');
+  assert.match(runner, /^EXPECTED_COMMIT=5970420f7b61c7551ceb07099f0aa93e613e05d3$/m);
+  assert.match(runner, /^EXPECTED_TREE=dd5a574b4c78af7c162a3c5feb817b8f9b5703a6$/m);
+  assert.match(runner, /--authorize-remediate=YES/);
+  assert.match(runner, /MINIAPP_LOGO_FALLBACK_CONTRACT=PASS/);
+  assert.match(runner, /SOURCE_PRIVATE_SWITCH_BLOCKERS=0/);
+  assert.match(runner, /SOURCE_BUCKET_ACL_CHANGED=NO/);
+  assert.match(cli, /SET logo_image = ''/);
+  assert.match(cli, /PRIVATE_ROLLBACK_BACKUP=PASS/);
+  assert.match(cli, /SOURCE_OSS_LOGO_REMEDIATION_JSON_WRITE_CONFLICT/);
+  for (const source of [runner, cli]) {
+    assert.doesNotMatch(source, /pm2 (?:restart|reload|start|delete)/);
+    assert.doesNotMatch(source, /setBucketACL|putBucketACL|deleteBucket/);
+    assert.doesNotMatch(source, /\.delete\s*\(/);
+  }
 });
 
 test('object mirror systemd schedule is daily, persistent, and managed safely', () => {
