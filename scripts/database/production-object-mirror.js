@@ -54,6 +54,21 @@ function normalizeText(value) {
   return String(value || '').trim();
 }
 
+function isValidVersionId(value) {
+  const versionId = String(value || '');
+  return versionId !== 'null'
+    && versionId.length >= 1
+    && versionId.length <= 1024
+    && !/[\x00-\x20\x7f]/.test(versionId);
+}
+
+function assertVersionId(value) {
+  if (!isValidVersionId(value)) {
+    throw mirrorError('MIRROR_DESTINATION_VERSION_ID_INVALID');
+  }
+  return String(value);
+}
+
 function assertObjectKey(value) {
   const key = normalizeText(value);
   if (!key || key.startsWith('/') || key.includes('\\') || /[\x00-\x1f\x7f]/.test(key)) {
@@ -163,7 +178,8 @@ function verifySourceMetadata(metadata) {
 function buildPreviousEntryMap(previousManifest, sourceIdentity, destinationIdentity) {
   if (!previousManifest) return new Map();
   validateMirrorManifest(previousManifest);
-  if (!sameBucketIdentity(previousManifest.source, sourceIdentity)
+  if (Number(previousManifest.schema_version) !== 3
+      || !sameBucketIdentity(previousManifest.source, sourceIdentity)
       || !sameBucketIdentity(previousManifest.destination, destinationIdentity)) {
     return new Map();
   }
@@ -230,7 +246,7 @@ function validateMirrorManifest(manifest) {
     : Number(manifest && manifest.copied_count)
       + Number(manifest && manifest.locally_reused_count);
   if (!manifest || typeof manifest !== 'object'
-      || ![1, 2].includes(schemaVersion)
+      || ![1, 2, 3].includes(schemaVersion)
       || manifest.status !== 'COMPLETE'
       || !/^\d{8}T\d{6}Z-[a-f0-9]{8}$/.test(String(manifest.run_id || ''))
       || !Array.isArray(manifest.objects)
@@ -244,6 +260,12 @@ function validateMirrorManifest(manifest) {
         || manifest.restore_verification !== 'INDEPENDENT_AUDIT_REQUIRED')) {
     throw mirrorError('MIRROR_MANIFEST_INVALID');
   }
+  if (schemaVersion === 3
+      && (manifest.destination_object_read !== 'NONE'
+        || manifest.destination_versioning !== 'ENABLED_VERSION_ID_PINNED'
+        || manifest.restore_verification !== 'INDEPENDENT_EXACT_VERSION_AUDIT_REQUIRED')) {
+    throw mirrorError('MIRROR_MANIFEST_INVALID');
+  }
   const keys = new Set();
   for (const entry of manifest.objects) {
     const key = assertObjectKey(entry && entry.object_key);
@@ -251,6 +273,9 @@ function validateMirrorManifest(manifest) {
         || !/^[a-f0-9]{64}$/.test(String(entry.sha256 || ''))
         || !Number.isSafeInteger(Number(entry.size))
         || Number(entry.size) <= 0) {
+      throw mirrorError('MIRROR_MANIFEST_INVALID');
+    }
+    if (schemaVersion === 3 && !isValidVersionId(entry.destination_version_id)) {
       throw mirrorError('MIRROR_MANIFEST_INVALID');
     }
     keys.add(key);
@@ -278,8 +303,7 @@ async function uploadMirrorObjectWriteOnly({
   const result = await client.put(safeKey, localPath, {
     headers: {
       'Content-Type': contentType,
-      'Cache-Control': 'private, max-age=0, no-cache',
-      'x-oss-forbid-overwrite': 'true'
+      'Cache-Control': 'private, max-age=0, no-cache'
     },
     meta: {
       sha256,
@@ -287,11 +311,51 @@ async function uploadMirrorObjectWriteOnly({
     }
   });
   const status = Number(result?.res?.status || result?.status || 0);
-  const etag = normalizeText(responseHeaders(result).etag).replace(/^"|"$/g, '');
+  const headers = responseHeaders(result);
+  const etag = normalizeText(headers.etag).replace(/^"|"$/g, '');
   if (status !== 200 || !etag) {
     throw mirrorError('MIRROR_DESTINATION_WRITE_RECEIPT_INVALID');
   }
-  return Object.freeze({ status, etag, size: Number(size), sha256 });
+  const versionId = assertVersionId(headers['x-oss-version-id']);
+  return Object.freeze({
+    status,
+    etag,
+    version_id: versionId,
+    size: Number(size),
+    sha256
+  });
+}
+
+async function downloadVersionedMirrorObject({
+  objectKey,
+  versionId,
+  destinationPath,
+  client
+}) {
+  const safeKey = assertObjectKey(objectKey);
+  const safeVersionId = assertVersionId(versionId);
+  if (!client || typeof client.getStream !== 'function') {
+    throw mirrorError('MIRROR_RESTORE_CLIENT_INVALID');
+  }
+  let returnedVersionId = '';
+  const versionedClient = {
+    async getStream(requestedKey) {
+      const result = await client.getStream(requestedKey, {
+        subres: { versionId: safeVersionId }
+      });
+      returnedVersionId = normalizeText(responseHeaders(result)['x-oss-version-id']);
+      return result;
+    }
+  };
+  const downloaded = await downloadProtectedObjectFromOss({
+    objectKey: safeKey,
+    destinationPath,
+    client: versionedClient
+  });
+  if (returnedVersionId !== safeVersionId) {
+    throw mirrorError('MIRROR_RESTORE_VERSION_MISMATCH');
+  }
+  return Object.freeze({ ...downloaded, version_id: returnedVersionId });
 }
 
 function selectRestoreAuditEntries(manifest, { mode = 'all', sampleSize = 20 } = {}) {
@@ -337,13 +401,15 @@ async function mirrorOneObject({
       && Number(previousEntry.size) === Number(sourceMetadata.size)
       && normalizeText(previousEntry.source_etag) === normalizeText(sourceMetadata.etag)
       && /^[a-f0-9]{64}$/.test(String(previousEntry.sha256 || ''))
-      && normalizeText(previousEntry.destination_etag)) {
+      && normalizeText(previousEntry.destination_etag)
+      && isValidVersionId(previousEntry.destination_version_id)) {
     return Object.freeze({
       object_key: safeKey,
       sha256: previousEntry.sha256,
       size: Number(previousEntry.size),
       source_etag: normalizeText(sourceMetadata.etag),
       destination_etag: normalizeText(previousEntry.destination_etag),
+      destination_version_id: String(previousEntry.destination_version_id),
       copied: false,
       source_downloaded: false
     });
@@ -389,7 +455,8 @@ async function mirrorOneObject({
     throw mirrorError('MIRROR_DESTINATION_UPLOAD_FAILED');
   }
   if (!destination || Number(destination.status) !== 200
-      || !normalizeText(destination.etag)) {
+      || !normalizeText(destination.etag)
+      || !isValidVersionId(destination.version_id)) {
     throw mirrorError('MIRROR_DESTINATION_WRITE_RECEIPT_INVALID');
   }
   return Object.freeze({
@@ -398,6 +465,7 @@ async function mirrorOneObject({
     size: Number(source.size),
     source_etag: normalizeText(source.etag),
     destination_etag: normalizeText(destination.etag),
+    destination_version_id: String(destination.version_id),
     copied: true,
     source_downloaded: true
   });
@@ -490,11 +558,11 @@ async function executeObjectMirror({
   }
 
   const manifest = {
-    schema_version: 2,
+    schema_version: 3,
     status: 'COMPLETE',
     run_id: runId,
     completed_at_utc: now.toISOString(),
-    consistency: 'database reference snapshot followed by immutable object copy',
+    consistency: 'database reference snapshot followed by version-pinned object copy',
     source: sourceIdentity,
     destination: destinationIdentity,
     object_count: entries.length,
@@ -502,7 +570,8 @@ async function executeObjectMirror({
     locally_reused_count: entries.filter((entry) => !entry.copied).length,
     source_downloaded_count: entries.filter((entry) => entry.source_downloaded).length,
     destination_object_read: 'NONE',
-    restore_verification: 'INDEPENDENT_AUDIT_REQUIRED',
+    destination_versioning: 'ENABLED_VERSION_ID_PINNED',
+    restore_verification: 'INDEPENDENT_EXACT_VERSION_AUDIT_REQUIRED',
     incremental_base_run_id: entries.some((entry) => !entry.source_downloaded)
       ? previousManifest.run_id
       : null,
@@ -531,7 +600,8 @@ async function executeObjectMirror({
     throw mirrorError('MIRROR_MANIFEST_UPLOAD_FAILED');
   }
   if (!uploadedManifest || Number(uploadedManifest.status) !== 200
-      || !normalizeText(uploadedManifest.etag)) {
+      || !normalizeText(uploadedManifest.etag)
+      || !isValidVersionId(uploadedManifest.version_id)) {
     throw mirrorError('MIRROR_MANIFEST_WRITE_RECEIPT_INVALID');
   }
   return Object.freeze({
@@ -539,7 +609,8 @@ async function executeObjectMirror({
     manifestArtifact,
     manifestRemote: Object.freeze({
       object_key: manifest.manifest_object_key,
-      etag: normalizeText(uploadedManifest.etag)
+      etag: normalizeText(uploadedManifest.etag),
+      version_id: String(uploadedManifest.version_id)
     }),
     manifestPath
   });
@@ -552,10 +623,13 @@ async function executeObjectRestoreAudit({
   outputDirectory,
   mode = 'all',
   sampleSize = 20,
-  downloader = downloadProtectedObjectFromOss,
+  downloader = downloadVersionedMirrorObject,
   now = new Date()
 }) {
   validateMirrorManifest(manifest);
+  if (Number(manifest.schema_version) !== 3) {
+    throw mirrorError('MIRROR_RESTORE_VERSIONED_MANIFEST_REQUIRED');
+  }
   if (!path.isAbsolute(String(outputDirectory || ''))) {
     throw mirrorError('MIRROR_OUTPUT_DIRECTORY_INVALID');
   }
@@ -593,6 +667,7 @@ async function executeObjectRestoreAudit({
         try {
           downloaded = await downloader({
             objectKey: entry.object_key,
+            versionId: entry.destination_version_id,
             destinationPath: temporaryPath,
             client: destinationClient
           });
@@ -601,13 +676,16 @@ async function executeObjectRestoreAudit({
         }
         if (!downloaded || Number(downloaded.status) !== 200
             || Number(downloaded.size) !== Number(entry.size)
-            || normalizeText(downloaded.sha256) !== normalizeText(entry.sha256)) {
+            || normalizeText(downloaded.sha256) !== normalizeText(entry.sha256)
+            || normalizeText(downloaded.version_id)
+              !== normalizeText(entry.destination_version_id)) {
           throw mirrorError('MIRROR_RESTORE_INTEGRITY_MISMATCH');
         }
         verified.push({
           object_key: entry.object_key,
           sha256: entry.sha256,
-          size: Number(entry.size)
+          size: Number(entry.size),
+          destination_version_id: entry.destination_version_id
         });
       } finally {
         fs.rmSync(temporaryPath, { force: true });
@@ -618,7 +696,7 @@ async function executeObjectRestoreAudit({
   }
 
   const audit = {
-    schema_version: 1,
+    schema_version: 2,
     status: 'PASS',
     mirror_run_id: manifest.run_id,
     completed_at_utc: now.toISOString(),
@@ -641,9 +719,11 @@ module.exports = {
   ProductionObjectMirrorError,
   assertIndependentBuckets,
   assertObjectKey,
+  assertVersionId,
   buildMirrorManifestObjectKey,
   buildPreviousEntryMap,
   bucketIdentity,
+  downloadVersionedMirrorObject,
   executeObjectMirror,
   executeObjectRestoreAudit,
   inspectBucket,

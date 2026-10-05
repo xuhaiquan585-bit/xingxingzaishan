@@ -66,18 +66,25 @@ test('object mirror state requires a fresh daily run and a recent full restore a
   const destination = {
     name: 'secondary', location: 'oss-cn-shanghai', ownerId: 'owner-b', acl: 'private'
   };
-  const objects = [{ object_key: 'stars/a.jpg', sha256: 'a'.repeat(64), size: 123 }];
+  const objects = [{
+    object_key: 'stars/a.jpg',
+    sha256: 'a'.repeat(64),
+    size: 123,
+    destination_version_id: 'version-fixture-1'
+  }];
   function writeRun(runId, completedAt, mode) {
     const runDirectory = path.join(rootDirectory, runId);
     fs.mkdirSync(runDirectory, { mode: 0o700 });
     fs.writeFileSync(
       path.join(runDirectory, `${runId}-object-mirror-manifest.json`),
       JSON.stringify({
-        schema_version: 1,
+        schema_version: 3,
         status: 'COMPLETE',
         run_id: runId,
         completed_at_utc: completedAt,
         destination,
+        destination_versioning: 'ENABLED_VERSION_ID_PINNED',
+        restore_verification: 'INDEPENDENT_EXACT_VERSION_AUDIT_REQUIRED',
         object_count: 1,
         objects
       }),
@@ -85,7 +92,7 @@ test('object mirror state requires a fresh daily run and a recent full restore a
     );
     const auditPath = path.join(runDirectory, `${runId}-object-mirror-restore-audit.json`);
     fs.writeFileSync(auditPath, JSON.stringify({
-      schema_version: 1,
+      schema_version: 2,
       status: 'PASS',
       mirror_run_id: runId,
       completed_at_utc: completedAt,
@@ -129,6 +136,16 @@ test('object mirror state requires a fresh daily run and a recent full restore a
 
     const tampered = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
     tampered.objects[0].sha256 = 'b'.repeat(64);
+    fs.writeFileSync(auditPath, JSON.stringify(tampered));
+    assert.throws(() => validateObjectMirrorState({
+      rootDirectory,
+      maxMirrorAgeSeconds: 129600,
+      maxFullAuditAgeSeconds: 3024000,
+      nowMs: Date.parse('2026-10-02T02:03:03.000Z')
+    }), { code: 'MIRROR_STATE_INTEGRITY_INVALID' });
+
+    tampered.objects[0].sha256 = 'a'.repeat(64);
+    tampered.objects[0].destination_version_id = 'version-other-2';
     fs.writeFileSync(auditPath, JSON.stringify(tampered));
     assert.throws(() => validateObjectMirrorState({
       rootDirectory,

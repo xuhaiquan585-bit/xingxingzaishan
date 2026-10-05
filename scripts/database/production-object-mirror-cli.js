@@ -301,9 +301,11 @@ async function runObjectMirrorCli({
     writeLine(`MIRROR_SOURCE_OBJECTS_DOWNLOADED=${mirror.manifest.source_downloaded_count}`);
     writeLine(`MIRROR_INCREMENTAL_BASE_RUN_ID=${mirror.manifest.incremental_base_run_id || 'NONE'}`);
     writeLine(`MIRROR_MANIFEST_OBJECT_KEY=${mirror.manifest.manifest_object_key}`);
+    writeLine(`MIRROR_MANIFEST_VERSION_ID=${mirror.manifestRemote.version_id}`);
     writeLine('MIRROR_DESTINATION_OBJECT_READ=NONE');
+    writeLine('MIRROR_DESTINATION_VERSION_IDS=PINNED');
     writeLine('MIRROR_WRITE_RECEIPTS_VERIFIED=YES');
-    writeLine('MIRROR_INDEPENDENT_RESTORE_AUDIT=REQUIRED');
+    writeLine('MIRROR_INDEPENDENT_EXACT_VERSION_RESTORE_AUDIT=REQUIRED');
     writeLine('PRODUCTION_OBJECT_MIRROR_WRITE_ONLY=PASS');
     return Object.freeze({ mirror });
   } finally {

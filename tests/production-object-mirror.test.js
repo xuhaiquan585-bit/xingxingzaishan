@@ -11,6 +11,7 @@ const { Readable } = require('node:stream');
 const {
   assertIndependentBuckets,
   bucketIdentity,
+  downloadVersionedMirrorObject,
   executeObjectMirror,
   executeObjectRestoreAudit,
   getMirrorObjectMetadata,
@@ -179,9 +180,14 @@ test('write-only uploader accepts a PUT receipt without destination read permiss
       putCalls += 1;
       assert.equal(objectKey, 'stars/record-images/a/main.jpg');
       assert.equal(filePath, localPath);
-      assert.equal(options.headers['x-oss-forbid-overwrite'], 'true');
+      assert.equal(options.headers['x-oss-forbid-overwrite'], undefined);
       assert.equal(options.meta.sha256, sha256);
-      return { res: { status: 200, headers: { etag: '"write-receipt"' } } };
+      return {
+        res: {
+          status: 200,
+          headers: { etag: '"write-receipt"', 'x-oss-version-id': 'version-write-1' }
+        }
+      };
     },
     head() { assert.fail('write-only uploader must not call HEAD'); },
     get() { assert.fail('write-only uploader must not call GET'); },
@@ -199,6 +205,92 @@ test('write-only uploader accepts a PUT receipt without destination read permiss
     assert.equal(putCalls, 1);
     assert.equal(receipt.status, 200);
     assert.equal(receipt.etag, 'write-receipt');
+    assert.equal(receipt.version_id, 'version-write-1');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('versioned restore downloader requests and verifies the exact OSS version', async () => {
+  const directory = tempDirectory();
+  const destinationPath = path.join(directory, 'versioned-object.bin');
+  const bytes = Buffer.from('exact-version-bytes');
+  let getCalls = 0;
+  try {
+    const result = await downloadVersionedMirrorObject({
+      objectKey: 'stars/record-images/a/main.jpg',
+      versionId: 'version-exact-1',
+      destinationPath,
+      client: {
+        async getStream(objectKey, options) {
+          getCalls += 1;
+          assert.equal(objectKey, 'stars/record-images/a/main.jpg');
+          assert.deepEqual(options, { subres: { versionId: 'version-exact-1' } });
+          return {
+            res: {
+              status: 200,
+              headers: {
+                etag: '"exact-etag"',
+                'x-oss-version-id': 'version-exact-1'
+              }
+            },
+            stream: Readable.from(bytes)
+          };
+        }
+      }
+    });
+    assert.equal(getCalls, 1);
+    assert.equal(result.version_id, 'version-exact-1');
+    assert.equal(result.sha256, crypto.createHash('sha256').update(bytes).digest('hex'));
+    assert.deepEqual(fs.readFileSync(destinationPath), bytes);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('write-only uploader rejects a successful PUT without a pinned version', async () => {
+  const directory = tempDirectory();
+  const localPath = path.join(directory, 'object.bin');
+  const bytes = Buffer.from('version-required');
+  const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+  fs.writeFileSync(localPath, bytes);
+  try {
+    await assert.rejects(uploadMirrorObjectWriteOnly({
+      objectKey: 'stars/record-images/a/main.jpg',
+      localPath,
+      sha256,
+      size: bytes.length,
+      client: {
+        async put() {
+          return { res: { status: 200, headers: { etag: '"missing-version"' } } };
+        }
+      }
+    }), { code: 'MIRROR_DESTINATION_VERSION_ID_INVALID' });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('versioned restore downloader rejects a response for another version', async () => {
+  const directory = tempDirectory();
+  const destinationPath = path.join(directory, 'wrong-version.bin');
+  try {
+    await assert.rejects(downloadVersionedMirrorObject({
+      objectKey: 'stars/record-images/a/main.jpg',
+      versionId: 'version-exact-1',
+      destinationPath,
+      client: {
+        async getStream() {
+          return {
+            res: {
+              status: 200,
+              headers: { 'x-oss-version-id': 'version-other-2' }
+            },
+            stream: Readable.from(Buffer.from('wrong-version'))
+          };
+        }
+      }
+    }), { code: 'MIRROR_RESTORE_VERSION_MISMATCH' });
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -1203,25 +1295,34 @@ test('write-only mirror copies objects without reading destination bytes or meta
           size,
           declared_size: String(size),
           sha256,
-          etag: `destination-${objectKey.length}`
+          etag: `destination-${objectKey.length}`,
+          version_id: `version-${objectKey.length}-${uploadOrder.length}`
         };
         return remote;
       }
     });
 
     assert.equal(result.manifest.object_count, 2);
-    assert.equal(result.manifest.schema_version, 2);
+    assert.equal(result.manifest.schema_version, 3);
     assert.equal(result.manifest.copied_count, 2);
     assert.equal(result.manifest.locally_reused_count, 0);
     assert.equal(result.manifest.source_downloaded_count, 2);
     assert.equal(result.manifest.destination_object_read, 'NONE');
-    assert.equal(result.manifest.restore_verification, 'INDEPENDENT_AUDIT_REQUIRED');
+    assert.equal(result.manifest.destination_versioning, 'ENABLED_VERSION_ID_PINNED');
+    assert.equal(
+      result.manifest.restore_verification,
+      'INDEPENDENT_EXACT_VERSION_AUDIT_REQUIRED'
+    );
     assert.equal(result.manifest.incremental_base_run_id, null);
     assert.equal(destination.has('stars/record-images/a/main.jpg'), true);
     assert.equal(destination.has('stars/records/a/manifest.json'), true);
     assert.equal(destination.has(result.manifest.manifest_object_key), true);
     assert.equal(destinationReads, 0);
     assert.equal(uploadOrder.at(-1), result.manifest.manifest_object_key);
+    assert.match(result.manifestRemote.version_id, /^version-/);
+    for (const entry of result.manifest.objects) {
+      assert.match(entry.destination_version_id, /^version-/);
+    }
     assert.deepEqual(
       JSON.parse(destination.get(result.manifest.manifest_object_key).toString('utf8')),
       result.manifest
@@ -1254,7 +1355,8 @@ test('incremental write-only mirror reuses a prior local receipt and fails close
         sha256,
         size: bytes.length,
         source_etag: 'source-etag',
-        destination_etag: 'destination-etag'
+        destination_etag: 'destination-etag',
+        destination_version_id: 'version-existing-1'
       },
       async sourceMetadataReader() {
         return {
@@ -1278,6 +1380,7 @@ test('incremental write-only mirror reuses a prior local receipt and fails close
     assert.equal(result.source_downloaded, false);
     assert.equal(result.copied, false);
     assert.equal(result.sha256, sha256);
+    assert.equal(result.destination_version_id, 'version-existing-1');
 
     await assert.rejects(() => mirrorOneObject({
       objectKey,
@@ -1289,7 +1392,8 @@ test('incremental write-only mirror reuses a prior local receipt and fails close
         sha256,
         size: bytes.length,
         source_etag: 'old-source-etag',
-        destination_etag: 'destination-etag'
+        destination_etag: 'destination-etag',
+        destination_version_id: 'version-existing-1'
       },
       async sourceMetadataReader() {
         return {
@@ -1336,7 +1440,7 @@ test('independent restore audit preflight uses a separate read-only credential c
   ].join('\n'), { mode: 0o600 });
   const runId = '20261001T040506Z-abcdef34';
   fs.writeFileSync(manifestPath, `${JSON.stringify({
-    schema_version: 2,
+    schema_version: 3,
     status: 'COMPLETE',
     run_id: runId,
     source: {
@@ -1349,7 +1453,8 @@ test('independent restore audit preflight uses a separate read-only credential c
     copied_count: 0,
     locally_reused_count: 0,
     destination_object_read: 'NONE',
-    restore_verification: 'INDEPENDENT_AUDIT_REQUIRED',
+    destination_versioning: 'ENABLED_VERSION_ID_PINNED',
+    restore_verification: 'INDEPENDENT_EXACT_VERSION_AUDIT_REQUIRED',
     manifest_object_key: [
       'backups/xingxingzaishan/object-mirror/manifests',
       '2026/10/01',
@@ -1392,10 +1497,48 @@ test('independent restore audit preflight uses a separate read-only credential c
       writeLine(line) { lines.push(line); }
     });
     assert.equal(objectReads, 0);
-    assert.equal(lines.includes('MIRROR_AUDIT_CREDENTIAL_ROLE=READ_ONLY_INDEPENDENT'), true);
+    assert.equal(
+      lines.includes('MIRROR_AUDIT_CREDENTIAL_ROLE=READ_ONLY_EXACT_VERSION_INDEPENDENT'),
+      true
+    );
     assert.equal(lines.at(-1), 'INDEPENDENT_OBJECT_RESTORE_AUDIT_PREFLIGHT=PASS');
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('independent restore audit rejects legacy manifests without destination versions', async () => {
+  const outputDirectory = tempDirectory();
+  try {
+    await assert.rejects(executeObjectRestoreAudit({
+      manifest: {
+        schema_version: 2,
+        status: 'COMPLETE',
+        run_id: '20261001T040506Z-abcdef34',
+        source: {
+          name: 'primary', location: 'oss-cn-beijing', ownerId: 'owner-a', acl: 'private'
+        },
+        destination: {
+          name: 'secondary', location: 'oss-cn-shanghai', ownerId: 'owner-b', acl: 'private'
+        },
+        object_count: 0,
+        copied_count: 0,
+        locally_reused_count: 0,
+        destination_object_read: 'NONE',
+        restore_verification: 'INDEPENDENT_AUDIT_REQUIRED',
+        manifest_object_key: [
+          'backups/xingxingzaishan/object-mirror/manifests',
+          '2026/10/01',
+          '20261001T040506Z-abcdef34-object-mirror-manifest.json'
+        ].join('/'),
+        objects: []
+      },
+      destinationClient: {},
+      destinationBucket: 'secondary',
+      outputDirectory
+    }), { code: 'MIRROR_RESTORE_VERSIONED_MANIFEST_REQUIRED' });
+  } finally {
+    fs.rmSync(outputDirectory, { recursive: true, force: true });
   }
 });
 
@@ -1460,7 +1603,8 @@ test('restore audit downloads secondary bytes and rejects an integrity mismatch'
           size,
           declared_size: String(size),
           sha256,
-          etag: `destination-${objectKey.length}`
+          etag: `destination-${objectKey.length}`,
+          version_id: `version-${objectKey.length}-${destination.size + 1}`
         };
         metadata.set(objectKey, remote);
         return remote;
@@ -1473,13 +1617,16 @@ test('restore audit downloads secondary bytes and rejects an integrity mismatch'
       destinationClient,
       destinationBucket: 'secondary',
       outputDirectory: auditDirectory,
-      async downloader({ objectKey, destinationPath }) {
+      async downloader({ objectKey, versionId, destinationPath }) {
+        const entry = mirror.manifest.objects.find((item) => item.object_key === objectKey);
+        assert.equal(versionId, entry.destination_version_id);
         const bytes = destination.get(objectKey);
         fs.writeFileSync(destinationPath, bytes, { flag: 'wx', mode: 0o600 });
         return {
           status: 200,
           size: bytes.length,
-          sha256: crypto.createHash('sha256').update(bytes).digest('hex')
+          sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+          version_id: versionId
         };
       }
     });
@@ -1495,13 +1642,14 @@ test('restore audit downloads secondary bytes and rejects an integrity mismatch'
         destinationClient,
         destinationBucket: 'secondary',
         outputDirectory: mismatchDirectory,
-        async downloader({ objectKey, destinationPath }) {
+        async downloader({ objectKey, versionId, destinationPath }) {
           const bytes = destination.get(objectKey);
           fs.writeFileSync(destinationPath, bytes, { flag: 'wx', mode: 0o600 });
           return {
             status: 200,
             size: bytes.length,
-            sha256: crypto.createHash('sha256').update(bytes).digest('hex')
+            sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+            version_id: versionId
           };
         }
       }),

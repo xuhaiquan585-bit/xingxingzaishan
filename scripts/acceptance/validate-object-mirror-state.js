@@ -51,11 +51,14 @@ function objectMap(entries) {
     const key = String(entry && entry.object_key || '');
     const sha256 = String(entry && entry.sha256 || '');
     const size = Number(entry && entry.size);
+    const versionId = String(entry && entry.destination_version_id || '');
     if (!key || result.has(key) || !/^[a-f0-9]{64}$/.test(sha256)
-        || !Number.isSafeInteger(size) || size <= 0) {
+        || !Number.isSafeInteger(size) || size <= 0 || !versionId
+        || versionId === 'null' || versionId.length > 1024
+        || /[\x00-\x20\x7f]/.test(versionId)) {
       throw stateError('MIRROR_STATE_OBJECTS_INVALID');
     }
-    result.set(key, `${sha256}:${size}`);
+    result.set(key, `${sha256}:${size}:${versionId}`);
   }
   return result;
 }
@@ -79,8 +82,10 @@ function readRunState(rootDirectory, runId) {
     runDirectory,
     `${runId}-object-mirror-restore-audit.json`
   ));
-  if (manifest.schema_version !== 1 || manifest.status !== 'COMPLETE'
-      || manifest.run_id !== runId || audit.schema_version !== 1
+  if (manifest.schema_version !== 3 || manifest.status !== 'COMPLETE'
+      || manifest.destination_versioning !== 'ENABLED_VERSION_ID_PINNED'
+      || manifest.restore_verification !== 'INDEPENDENT_EXACT_VERSION_AUDIT_REQUIRED'
+      || manifest.run_id !== runId || audit.schema_version !== 2
       || audit.status !== 'PASS' || audit.mirror_run_id !== runId
       || !['sample', 'all'].includes(audit.mode)
       || !sameDestination(manifest.destination, audit.destination)) {

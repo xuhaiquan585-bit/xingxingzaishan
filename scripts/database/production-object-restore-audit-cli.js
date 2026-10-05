@@ -93,6 +93,9 @@ async function runRestoreAuditCli({
   const destinationConfig = readOssConfig(auditEnvironment, 'AUDIT_');
   const destinationClient = new OssClient(destinationConfig);
   const manifest = readProtectedManifest(options.manifestPath);
+  if (Number(manifest.schema_version) !== 3) {
+    throw cliError('MIRROR_RESTORE_VERSIONED_MANIFEST_REQUIRED');
+  }
   const destinationIdentity = await inspectBucket(
     destinationClient,
     destinationConfig.bucket
@@ -102,7 +105,7 @@ async function runRestoreAuditCli({
   }
   writeLine(`MIRROR_AUDIT_MANIFEST_RUN_ID=${manifest.run_id}`);
   writeLine(`MIRROR_AUDIT_MANIFEST_OBJECT_COUNT=${manifest.object_count}`);
-  writeLine('MIRROR_AUDIT_CREDENTIAL_ROLE=READ_ONLY_INDEPENDENT');
+  writeLine('MIRROR_AUDIT_CREDENTIAL_ROLE=READ_ONLY_EXACT_VERSION_INDEPENDENT');
   if (options.preflight) {
     writeLine('INDEPENDENT_OBJECT_RESTORE_AUDIT_PREFLIGHT=PASS');
     return Object.freeze({ manifest, destinationIdentity });

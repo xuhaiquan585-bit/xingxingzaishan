@@ -83,9 +83,10 @@ sudo /usr/bin/bash scripts/database/run-system-acceptance-production-observation
 - 位于不同地域；
 - 归属于不同阿里云账号；
 - 访问控制为 `private`；
+- 版本控制为启用状态；
 - 源凭据只有读取和 Bucket 信息权限；
 - 生产端目标凭据只有 `PutObject` 和 Bucket 身份核对权限，不得读取、列举、删除对象或修改 Bucket；
-- 独立恢复审计使用另一套只读凭据，不得持久保存在生产服务器。
+- 独立恢复审计使用另一套只读凭据，只授予 `GetBucketInfo` 和 `GetObjectVersion`，不得持久保存在生产服务器。
 
 目标凭据保存在 `/etc/xingxingzaishan/object-mirror.env`，文件必须是 `root:root`、权限 `0600`，内容使用以下键名：
 
@@ -98,7 +99,7 @@ MIRROR_OSS_ACCESS_KEY_SECRET=replace-with-dedicated-key-secret
 MIRROR_OSS_SECURE=true
 ```
 
-镜像覆盖数据库引用的记录主图及缩略图、商品图、存证清单及证书、归档文件和打印成品。首次运行下载全部源对象并建立 SHA-256 清单；后续运行在上一份本地受保护清单与源对象 ETag/大小一致时复用原写入回执。目标对象和清单均使用禁止覆盖写入；出现同名冲突时停止并要求独立审计，不允许生产端读取目标对象后自行判定成功。
+镜像覆盖数据库引用的记录主图及缩略图、商品图、存证清单及证书、归档文件和打印成品。首次运行下载全部源对象并建立 SHA-256 清单；每次目标写入必须返回非 `null` 的 OSS 版本 ID，清单 v3 同时固定对象键、SHA-256、大小、ETag 和目标版本 ID。后续运行只在上一份本地受保护的 v3 清单与源对象 ETag/大小一致时复用原写入回执。生产端不读取目标对象；独立恢复审计必须按清单中的版本 ID 下载，不能以对象当前版本代替。
 
 ```bash
 sudo /usr/bin/bash scripts/database/run-production-object-mirror.sh --preflight
@@ -106,8 +107,8 @@ sudo /usr/bin/bash scripts/database/run-production-object-mirror.sh --authorize-
 sudo /usr/bin/bash scripts/database/install-production-object-mirror-systemd.sh
 ```
 
-预检和正式运行会按应用相同的 dotenv 优先级重建当前 PM2 运行配置，并绑定 PID、启动时间和工作目录；配置文件在进程启动后变更会直接失败，避免镜像任务连接到与应用不同的数据库或 OSS。预检成功标记为 `PRODUCTION_OBJECT_MIRROR_RUNNER_PREFLIGHT=PASS`。正式镜像必须同时出现 `MIRROR_DESTINATION_OBJECT_READ=NONE`、`MIRROR_WRITE_RECEIPTS_VERIFIED=YES`、`PRODUCTION_OBJECT_MIRROR_WRITE_ONLY=PASS` 和 `PRODUCTION_OBJECT_MIRROR_RUNNER=PASS`。
+预检和正式运行会按应用相同的 dotenv 优先级重建当前 PM2 运行配置，并绑定 PID、启动时间和工作目录；配置文件在进程启动后变更会直接失败，避免镜像任务连接到与应用不同的数据库或 OSS。预检成功标记为 `PRODUCTION_OBJECT_MIRROR_RUNNER_PREFLIGHT=PASS`。正式镜像必须同时出现 `MIRROR_DESTINATION_OBJECT_READ=NONE`、`MIRROR_DESTINATION_VERSION_IDS=PINNED`、`MIRROR_WRITE_RECEIPTS_VERIFIED=YES`、`PRODUCTION_OBJECT_MIRROR_WRITE_ONLY=PASS` 和 `PRODUCTION_OBJECT_MIRROR_RUNNER=PASS`。
 
-生产服务器只安装每日 03:20 的增量只写镜像任务。抽样恢复和每月全量恢复使用 `production-object-restore-audit-cli.js` 在独立环境执行，并显式提供受保护的 `AUDIT_OSS_*` 只读凭据、镜像清单和审计输出目录。首次全量镜像只有在独立全量恢复出现 `MIRROR_FULL_RESTORE_AUDIT=PASS` 后才算验收完成；后续生产镜像证据不得超过 36 小时，独立全量恢复证据不得超过 35 天。
+生产服务器只安装每日 03:20 的增量只写镜像任务。抽样恢复和每月全量恢复使用 `production-object-restore-audit-cli.js` 在独立环境执行，并显式提供受保护的 `AUDIT_OSS_*` 只读凭据、v3 镜像清单和审计输出目录。审计身份必须具备 `oss:GetObjectVersion`，但不得具备对象写入或删除权限。首次全量镜像只有在独立全量精确版本恢复出现 `MIRROR_FULL_RESTORE_AUDIT=PASS` 后才算验收完成；后续生产镜像证据不得超过 36 小时，独立全量恢复证据不得超过 35 天。
 
 恢复校验下载的对象字节只存放在独立审计当次运行的临时目录中；无论成功、校验不一致或下载中断，临时字节都会删除。生产服务器本地只保留最近 45 次写入清单；超出部分在下一次成功运行后清理。目标 Bucket 中的完成清单不受本地保留策略影响。
