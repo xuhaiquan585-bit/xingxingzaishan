@@ -13,7 +13,6 @@ LOCAL_RUN_RETENTION_COUNT=45
 LOCK_FILE=/run/lock/xingxingzaishan-object-mirror.lock
 EXPECTED_DATABASE=xingxing_clean_baseline_20260812_staging
 MODE=
-RESTORE_AUDIT_MODE=
 APP_PID_BEFORE=
 
 fail() {
@@ -87,13 +86,8 @@ case "${1:-}" in
     [ "$#" = 1 ] || fail MIRROR_ARGUMENT_INVALID
     MODE=preflight
     ;;
-  --authorize-mirror=YES)
-    [ "$#" = 2 ] || fail MIRROR_ARGUMENT_INVALID
-    case "${2:-}" in
-      --restore-audit=sample) RESTORE_AUDIT_MODE=sample ;;
-      --restore-audit=all) RESTORE_AUDIT_MODE=all ;;
-      *) fail MIRROR_RESTORE_AUDIT_MODE_REQUIRED ;;
-    esac
+  --authorize-mirror-write=YES)
+    [ "$#" = 1 ] || fail MIRROR_ARGUMENT_INVALID
     MODE=authorized
     ;;
   *) fail MIRROR_MODE_REQUIRED ;;
@@ -180,12 +174,11 @@ OUTPUT_DIRECTORY="$OUTPUT_ROOT/$RUN_ID"
 mkdir -m 700 "$OUTPUT_DIRECTORY"
 
 "$NODE" "$CLI" \
-  --authorize-mirror=YES \
+  --authorize-mirror-write=YES \
   --app-pid="$APP_PID_BEFORE" \
   --process-started-at-ms="$PM2_STARTED_AT_MS" \
   --run-id="$RUN_ID" \
   --output-directory="$OUTPUT_DIRECTORY" \
-  --restore-audit="$RESTORE_AUDIT_MODE" \
   --source-oss-env="$SOURCE_OSS_ENV" \
   --destination-oss-env="$DESTINATION_OSS_ENV"
 
@@ -208,12 +201,9 @@ printf 'MIRROR_LOCAL_RUN_RETENTION_COUNT=%s\n' "$LOCAL_RUN_RETENTION_COUNT"
 printf 'APP_PID_AFTER=%s\n' "$APP_PID_AFTER"
 printf 'APP_HTTP_AFTER=200\n'
 printf 'DATABASE_WRITE=NONE\n'
-printf 'MIRROR_RESTORE_AUDIT_MODE=%s\n' "${RESTORE_AUDIT_MODE^^}"
-if [ "$RESTORE_AUDIT_MODE" = all ]; then
-  printf 'OSS_REQUESTS=INDEPENDENT_OBJECT_MIRROR_AND_FULL_RESTORE_AUDIT\n'
-else
-  printf 'OSS_REQUESTS=INDEPENDENT_OBJECT_MIRROR_AND_SAMPLE_RESTORE_AUDIT\n'
-fi
+printf 'OSS_REQUESTS=SOURCE_READ_AND_DESTINATION_WRITE_ONLY\n'
+printf 'DESTINATION_OBJECT_READ=NONE\n'
+printf 'INDEPENDENT_RESTORE_AUDIT=REQUIRED\n'
 printf 'BLOCKCHAIN_WRITE=NONE\n'
 printf 'APPLICATION_RESTART=NO\n'
 printf 'SECRET_VALUES_PRINTED=NO\n'

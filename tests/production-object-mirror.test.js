@@ -15,12 +15,16 @@ const {
   getMirrorObjectMetadata,
   listReferencedObjectKeys,
   mirrorOneObject,
-  verifyRemoteMirrorManifest
+  uploadMirrorObjectWriteOnly
 } = require('../scripts/database/production-object-mirror');
 const {
   parseArguments,
   runObjectMirrorCli
 } = require('../scripts/database/production-object-mirror-cli');
+const {
+  parseArguments: parseRestoreAuditArguments,
+  runRestoreAuditCli
+} = require('../scripts/database/production-object-restore-audit-cli');
 const {
   analyzeSnapshot,
   classifyRecordReference,
@@ -157,26 +161,62 @@ test('mirror metadata uses one HEAD request and preserves integrity fields', asy
   assert.equal(metadata.declared_size, '14');
 });
 
+test('write-only uploader accepts a PUT receipt without destination read permission', async () => {
+  const directory = tempDirectory();
+  const localPath = path.join(directory, 'object.bin');
+  const bytes = Buffer.from('write-only-backup');
+  const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+  fs.writeFileSync(localPath, bytes);
+  let putCalls = 0;
+  const client = {
+    async put(objectKey, filePath, options) {
+      putCalls += 1;
+      assert.equal(objectKey, 'stars/record-images/a/main.jpg');
+      assert.equal(filePath, localPath);
+      assert.equal(options.headers['x-oss-forbid-overwrite'], 'true');
+      assert.equal(options.meta.sha256, sha256);
+      return { res: { status: 200, headers: { etag: '"write-receipt"' } } };
+    },
+    head() { assert.fail('write-only uploader must not call HEAD'); },
+    get() { assert.fail('write-only uploader must not call GET'); },
+    getStream() { assert.fail('write-only uploader must not call GET stream'); }
+  };
+  try {
+    const receipt = await uploadMirrorObjectWriteOnly({
+      objectKey: 'stars/record-images/a/main.jpg',
+      localPath,
+      contentType: 'image/jpeg',
+      sha256,
+      size: bytes.length,
+      client
+    });
+    assert.equal(putCalls, 1);
+    assert.equal(receipt.status, 200);
+    assert.equal(receipt.etag, 'write-receipt');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('production CLI requires one explicit mode and preflight remains read-only', async () => {
   assert.throws(() => parseArguments([]), { code: 'MIRROR_MODE_REQUIRED' });
   assert.throws(
-    () => parseArguments(['--preflight', '--authorize-mirror=YES']),
+    () => parseArguments(['--preflight', '--authorize-mirror-write=YES']),
     { code: 'MIRROR_MODE_REQUIRED' }
   );
   assert.throws(
     () => parseArguments([
       '--authorize-mirror=YES',
-      '--run-id=20261001T010203Z-abcdef12',
-      `--output-directory=${path.resolve('mirror-output')}`
+      '--run-id=20261001T010203Z-abcdef12'
     ]),
-    { code: 'MIRROR_AUTHORIZED_ARGUMENT_INVALID' }
+    { code: 'MIRROR_ARGUMENT_INVALID' }
   );
-  assert.equal(parseArguments([
-    '--authorize-mirror=YES',
+  const authorized = parseArguments([
+    '--authorize-mirror-write=YES',
     '--run-id=20261001T010203Z-abcdef12',
-    `--output-directory=${path.resolve('mirror-output')}`,
-    '--restore-audit=sample'
-  ]).restoreAuditMode, 'sample');
+    `--output-directory=${path.resolve('mirror-output')}`
+  ]);
+  assert.equal(authorized.authorized, true);
 
   const directory = tempDirectory();
   const sourceEnv = path.join(directory, 'source.env');
@@ -354,7 +394,7 @@ test('production object mirror runner gates mutations and leaves the application
     'run-production-object-mirror.sh'
   ), 'utf8');
   assert.match(source, /--preflight/);
-  assert.match(source, /--authorize-mirror=YES/);
+  assert.match(source, /--authorize-mirror-write=YES/);
   assert.match(source, /git status --porcelain=v1 --untracked-files=normal/);
   assert.match(source, /WORKTREE_NOT_CLEAN/);
   assert.match(source, /\?\? src\/frontend\/5QJLlAJPza\.txt/);
@@ -377,8 +417,9 @@ test('production object mirror runner gates mutations and leaves the application
   assert.doesNotMatch(source, /source "?\$?(?:SOURCE|DESTINATION)_OSS_ENV/);
   assert.doesNotMatch(source, /runtime_value/);
   assert.match(source, /^LOCAL_RUN_RETENTION_COUNT=45$/m);
-  assert.match(source, /--restore-audit=sample/);
-  assert.match(source, /--restore-audit=all/);
+  assert.doesNotMatch(source, /--restore-audit=/);
+  assert.match(source, /DESTINATION_OBJECT_READ=NONE/);
+  assert.match(source, /INDEPENDENT_RESTORE_AUDIT=REQUIRED/);
   assert.match(source, /prune_local_run_directories "\$OUTPUT_DIRECTORY"/);
   assert.match(source, /printf '%s\\n' "\$current_name"/);
   assert.match(source, /awk '!seen\[\$0\]\+\+'/);
@@ -986,7 +1027,7 @@ test('source OSS private switch runner is pinned, gated, and ACL-only', () => {
   }
 });
 
-test('object mirror systemd schedule is daily, persistent, and managed safely', () => {
+test('object mirror systemd schedules only the write-only production job', () => {
   const scriptsRoot = path.join(__dirname, '..', 'scripts');
   const service = fs.readFileSync(path.join(
     scriptsRoot, 'systemd', 'xingxingzaishan-object-mirror.service'
@@ -994,54 +1035,36 @@ test('object mirror systemd schedule is daily, persistent, and managed safely', 
   const timer = fs.readFileSync(path.join(
     scriptsRoot, 'systemd', 'xingxingzaishan-object-mirror.timer'
   ), 'utf8');
-  const fullAuditService = fs.readFileSync(path.join(
-    scriptsRoot, 'systemd', 'xingxingzaishan-object-mirror-full-audit.service'
-  ), 'utf8');
-  const fullAuditTimer = fs.readFileSync(path.join(
-    scriptsRoot, 'systemd', 'xingxingzaishan-object-mirror-full-audit.timer'
-  ), 'utf8');
   const installer = fs.readFileSync(path.join(
     scriptsRoot, 'database', 'install-production-object-mirror-systemd.sh'
   ), 'utf8');
   assert.match(service, /^# Managed-By: xingxingzaishan-object-mirror$/m);
-  assert.match(service, /--authorize-mirror=YES --restore-audit=sample/);
+  assert.match(service, /--authorize-mirror-write=YES/);
+  assert.doesNotMatch(service, /restore-audit/);
   assert.match(service, /^Type=oneshot$/m);
   assert.match(service, /^UMask=0077$/m);
   assert.match(service, /^NoNewPrivileges=true$/m);
   assert.match(timer, /^# Managed-By: xingxingzaishan-object-mirror$/m);
   assert.match(timer, /^OnCalendar=\*-\*-\* 03:20:00 Asia\/Shanghai$/m);
   assert.match(timer, /^Persistent=true$/m);
-  assert.match(fullAuditService, /--authorize-mirror=YES --restore-audit=all/);
-  assert.match(fullAuditService, /^TimeoutStartSec=6h$/m);
-  assert.match(fullAuditTimer, /^OnCalendar=\*-\*-01 04:20:00 Asia\/Shanghai$/m);
-  assert.match(fullAuditTimer, /^Persistent=true$/m);
   assert.match(installer, /assert_root_private_regular_file "\$DESTINATION_OSS_ENV"/);
   assert.match(installer, /systemd-analyze verify/);
-  assert.match(installer, /"\$DAILY_TIMER" "\$FULL_AUDIT_TIMER"/);
+  assert.doesNotMatch(installer, /FULL_AUDIT/);
+  assert.match(installer, /INDEPENDENT_HOST_NOT_INSTALLED_HERE/);
   assert.match(installer, /systemctl enable "\$timer"/);
   assert.match(installer, /systemctl start "\$timer"/);
   assert.doesNotMatch(installer, /cat .*object-mirror\.env/);
 });
 
-test('mirror copies missing objects, verifies existing bytes, and writes a private manifest', async () => {
+test('write-only mirror copies objects without reading destination bytes or metadata', async () => {
   const outputDirectory = tempDirectory();
   const payloads = new Map([
     ['stars/record-images/a/main.jpg', Buffer.from('customer-image')],
     ['stars/records/a/manifest.json', Buffer.from('{"sealed":true}')]
   ]);
   const destination = new Map();
-  const metadata = new Map();
   const uploadOrder = [];
-  const existingKey = 'stars/records/a/manifest.json';
-  const existingBytes = payloads.get(existingKey);
-  metadata.set(existingKey, {
-    status: 200,
-    metadata_status: 200,
-    size: existingBytes.length,
-    declared_size: String(existingBytes.length),
-    sha256: crypto.createHash('sha256').update(existingBytes).digest('hex'),
-    etag: 'existing-etag'
-  });
+  let destinationReads = 0;
 
   try {
     const result = await executeObjectMirror({
@@ -1077,15 +1100,6 @@ test('mirror copies missing objects, verifies existing bytes, and writes a priva
           contentType: objectKey.endsWith('.jpg') ? 'image/jpeg' : 'application/json'
         };
       },
-      async metadataReader({ objectKey }) {
-        if (!metadata.has(objectKey)) {
-          const error = new Error('missing');
-          error.code = 'NoSuchKey';
-          error.status = 404;
-          throw error;
-        }
-        return metadata.get(objectKey);
-      },
       async uploader({ objectKey, localPath, sha256, size }) {
         const bytes = fs.readFileSync(localPath);
         uploadOrder.push(objectKey);
@@ -1098,34 +1112,28 @@ test('mirror copies missing objects, verifies existing bytes, and writes a priva
           sha256,
           etag: `destination-${objectKey.length}`
         };
-        metadata.set(objectKey, remote);
         return remote;
       }
     });
 
     assert.equal(result.manifest.object_count, 2);
-    assert.equal(result.manifest.copied_count, 1);
-    assert.equal(result.manifest.verified_existing_count, 1);
+    assert.equal(result.manifest.schema_version, 2);
+    assert.equal(result.manifest.copied_count, 2);
+    assert.equal(result.manifest.locally_reused_count, 0);
     assert.equal(result.manifest.source_downloaded_count, 2);
-    assert.equal(result.manifest.metadata_verified_count, 0);
+    assert.equal(result.manifest.destination_object_read, 'NONE');
+    assert.equal(result.manifest.restore_verification, 'INDEPENDENT_AUDIT_REQUIRED');
     assert.equal(result.manifest.incremental_base_run_id, null);
     assert.equal(destination.has('stars/record-images/a/main.jpg'), true);
-    assert.equal(destination.has(existingKey), false);
+    assert.equal(destination.has('stars/records/a/manifest.json'), true);
     assert.equal(destination.has(result.manifest.manifest_object_key), true);
+    assert.equal(destinationReads, 0);
     assert.equal(uploadOrder.at(-1), result.manifest.manifest_object_key);
     assert.deepEqual(
       JSON.parse(destination.get(result.manifest.manifest_object_key).toString('utf8')),
       result.manifest
     );
     assert.match(result.manifestArtifact.sha256, /^[a-f0-9]{64}$/);
-    assert.deepEqual(result.remoteManifest.manifest, result.manifest);
-    assert.equal(
-      fs.existsSync(path.join(
-        outputDirectory,
-        `${result.manifest.run_id}-object-mirror-manifest.remote-verify.json`
-      )),
-      false
-    );
     if (process.platform !== 'win32') {
       assert.equal(fs.statSync(result.manifestPath).mode & 0o077, 0);
     }
@@ -1135,7 +1143,7 @@ test('mirror copies missing objects, verifies existing bytes, and writes a priva
   }
 });
 
-test('incremental mirror reuses a prior digest only when source and destination metadata agree', async () => {
+test('incremental write-only mirror reuses a prior local receipt and fails closed on collisions', async () => {
   const directory = tempDirectory();
   const objectKey = 'stars/record-images/a/main.jpg';
   const bytes = Buffer.from('customer-image');
@@ -1152,7 +1160,8 @@ test('incremental mirror reuses a prior digest only when source and destination 
         object_key: objectKey,
         sha256,
         size: bytes.length,
-        source_etag: 'source-etag'
+        source_etag: 'source-etag',
+        destination_etag: 'destination-etag'
       },
       async sourceMetadataReader() {
         return {
@@ -1160,16 +1169,6 @@ test('incremental mirror reuses a prior digest only when source and destination 
           metadata_status: 200,
           size: bytes.length,
           etag: 'source-etag'
-        };
-      },
-      async metadataReader() {
-        return {
-          status: 200,
-          metadata_status: 200,
-          size: bytes.length,
-          declared_size: String(bytes.length),
-          sha256,
-          etag: 'destination-etag'
         };
       },
       async downloader() {
@@ -1187,7 +1186,7 @@ test('incremental mirror reuses a prior digest only when source and destination 
     assert.equal(result.copied, false);
     assert.equal(result.sha256, sha256);
 
-    const changed = await mirrorOneObject({
+    await assert.rejects(() => mirrorOneObject({
       objectKey,
       sourceClient: { side: 'source' },
       destinationClient: { side: 'destination' },
@@ -1196,7 +1195,8 @@ test('incremental mirror reuses a prior digest only when source and destination 
         object_key: objectKey,
         sha256,
         size: bytes.length,
-        source_etag: 'old-source-etag'
+        source_etag: 'old-source-etag',
+        destination_etag: 'destination-etag'
       },
       async sourceMetadataReader() {
         return {
@@ -1204,16 +1204,6 @@ test('incremental mirror reuses a prior digest only when source and destination 
           metadata_status: 200,
           size: bytes.length,
           etag: 'new-source-etag'
-        };
-      },
-      async metadataReader() {
-        return {
-          status: 200,
-          metadata_status: 200,
-          size: bytes.length,
-          declared_size: String(bytes.length),
-          sha256,
-          etag: 'destination-etag'
         };
       },
       async downloader({ destinationPath }) {
@@ -1225,24 +1215,37 @@ test('incremental mirror reuses a prior digest only when source and destination 
           sha256,
           etag: 'new-source-etag'
         };
+      },
+      async uploader() {
+        const error = new Error('already exists');
+        error.status = 412;
+        throw error;
       }
-    });
+    }), { code: 'MIRROR_DESTINATION_COLLISION_REQUIRES_AUDIT' });
     assert.equal(downloads, 1);
-    assert.equal(changed.source_downloaded, true);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
 
-test('remote mirror manifest body must match the locally verified artifact', async () => {
-  const outputDirectory = tempDirectory();
-  const runId = '20261001T030405Z-1234abcd';
-  const manifest = {
-    schema_version: 1,
+test('independent restore audit preflight uses a separate read-only credential contract', async () => {
+  const directory = tempDirectory();
+  const auditEnv = path.join(directory, 'audit.env');
+  const manifestPath = path.join(directory, 'manifest.json');
+  const outputDirectory = path.join(directory, 'output');
+  fs.mkdirSync(outputDirectory);
+  fs.writeFileSync(auditEnv, [
+    'AUDIT_OSS_ENDPOINT=https://oss-cn-shanghai.aliyuncs.com',
+    'AUDIT_OSS_REGION=oss-cn-shanghai',
+    'AUDIT_OSS_BUCKET=secondary',
+    'AUDIT_OSS_ACCESS_KEY_ID=read-key',
+    'AUDIT_OSS_ACCESS_KEY_SECRET=read-secret'
+  ].join('\n'), { mode: 0o600 });
+  const runId = '20261001T040506Z-abcdef34';
+  fs.writeFileSync(manifestPath, `${JSON.stringify({
+    schema_version: 2,
     status: 'COMPLETE',
     run_id: runId,
-    completed_at_utc: '2026-10-01T03:04:05.000Z',
-    consistency: 'database reference snapshot followed by immutable object copy',
     source: {
       name: 'primary', location: 'oss-cn-beijing', ownerId: 'owner-a', acl: 'private'
     },
@@ -1251,46 +1254,55 @@ test('remote mirror manifest body must match the locally verified artifact', asy
     },
     object_count: 0,
     copied_count: 0,
-    verified_existing_count: 0,
+    locally_reused_count: 0,
+    destination_object_read: 'NONE',
+    restore_verification: 'INDEPENDENT_AUDIT_REQUIRED',
     manifest_object_key: [
       'backups/xingxingzaishan/object-mirror/manifests',
       '2026/10/01',
       `${runId}-object-mirror-manifest.json`
     ].join('/'),
     objects: []
-  };
-  const localBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
-  const manifestArtifact = {
-    size: localBytes.length,
-    sha256: crypto.createHash('sha256').update(localBytes).digest('hex')
-  };
-  const remotePath = path.join(
-    outputDirectory,
-    `${runId}-object-mirror-manifest.remote-verify.json`
-  );
+  }, null, 2)}\n`, { mode: 0o600 });
+  let objectReads = 0;
+  const lines = [];
+  class AuditOssClient {
+    async getBucketInfo() {
+      return bucketClient({
+        name: 'secondary', location: 'oss-cn-shanghai', ownerId: 'owner-b'
+      }).getBucketInfo();
+    }
 
+    async getStream() {
+      objectReads += 1;
+      throw new Error('preflight must not read objects');
+    }
+  }
   try {
-    await assert.rejects(
-      verifyRemoteMirrorManifest({
-        manifest,
-        manifestArtifact,
-        destinationClient: {},
-        outputDirectory,
-        async downloader({ destinationPath }) {
-          const bytes = Buffer.from('tampered remote manifest');
-          fs.writeFileSync(destinationPath, bytes, { flag: 'wx', mode: 0o600 });
-          return {
-            status: 200,
-            size: bytes.length,
-            sha256: crypto.createHash('sha256').update(bytes).digest('hex')
-          };
-        }
-      }),
-      { code: 'MIRROR_MANIFEST_REMOTE_INTEGRITY_MISMATCH' }
-    );
-    assert.equal(fs.existsSync(remotePath), false);
+    const options = parseRestoreAuditArguments([
+      '--preflight',
+      `--audit-oss-env=${auditEnv}`,
+      `--manifest-path=${manifestPath}`,
+      `--output-directory=${outputDirectory}`,
+      '--restore-audit=sample'
+    ]);
+    assert.equal(options.preflight, true);
+    await runRestoreAuditCli({
+      argv: [
+        '--preflight',
+        `--audit-oss-env=${auditEnv}`,
+        `--manifest-path=${manifestPath}`,
+        `--output-directory=${outputDirectory}`,
+        '--restore-audit=sample'
+      ],
+      OssClient: AuditOssClient,
+      writeLine(line) { lines.push(line); }
+    });
+    assert.equal(objectReads, 0);
+    assert.equal(lines.includes('MIRROR_AUDIT_CREDENTIAL_ROLE=READ_ONLY_INDEPENDENT'), true);
+    assert.equal(lines.at(-1), 'INDEPENDENT_OBJECT_RESTORE_AUDIT_PREFLIGHT=PASS');
   } finally {
-    fs.rmSync(outputDirectory, { recursive: true, force: true });
+    fs.rmSync(directory, { recursive: true, force: true });
   }
 });
 
