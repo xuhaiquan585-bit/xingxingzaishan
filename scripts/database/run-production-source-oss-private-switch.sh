@@ -13,6 +13,7 @@ EXPECTED_TREE=dd5a574b4c78af7c162a3c5feb817b8f9b5703a6
 EXPECTED_DATABASE=xingxing_clean_baseline_20260812_staging
 LOCK_FILE=/run/lock/xingxingzaishan-source-oss-private-switch.lock
 MODE=
+MINIAPP_RELEASE_STATE=NOT_APPLICABLE
 AUDIT_LOG=
 SOURCE_BUCKET_ACL_CHANGED=NO
 
@@ -79,7 +80,15 @@ case "${1:-}" in
     ;;
   --authorize-private=YES)
     [ "$#" = 2 ] || fail ARGUMENT_INVALID
-    [ "${2:-}" = --miniapp-release-confirmed=YES ] || fail MINIAPP_RELEASE_CONFIRMATION_REQUIRED
+    case "${2:-}" in
+      --miniapp-release-confirmed=YES)
+        MINIAPP_RELEASE_STATE=CONFIRMED
+        ;;
+      --miniapp-release-pending-risk-accepted=YES)
+        MINIAPP_RELEASE_STATE=PENDING_RISK_ACCEPTED
+        ;;
+      *) fail MINIAPP_RELEASE_DECISION_REQUIRED ;;
+    esac
     MODE=private
     ;;
   --authorize-rollback-public-read=YES)
@@ -169,7 +178,7 @@ if [ "$MODE" = preflight ]; then
 fi
 
 if [ "$MODE" = private ]; then
-  printf 'MINIAPP_RELEASE_CONFIRMATION=USER_CONFIRMED\n'
+  printf 'MINIAPP_RELEASE_STATE=%s\n' "$MINIAPP_RELEASE_STATE"
   "$NODE" "$SWITCH_CLI" \
     --authorize-private=YES \
     --repository="$REPO" \
