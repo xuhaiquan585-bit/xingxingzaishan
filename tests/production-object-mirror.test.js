@@ -35,6 +35,11 @@ const {
   readJsonSnapshot: readLogoRemediationJsonSnapshot,
   validateLogoReferences
 } = require('../scripts/database/remediate-production-source-oss-logo-reference');
+const {
+  changeBucketAcl,
+  parseArguments: parsePrivateSwitchArguments,
+  runSourceOssPrivateSwitch
+} = require('../scripts/database/source-oss-private-switch');
 
 function tempDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'xingxing-object-mirror-'));
@@ -782,6 +787,200 @@ test('source OSS logo remediation runner is pinned, bounded, and does not change
     assert.doesNotMatch(source, /pm2 (?:restart|reload|start|delete)/);
     assert.doesNotMatch(source, /setBucketACL|putBucketACL|deleteBucket/);
     assert.doesNotMatch(source, /\.delete\s*\(/);
+  }
+});
+
+test('source OSS private switch arguments require one explicit bounded mode', () => {
+  const repository = path.resolve('.');
+  assert.deepEqual(parsePrivateSwitchArguments([
+    '--preflight',
+    `--repository=${repository}`,
+    '--app-pid=123',
+    '--process-started-at-ms=1000'
+  ]), {
+    mode: 'preflight',
+    repository,
+    appPid: '123',
+    processStartedAtMs: 1000
+  });
+  assert.equal(parsePrivateSwitchArguments([
+    '--authorize-private=YES',
+    `--repository=${repository}`,
+    '--app-pid=123',
+    '--process-started-at-ms=1000'
+  ]).mode, 'private');
+  assert.equal(parsePrivateSwitchArguments([
+    '--authorize-rollback-public-read=YES',
+    `--repository=${repository}`,
+    '--app-pid=123',
+    '--process-started-at-ms=1000'
+  ]).mode, 'public-read');
+  assert.throws(() => parsePrivateSwitchArguments([
+    '--preflight',
+    '--authorize-private=YES',
+    `--repository=${repository}`,
+    '--app-pid=123',
+    '--process-started-at-ms=1000'
+  ]), /SOURCE_OSS_PRIVATE_SWITCH_ARGUMENT_INVALID/);
+});
+
+test('source OSS private switch preflight reads ACL without mutation', async () => {
+  let writes = 0;
+  const result = await changeBucketAcl({
+    mode: 'preflight',
+    bucket: 'primary',
+    client: {
+      async getBucketACL() {
+        return { acl: 'public-read' };
+      },
+      async putBucketACL() {
+        writes += 1;
+      }
+    }
+  });
+  assert.deepEqual(result, {
+    before: 'public-read',
+    after: 'public-read',
+    changed: false
+  });
+  assert.equal(writes, 0);
+});
+
+test('source OSS private switch changes only the bucket ACL and verifies it', async () => {
+  let acl = 'public-read';
+  const calls = [];
+  const result = await changeBucketAcl({
+    mode: 'private',
+    bucket: 'primary',
+    client: {
+      async getBucketACL(bucket) {
+        calls.push(['get', bucket]);
+        return { acl };
+      },
+      async putBucketACL(bucket, nextAcl) {
+        calls.push(['put', bucket, nextAcl]);
+        acl = nextAcl;
+      }
+    }
+  });
+  assert.deepEqual(result, { before: 'public-read', after: 'private', changed: true });
+  assert.deepEqual(calls, [
+    ['get', 'primary'],
+    ['put', 'primary', 'private'],
+    ['get', 'primary']
+  ]);
+});
+
+test('source OSS ACL rollback is explicit and fail-closed', async () => {
+  let acl = 'private';
+  const result = await changeBucketAcl({
+    mode: 'public-read',
+    bucket: 'primary',
+    client: {
+      async getBucketACL() {
+        return { acl };
+      },
+      async putBucketACL(_bucket, nextAcl) {
+        acl = nextAcl;
+      }
+    }
+  });
+  assert.deepEqual(result, { before: 'private', after: 'public-read', changed: true });
+  await assert.rejects(changeBucketAcl({
+    mode: 'private',
+    bucket: 'primary',
+    client: {
+      async getBucketACL() {
+        return { acl: 'public-read-write' };
+      }
+    }
+  }), /SOURCE_OSS_PRIVATE_SWITCH_ACL_UNEXPECTED/);
+});
+
+test('source OSS private switch CLI keeps credentials and bucket identity out of output', async () => {
+  const lines = [];
+  const repository = path.resolve('.');
+  const secret = 'must-not-be-printed';
+  await runSourceOssPrivateSwitch({
+    argv: [
+      '--authorize-private=YES',
+      `--repository=${repository}`,
+      '--app-pid=123',
+      '--process-started-at-ms=1000'
+    ],
+    dependencies: {
+      OSS: class {
+        constructor(config) {
+          assert.equal(config.accessKeySecret, secret);
+          this.acl = 'public-read';
+        }
+        async getBucketACL() {
+          return { acl: this.acl };
+        }
+        async putBucketACL(_bucket, acl) {
+          this.acl = acl;
+        }
+      },
+      mirrorCli: {
+        readProtectedEnvironmentSnapshot() {
+          return { environment: {}, modifiedAtMs: 1 };
+        },
+        loadEffectiveSourceEnvironment() {
+          return {
+            OSS_ENDPOINT: 'oss-cn-beijing.aliyuncs.com',
+            OSS_REGION: 'oss-cn-beijing',
+            OSS_BUCKET: 'private-source-name',
+            OSS_ACCESS_KEY_ID: 'source-key-id',
+            OSS_ACCESS_KEY_SECRET: secret
+          };
+        },
+        assertProductionMirrorEnvironment() {},
+        readOssConfig(environment) {
+          return {
+            endpoint: environment.OSS_ENDPOINT,
+            region: environment.OSS_REGION,
+            bucket: environment.OSS_BUCKET,
+            accessKeyId: environment.OSS_ACCESS_KEY_ID,
+            accessKeySecret: environment.OSS_ACCESS_KEY_SECRET,
+            secure: true
+          };
+        }
+      }
+    },
+    writeLine(line) {
+      lines.push(line);
+    }
+  });
+  const output = lines.join('\n');
+  assert.match(output, /SOURCE_OSS_ACL_BEFORE=PUBLIC_READ/);
+  assert.match(output, /SOURCE_OSS_ACL_AFTER=PRIVATE/);
+  assert.match(output, /SOURCE_OSS_PRIVATE_SWITCH_CLI=PASS/);
+  assert.equal(output.includes(secret), false);
+  assert.equal(output.includes('private-source-name'), false);
+});
+
+test('source OSS private switch runner is pinned, gated, and ACL-only', () => {
+  const scriptsRoot = path.join(__dirname, '..', 'scripts', 'database');
+  const runner = fs.readFileSync(path.join(
+    scriptsRoot, 'run-production-source-oss-private-switch.sh'
+  ), 'utf8');
+  const cli = fs.readFileSync(path.join(
+    scriptsRoot, 'source-oss-private-switch.js'
+  ), 'utf8');
+  assert.match(runner, /^EXPECTED_COMMIT=5970420f7b61c7551ceb07099f0aa93e613e05d3$/m);
+  assert.match(runner, /^EXPECTED_TREE=dd5a574b4c78af7c162a3c5feb817b8f9b5703a6$/m);
+  assert.match(runner, /--authorize-private=YES/);
+  assert.match(runner, /--authorize-rollback-public-read=YES/);
+  assert.match(runner, /--miniapp-release-confirmed=YES/);
+  assert.match(runner, /SOURCE_PRIVATE_SWITCH_BLOCKERS=0/);
+  assert.match(runner, /SOURCE_PRIVATE_SWITCH_REVIEW_REQUIRED=0/);
+  assert.match(runner, /SOURCE_PRIVATE_SWITCH_READY=YES/);
+  assert.match(runner, /ROLLBACK_MODE=AVAILABLE_EXPLICIT_AUTHORIZATION_ONLY/);
+  assert.match(cli, /putBucketACL\(bucket, target\)/);
+  for (const source of [runner, cli]) {
+    assert.doesNotMatch(source, /pm2 (?:restart|reload|start|delete)/);
+    assert.doesNotMatch(source, /systemctl (?:start|restart|enable)/);
+    assert.doesNotMatch(source, /\.delete(?:Bucket|Object|Multi|\s*\()/);
   }
 });
 
