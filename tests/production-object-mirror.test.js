@@ -444,6 +444,8 @@ test('production object mirror destination config uses hidden input and rolls ba
   assert.match(source, /^EXPECTED_ENDPOINT=oss-cn-shanghai\.aliyuncs\.com$/m);
   assert.match(source, /^EXPECTED_REGION=oss-cn-shanghai$/m);
   assert.match(source, /^EXPECTED_BUCKET=xingxingzaishan-mirror-01beifen$/m);
+  assert.match(source, /^EXPECTED_COMMIT=7e7bbdd8714239f59dba50199ec2843e2a263ff6$/m);
+  assert.match(source, /^EXPECTED_TREE=34d83ad54990827c5e30b8cd5849408cfe06e134$/m);
   assert.match(source, /\[ -f "\$MIRROR_RUNNER" \]/);
   assert.match(source, /\[ ! -L "\$MIRROR_RUNNER" \]/);
   assert.doesNotMatch(source, /\[ -x "\$MIRROR_RUNNER" \]/);
