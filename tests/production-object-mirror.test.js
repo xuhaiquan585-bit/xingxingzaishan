@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { Readable } = require('node:stream');
 
 const {
   assertIndependentBuckets,
@@ -44,6 +45,11 @@ const {
   parseArguments: parsePrivateSwitchArguments,
   runSourceOssPrivateSwitch
 } = require('../scripts/database/source-oss-private-switch');
+const {
+  auditSourceDownloads,
+  classifySourceReadFailure,
+  printAuditSummary
+} = require('../scripts/database/audit-production-object-mirror-source-downloads');
 
 function tempDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'xingxing-object-mirror-'));
@@ -427,6 +433,91 @@ test('production object mirror runner gates mutations and leaves the application
   assert.match(source, /\[ "\$candidate" = "\$current_directory" \]/);
   assert.match(source, /rm -rf -- "\$candidate"/);
   assert.match(source, /MIRROR_LOCAL_RUN_RETENTION_COUNT/);
+});
+
+test('source download audit classifies a bounded full sweep without exposing object keys', async () => {
+  const objectKeys = [
+    'stars/pass.jpg',
+    'stars/missing.jpg',
+    'stars/forbidden.jpg',
+    'stars/reset.jpg'
+  ];
+  const bytes = Buffer.from('readable-source-object');
+  const client = {
+    async head(objectKey) {
+      if (objectKey.endsWith('missing.jpg')) {
+        const error = new Error('must stay private');
+        error.status = 404;
+        error.code = 'NoSuchKey';
+        throw error;
+      }
+      return {
+        res: { status: 200, headers: { 'content-length': String(bytes.length) } }
+      };
+    },
+    async getStream(objectKey) {
+      if (objectKey.endsWith('forbidden.jpg')) {
+        const error = new Error('credentials must stay private');
+        error.statusCode = 403;
+        error.code = 'AccessDenied';
+        throw error;
+      }
+      if (objectKey.endsWith('reset.jpg')) {
+        const error = new Error('socket details must stay private');
+        error.code = 'ECONNRESET';
+        throw error;
+      }
+      return {
+        stream: Readable.from([bytes.subarray(0, 5), bytes.subarray(5)]),
+        res: { status: 200, headers: { 'content-length': String(bytes.length) } }
+      };
+    }
+  };
+  const result = await auditSourceDownloads({ objectKeys, client, concurrency: 2 });
+  assert.equal(result.total, 4);
+  assert.equal(result.success, 1);
+  assert.equal(result.failure, 3);
+  assert.equal(result.counts.HEAD_NOT_FOUND, 1);
+  assert.equal(result.counts.GET_FORBIDDEN, 1);
+  assert.equal(result.counts.GET_TRANSPORT, 1);
+
+  const lines = [];
+  printAuditSummary(result, (line) => lines.push(line));
+  const output = lines.join('\n');
+  assert.match(output, /SOURCE_DOWNLOAD_AUDIT_FAILURE=3/);
+  assert.match(output, /SOURCE_DOWNLOAD_AUDIT_RESULT=FAILURES_CLASSIFIED/);
+  for (const objectKey of objectKeys) assert.equal(output.includes(objectKey), false);
+  assert.equal(output.includes('credentials must stay private'), false);
+});
+
+test('source download audit keeps provider errors in a fixed safe taxonomy', () => {
+  assert.equal(classifySourceReadFailure({ status: 403 }, 'get'), 'GET_FORBIDDEN');
+  assert.equal(classifySourceReadFailure({ statusCode: 404 }, 'head'), 'HEAD_NOT_FOUND');
+  assert.equal(classifySourceReadFailure({ code: 'ETIMEDOUT' }, 'get'), 'GET_TIMEOUT');
+  assert.equal(classifySourceReadFailure({ status: 503 }, 'head'), 'HEAD_UPSTREAM');
+  assert.equal(classifySourceReadFailure(new Error('secret-bearing text'), 'get'), 'GET_UNKNOWN');
+});
+
+test('production source download audit runner is pinned and strictly read-only', () => {
+  const source = fs.readFileSync(path.join(
+    __dirname,
+    '..',
+    'scripts',
+    'database',
+    'run-production-object-mirror-source-download-audit.sh'
+  ), 'utf8');
+  assert.match(source, /^EXPECTED_COMMIT=7e7bbdd8714239f59dba50199ec2843e2a263ff6$/m);
+  assert.match(source, /^EXPECTED_TREE=34d83ad54990827c5e30b8cd5849408cfe06e134$/m);
+  assert.match(source, /--check/);
+  assert.match(source, /RUNTIME_CONFIG_CHECK/);
+  assert.match(source, /SOURCE_GET_BUCKET_INFO_HEAD_AND_GET_ONLY/);
+  assert.match(source, /DESTINATION_OSS_REQUESTS=NONE/);
+  assert.match(source, /OBJECT_KEYS_PRINTED=NO/);
+  assert.match(source, /PRODUCTION_OBJECT_MIRROR_SOURCE_DOWNLOAD_AUDIT_RUNNER=PASS/);
+  assert.doesNotMatch(source, /--authorize-mirror-write=YES/);
+  assert.doesNotMatch(source, /systemctl (?:start|restart|enable)/);
+  assert.doesNotMatch(source, /pm2 (?:restart|reload|start|delete)/);
+  assert.doesNotMatch(source, /git (?:pull|merge|checkout|reset)/);
 });
 
 test('production object mirror destination config uses hidden input and rolls back failed preflight', () => {
