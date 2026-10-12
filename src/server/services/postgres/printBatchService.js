@@ -257,6 +257,24 @@ function createPrintBatchService({
     ), { readOnly: true });
   }
 
+  async function listAvailableQrCodes(input = {}) {
+    const sourceBatchId = boundedText(
+      input.sourceBatchId,
+      'PRINT_SOURCE_BATCH_FILTER_INVALID',
+      { required: true, max: 160 }
+    );
+    return run('list_available_print_qr_codes', async (repository) => {
+      const result = await repository.listAvailableQrCodes({
+        sourceBatchId,
+        limit: MAX_PRINT_BATCH_SIZE
+      });
+      return Object.freeze({
+        total_count: Number(result.total || 0),
+        qr_ids: Object.freeze(result.qrCodes.map((qr) => qr.id))
+      });
+    }, { readOnly: true });
+  }
+
   async function classifyLegacyQrCodes(input = {}) {
     const operator = actor(input.actor);
     const qrIds = normalizeQrIds(input.qrIds);
@@ -620,7 +638,8 @@ function createPrintBatchService({
 
   return Object.freeze({
     cancel, classifyLegacyQrCodes, complete, create, download, generate, get,
-    list, listLegacyQrCodes, startPrinting, voidBatch, voidPrintedQrCodes
+    list, listAvailableQrCodes, listLegacyQrCodes, startPrinting, voidBatch,
+    voidPrintedQrCodes
   });
 }
 

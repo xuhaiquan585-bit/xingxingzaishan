@@ -80,6 +80,7 @@ function createPrintProductionRuntime({ env = process.env } = {}) {
     downloadPrintArtifact: batchService.download,
     generatePrintArtifact: batchService.generate,
     getPrintBatch: batchService.get,
+    listAvailablePrintQrCodes: batchService.listAvailableQrCodes,
     listLegacyPrintQrCodes: batchService.listLegacyQrCodes,
     listPrintBatches: batchService.list,
     startPrinting: batchService.startPrinting,

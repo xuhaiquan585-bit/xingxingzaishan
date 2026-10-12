@@ -24,6 +24,10 @@ const selectAll = document.getElementById('selectAll');
 let adminToken = localStorage.getItem('adminToken') || '';
 let activeSection = localStorage.getItem('adminActiveSection') || 'dashboard';
 let currentRecords = [];
+let recordPage = 1;
+let recordPageSize = 20;
+let recordTotalPages = 1;
+let recordLoadSequence = 0;
 let batchList = [];
 let productList = [];
 let orderList = [];
@@ -39,6 +43,7 @@ let productSaving = false;
 const selectedIds = new Set();
 const REQUEST_TIMEOUT_MS = 15000;
 const EXPORT_TIMEOUT_MS = 60000;
+const MAX_PRINT_BATCH_SIZE = 500;
 const PRODUCT_SCENE_LABELS = {
   lover: '恋人',
   elder: '长辈',
@@ -203,7 +208,7 @@ function updateSelectedUI() {
   const eligibleCount = currentRecords.filter((item) => (
     selectedIds.has(item.id) && isQrAvailableForPrinting(item)
   )).length;
-  selectedCount.textContent = `已选 ${selectedIds.size} 条，可生产 ${eligibleCount} 条`;
+  selectedCount.textContent = `本页已选 ${selectedIds.size} 条，可生产 ${eligibleCount} 条`;
   const currentIds = currentRecords.map((item) => item.id);
   const allSelected = currentIds.length > 0 && currentIds.every((id) => selectedIds.has(id));
   selectAll.checked = allSelected;
@@ -993,6 +998,10 @@ async function loadDashboard() {
 
 function renderRows(records) {
   currentRecords = records;
+  const currentIds = new Set(records.map((item) => item.id));
+  [...selectedIds].forEach((id) => {
+    if (!currentIds.has(id)) selectedIds.delete(id);
+  });
   tableBody.innerHTML = records
     .map((item) => {
       const actionLabel = item.hidden ? '显示' : '隐藏';
@@ -1019,23 +1028,84 @@ function renderRows(records) {
 }
 
 async function loadRecords() {
+  const loadSequence = ++recordLoadSequence;
+  const requestedPage = recordPage;
+  const requestedPageSize = recordPageSize;
   const batchId = document.getElementById('batchFilter').value;
   const issueStatus = document.getElementById('issueStatus').value;
   const activationStatus = document.getElementById('activationStatus').value;
   const hiddenStatus = document.getElementById('hiddenStatus').value;
   const idSearch = document.getElementById('idSearch').value.trim();
-  const query = new URLSearchParams({ page: '1', limit: '20' });
+  const query = new URLSearchParams({
+    page: String(requestedPage),
+    limit: String(requestedPageSize)
+  });
   if (batchId) query.set('batch_id', batchId);
   if (issueStatus) query.set('issue_status', issueStatus);
   if (activationStatus) query.set('activation_status', activationStatus);
   if (hiddenStatus !== '') query.set('hidden', hiddenStatus);
   if (idSearch) query.set('id_prefix', idSearch);
 
-  const data = await request(`/api/admin/records?${query.toString()}`, {
-    headers: authHeaders()
-  });
+  let data;
+  try {
+    data = await request(`/api/admin/records?${query.toString()}`, {
+      headers: authHeaders()
+    });
+  } catch (error) {
+    if (loadSequence !== recordLoadSequence) return;
+    throw error;
+  }
+  if (loadSequence !== recordLoadSequence) return;
 
+  const total = Number(data.total || 0);
+  recordTotalPages = Math.max(1, Math.ceil(total / requestedPageSize));
+  if (requestedPage > recordTotalPages) {
+    recordPage = recordTotalPages;
+    return loadRecords();
+  }
   renderRows(data.records || []);
+  document.getElementById('recordPaginationSummary').textContent =
+    `共 ${total} 个二维码 · 第 ${recordPage} / ${recordTotalPages} 页`;
+  document.getElementById('previousRecordPageBtn').disabled = recordPage <= 1;
+  document.getElementById('nextRecordPageBtn').disabled = recordPage >= recordTotalPages;
+}
+
+async function createPrintBatchFromCurrentBatch() {
+  const batchId = document.getElementById('batchFilter').value;
+  if (!batchId) {
+    alert('请先在上方筛选条件中选择一个批次。');
+    return;
+  }
+
+  const query = new URLSearchParams({ source_batch_id: batchId });
+  const button = document.getElementById('createPrintBatchFromBatchBtn');
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = '正在读取批次...';
+
+  try {
+    const data = await request(`/api/admin/print-production/available-qr-codes?${query.toString()}`, {
+      headers: authHeaders()
+    });
+    const eligibleIds = Array.isArray(data.qr_ids) ? data.qr_ids : [];
+    if (eligibleIds.length === 0) {
+      alert('该批次没有可用于新印刷任务的二维码。已预留、已生成文件、已打印或已报废的二维码不会重复带入。');
+      return;
+    }
+
+    const nextIds = eligibleIds.slice(0, MAX_PRINT_BATCH_SIZE);
+    const totalCount = Number(data.total_count || eligibleIds.length);
+    const remainingCount = Math.max(0, totalCount - nextIds.length);
+    if (remainingCount > 0 && !window.confirm(
+      `该批次当前有 ${totalCount} 个可生产二维码。单个印刷任务最多 ${MAX_PRINT_BATCH_SIZE} 个，本次将带入前 ${nextIds.length} 个；创建完成后再次使用此按钮，可继续处理剩余 ${remainingCount} 个。是否继续？`
+    )) return;
+
+    window.PrintBatchAdmin.openWithQrIds(nextIds);
+    activateAdminSection('printBatches');
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
 }
 
 function activeCommentCount(item) {
@@ -1110,6 +1180,7 @@ async function toggleHiddenStatus(qrId, action) {
   if (activeSection === 'records') {
     await loadContentRecords();
   } else {
+    selectedIds.delete(qrId);
     await loadRecords();
   }
 }
@@ -1130,6 +1201,7 @@ async function batchUpdate(action) {
     body: JSON.stringify({ ids: [...selectedIds] })
   });
 
+  selectedIds.clear();
   await loadRecords();
 }
 
@@ -1154,6 +1226,7 @@ async function batchAssignToBatch() {
     body: JSON.stringify({ ids: [...selectedIds] })
   });
 
+  selectedIds.clear();
   await loadBatches();
   await loadRecords();
 }
@@ -1453,6 +1526,7 @@ document.getElementById('refreshSystemBtn').addEventListener('click', () => load
 }));
 document.getElementById('filterBtn').addEventListener('click', async () => {
   selectedIds.clear();
+  recordPage = 1;
   await loadRecords();
 });
 document.getElementById('recordFilterBtn').addEventListener('click', () => loadContentRecords().catch((e) => {
@@ -1485,7 +1559,33 @@ document.getElementById('createPrintBatchFromSelectionBtn').addEventListener('cl
     `已排除 ${excludedCount} 个不可生产二维码，只带入 ${eligibleIds.length} 个可生产二维码。是否继续？`
   )) return;
   window.PrintBatchAdmin.openWithQrIds(eligibleIds);
+  selectedIds.clear();
   activateAdminSection('printBatches');
+});
+document.getElementById('createPrintBatchFromBatchBtn').addEventListener('click', () => {
+  createPrintBatchFromCurrentBatch().catch((error) => {
+    alert(error.message || '读取批次二维码失败');
+  });
+});
+document.getElementById('previousRecordPageBtn').addEventListener('click', () => {
+  if (recordPage <= 1) return;
+  recordPage -= 1;
+  selectedIds.clear();
+  loadRecords().catch((error) => alert(error.message || '翻页失败'));
+});
+document.getElementById('nextRecordPageBtn').addEventListener('click', () => {
+  if (recordPage >= recordTotalPages) return;
+  recordPage += 1;
+  selectedIds.clear();
+  loadRecords().catch((error) => alert(error.message || '翻页失败'));
+});
+document.getElementById('recordPageSize').addEventListener('change', (event) => {
+  const nextPageSize = Number(event.target.value);
+  if (![20, 50, 100].includes(nextPageSize)) return;
+  recordPageSize = nextPageSize;
+  recordPage = 1;
+  selectedIds.clear();
+  loadRecords().catch((error) => alert(error.message || '切换每页数量失败'));
 });
 
 selectAll.addEventListener('change', () => {

@@ -42,6 +42,7 @@ const BAD_REQUEST_MESSAGES = Object.freeze({
   PRINT_VENDOR_NAME_INVALID: '印刷厂家名称不能超过 160 个字符。',
   PRINT_BATCH_NOTE_INVALID: '印刷任务备注不能超过 500 个字符。',
   PRINT_VOID_REASON_INVALID: '请填写有效的报废原因，且不能超过 500 个字符。',
+  PRINT_SOURCE_BATCH_FILTER_INVALID: '请选择一个有效的二维码批次。',
   PRINT_HISTORY_FILTER_INVALID: '历史二维码筛选条件无效，请修改后重试。',
   PRINT_HISTORY_TARGET_INVALID: '请选择 1 到 500 个历史二维码。'
 });

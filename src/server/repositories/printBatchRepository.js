@@ -128,6 +128,30 @@ class PrintBatchRepository {
     return result.rows;
   }
 
+  async listAvailableQrCodes({ sourceBatchId, limit = 500 } = {}) {
+    const result = await executeQuery(
+      this.transactionContext,
+      `WITH eligible AS (
+         SELECT qr.id
+         FROM app.qr_codes qr
+         WHERE qr.batch_id = $1
+           AND qr.issue_status = 'issued'
+           AND qr.lifecycle_status = 'unactivated'
+           AND qr.print_status = 'available'
+           AND qr.print_batch_id IS NULL
+       )
+       SELECT id, count(*) OVER()::integer AS total
+       FROM eligible
+       ORDER BY id
+       LIMIT $2`,
+      [sourceBatchId, limit]
+    );
+    return {
+      total: Number(result.rows[0]?.total || 0),
+      qrCodes: result.rows.map((row) => ({ id: row.id }))
+    };
+  }
+
   async listLegacyQrCodes(input = {}) {
     const params = [];
     const where = ["qr.print_status = 'legacy_unclassified'"];

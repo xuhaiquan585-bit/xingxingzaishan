@@ -144,8 +144,9 @@
                 <button id="batchHideBtn">批量隐藏</button>
                 <button id="batchShowBtn">批量显示</button>
                 <button id="batchExportBtn" class="secondary">导出数据 CSV</button>
-                <button id="createPrintBatchFromSelectionBtn">创建印刷任务</button>
-                <span id="selectedCount">已选 0 条</span>
+                <button id="createPrintBatchFromSelectionBtn">用已选二维码创建印刷任务</button>
+                <button id="createPrintBatchFromBatchBtn" class="secondary">按当前批次创建印刷任务</button>
+                <span id="selectedCount">本页已选 0 条</span>
               </div>
               <div class="table-wrap">
                 <table>
@@ -167,6 +168,22 @@
                   </thead>
                   <tbody id="recordTable"></tbody>
                 </table>
+              </div>
+              <div class="pagination-bar">
+                <span id="recordPaginationSummary">共 0 个二维码 · 第 1 / 1 页</span>
+                <div>
+                  <label class="pagination-page-size" for="recordPageSize">
+                    每页
+                    <select id="recordPageSize">
+                      <option value="20" selected>20</option>
+                      <option value="50">50</option>
+                      <option value="100">100</option>
+                    </select>
+                    条
+                  </label>
+                  <button id="previousRecordPageBtn" class="secondary" type="button">上一页</button>
+                  <button id="nextRecordPageBtn" class="secondary" type="button">下一页</button>
+                </div>
               </div>
             </div>
           </section>

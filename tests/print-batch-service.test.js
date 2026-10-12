@@ -92,6 +92,16 @@ class MemoryPrintBatchRepository {
     return [...this.store.qrs.values()].filter((qr) => qr.print_batch_id === batchId)
       .sort((left, right) => left.id.localeCompare(right.id)).map(clone);
   }
+  async listAvailableQrCodes({ sourceBatchId, limit = 500 } = {}) {
+    const qrCodes = [...this.store.qrs.values()].filter((qr) => (
+      qr.batch_id === sourceBatchId
+      && qr.issue_status === 'issued'
+      && qr.lifecycle_status === 'unactivated'
+      && qr.print_status === 'available'
+      && qr.print_batch_id === null
+    )).sort((left, right) => left.id.localeCompare(right.id));
+    return { total: qrCodes.length, qrCodes: qrCodes.slice(0, limit).map(clone) };
+  }
   async listLegacyQrCodes({ sourceBatchId, idPrefix, limit = 500 } = {}) {
     return [...this.store.qrs.values()].filter((qr) => (
       qr.print_status === 'legacy_unclassified'
@@ -257,6 +267,33 @@ test('reservation is exclusive and cancel releases only pre-artifact QR codes', 
   assert.equal(store.qrs.get('SSS10001').print_batch_id, null);
 });
 
+test('available source batch lookup is bounded, exact and excludes reserved QR codes', async () => {
+  const { service, store } = serviceFixture();
+  for (let index = 4; index <= 503; index += 1) {
+    const id = `SSS${String(10000 + index)}`;
+    store.qrs.set(id, {
+      id, issue_status: 'issued', lifecycle_status: 'unactivated',
+      batch_id: 'QR-BATCH-1', print_batch_id: null, print_status: 'available',
+      print_void_reason: '', access_token: `token-${id}`
+    });
+  }
+
+  const first = await service.listAvailableQrCodes({ sourceBatchId: 'QR-BATCH-1' });
+  assert.equal(first.total_count, 503);
+  assert.equal(first.qr_ids.length, 500);
+  assert.equal(Object.isFrozen(first.qr_ids), true);
+
+  Object.assign(store.qrs.get('SSS10001'), {
+    print_batch_id: 'PRINT-RESERVED',
+    print_status: 'reserved'
+  });
+  const afterReservation = await service.listAvailableQrCodes({
+    sourceBatchId: 'QR-BATCH-1'
+  });
+  assert.equal(afterReservation.total_count, 502);
+  assert.equal(afterReservation.qr_ids.includes('SSS10001'), false);
+});
+
 test('formal artifact is unique, downloadable and closes with explicit scrap IDs', async () => {
   const { service, store, artifacts, getWrites } = serviceFixture();
   const created = await service.create({
@@ -385,8 +422,22 @@ test('admin production UI closes the legacy image export bypass', async () => {
   assert.match(printJs, /el\('printVoidReason'\)\.focus\(\)/u);
   assert.match(printJs, /run\(\(\) => mutate\(button\.dataset\.printAction\), \{ detail: true \}\)/u);
   assert.match(html, /<th>印刷状态<\/th>/u);
+  assert.match(html, /id="recordPaginationSummary"/u);
+  assert.match(html, /id="previousRecordPageBtn"/u);
+  assert.match(html, /id="nextRecordPageBtn"/u);
+  assert.match(html, /id="recordPageSize"/u);
+  assert.match(html, /<option value="50">50<\/option>/u);
+  assert.match(html, /<option value="100">100<\/option>/u);
+  assert.match(html, /id="createPrintBatchFromBatchBtn"/u);
   assert.match(adminJs, /function isQrAvailableForPrinting\(item\)/u);
   assert.match(adminJs, /已排除 \$\{excludedCount\} 个不可生产二维码/u);
+  assert.match(adminJs, /async function createPrintBatchFromCurrentBatch\(\)/u);
+  assert.match(adminJs, /\/print-production\/available-qr-codes/u);
+  assert.match(adminJs, /eligibleIds\.slice\(0, MAX_PRINT_BATCH_SIZE\)/u);
+  assert.match(adminJs, /单个印刷任务最多 \$\{MAX_PRINT_BATCH_SIZE\} 个/u);
+  assert.match(adminJs, /page: String\(requestedPage\)/u);
+  assert.match(adminJs, /\[20, 50, 100\]\.includes\(nextPageSize\)/u);
+  assert.match(adminJs, /loadSequence !== recordLoadSequence/u);
   assert.match(printJs, /published\.length === 1/u);
   assert.match(errorSource, /所选二维码中包含历史未分类、已预留、已打印或已报废的二维码/u);
   assert.equal(adminJs.includes('/api/admin/records/qr-images/export'), false);
@@ -408,6 +459,7 @@ test('admin production UI closes the legacy image export bypass', async () => {
   assert.match(editorJs, /label-canvas-element\$\{selected\}\$\{locked\}\$\{invalid\}/u);
   assert.match(editorJs, /labelElementDividerColor/u);
   assert.match(routeSource, /label-templates\/:templateId\/live-preview', requireAdmin/u);
+  assert.match(routeSource, /print-production\/available-qr-codes', requireAdmin/u);
   assert.match(routeSource, /image_data_url/u);
   assert.match(html, /id="labelLivePreviewStatus"/u);
   assert.match(html, /id="labelElementDividerColor"/u);

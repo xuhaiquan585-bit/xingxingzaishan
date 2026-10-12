@@ -702,6 +702,16 @@ router.get('/print-batches', requireAdmin, async (req, res) => {
   }
 });
 
+router.get('/print-production/available-qr-codes', requireAdmin, async (req, res) => {
+  try {
+    return printSuccess(res, await executePrintProduction('listAvailablePrintQrCodes', {
+      sourceBatchId: req.query.source_batch_id
+    }));
+  } catch (error) {
+    return sendPrintProductionError(res, error);
+  }
+});
+
 router.get('/print-production/legacy-qr-codes', requireAdmin, async (req, res) => {
   try {
     return printSuccess(res, {

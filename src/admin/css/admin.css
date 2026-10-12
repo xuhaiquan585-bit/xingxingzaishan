@@ -581,6 +581,19 @@ th {
 .pagination-bar div {
   display: flex;
   gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.pagination-page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.pagination-page-size select {
+  min-width: 72px;
 }
 
 .drawer-backdrop,
