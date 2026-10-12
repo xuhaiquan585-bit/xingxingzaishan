@@ -189,7 +189,7 @@ for (const marker of [
 const css = read('src/admin/css/admin.css');
 for (const marker of [
   '.workflow-overview',
-  '.record-selection-bar',
+  '.selection-action-bar',
   '.print-progress',
   '.danger-zone'
 ]) must(css.includes(marker), `ADMIN_CSS_MARKER_MISSING_${marker}`);
