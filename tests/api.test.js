@@ -1760,11 +1760,11 @@ test('admin page should expose section navigation and miniapp content tools', ()
   assert.equal(html.includes('id="shippingModal"'), true);
   assert.equal(html.includes('id="orderSearch"'), true);
   assert.equal(html.includes('class="toolbar-divider"'), true);
-  assert.equal(html.includes('class="toolbar-divider batch-generation-divider"'), true);
+  assert.equal(html.includes('class="workflow-overview"'), true);
   assert.equal(html.includes('id="batchQrImagesExportBtn"'), false);
-  assert.equal(html.includes('导出数据 CSV'), true);
+  assert.equal(html.includes('导出管理数据 CSV'), true);
   assert.equal(html.includes('创建印刷任务'), true);
-  assert.equal(html.includes('历史二维码分类'), true);
+  assert.equal(html.includes('历史码处理'), true);
   assert.equal(js.includes('adminActiveSection'), true);
   assert.equal(js.includes('function activateAdminSection'), true);
   assert.equal(js.includes('async function loadContentRecords'), true);

@@ -7,7 +7,9 @@
     detail: null,
     selectedQrIds: new Set(),
     legacyQrCodes: [],
-    selectedLegacyQrIds: new Set()
+    selectedLegacyQrIds: new Set(),
+    createContext: null,
+    continuationContext: null
   };
   const STATUS = {
     reserved: '已预留', generating: '生成中', generation_failed: '生成失败',
@@ -64,7 +66,44 @@
   }
 
   function updateQrCount() {
-    el('printBatchQrCount').textContent = `${parseQrIds().length} 个`;
+    el('printBatchQrCount').textContent = `${parseQrIds().length} / 500 个`;
+  }
+
+  function renderCreateContext() {
+    const context = state.createContext;
+    const target = el('printBatchCreateContext');
+    target.classList.toggle('hidden', !context);
+    if (!context) {
+      el('printBatchCreateSource').textContent = '';
+      el('printBatchCreateCounts').textContent = '';
+      return;
+    }
+    el('printBatchCreateSource').textContent = `来源：${context.sourceLabel}`;
+    el('printBatchCreateCounts').textContent = context.remainingCount > 0
+      ? `本任务 ${context.currentCount} 个，创建后剩余 ${context.remainingCount} 个`
+      : `本任务 ${context.currentCount} 个`;
+  }
+
+  function setCreateFormOpen(open, options = {}) {
+    el('printBatchCreate').classList.toggle('hidden', !open);
+    if (!open) return;
+    if (options.clear === true) {
+      state.createContext = null;
+      el('printBatchQrIds').value = '';
+      el('printBatchName').value = '';
+      el('printBatchVendor').value = '';
+      el('printBatchNote').value = '';
+      updateQrCount();
+    }
+    renderCreateContext();
+    el('printBatchQrIdsDetails').open = !state.createContext;
+    window.requestAnimationFrame(() => {
+      el('printBatchCreate').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  function statusBadge(status) {
+    return `<span class="task-status task-status-${escapeHtml(status)}">${escapeHtml(STATUS[status] || status)}</span>`;
   }
 
   async function loadTemplates() {
@@ -144,12 +183,20 @@
         <td><strong>${escapeHtml(batch.name)}</strong><br /><small>${escapeHtml(batch.id)}</small></td>
         <td>${escapeHtml(batch.template_name || '-')} ${batch.template_version_number ? `v${batch.template_version_number}` : ''}</td>
         <td>${batch.qr_count}</td>
-        <td>${STATUS[batch.status] || batch.status}</td>
+        <td>${statusBadge(batch.status)}</td>
         <td>${batch.download_count}</td>
         <td>${formatDateTime(batch.created_at)}</td>
-        <td><button data-print-batch-open="${batch.id}">查看</button></td>
+        <td><button class="secondary" data-print-batch-open="${batch.id}">打开任务</button></td>
       </tr>
     `).join('') : '<tr><td colspan="7" class="muted">暂无印刷任务</td></tr>';
+  }
+
+  function renderContinuation(context) {
+    state.continuationContext = context && context.remainingCount > 0 ? context : null;
+    el('printBatchContinuation').classList.toggle('hidden', !state.continuationContext);
+    if (!state.continuationContext) return;
+    el('printBatchContinuationText').textContent =
+      `当前任务已创建，来源批次还有 ${state.continuationContext.remainingCount} 个可继续建立下一任务。`;
   }
 
   async function createBatch() {
@@ -160,6 +207,7 @@
       throw new Error('请填写任务名称、选择模板并输入二维码 ID。');
     }
     if (ids.length > 500) throw new Error('单次印刷任务最多 500 个二维码。');
+    const createContext = state.createContext;
     const data = await api('/print-batches', {
       method: 'POST',
       body: JSON.stringify({
@@ -172,10 +220,17 @@
       })
     });
     el('printBatchQrIds').value = '';
+    el('printBatchName').value = '';
+    el('printBatchVendor').value = '';
+    el('printBatchNote').value = '';
     updateQrCount();
+    state.createContext = null;
+    renderCreateContext();
+    setCreateFormOpen(false);
+    renderContinuation(createContext);
     await loadBatches();
     await openBatch(data.id);
-    message('印刷任务已创建，二维码已临时预留。');
+    message('印刷任务已创建，二维码已临时预留；正式文件尚未生成。');
   }
 
   async function openBatch(batchId) {
@@ -183,6 +238,35 @@
     state.selectedQrIds.clear();
     detailMessage('');
     renderDetail();
+    window.requestAnimationFrame(() => {
+      el('printBatchDetail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  function renderProgress(status) {
+    const stageIndex = {
+      reserved: 0,
+      generating: 0,
+      generation_failed: 0,
+      artifact_ready: 1,
+      printing: 2,
+      completed: 3
+    }[status];
+    el('printBatchProgress').querySelectorAll('[data-print-stage]').forEach((stage, index) => {
+      stage.classList.toggle('complete', Number.isInteger(stageIndex) && index < stageIndex);
+      stage.classList.toggle('current', Number.isInteger(stageIndex) && index === stageIndex);
+      if (Number.isInteger(stageIndex) && index === stageIndex) stage.setAttribute('aria-current', 'step');
+      else stage.removeAttribute('aria-current');
+    });
+  }
+
+  function renderTaskFacts(batch) {
+    el('printBatchDetailFacts').innerHTML = `
+      <div><dt>当前状态</dt><dd>${statusBadge(batch.status)}</dd></div>
+      <div><dt>标签模板</dt><dd>${escapeHtml(batch.template_name || '-')} ${batch.template_version_number ? `v${batch.template_version_number}` : ''}</dd></div>
+      <div><dt>二维码数量</dt><dd>${batch.qr_count} 个</dd></div>
+      <div><dt>印刷厂家</dt><dd>${escapeHtml(batch.vendor_name || '未填写')}</dd></div>
+    `;
   }
 
   function renderDetail() {
@@ -191,7 +275,9 @@
     const batch = detail.batch;
     el('printBatchDetail').classList.remove('hidden');
     el('printBatchDetailName').textContent = batch.name;
-    el('printBatchDetailMeta').textContent = `${batch.id} · ${STATUS[batch.status] || batch.status} · ${batch.qr_count} 个二维码`;
+    el('printBatchDetailMeta').textContent = `${batch.id} · 创建于 ${formatDateTime(batch.created_at)}`;
+    renderProgress(batch.status);
+    renderTaskFacts(batch);
     const sourceBatchFilter = el('printQrSourceBatchFilter').value.trim();
     const idPrefixFilter = el('printQrIdPrefixFilter').value.trim().toUpperCase();
     const visibleQrCodes = detail.qr_codes.filter((qr) => (
@@ -200,7 +286,7 @@
     ));
     el('printBatchQrTable').innerHTML = visibleQrCodes.map((qr) => `
       <tr>
-        <td><input type="checkbox" data-print-qr-id="${qr.id}" ${state.selectedQrIds.has(qr.id) ? 'checked' : ''} ${isQrSelectable(qr) ? '' : 'disabled'} /></td>
+        <td><input type="checkbox" data-print-qr-id="${qr.id}" aria-label="选择 ${escapeHtml(qr.id)}" ${state.selectedQrIds.has(qr.id) ? 'checked' : ''} ${isQrSelectable(qr) ? '' : 'disabled'} /></td>
         <td>${escapeHtml(qr.id)}</td>
         <td>${escapeHtml(qr.original_batch_id || '-')}</td>
         <td>${printQrStatus(qr.print_status)}</td>
@@ -229,26 +315,38 @@
 
   function renderActions() {
     const status = state.detail.batch.status;
-    const actions = [];
+    const primary = [];
+    const secondary = [];
+    const danger = [];
     if (['reserved', 'generation_failed'].includes(status)) {
-      actions.push(actionButton('generate', status === 'generation_failed' ? '重新生成文件' : '生成正式文件'));
-      actions.push(actionButton('cancel', '取消并释放', 'secondary'));
-    }
-    if (['artifact_ready', 'printing', 'completed'].includes(status)) {
-      actions.push(actionButton('download', '下载同一文件'));
+      primary.push(actionButton(
+        'generate',
+        status === 'generation_failed' ? '重新生成印刷文件' : '锁定二维码并生成印刷文件'
+      ));
+      danger.push(actionButton('cancel', '取消任务并释放二维码', 'danger'));
     }
     if (status === 'artifact_ready') {
-      actions.push(actionButton('start', '开始印刷'));
-      actions.push(actionButton('void', '整单作废', 'danger'));
+      primary.push(actionButton('start', '确认已交付印刷'));
+      secondary.push(actionButton('download', '下载正式文件', 'secondary'));
+      danger.push(actionButton('void', '整单作废', 'danger'));
     }
     if (status === 'printing') {
-      actions.push(actionButton('complete', '登记完成'));
-      actions.push(actionButton('void', '整单作废', 'danger'));
+      primary.push(actionButton('complete', '登记印刷结果'));
+      secondary.push(actionButton('download', '下载正式文件', 'secondary'));
+      danger.push(actionButton('void', '整单作废', 'danger'));
+    }
+    if (status === 'completed') {
+      primary.push(actionButton('download', '下载正式文件'));
     }
     if (status === 'completed' && state.selectedQrIds.size > 0) {
-      actions.push(actionButton('scrap', `报废所选 ${state.selectedQrIds.size} 个 ID`, 'danger'));
+      danger.push(actionButton('scrap', `永久报废所选 ${state.selectedQrIds.size} 个二维码`, 'danger'));
     }
-    el('printBatchActions').innerHTML = actions.join('');
+    el('printBatchActions').innerHTML = primary.join('');
+    el('printBatchSecondaryActions').innerHTML = secondary.join('');
+    el('printBatchDangerActions').innerHTML = danger.join('');
+    el('printBatchDangerZone').classList.toggle('hidden', ![
+      'reserved', 'generation_failed', 'artifact_ready', 'printing', 'completed'
+    ].includes(status));
   }
 
   function updateSelectionState() {
@@ -265,6 +363,9 @@
       state.selectedQrIds.size === 0 && !['artifact_ready', 'printing'].includes(status));
     el('printBatchSelectionSummary').classList.toggle('hidden', state.selectedQrIds.size === 0);
     el('printBatchSelectionCount').textContent = `已选 ${state.selectedQrIds.size} 个`;
+    if (status === 'completed' && state.selectedQrIds.size > 0) {
+      el('printBatchDangerZone').open = true;
+    }
   }
 
   async function mutate(action) {
@@ -337,6 +438,14 @@
     if (state.loaded) return;
     state.loaded = true;
     el('printBatchQrIds').addEventListener('input', updateQrCount);
+    el('showPrintBatchCreateBtn').addEventListener('click', () => setCreateFormOpen(true, { clear: true }));
+    el('cancelPrintBatchCreateBtn').addEventListener('click', () => setCreateFormOpen(false));
+    el('continueSourceBatchBtn').addEventListener('click', () => {
+      if (!state.continuationContext || !window.AdminQrProduction) return;
+      const sourceBatchId = state.continuationContext.sourceBatchId;
+      renderContinuation(null);
+      window.AdminQrProduction.continueBatchPrint(sourceBatchId);
+    });
     el('createPrintBatchBtn').addEventListener('click', () => run(createBatch));
     el('refreshPrintBatchesBtn').addEventListener('click', () => run(loadBatches));
     el('filterPrintBatchesBtn').addEventListener('click', () => run(loadBatches));
@@ -352,7 +461,7 @@
       const button = event.target.closest('[data-print-batch-open]');
       if (button) run(() => openBatch(button.dataset.printBatchOpen));
     });
-    el('printBatchActions').addEventListener('click', (event) => {
+    el('printBatchDetail').addEventListener('click', (event) => {
       const button = event.target.closest('[data-print-action]');
       if (button) run(() => mutate(button.dataset.printAction), { detail: true });
     });
@@ -408,14 +517,20 @@
 
   async function load() {
     bind();
+    updateQrCount();
     await run(async () => {
       await Promise.all([loadTemplates(), loadBatches(), loadLegacyQrCodes()]);
     });
   }
 
-  function openWithQrIds(ids) {
+  function openWithQrIds(ids, context = null) {
     el('printBatchQrIds').value = [...new Set(ids)].join('\n');
+    state.createContext = context;
+    if (context && context.sourceBatchId && !el('printBatchName').value.trim()) {
+      el('printBatchName').value = `印刷任务-${context.sourceBatchId}`;
+    }
     updateQrCount();
+    setCreateFormOpen(true);
   }
 
   window.PrintBatchAdmin = Object.freeze({ load, openWithQrIds });

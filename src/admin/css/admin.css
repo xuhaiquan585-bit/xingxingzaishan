@@ -152,6 +152,19 @@ button {
   font-weight: 600;
 }
 
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.22);
+  outline-offset: 2px;
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.62;
@@ -160,6 +173,13 @@ button:disabled {
 button.secondary {
   background: #eef2ff;
   color: #1f4ed8;
+}
+
+button.danger,
+.danger-actions button {
+  background: #fff;
+  color: #b42318;
+  border-color: #e8a8a2;
 }
 
 .danger-button {
@@ -596,6 +616,493 @@ th {
   min-width: 72px;
 }
 
+.workflow-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 4px 0 8px;
+  padding: 0;
+  list-style: none;
+  border: 1px solid #dbe3ec;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.workflow-overview li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 11px 14px;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.workflow-overview li + li {
+  border-left: 1px solid #dbe3ec;
+}
+
+.workflow-overview span,
+.workflow-step-index,
+.print-progress li span {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #e7eefc;
+  color: #1f4ed8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.workflow-section {
+  padding-top: 22px;
+  margin-top: 18px;
+}
+
+.workflow-section-head,
+.workflow-section-title,
+.section-heading-row,
+.source-batch-command,
+.selection-action-bar,
+.print-task-action-row,
+.source-context,
+.continuation-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.workflow-section-head,
+.section-heading-row,
+.source-batch-command {
+  justify-content: space-between;
+}
+
+.workflow-section-head {
+  margin-bottom: 16px;
+}
+
+.workflow-section-head h3,
+.workflow-section-head p,
+.section-heading-row h3,
+.section-heading-row p {
+  margin: 0;
+}
+
+.workflow-section-head p,
+.section-heading-row p {
+  margin-top: 4px;
+}
+
+.workflow-step-index {
+  width: 30px;
+  height: 30px;
+  color: #fff;
+  background: #1f4ed8;
+}
+
+.production-form-grid {
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  max-width: 920px;
+}
+
+.production-generation-grid {
+  grid-template-columns: minmax(260px, 1.5fr) minmax(180px, 1fr) minmax(140px, 0.6fr);
+}
+
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.subsection-title {
+  margin: 24px 0 10px;
+  color: #334155;
+  font-size: 14px;
+}
+
+.record-list-heading {
+  align-items: flex-start;
+}
+
+.view-switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.view-switch button {
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  color: #475569;
+}
+
+.view-switch button + button {
+  border-left: 1px solid #cbd5e1;
+}
+
+.view-switch button.active {
+  background: #e9efff;
+  color: #1f4ed8;
+}
+
+.source-batch-command {
+  align-items: end;
+  padding: 14px;
+  margin-bottom: 12px;
+  border-left: 4px solid #2563eb;
+  background: #f3f6fc;
+}
+
+.source-batch-command label,
+.filter-toolbar label,
+.operation-modal-body > label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.source-batch-command label {
+  flex: 1 1 440px;
+  max-width: 700px;
+}
+
+.source-batch-command select {
+  width: 100%;
+}
+
+.filter-toolbar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(140px, 0.7fr)) minmax(220px, 1.3fr) auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.filter-toolbar input,
+.filter-toolbar select {
+  width: 100%;
+  min-width: 0;
+}
+
+.selection-action-bar {
+  position: sticky;
+  top: 12px;
+  z-index: 12;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: 1px solid #adc3ec;
+  border-radius: 6px;
+  background: #edf4ff;
+  box-shadow: 0 5px 16px rgba(29, 78, 216, 0.1);
+}
+
+.selection-action-bar > div {
+  display: grid;
+  gap: 2px;
+  margin-right: auto;
+}
+
+.selection-action-bar span {
+  color: #647084;
+  font-size: 12px;
+}
+
+.qr-record-table.production-view .record-management-only {
+  display: none;
+}
+
+.qr-record-table.production-view {
+  min-width: 820px;
+}
+
+.operation-modal {
+  width: min(640px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+  padding: 20px;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.24);
+}
+
+.operation-modal-body {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.operation-modal-body > button {
+  justify-self: start;
+}
+
+.operation-button-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.operation-note {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid #94a3b8;
+  background: #f8fafc;
+  color: #475569;
+  line-height: 1.55;
+}
+
+.batch-print-summary,
+.task-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 18px 0 0;
+  padding: 1px;
+  background: #dbe3ec;
+}
+
+.batch-print-summary div,
+.task-facts div {
+  min-width: 0;
+  padding: 12px;
+  background: #fff;
+}
+
+.batch-print-summary dt,
+.task-facts dt {
+  color: #647084;
+  font-size: 12px;
+}
+
+.batch-print-summary dd,
+.task-facts dd {
+  margin: 5px 0 0;
+  color: #1d2433;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.continuation-notice {
+  justify-content: space-between;
+  padding: 11px 12px;
+  margin: 0 0 14px;
+  border: 1px solid #b9d7c5;
+  border-radius: 6px;
+  background: #eef9f2;
+  color: #185c37;
+}
+
+.panel-actions {
+  margin: 0;
+}
+
+.print-batch-create {
+  padding: 18px;
+  margin: 0 0 18px;
+  border: 1px solid #cbd8eb;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.print-task-form-grid {
+  margin-top: 16px;
+}
+
+.source-context {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-top: 14px;
+  border-left: 4px solid #2563eb;
+  background: #edf4ff;
+  color: #334155;
+}
+
+.qr-id-disclosure {
+  max-width: 760px;
+  margin-top: 14px;
+  border-top: 1px solid #dbe3ec;
+  padding-top: 12px;
+}
+
+.qr-id-disclosure summary,
+.secondary-workflow > summary,
+.danger-zone > summary {
+  cursor: pointer;
+  color: #334155;
+  font-weight: 700;
+}
+
+.qr-id-disclosure summary .muted {
+  margin-left: 8px;
+  font-weight: 400;
+}
+
+.section-heading-row {
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+
+.compact-filter-toolbar {
+  grid-template-columns: minmax(140px, 180px) minmax(200px, 260px) auto;
+  margin: 0;
+}
+
+.print-task-action-row {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.print-task-action-row .toolbar {
+  margin: 0;
+}
+
+.print-progress {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 18px 0 14px;
+  padding: 0;
+  list-style: none;
+  border: 1px solid #dbe3ec;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.print-progress li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 12px;
+  color: #7a8799;
+  font-size: 13px;
+  font-weight: 700;
+  background: #f8fafc;
+}
+
+.print-progress li + li {
+  border-left: 1px solid #dbe3ec;
+}
+
+.print-progress li.complete {
+  color: #1f6b43;
+  background: #eef9f2;
+}
+
+.print-progress li.complete span {
+  color: #fff;
+  background: #27835a;
+}
+
+.print-progress li.current {
+  color: #1f4ed8;
+  background: #edf4ff;
+}
+
+.print-progress li.current span {
+  color: #fff;
+  background: #2563eb;
+}
+
+.task-facts {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 14px;
+}
+
+.task-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.task-status-reserved,
+.task-status-generating {
+  color: #1f4ed8;
+  background: #e9efff;
+}
+
+.task-status-artifact_ready,
+.task-status-printing {
+  color: #8a5300;
+  background: #fff3d6;
+}
+
+.task-status-completed {
+  color: #087443;
+  background: #e7f7ef;
+}
+
+.task-status-generation_failed,
+.task-status-canceled,
+.task-status-voided {
+  color: #8f2d24;
+  background: #fdecea;
+}
+
+.danger-zone {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid #efc6c1;
+  border-radius: 6px;
+  background: #fffafa;
+}
+
+.danger-zone[open] > summary {
+  margin-bottom: 10px;
+  color: #9b2c23;
+}
+
+.danger-actions {
+  justify-content: flex-start;
+  margin: 10px 0 0;
+}
+
+.secondary-workflow {
+  padding: 0;
+}
+
+.secondary-workflow > summary {
+  padding: 16px 0;
+  list-style-position: outside;
+}
+
+.secondary-workflow > summary div {
+  display: inline-block;
+  vertical-align: top;
+  margin-left: 5px;
+}
+
+.secondary-workflow > summary h3,
+.secondary-workflow > summary p {
+  margin: 0;
+}
+
+.secondary-workflow > summary p {
+  margin-top: 4px;
+  font-weight: 400;
+}
+
+.secondary-workflow-body {
+  padding-bottom: 4px;
+}
+
 .drawer-backdrop,
 .modal-backdrop {
   position: fixed;
@@ -954,6 +1461,43 @@ th {
   .drawer-content {
     padding-left: 16px;
     padding-right: 16px;
+  }
+
+  .workflow-overview,
+  .print-progress {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-overview li + li,
+  .print-progress li + li {
+    border-top: 1px solid #dbe3ec;
+    border-left: 0;
+  }
+
+  .production-form-grid,
+  .production-generation-grid,
+  .filter-toolbar,
+  .compact-filter-toolbar,
+  .task-facts,
+  .batch-print-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-section-head,
+  .section-heading-row,
+  .source-batch-command,
+  .continuation-notice {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .source-batch-command label {
+    flex-basis: auto;
+    max-width: none;
+  }
+
+  .view-switch {
+    align-self: flex-start;
   }
 }
 .label-template-workspace {
@@ -1395,7 +1939,7 @@ th {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: -4px 0 8px 98px;
+  margin: 8px 0;
   color: #b32d2d;
   font-size: 14px;
 }

@@ -28,9 +28,9 @@
       <div id="adminShell" class="admin-shell hidden">
         <aside class="sidebar">
           <button class="nav-item active" data-admin-section="dashboard">工作台</button>
-          <button class="nav-item" data-admin-section="bottles">瓶码管理</button>
-          <button class="nav-item" data-admin-section="labelTemplates">标签模板</button>
+          <button class="nav-item" data-admin-section="bottles">二维码生产</button>
           <button class="nav-item" data-admin-section="printBatches">印刷任务</button>
+          <button class="nav-item" data-admin-section="labelTemplates">标签模板</button>
           <button class="nav-item" data-admin-section="records">记录管理</button>
           <button class="nav-item" data-admin-section="miniappContent">小程序内容</button>
           <button class="nav-item" data-admin-section="products">商品管理</button>
@@ -72,30 +72,38 @@
           <section id="bottlePanel" class="admin-panel hidden" data-admin-panel="bottles">
             <div class="panel-title">
               <div>
-                <h2>瓶码管理</h2>
-                <p>批次、二维码生成、发行状态、批量绑定和导出。</p>
+                <h2>二维码生产</h2>
+                <p>按批次建立、生成、筛选并送入印刷任务。</p>
               </div>
             </div>
 
-            <div id="batchPanel" class="module-block">
-              <h3>批次与生成</h3>
-              <div class="toolbar multi-line">
-                <input id="batchName" placeholder="批次名称（必填）" />
-                <input id="batchBrand" placeholder="品牌名称（选填）" />
-                <input id="batchDisclosureText" placeholder="品牌露出文案（选填）" />
-                <input id="batchNote" placeholder="备注（选填）" />
-                <label class="checkbox-label"><input id="batchDisclosureDefault" type="checkbox" /><span>品牌露出默认开启</span></label>
+            <ol class="workflow-overview" aria-label="二维码生产流程">
+              <li><span>1</span>建立批次</li>
+              <li><span>2</span>生成二维码</li>
+              <li><span>3</span>送入印刷任务</li>
+            </ol>
+            <p id="batchMsg" class="msg" role="status"></p>
+
+            <div id="batchPanel" class="module-block workflow-section">
+              <div class="workflow-section-head">
+                <span class="workflow-step-index">1</span>
+                <div>
+                  <h3>建立二维码批次</h3>
+                  <p class="muted">一个批次对应一组连续生产的二维码。</p>
+                </div>
+              </div>
+              <div class="form-grid production-form-grid">
+                <label>批次名称<input id="batchName" placeholder="例如：2026 年 10 月第一批" /></label>
+                <label>品牌名称（选填）<input id="batchBrand" /></label>
+                <label>品牌露出文案（选填）<input id="batchDisclosureText" /></label>
+                <label>备注（选填）<input id="batchNote" /></label>
+                <label class="checkbox-label wide"><input id="batchDisclosureDefault" type="checkbox" /><span>品牌露出默认开启</span></label>
+              </div>
+              <div class="section-actions">
                 <button id="createBatchBtn">创建批次</button>
-                <button id="refreshBatchBtn">刷新批次</button>
+                <button id="refreshBatchBtn" class="secondary">刷新批次列表</button>
               </div>
-              <div class="toolbar-divider batch-generation-divider" role="separator"></div>
-              <div class="toolbar multi-line">
-                <select id="qrBatchSelect"><option value="">选择批次（选填）</option></select>
-                <input id="qrPrefix" placeholder="二维码前缀（必填，如STAR）" />
-                <input id="qrCount" type="number" min="1" value="10" placeholder="生成数量" />
-                <button id="generateQrBtn">生成二维码</button>
-              </div>
-              <p id="batchMsg" class="msg"></p>
+              <h4 class="subsection-title">已有批次</h4>
               <div class="table-wrap">
                 <table>
                   <thead>
@@ -114,56 +122,106 @@
               </div>
             </div>
 
-            <div class="module-block">
-              <h3>瓶码列表</h3>
-              <div class="toolbar multi-line">
-                <select id="batchFilter"><option value="">批次（全部）</option></select>
-                <select id="issueStatus">
-                  <option value="">发行状态（全部）</option>
-                  <option value="issued">待记录</option>
-                  <option value="unissued">未生成</option>
-                </select>
-                <select id="activationStatus">
-                  <option value="">记录状态（全部）</option>
-                  <option value="unactivated">待记录</option>
-                  <option value="co_creating">共创中</option>
-                  <option value="activated">已记录</option>
-                </select>
-                <select id="hiddenStatus">
-                  <option value="">显示状态（全部）</option>
-                  <option value="false">显示</option>
-                  <option value="true">隐藏</option>
-                </select>
-                <input id="idSearch" placeholder="按ID前缀搜索，如 STAR00" />
-                <button id="filterBtn">筛选</button>
+            <div class="module-block workflow-section">
+              <div class="workflow-section-head">
+                <span class="workflow-step-index">2</span>
+                <div>
+                  <h3>生成二维码</h3>
+                  <p class="muted">选择所属批次，填写编号前缀和生成数量。</p>
+                </div>
               </div>
-              <div class="toolbar-divider" role="separator"></div>
-              <div class="toolbar batch-action-toolbar">
-                <select id="assignBatchSelect"><option value="">选择批次后可绑定</option></select>
-                <button id="assignBatchBtn">批量绑定批次</button>
-                <button id="batchHideBtn">批量隐藏</button>
-                <button id="batchShowBtn">批量显示</button>
-                <button id="batchExportBtn" class="secondary">导出数据 CSV</button>
-                <button id="createPrintBatchFromSelectionBtn">用已选二维码创建印刷任务</button>
-                <button id="createPrintBatchFromBatchBtn" class="secondary">按当前批次创建印刷任务</button>
-                <span id="selectedCount">本页已选 0 条</span>
+              <div class="form-grid production-form-grid production-generation-grid">
+                <label>所属批次
+                  <select id="qrBatchSelect"><option value="">不归入批次</option></select>
+                </label>
+                <label>编号前缀
+                  <input id="qrPrefix" placeholder="例如：STAR" />
+                </label>
+                <label>生成数量
+                  <input id="qrCount" type="number" min="1" value="10" />
+                </label>
               </div>
+              <div class="section-actions">
+                <button id="generateQrBtn">生成编号和二维码</button>
+              </div>
+            </div>
+
+            <div class="module-block workflow-section">
+              <div class="workflow-section-head record-list-heading">
+                <div class="workflow-section-title">
+                  <span class="workflow-step-index">3</span>
+                  <div>
+                    <h3>待印刷二维码</h3>
+                    <p class="muted">先选择来源批次，再创建印刷任务；单个任务最多 500 个。</p>
+                  </div>
+                </div>
+                <div class="view-switch" role="group" aria-label="二维码列表视图">
+                  <button class="active" type="button" data-record-view="production" aria-pressed="true">生产视图</button>
+                  <button type="button" data-record-view="management" aria-pressed="false">完整管理</button>
+                </div>
+              </div>
+
+              <div class="source-batch-command">
+                <label>查看批次
+                  <select id="batchFilter"><option value="">全部批次</option></select>
+                </label>
+                <button id="createPrintBatchFromBatchBtn" type="button" disabled>为此批次创建印刷任务</button>
+              </div>
+
+              <div class="filter-toolbar">
+                <label>生成状态
+                  <select id="issueStatus">
+                    <option value="">全部</option>
+                    <option value="issued">待记录</option>
+                    <option value="unissued">未生成</option>
+                  </select>
+                </label>
+                <label>记录状态
+                  <select id="activationStatus">
+                    <option value="">全部</option>
+                    <option value="unactivated">待记录</option>
+                    <option value="co_creating">共创中</option>
+                    <option value="activated">已记录</option>
+                  </select>
+                </label>
+                <label>显示状态
+                  <select id="hiddenStatus">
+                    <option value="">全部</option>
+                    <option value="false">显示</option>
+                    <option value="true">隐藏</option>
+                  </select>
+                </label>
+                <label class="filter-search-field">二维码 ID
+                  <input id="idSearch" placeholder="输入前缀，如 STAR00" />
+                </label>
+                <button id="filterBtn" type="button">查询</button>
+              </div>
+
+              <div id="recordSelectionBar" class="selection-action-bar hidden">
+                <div>
+                  <strong id="selectedCount">本页已选 0 条，可生产 0 条</strong>
+                  <span>勾选只作用于当前页。</span>
+                </div>
+                <button id="createPrintBatchFromSelectionBtn" type="button">用已选二维码创建印刷任务</button>
+                <button id="openRecordManagementBtn" class="secondary" type="button">批量管理</button>
+              </div>
+
               <div class="table-wrap">
-                <table>
+                <table id="qrRecordTable" class="qr-record-table production-view">
                   <thead>
                     <tr>
-                      <th><input id="selectAll" type="checkbox" /></th>
+                      <th><input id="selectAll" type="checkbox" aria-label="全选本页" title="全选本页" /></th>
                       <th>ID</th>
                       <th>二维码</th>
-                      <th>批次ID</th>
-                      <th>备注</th>
+                      <th>来源批次</th>
+                      <th class="record-management-only">备注</th>
                       <th>生成状态</th>
-                      <th>记录状态</th>
+                      <th class="record-management-only">记录状态</th>
                       <th>印刷状态</th>
-                      <th>隐藏状态</th>
-                      <th>手机号</th>
-                      <th>时间</th>
-                      <th>操作</th>
+                      <th class="record-management-only">显示状态</th>
+                      <th class="record-management-only">手机号</th>
+                      <th>创建时间</th>
+                      <th class="record-management-only">操作</th>
                     </tr>
                   </thead>
                   <tbody id="recordTable"></tbody>
@@ -185,6 +243,52 @@
                   <button id="nextRecordPageBtn" class="secondary" type="button">下一页</button>
                 </div>
               </div>
+            </div>
+
+            <div id="recordManagementModal" class="modal-backdrop hidden">
+              <section class="operation-modal" role="dialog" aria-modal="true" aria-labelledby="recordManagementTitle">
+                <div class="modal-header">
+                  <div>
+                    <h3 id="recordManagementTitle">批量管理已选二维码</h3>
+                    <p id="recordManagementSelectionCount" class="muted">本页已选 0 条</p>
+                  </div>
+                  <button id="closeRecordManagementBtn" class="secondary icon-button" type="button" aria-label="关闭批量管理" title="关闭">×</button>
+                </div>
+                <div class="operation-modal-body">
+                  <label>绑定到目标批次
+                    <select id="assignBatchSelect"><option value="">选择目标批次</option></select>
+                  </label>
+                  <button id="assignBatchBtn" type="button">绑定到目标批次</button>
+                  <div class="toolbar-divider" role="separator"></div>
+                  <div class="operation-button-grid">
+                    <button id="batchHideBtn" class="secondary" type="button">批量隐藏</button>
+                    <button id="batchShowBtn" class="secondary" type="button">批量显示</button>
+                    <button id="batchExportBtn" class="secondary" type="button">导出管理数据 CSV</button>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <div id="batchPrintModal" class="modal-backdrop hidden">
+              <section class="operation-modal" role="dialog" aria-modal="true" aria-labelledby="batchPrintModalTitle">
+                <div class="modal-header">
+                  <div>
+                    <h3 id="batchPrintModalTitle">按来源批次创建印刷任务</h3>
+                    <p id="batchPrintModalBatch" class="muted"></p>
+                  </div>
+                  <button id="closeBatchPrintModalBtn" class="secondary icon-button" type="button" aria-label="关闭" title="关闭">×</button>
+                </div>
+                <dl class="batch-print-summary">
+                  <div><dt>当前可生产</dt><dd id="batchPrintTotalCount">0</dd></div>
+                  <div><dt>本任务带入</dt><dd id="batchPrintCurrentCount">0</dd></div>
+                  <div><dt>创建后剩余</dt><dd id="batchPrintRemainingCount">0</dd></div>
+                </dl>
+                <p class="operation-note">系统只准备本次任务，不会自动创建第二个任务，也不会生成正式印刷文件。</p>
+                <div class="modal-actions">
+                  <button id="cancelBatchPrintModalBtn" class="secondary" type="button">取消</button>
+                  <button id="prepareBatchPrintTaskBtn" type="button">带入本任务的二维码</button>
+                </div>
+              </section>
             </div>
           </section>
 
@@ -314,39 +418,71 @@
                 <h2>印刷任务</h2>
                 <p>预留二维码、生成唯一生产文件并登记印刷结果。</p>
               </div>
-              <button id="refreshPrintBatchesBtn" class="secondary">刷新</button>
+              <div class="toolbar compact panel-actions">
+                <button id="showPrintBatchCreateBtn" type="button">新建印刷任务</button>
+                <button id="refreshPrintBatchesBtn" class="secondary" type="button">刷新任务</button>
+              </div>
             </div>
             <p id="printBatchMsg" class="msg"></p>
-            <div class="module-block print-batch-create">
-              <h3>创建任务</h3>
-              <div class="toolbar multi-line">
-                <input id="printBatchName" maxlength="160" placeholder="任务名称（必填）" />
-                <select id="printBatchTemplate"><option value="">选择已发布模板</option></select>
-                <input id="printBatchVendor" maxlength="160" placeholder="印刷厂家（选填）" />
-                <input id="printBatchNote" maxlength="2000" placeholder="备注（选填）" />
+
+            <div id="printBatchContinuation" class="continuation-notice hidden">
+              <span id="printBatchContinuationText"></span>
+              <button id="continueSourceBatchBtn" class="secondary" type="button">继续创建剩余任务</button>
+            </div>
+
+            <div id="printBatchCreate" class="module-block print-batch-create hidden">
+              <div class="print-batch-detail-head">
+                <div>
+                  <h3>新建印刷任务</h3>
+                  <p class="muted">创建后只会预留二维码，正式文件需在任务详情中单独生成。</p>
+                </div>
+                <button id="cancelPrintBatchCreateBtn" class="secondary" type="button">收起</button>
               </div>
-              <label class="print-qr-id-input">二维码 ID（每行一个，最多 500 个）
-                <textarea id="printBatchQrIds" rows="5" placeholder="SSS00001&#10;SSS00002"></textarea>
-              </label>
-              <div class="toolbar compact">
-                <button id="createPrintBatchBtn">预留二维码并创建</button>
-                <span id="printBatchQrCount" class="muted">0 个</span>
+              <div id="printBatchCreateContext" class="source-context hidden">
+                <strong id="printBatchCreateSource">已从二维码生产带入</strong>
+                <span id="printBatchCreateCounts"></span>
+              </div>
+              <div class="form-grid print-task-form-grid">
+                <label>任务名称<input id="printBatchName" maxlength="160" placeholder="例如：2026 年 10 月首批印刷" /></label>
+                <label>标签模板
+                  <select id="printBatchTemplate"><option value="">选择已发布模板</option></select>
+                </label>
+                <label>印刷厂家（选填）<input id="printBatchVendor" maxlength="160" /></label>
+                <label>备注（选填）<input id="printBatchNote" maxlength="2000" /></label>
+              </div>
+              <details id="printBatchQrIdsDetails" class="qr-id-disclosure" open>
+                <summary>本任务二维码 ID <span id="printBatchQrCount" class="muted">0 / 500 个</span></summary>
+                <label class="print-qr-id-input">每行一个二维码 ID
+                  <textarea id="printBatchQrIds" rows="5" placeholder="SSS00001&#10;SSS00002"></textarea>
+                </label>
+              </details>
+              <div class="section-actions">
+                <button id="createPrintBatchBtn" type="button">创建印刷任务（暂不生成文件）</button>
               </div>
             </div>
+
             <div class="module-block">
-              <div class="toolbar multi-line">
-                <select id="printBatchStatusFilter">
-                  <option value="">状态（全部）</option>
-                  <option value="reserved">已预留</option>
-                  <option value="generation_failed">生成失败</option>
-                  <option value="artifact_ready">文件已生成</option>
-                  <option value="printing">印刷中</option>
-                  <option value="completed">已完成</option>
-                  <option value="canceled">已取消</option>
-                  <option value="voided">已作废</option>
-                </select>
-                <input id="printBatchSearch" placeholder="任务编号或名称" />
-                <button id="filterPrintBatchesBtn">筛选</button>
+              <div class="section-heading-row">
+                <div>
+                  <h3>任务列表</h3>
+                  <p class="muted">打开任务后，按当前阶段完成唯一的下一步。</p>
+                </div>
+                <div class="filter-toolbar compact-filter-toolbar">
+                  <label>任务状态
+                    <select id="printBatchStatusFilter">
+                      <option value="">全部</option>
+                      <option value="reserved">已预留</option>
+                      <option value="generation_failed">生成失败</option>
+                      <option value="artifact_ready">文件已生成</option>
+                      <option value="printing">印刷中</option>
+                      <option value="completed">已完成</option>
+                      <option value="canceled">已取消</option>
+                      <option value="voided">已作废</option>
+                    </select>
+                  </label>
+                  <label>搜索任务<input id="printBatchSearch" placeholder="任务编号或名称" /></label>
+                  <button id="filterPrintBatchesBtn" type="button">查询</button>
+                </div>
               </div>
               <div class="table-wrap">
                 <table>
@@ -358,15 +494,18 @@
             <div id="printBatchDetail" class="module-block hidden">
               <div class="print-batch-detail-head">
                 <div><h3 id="printBatchDetailName">任务详情</h3><p id="printBatchDetailMeta" class="muted"></p></div>
-                <div id="printBatchActions" class="toolbar compact"></div>
+                <div class="print-task-action-row">
+                  <div id="printBatchActions" class="toolbar compact"></div>
+                  <div id="printBatchSecondaryActions" class="toolbar compact"></div>
+                </div>
               </div>
-              <label id="printVoidReasonRow" class="hidden">报废原因
-                <input id="printVoidReason" maxlength="500" placeholder="填写具体原因" />
-              </label>
-              <div id="printBatchSelectionSummary" class="print-batch-selection-summary hidden">
-                <span id="printBatchSelectionCount" class="muted">已选 0 个</span>
-                <span>报废后不可恢复。</span>
-              </div>
+              <ol id="printBatchProgress" class="print-progress" aria-label="印刷任务进度">
+                <li data-print-stage="reserved"><span>1</span>已预留</li>
+                <li data-print-stage="artifact_ready"><span>2</span>文件已生成</li>
+                <li data-print-stage="printing"><span>3</span>印刷中</li>
+                <li data-print-stage="completed"><span>4</span>已完成</li>
+              </ol>
+              <dl id="printBatchDetailFacts" class="task-facts"></dl>
               <p id="printBatchDetailMsg" class="msg print-batch-detail-msg" role="status"></p>
               <div class="toolbar multi-line print-qr-filter-toolbar">
                 <input id="printQrSourceBatchFilter" placeholder="按原二维码批次筛选" />
@@ -379,35 +518,51 @@
                   <tbody id="printBatchQrTable"></tbody>
                 </table>
               </div>
+              <details id="printBatchDangerZone" class="danger-zone">
+                <summary>异常处理</summary>
+                <p class="muted">取消、作废和报废不会推进正常印刷流程，请确认对象和原因后再操作。</p>
+                <label id="printVoidReasonRow" class="hidden">原因
+                  <input id="printVoidReason" maxlength="500" placeholder="填写具体原因" />
+                </label>
+                <div id="printBatchSelectionSummary" class="print-batch-selection-summary hidden">
+                  <span id="printBatchSelectionCount" class="muted">已选 0 个</span>
+                  <span>报废后不可恢复。</span>
+                </div>
+                <div id="printBatchDangerActions" class="toolbar danger-actions"></div>
+              </details>
             </div>
-            <div class="module-block">
-              <div class="print-batch-detail-head">
+            <details id="legacyPrintQrSection" class="module-block secondary-workflow">
+              <summary>
                 <div>
-                  <h3>历史二维码分类</h3>
+                  <h3>历史码处理</h3>
                   <p class="muted">历史码必须人工确认为可生产或永久报废，单次最多处理 500 个。</p>
                 </div>
-                <button id="refreshLegacyPrintQrBtn" class="secondary">刷新</button>
+              </summary>
+              <div class="secondary-workflow-body">
+                <div class="toolbar compact">
+                  <button id="refreshLegacyPrintQrBtn" class="secondary" type="button">刷新历史码</button>
+                </div>
+                <div class="toolbar multi-line">
+                  <input id="legacyPrintQrBatchFilter" placeholder="按原二维码批次筛选" />
+                  <input id="legacyPrintQrIdFilter" placeholder="按二维码 ID 前缀筛选" />
+                  <button id="filterLegacyPrintQrBtn">筛选历史码</button>
+                </div>
+                <label>报废原因（仅选择永久报废时必填）
+                  <input id="legacyPrintQrVoidReason" maxlength="500" placeholder="例如：历史测试二维码，不进入商品生产" />
+                </label>
+                <div class="toolbar compact">
+                  <button id="classifyLegacyAvailableBtn">确认为可用于生产</button>
+                  <button id="classifyLegacyVoidedBtn" class="danger">永久报废所选 ID</button>
+                  <span id="legacyPrintQrSelectionCount" class="muted">已选 0 个</span>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th><input id="selectAllLegacyPrintQr" type="checkbox" /></th><th>二维码 ID</th><th>原批次</th><th>发行状态</th><th>激活状态</th><th>创建时间</th></tr></thead>
+                    <tbody id="legacyPrintQrTable"></tbody>
+                  </table>
+                </div>
               </div>
-              <div class="toolbar multi-line">
-                <input id="legacyPrintQrBatchFilter" placeholder="按原二维码批次筛选" />
-                <input id="legacyPrintQrIdFilter" placeholder="按二维码 ID 前缀筛选" />
-                <button id="filterLegacyPrintQrBtn">筛选历史码</button>
-              </div>
-              <label>报废原因（仅选择永久报废时必填）
-                <input id="legacyPrintQrVoidReason" maxlength="500" placeholder="例如：历史测试二维码，不进入商品生产" />
-              </label>
-              <div class="toolbar compact">
-                <button id="classifyLegacyAvailableBtn">确认为可用于生产</button>
-                <button id="classifyLegacyVoidedBtn" class="danger">永久报废所选 ID</button>
-                <span id="legacyPrintQrSelectionCount" class="muted">已选 0 个</span>
-              </div>
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th><input id="selectAllLegacyPrintQr" type="checkbox" /></th><th>二维码 ID</th><th>原批次</th><th>发行状态</th><th>激活状态</th><th>创建时间</th></tr></thead>
-                  <tbody id="legacyPrintQrTable"></tbody>
-                </table>
-              </div>
-            </div>
+            </details>
           </section>
 
           <section id="recordsPanel" class="admin-panel hidden" data-admin-panel="records">

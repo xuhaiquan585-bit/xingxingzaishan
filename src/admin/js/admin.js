@@ -41,6 +41,7 @@ let editingProductUpdatedAt = '';
 let productDirty = false;
 let productSaving = false;
 const selectedIds = new Set();
+let pendingBatchPrint = null;
 const REQUEST_TIMEOUT_MS = 15000;
 const EXPORT_TIMEOUT_MS = 60000;
 const MAX_PRINT_BATCH_SIZE = 500;
@@ -209,6 +210,8 @@ function updateSelectedUI() {
     selectedIds.has(item.id) && isQrAvailableForPrinting(item)
   )).length;
   selectedCount.textContent = `本页已选 ${selectedIds.size} 条，可生产 ${eligibleCount} 条`;
+  document.getElementById('recordManagementSelectionCount').textContent = `本页已选 ${selectedIds.size} 条`;
+  document.getElementById('recordSelectionBar').classList.toggle('hidden', selectedIds.size === 0);
   const currentIds = currentRecords.map((item) => item.id);
   const allSelected = currentIds.length > 0 && currentIds.every((id) => selectedIds.has(id));
   selectAll.checked = allSelected;
@@ -285,10 +288,19 @@ function renderBatchOptions() {
     .map((batch) => `<option value="${escapeHtml(batch.id)}">${escapeHtml(batch.name)} (${escapeHtml(batch.id)})</option>`)
     .join('');
 
-  document.getElementById('batchFilter').innerHTML = `<option value="">批次（全部）</option>${batchOptions}`;
-  document.getElementById('recordBatchFilter').innerHTML = `<option value="">批次（全部）</option>${batchOptions}`;
-  document.getElementById('assignBatchSelect').innerHTML = `<option value="">选择批次后可绑定</option>${batchOptions}`;
-  document.getElementById('qrBatchSelect').innerHTML = `<option value="">选择批次（选填）</option>${batchOptions}`;
+  const options = [
+    ['batchFilter', '全部批次'],
+    ['recordBatchFilter', '批次（全部）'],
+    ['assignBatchSelect', '选择目标批次'],
+    ['qrBatchSelect', '不归入批次']
+  ];
+  options.forEach(([id, emptyLabel]) => {
+    const select = document.getElementById(id);
+    const previousValue = select.value;
+    select.innerHTML = `<option value="">${emptyLabel}</option>${batchOptions}`;
+    if (batchList.some((batch) => batch.id === previousValue)) select.value = previousValue;
+  });
+  updateBatchPrintButton();
 }
 
 function renderBatchRows() {
@@ -1012,14 +1024,14 @@ function renderRows(records) {
         <td>${escapeHtml(item.id)}</td>
         <td>${item.qr_access_token ? `<a href="/api/qr/image/${escapeHtml(item.qr_access_token)}" target="_blank" download="${escapeHtml(item.id)}.png">查看</a>` : '-'}</td>
         <td>${escapeHtml(item.batch_id || '-')}</td>
-        <td>${escapeHtml(getBatchNote(item.batch_id))}</td>
+        <td class="record-management-only">${escapeHtml(getBatchNote(item.batch_id))}</td>
         <td>${escapeHtml(formatIssueStatus(item.issue_status))}</td>
-        <td>${escapeHtml(formatActivationStatus(item.activation_status))}</td>
+        <td class="record-management-only">${escapeHtml(formatActivationStatus(item.activation_status))}</td>
         <td>${escapeHtml(formatPrintStatus(item.print_status))}</td>
-        <td>${item.hidden ? '隐藏' : '显示'}</td>
-        <td>${escapeHtml(item.phone || '-')}</td>
+        <td class="record-management-only">${item.hidden ? '隐藏' : '显示'}</td>
+        <td class="record-management-only">${escapeHtml(item.phone || '-')}</td>
         <td>${escapeHtml(item.activated_at || item.co_creation_started_at || item.created_at || '-')}</td>
-        <td><button data-id="${escapeHtml(item.id)}" data-action="${actionFn}">${actionLabel}</button></td>
+        <td class="record-management-only"><button data-id="${escapeHtml(item.id)}" data-action="${actionFn}">${actionLabel}</button></td>
       </tr>`;
     })
     .join('');
@@ -1070,6 +1082,71 @@ async function loadRecords() {
   document.getElementById('nextRecordPageBtn').disabled = recordPage >= recordTotalPages;
 }
 
+function updateBatchPrintButton() {
+  const batchId = document.getElementById('batchFilter').value;
+  const button = document.getElementById('createPrintBatchFromBatchBtn');
+  button.disabled = !batchId;
+}
+
+function setRecordView(view) {
+  const nextView = view === 'management' ? 'management' : 'production';
+  const table = document.getElementById('qrRecordTable');
+  table.classList.toggle('production-view', nextView === 'production');
+  table.classList.toggle('management-view', nextView === 'management');
+  document.querySelectorAll('[data-record-view]').forEach((button) => {
+    const active = button.dataset.recordView === nextView;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
+function openRecordManagementModal() {
+  if (selectedIds.size === 0) return;
+  document.getElementById('recordManagementModal').classList.remove('hidden');
+}
+
+function closeRecordManagementModal() {
+  document.getElementById('recordManagementModal').classList.add('hidden');
+}
+
+function closeBatchPrintModal() {
+  document.getElementById('batchPrintModal').classList.add('hidden');
+  pendingBatchPrint = null;
+}
+
+function openBatchPrintModal({ batchId, ids, totalCount, remainingCount }) {
+  const batch = batchList.find((item) => item.id === batchId);
+  const sourceLabel = batch ? `${batch.name} (${batch.id})` : batchId;
+  pendingBatchPrint = {
+    batchId,
+    sourceLabel,
+    ids,
+    totalCount,
+    remainingCount
+  };
+  document.getElementById('batchPrintModalBatch').textContent = `来源批次：${sourceLabel}`;
+  document.getElementById('batchPrintTotalCount').textContent = `${totalCount} 个`;
+  document.getElementById('batchPrintCurrentCount').textContent = `${ids.length} 个`;
+  document.getElementById('batchPrintRemainingCount').textContent = `${remainingCount} 个`;
+  document.getElementById('prepareBatchPrintTaskBtn').textContent = `带入前 ${ids.length} 个`;
+  document.getElementById('batchPrintModal').classList.remove('hidden');
+}
+
+function preparePendingBatchPrintTask() {
+  if (!pendingBatchPrint) return;
+  const context = {
+    sourceBatchId: pendingBatchPrint.batchId,
+    sourceLabel: pendingBatchPrint.sourceLabel,
+    totalCount: pendingBatchPrint.totalCount,
+    currentCount: pendingBatchPrint.ids.length,
+    remainingCount: pendingBatchPrint.remainingCount
+  };
+  const ids = [...pendingBatchPrint.ids];
+  closeBatchPrintModal();
+  window.PrintBatchAdmin.openWithQrIds(ids, context);
+  activateAdminSection('printBatches');
+}
+
 async function createPrintBatchFromCurrentBatch() {
   const batchId = document.getElementById('batchFilter').value;
   if (!batchId) {
@@ -1096,16 +1173,26 @@ async function createPrintBatchFromCurrentBatch() {
     const nextIds = eligibleIds.slice(0, MAX_PRINT_BATCH_SIZE);
     const totalCount = Number(data.total_count || eligibleIds.length);
     const remainingCount = Math.max(0, totalCount - nextIds.length);
-    if (remainingCount > 0 && !window.confirm(
-      `该批次当前有 ${totalCount} 个可生产二维码。单个印刷任务最多 ${MAX_PRINT_BATCH_SIZE} 个，本次将带入前 ${nextIds.length} 个；创建完成后再次使用此按钮，可继续处理剩余 ${remainingCount} 个。是否继续？`
-    )) return;
-
-    window.PrintBatchAdmin.openWithQrIds(nextIds);
-    activateAdminSection('printBatches');
+    openBatchPrintModal({
+      batchId,
+      ids: nextIds,
+      totalCount,
+      remainingCount
+    });
   } finally {
-    button.disabled = false;
+    updateBatchPrintButton();
     button.textContent = originalText;
   }
+}
+
+function continueBatchPrint(sourceBatchId) {
+  activateAdminSection('bottles');
+  const select = document.getElementById('batchFilter');
+  select.value = sourceBatchId;
+  updateBatchPrintButton();
+  createPrintBatchFromCurrentBatch().catch((error) => {
+    alert(error.message || '读取批次二维码失败');
+  });
 }
 
 function activeCommentCount(item) {
@@ -1203,6 +1290,7 @@ async function batchUpdate(action) {
 
   selectedIds.clear();
   await loadRecords();
+  closeRecordManagementModal();
 }
 
 async function batchAssignToBatch() {
@@ -1229,6 +1317,7 @@ async function batchAssignToBatch() {
   selectedIds.clear();
   await loadBatches();
   await loadRecords();
+  closeRecordManagementModal();
 }
 
 async function downloadFromResponse(response, fallbackName) {
@@ -1529,6 +1618,26 @@ document.getElementById('filterBtn').addEventListener('click', async () => {
   recordPage = 1;
   await loadRecords();
 });
+document.getElementById('batchFilter').addEventListener('change', updateBatchPrintButton);
+document.querySelectorAll('[data-record-view]').forEach((button) => {
+  button.addEventListener('click', () => setRecordView(button.dataset.recordView));
+});
+document.getElementById('openRecordManagementBtn').addEventListener('click', openRecordManagementModal);
+document.getElementById('closeRecordManagementBtn').addEventListener('click', closeRecordManagementModal);
+document.getElementById('recordManagementModal').addEventListener('click', (event) => {
+  if (event.target === event.currentTarget) closeRecordManagementModal();
+});
+document.getElementById('closeBatchPrintModalBtn').addEventListener('click', closeBatchPrintModal);
+document.getElementById('cancelBatchPrintModalBtn').addEventListener('click', closeBatchPrintModal);
+document.getElementById('batchPrintModal').addEventListener('click', (event) => {
+  if (event.target === event.currentTarget) closeBatchPrintModal();
+});
+document.getElementById('prepareBatchPrintTaskBtn').addEventListener('click', preparePendingBatchPrintTask);
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  closeRecordManagementModal();
+  closeBatchPrintModal();
+});
 document.getElementById('recordFilterBtn').addEventListener('click', () => loadContentRecords().catch((e) => {
   recordMsg.textContent = e.message || '加载失败';
 }));
@@ -1558,8 +1667,19 @@ document.getElementById('createPrintBatchFromSelectionBtn').addEventListener('cl
   if (excludedCount > 0 && !window.confirm(
     `已排除 ${excludedCount} 个不可生产二维码，只带入 ${eligibleIds.length} 个可生产二维码。是否继续？`
   )) return;
-  window.PrintBatchAdmin.openWithQrIds(eligibleIds);
+  const sourceBatchIds = [...new Set(selectedRecords.map((item) => item.batch_id).filter(Boolean))];
+  const sourceBatch = sourceBatchIds.length === 1
+    ? batchList.find((item) => item.id === sourceBatchIds[0])
+    : null;
+  window.PrintBatchAdmin.openWithQrIds(eligibleIds, {
+    sourceBatchId: sourceBatch ? sourceBatch.id : '',
+    sourceLabel: sourceBatch ? `${sourceBatch.name} (${sourceBatch.id})` : '本页已选二维码',
+    totalCount: eligibleIds.length,
+    currentCount: eligibleIds.length,
+    remainingCount: 0
+  });
   selectedIds.clear();
+  updateSelectedUI();
   activateAdminSection('printBatches');
 });
 document.getElementById('createPrintBatchFromBatchBtn').addEventListener('click', () => {
@@ -1724,6 +1844,10 @@ orderTableBody.addEventListener('click', (event) => {
   const orderId = target.getAttribute('data-order-detail') || target.getAttribute('data-order-open');
   openOrderDetail(orderId);
 });
+
+setRecordView('production');
+updateBatchPrintButton();
+window.AdminQrProduction = Object.freeze({ continueBatchPrint });
 
 if (adminToken) {
   showPanelsAfterLogin();
